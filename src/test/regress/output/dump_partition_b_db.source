@@ -5,6 +5,7 @@ NOTICE:  database "restore_partition_db" does not exist, skipping
 create database dump_partition_db with dbcompatibility = 'B';
 create database restore_partition_db with dbcompatibility = 'B';
 \c dump_partition_db
+set b_format_behavior_compat_options = '';
 CREATE TABLE t_single_key_list (a int, b int, c int)
 PARTITION BY list(a)
 (
@@ -151,29 +152,33 @@ SELECT * FROM t_multi_keys_list_tmtz PARTITION(p2) ORDER BY a,b,c;
 \! @abs_bindir@/gs_restore -d restore_partition_db -p @portstring@ @abs_bindir@/dump_listpart_test.tar >/dev/null 2>&1; echo $?
 0
 \c restore_partition_db
+set b_format_behavior_compat_options = '';
 \d+ t_multi_keys_list
-                         Table "public.t_multi_keys_list"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- a      | character varying(8) |           | extended |              | 
- b      | integer              |           | plain    |              | 
- c      | date                 |           | plain    |              | 
- d      | integer              | default 0 | plain    |              | 
+                                           Table "public.t_multi_keys_list"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ a      | character varying(8) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ b      | integer              |                                               | plain    |              | 
+ c      | date                 |                                               | plain    |              | 
+ d      | integer              | default 0                                     | plain    |              | 
 Partition By LIST(a, b, c)
 Number of partitions: 5 (View pg_partition to check each partition range.)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 SELECT pg_get_tabledef('t_multi_keys_list'::regclass);
                                                             pg_get_tabledef                                                            
 ---------------------------------------------------------------------------------------------------------------------------------------
  SET search_path = public;                                                                                                            +
  CREATE TABLE t_multi_keys_list (                                                                                                     +
-     a character varying(8),                                                                                                          +
+     a character varying(8) CHARACTER SET "UTF8" COLLATE utf8mb4_general_ci,                                                          +
      b integer,                                                                                                                       +
      c date,                                                                                                                          +
      d integer DEFAULT 0                                                                                                              +
  )                                                                                                                                    +
+ CHARACTER SET = "UTF8" COLLATE = "utf8mb4_general_ci"                                                                                +
  WITH (orientation=row, compression=no)                                                                                               +
  PARTITION BY LIST (a, b, c)                                                                                                          +
  (                                                                                                                                    +
@@ -196,48 +201,49 @@ SELECT * FROM t_multi_keys_list PARTITION(p2) ORDER BY b,a,c;
 (3 rows)
 
 SELECT pg_get_tabledef('t_part_by_key_num'::regclass);
-                pg_get_tabledef                 
-------------------------------------------------
- SET search_path = public;                     +
- CREATE TABLE t_part_by_key_num (              +
-     a integer,                                +
-     b integer,                                +
-     c integer                                 +
- )                                             +
- WITH (orientation=row, compression=no)        +
- PARTITION BY HASH (a) SUBPARTITION BY HASH (c)+
- (                                             +
-     PARTITION p0                              +
-     (                                         +
-         SUBPARTITION p0sp0,                   +
-         SUBPARTITION p0sp1,                   +
-         SUBPARTITION p0sp2                    +
-     ),                                        +
-     PARTITION p1                              +
-     (                                         +
-         SUBPARTITION p1sp0,                   +
-         SUBPARTITION p1sp1,                   +
-         SUBPARTITION p1sp2                    +
-     ),                                        +
-     PARTITION p2                              +
-     (                                         +
-         SUBPARTITION p2sp0,                   +
-         SUBPARTITION p2sp1,                   +
-         SUBPARTITION p2sp2                    +
-     ),                                        +
-     PARTITION p3                              +
-     (                                         +
-         SUBPARTITION p3sp0,                   +
-         SUBPARTITION p3sp1,                   +
-         SUBPARTITION p3sp2                    +
-     ),                                        +
-     PARTITION p4                              +
-     (                                         +
-         SUBPARTITION p4sp0,                   +
-         SUBPARTITION p4sp1,                   +
-         SUBPARTITION p4sp2                    +
-     )                                         +
- )                                             +
+                    pg_get_tabledef                    
+-------------------------------------------------------
+ SET search_path = public;                            +
+ CREATE TABLE t_part_by_key_num (                     +
+     a integer,                                       +
+     b integer,                                       +
+     c integer                                        +
+ )                                                    +
+ CHARACTER SET = "UTF8" COLLATE = "utf8mb4_general_ci"+
+ WITH (orientation=row, compression=no)               +
+ PARTITION BY HASH (a) SUBPARTITION BY HASH (c)       +
+ (                                                    +
+     PARTITION p0                                     +
+     (                                                +
+         SUBPARTITION p0sp0,                          +
+         SUBPARTITION p0sp1,                          +
+         SUBPARTITION p0sp2                           +
+     ),                                               +
+     PARTITION p1                                     +
+     (                                                +
+         SUBPARTITION p1sp0,                          +
+         SUBPARTITION p1sp1,                          +
+         SUBPARTITION p1sp2                           +
+     ),                                               +
+     PARTITION p2                                     +
+     (                                                +
+         SUBPARTITION p2sp0,                          +
+         SUBPARTITION p2sp1,                          +
+         SUBPARTITION p2sp2                           +
+     ),                                               +
+     PARTITION p3                                     +
+     (                                                +
+         SUBPARTITION p3sp0,                          +
+         SUBPARTITION p3sp1,                          +
+         SUBPARTITION p3sp2                           +
+     ),                                               +
+     PARTITION p4                                     +
+     (                                                +
+         SUBPARTITION p4sp0,                          +
+         SUBPARTITION p4sp1,                          +
+         SUBPARTITION p4sp2                           +
+     )                                                +
+ )                                                    +
  ENABLE ROW MOVEMENT;
 (1 row)
 
@@ -251,6 +257,7 @@ SELECT pg_get_tabledef('t_multi_keys_list_tmtz'::regclass);
      c integer,                                                                                                                                             +
      d integer DEFAULT 0                                                                                                                                    +
  )                                                                                                                                                          +
+ CHARACTER SET = "UTF8" COLLATE = "utf8mb4_general_ci"                                                                                                      +
  WITH (orientation=row, compression=no)                                                                                                                     +
  PARTITION BY LIST (a, b, c)                                                                                                                                +
  (                                                                                                                                                          +

@@ -1,3 +1,4 @@
+set b_format_behavior_compat_options = '';
 -- error
 set @v1 := 1;
 ERROR:  syntax error at or near "@"
@@ -233,6 +234,7 @@ NOTICE:  identifier "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcab
 
 -- test expression
 \c test_set
+set b_format_behavior_compat_options = '';
 set @v1 := 10, @v2 := 10.3, @v3 := 'abc', @v4 := true, @v5 := date '12-10-2022';
 drop table if exists t_const;
 NOTICE:  table "t_const" does not exist, skipping
@@ -1213,9 +1215,6 @@ show enable_set_variable_b_format;
 
 set enable_set_variable_b_format = off;
 set @v1 := 1, @v2 := 2, @v3 := @v4 := 3;
-ERROR:  syntax error at or near "@"
-LINE 1: set @v1 := 1, @v2 := 2, @v3 := @v4 := 3;
-            ^
 \c test_set
 show enable_set_variable_b_format;
  enable_set_variable_b_format 

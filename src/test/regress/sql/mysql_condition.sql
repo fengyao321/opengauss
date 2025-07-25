@@ -19,6 +19,7 @@ end;
 /
 
 \c mysql_test
+set b_format_behavior_compat_options = '';
 -- error_code
 declare
     a int;

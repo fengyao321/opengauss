@@ -5,6 +5,7 @@ create database dump_partition_db with dbcompatibility = 'B';
 create database restore_partition_db with dbcompatibility = 'B';
 
 \c dump_partition_db
+set b_format_behavior_compat_options = '';
 CREATE TABLE t_single_key_list (a int, b int, c int)
 PARTITION BY list(a)
 (
@@ -63,7 +64,7 @@ SELECT * FROM t_multi_keys_list_tmtz PARTITION(p2) ORDER BY a,b,c;
 \! @abs_bindir@/gs_restore -d restore_partition_db -p @portstring@ @abs_bindir@/dump_listpart_test.tar >/dev/null 2>&1; echo $?
 
 \c restore_partition_db
-
+set b_format_behavior_compat_options = '';
 \d+ t_multi_keys_list
 SELECT pg_get_tabledef('t_multi_keys_list'::regclass);
 INSERT INTO t_multi_keys_list VALUES('''',2,'2022-12-31'); 

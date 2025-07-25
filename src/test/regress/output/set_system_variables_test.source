@@ -58,6 +58,7 @@ LINE 1: set @@session.application_name = '00:00:01'::time;
             ^
 create database test_set dbcompatibility 'b';
 \c test_set
+set b_format_behavior_compat_options = '';
 -- dbcompatibility is B Format, enable_set_variable_b_format=off
 set codegen_cost_threshold = default;
 set codegen_cost_threshold = 10000;
@@ -600,6 +601,7 @@ end;
 /
 -- test b_format_behavior_compat_options param
 \c test_set
+set b_format_behavior_compat_options = '';
 show b_format_behavior_compat_options;
  b_format_behavior_compat_options 
 ----------------------------------

@@ -25,6 +25,7 @@ begin
 end;
 /
 \c db_mysql
+set b_format_behavior_compat_options = '';
 create table t (id int);
 create table t1 (id int);
 create table animals (id int, name char(30));

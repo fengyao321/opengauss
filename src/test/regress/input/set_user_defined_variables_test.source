@@ -1,3 +1,4 @@
+set b_format_behavior_compat_options = '';
 -- error
 set @v1 := 1;
 select @v1;
@@ -134,6 +135,7 @@ select @`abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca` as va
 
 -- test expression
 \c test_set
+set b_format_behavior_compat_options = '';
 set @v1 := 10, @v2 := 10.3, @v3 := 'abc', @v4 := true, @v5 := date '12-10-2022';
 drop table if exists t_const;
 create table t_const as select @v1, @v2, @v3, @v4, @v5;
