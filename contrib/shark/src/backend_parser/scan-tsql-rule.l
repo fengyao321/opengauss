@@ -190,3 +190,32 @@
 							return '@';
 						}
 					}
+
+<tsql>{tsql_ttname}	{
+						SET_YYLLOC();
+
+						/* cases which should be recongized as operator. */
+						bool isoperator = (yyleng == 1) ||
+										  (yyleng == 2 && yytext[1] == '#');
+
+						if (isoperator) {
+							yylval->str = pstrdup(yytext);
+							yyextra->is_hint_str = false;
+							return Op;
+						}
+
+						/* special case for '#'/'##' operator */
+						if (DB_IS_CMPT(D_FORMAT) && u_sess->enable_special_operator) {
+							const char *op = yytext[1] == '#' ? "##" : "#";
+							int back = yytext[1] == '#' ? 2 : 1;
+							yylval->str = pstrdup(op);
+							yyless(back);
+							yyextra->is_hint_str = false;
+							return Op;
+						}
+
+						yylval->str = downcase_truncate_identifier(yytext, yyleng, true);
+						yyextra->is_hint_str = false;
+						return IDENT;
+					}
+

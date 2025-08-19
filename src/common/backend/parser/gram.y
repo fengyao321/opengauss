@@ -315,6 +315,7 @@ static void contain_unsupport_node(Node* node, bool* has_unsupport_default_node)
 static List* TransformToConstStrNode(List *inExprList, char* raw_str);
 static Alias* generate_alias(Alias* clone_target, const char* default_alias_name);
 static void Funcname_Judge(List *names, List *args);
+static bool is_temp_table(const char relpst);
 
 /* Please note that the following line will be replaced with the contents of given file name even if with starting with a comment */
 /*$$include "gram-tsql-prologue.y.h"*/
@@ -6690,7 +6691,8 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 			opt_internal_data OptKind
 				{
 					CreateStmt *n = makeNode(CreateStmt);
-					$4->relpersistence = $2;
+					if (!DB_IS_CMPT(D_FORMAT) || !is_temp_table($4->relpersistence))
+						$4->relpersistence = $2;
 					n->relkind = $20;
 					n->relation = $4;
 					n->tableElts = $6;
@@ -6728,7 +6730,8 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 			opt_internal_data
 				{
 					CreateStmt *n = makeNode(CreateStmt);
-					$7->relpersistence = $2;
+					if (!DB_IS_CMPT(D_FORMAT) || !is_temp_table($7->relpersistence))
+						$7->relpersistence = $2;
 					n->relation = $7;
 					n->tableElts = $9;
 					n->inhRelations = $11;
@@ -6762,7 +6765,8 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 			opt_table_options
 				{
 					CreateStmt *n = makeNode(CreateStmt);
-					$4->relpersistence = $2;
+					if (!DB_IS_CMPT(D_FORMAT) || !is_temp_table($4->relpersistence))
+						$4->relpersistence = $2;
 					n->relation = $4;
 					n->tableElts = $7;
 					n->ofTypename = makeTypeNameFromNameList($6);
@@ -6791,7 +6795,8 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 			opt_table_options
 				{
 					CreateStmt *n = makeNode(CreateStmt);
-					$7->relpersistence = $2;
+					if (!DB_IS_CMPT(D_FORMAT) || !is_temp_table($7->relpersistence))
+						$7->relpersistence = $2;
 					n->relation = $7;
 					n->tableElts = $10;
 					n->ofTypename = makeTypeNameFromNameList($9);
@@ -9735,7 +9740,8 @@ CreateAsStmt:
 					ctas->relkind = OBJECT_TABLE;
 					ctas->is_select_into = false;
 					/* cram additional flags into the IntoClause */
-					$4->rel->relpersistence = $2;
+					if (!DB_IS_CMPT(D_FORMAT) || !is_temp_table($4->rel->relpersistence))
+						$4->rel->relpersistence = $2;
 					$4->skipData = !($7);
 					$$ = (Node *) ctas;
 				}
@@ -25596,12 +25602,14 @@ OptTempTableName:
 			| TABLE qualified_name
 				{
 					$$ = $2;
-					$$->relpersistence = RELPERSISTENCE_PERMANENT;
+					if (!DB_IS_CMPT(D_FORMAT) || !is_temp_table($$->relpersistence))
+						$$->relpersistence = RELPERSISTENCE_PERMANENT;
 				}
 			| qualified_name
 				{
 					$$ = $1;
-					$$->relpersistence = RELPERSISTENCE_PERMANENT;
+					if (!DB_IS_CMPT(D_FORMAT) || !is_temp_table($$->relpersistence))
+						$$->relpersistence = RELPERSISTENCE_PERMANENT;
 				}
 		;
 
@@ -31601,6 +31609,11 @@ qualified_name:
 			ColId
 				{
 					$$ = makeRangeVar(NULL, $1, @1);
+					/* Temp table names for shark extension. */
+					if (DB_IS_CMPT(D_FORMAT)) {
+						if (strncmp($1, "##", 2) == 0) $$->relpersistence = RELPERSISTENCE_GLOBAL_TEMP;
+						else if (strncmp($1, "#", 1) == 0) $$->relpersistence = RELPERSISTENCE_TEMP;
+					}
 				}
 			| ColId indirection
 				{
@@ -31612,11 +31625,32 @@ qualified_name:
 						case 1:
 							$$->catalogname = NULL;
 							$$->schemaname = $1;
+							/* Temp table names for shark extension. ignore schema name just for temp tables. */
+							if (DB_IS_CMPT(D_FORMAT)) {
+								if (strncmp(strVal(linitial($2)), "##", 2) == 0) {
+									$$->relpersistence = RELPERSISTENCE_GLOBAL_TEMP;
+									/* keep schemaname */
+								} else if (strncmp(strVal(linitial($2)), "#", 1) == 0) {
+									$$->relpersistence = RELPERSISTENCE_TEMP;
+									$$->schemaname = NULL;
+								}
+							}							
 							$$->relname = strVal(linitial($2));
 							break;
 						case 2:
 							$$->catalogname = $1;
 							$$->schemaname = strVal(linitial($2));
+							/* Temp table names for shark extension. ignore catalog and schema name just for temp tables. */
+							if (DB_IS_CMPT(D_FORMAT)) {
+								if (strncmp(strVal(lsecond($2)), "##", 2) == 0) {
+									$$->relpersistence = RELPERSISTENCE_GLOBAL_TEMP;
+									/* keep schemaname, catalogname */
+								} else if (strncmp(strVal(lsecond($2)), "#", 1) == 0) {
+									$$->relpersistence = RELPERSISTENCE_TEMP;
+									$$->catalogname = NULL;
+									$$->schemaname = NULL;
+								}
+							}
 							$$->relname = strVal(lsecond($2));
 							break;
 						default:
@@ -35413,6 +35447,13 @@ static void Funcname_Judge(List *names, List *args)
         }
     }
 }
+
+/* is temporary table? */
+static bool is_temp_table(const char relpst) {
+	return (relpst == RELPERSISTENCE_TEMP ||
+			relpst == RELPERSISTENCE_GLOBAL_TEMP);
+}
+
 /*
  * Must undefine this stuff before including scan.c, since it has different
  * definitions for these macros.
