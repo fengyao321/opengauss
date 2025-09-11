@@ -3247,10 +3247,11 @@ static void set_ts_ver_dir_real(PGconn* cur_conn)
         rc = strncpy_s(TS_DIR_WITH_PGXC, sizeof(TABLESPACE_VERSION_DIRECTORY "_"), TABLESPACE_VERSION_DIRECTORY "_",
                        sizeof(TABLESPACE_VERSION_DIRECTORY "_") - 1);
         securec_check_c(rc, "", "");
-
-        rc = strncpy_s(TS_DIR_WITH_PGXC + sizeof(TABLESPACE_VERSION_DIRECTORY "_") - 1, nodeNameLen + 1, nodeName,
-                       nodeNameLen);
-        securec_check_c(rc, "", "");
+        if (!IsDssMode()) {
+            rc = strncpy_s(TS_DIR_WITH_PGXC + sizeof(TABLESPACE_VERSION_DIRECTORY "_") - 1, nodeNameLen + 1, nodeName,
+                            nodeNameLen);
+            securec_check_c(rc, "", "");
+        }
     } else {
         elog(ERROR, "can't get instance node name pgxc_node_name");
     }

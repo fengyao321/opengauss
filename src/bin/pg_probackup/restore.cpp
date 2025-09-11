@@ -1132,7 +1132,12 @@ static void remove_redundant_files(const char *pgdata_path,
         bool inRelativeTblspc = false;
 
         /* For incremental backups, we need to skip some files */
-        inRelativeTblspc = path_is_prefix_of_path(PG_RELATIVE_TBLSPC_DIR, file->rel_path);
+        if (!IsDssMode()) {
+            inRelativeTblspc = path_is_prefix_of_path(PG_RELATIVE_TBLSPC_DIR, file->rel_path);
+        } else {
+            inRelativeTblspc = (path_is_prefix_of_path(PG_TBLSPC_DIR, file->rel_path) &&
+                                skip_some_tblspc_files(file));
+        }
         if (inRelativeTblspc) {
             continue;
         }
@@ -2282,9 +2287,11 @@ static void set_ts_ver_dir_real(pgBackup* dest_backup)
                    sizeof(TABLESPACE_VERSION_DIRECTORY "_") - 1);
     securec_check_c(rc, "", "");
 
-    rc = strncpy_s(TS_DIR_WITH_PGXC + sizeof(TABLESPACE_VERSION_DIRECTORY "_") - 1, strlen(pgxc_node_name) + 1,
-                   pgxc_node_name, strlen(pgxc_node_name));
-    securec_check_c(rc, "", "");
+    if (!IsDssMode()) {
+        rc = strncpy_s(TS_DIR_WITH_PGXC + sizeof(TABLESPACE_VERSION_DIRECTORY "_") - 1, strlen(pgxc_node_name) + 1,
+                    pgxc_node_name, strlen(pgxc_node_name));
+        securec_check_c(rc, "", "");
+    }
 
     if (likely(pgxc_node_name)) {
         pg_free(pgxc_node_name);

@@ -1137,6 +1137,9 @@ static void set_ts_ver_dir_real_remote(char* nodename)
                    sizeof(TABLESPACE_VERSION_DIRECTORY "_") - 1);
     securec_check_c(rc, "", "");
 
+    if (IsDssMode()) {
+        return;
+    }
     rc = strncpy_s(TS_DIR_WITH_PGXC + sizeof(TABLESPACE_VERSION_DIRECTORY "_") - 1, strlen(nodename) + 1, nodename,
                    strlen(nodename));
     securec_check_c(rc, "", "");
