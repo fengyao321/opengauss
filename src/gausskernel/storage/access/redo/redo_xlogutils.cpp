@@ -1714,7 +1714,7 @@ XLogRedoAction XLogBlockGetOperatorBuffer(XLogBlockHead *blockhead, void *blockr
                  * if REGBUF_WILL_INIT xlog is skipped during recovery phase, replay of subsequent xlog by
                  * reading pages in NORMAL_MODE type will result in invalid pages.
                  */
-                if (buf_willinit) {
+                if (willinit || buf_willinit) {
                     RedoBufferTag *blockinfo = &bufferinfo->blockinfo;
                     ereport(WARNING, (errmodule(MOD_DMS), errmsg("[SS redo][%u/%u/%u/%d %d-%u] page skip replay "
                             "REGBUF_WILL_INIT xlog, xlogLsn:%lu, pageLsn:%lu", blockinfo->rnode.spcNode,

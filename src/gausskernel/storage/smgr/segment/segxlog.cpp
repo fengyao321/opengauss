@@ -644,17 +644,6 @@ static void redo_atomic_xlog(XLogReaderState *record)
 static void redo_seghead_extend(XLogReaderState *record)
 {
     RedoBufferInfo redo_buf;
-    if (!ENABLE_DMS || SS_DISASTER_MAIN_STANDBY_NODE || SSCheckInitPageXLogSimple(record, 1, &redo_buf) != BLK_DONE) {
-        t_thrd.xlog_cxt.inRedoExtendSegment = true;
-        XLogInitBufferForRedo(record, XLOG_SEG_SEGMENT_EXTEND_DATA_BLOCK_ID, &redo_buf);
-        t_thrd.xlog_cxt.inRedoExtendSegment = false;
-        if (BufferIsValid(redo_buf.buf)) {
-            memset_s(redo_buf.pageinfo.page, BLCKSZ, 0, BLCKSZ);
-            PageSetLSN(redo_buf.pageinfo.page, redo_buf.lsn);
-            MarkBufferDirty(redo_buf.buf);
-            UnlockReleaseBuffer(redo_buf.buf);
-        }
-    }
 
     RedoBufferTag dataBlockInfo = redo_buf.blockinfo;
 
@@ -684,6 +673,18 @@ static void redo_seghead_extend(XLogReaderState *record)
 
     if (BufferIsValid(redo_buf.buf)) {
         SegUnlockReleaseBuffer(redo_buf.buf);
+    }
+
+    if (!ENABLE_DMS || SSCheckInitPageXLogSimple(record, 1, &redo_buf) != BLK_DONE) {
+        t_thrd.xlog_cxt.inRedoExtendSegment = true;
+        XLogInitBufferForRedo(record, XLOG_SEG_SEGMENT_EXTEND_DATA_BLOCK_ID, &redo_buf);
+        t_thrd.xlog_cxt.inRedoExtendSegment = false;
+        if (BufferIsValid(redo_buf.buf)) {
+            memset_s(redo_buf.pageinfo.page, BLCKSZ, 0, BLCKSZ);
+            PageSetLSN(redo_buf.pageinfo.page, redo_buf.lsn);
+            MarkBufferDirty(redo_buf.buf);
+            UnlockReleaseBuffer(redo_buf.buf);
+        }
     }
 }
 

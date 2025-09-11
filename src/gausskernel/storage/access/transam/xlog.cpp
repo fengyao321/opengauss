@@ -6738,6 +6738,8 @@ void XLOGShmemInit(void)
             ereport(LOG, (errmsg("[SS %s] Successfully reset xlblocks when thrd:%lu with role:%d started",
                 SS_PERFORMING_SWITCHOVER ? "switchover" : "failover", t_thrd.proc->pid, (int)t_thrd.role)));
         }
+        /* recovery_min_apply_delay is SIGHUP level, so init recoveryWakeupDelayLatch if extremeRto mode*/
+        RecoverDelayLatchOp(LATCH_INIT);
         return;
     }
     errorno = memset_s(t_thrd.shemem_ptr_cxt.XLogCtl, sizeof(XLogCtlData), 0, sizeof(XLogCtlData));
@@ -20600,6 +20602,14 @@ retry:
                         t_thrd.xlog_cxt.curFileTLI = 0;
                     }
 
+                    if (SS_DISASTER_STANDBY_CLUSTER && SS_PERFORMING_SWITCHOVER && SS_STANDBY_PROMOTING
+                        && pmState == PM_HOT_STANDBY) {
+                        SendPostmasterSignal(PMSIGNAL_LOCAL_RECOVERY_DONE);
+                        g_instance.dms_cxt.SSClusterState = NODESTATE_STANDBY_PROMOTED;
+                        ereport(LOG, (errmodule(MOD_DMS), errmsg("[SS reform][SS switchover] standby promoting recovery"
+                                " reach to consistency in standby cluster for opening xlog.")));
+                    }
+
                     /*
                      * Try to restore the file from archive, or read an
                      * existing file from pg_xlog.
@@ -20718,7 +20728,7 @@ retry:
                         break;
                     }
 
-                    ereport(LOG, (errmsg("do not find any more files.sources=%u failedSources=%u", sources,
+                    ereport(DEBUG5, (errmsg("do not find any more files.sources=%u failedSources=%u", sources,
                                             t_thrd.xlog_cxt.failedSources)));
                     /*
                      * Nope, not found in archive and/or pg_xlog.
@@ -20795,6 +20805,13 @@ retry:
         }
     } else {
         t_thrd.xlog_cxt.readLen = XLOG_BLCKSZ;
+        if (SS_DISASTER_STANDBY_CLUSTER && SS_PERFORMING_SWITCHOVER && SS_STANDBY_PROMOTING &&
+            pmState == PM_HOT_STANDBY) {
+            SendPostmasterSignal(PMSIGNAL_LOCAL_RECOVERY_DONE);
+            g_instance.dms_cxt.SSClusterState = NODESTATE_STANDBY_PROMOTED;
+            ereport(LOG, (errmodule(MOD_DMS), errmsg("[SS reform][SS switchover] standby promoting recovery"
+                          " reach to consistency in standby cluster for xlog.")));
+                    }
     }
 
     /* Read the requested page */
