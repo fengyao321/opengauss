@@ -4597,6 +4597,8 @@ static char* get_gausshome()
             tnRet = strncpy_s(lcdata, MAXPGPATH, gausshome, strlen(gausshome));
             securec_check_c(tnRet, "\0", "\0");
         }
+        free(gausshome);
+        gausshome = NULL;
         canonicalize_path(lcdata);
         return xstrdup(lcdata);
     } else {
@@ -5014,6 +5016,7 @@ static bool do_incremental_build(uint32 term)
         pg_log(PG_WARNING, _("could not get remote node name when cross cluster build.\n"));
         PQfinish(streamConn);
         streamConn = NULL;
+        pg_free(sysidentifier);
         return false;
     }
 

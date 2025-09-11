@@ -52,6 +52,7 @@ test: replace_func_with_two_args trunc_func_for_date nlssort_pinyin updatable_vi
 
 # test multiple statistics
 test: functional_dependency
+test: get_statement_history
 test: pg_proc_test test_row_type_in_proc
 
 # test fdw

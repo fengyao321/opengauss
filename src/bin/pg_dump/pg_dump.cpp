@@ -21141,7 +21141,13 @@ static void dumpTableSchema(Archive* fout, TableInfo* tbinfo)
         if (tbinfo->autoincconstraint != 0) {
             ddr_Assert(actual_atts != 0);
             ConstraintInfo* coninfo = (ConstraintInfo*)findObjectByDumpId(tbinfo->autoincconstraint);
+            if (coninfo == NULL) {
+                exit_horribly(NULL, "missing constraint \"%s\"\n", tbinfo->dobj.name);
+            }
             IndxInfo* indxinfo = (IndxInfo*)findObjectByDumpId(coninfo->conindex);
+            if (indxinfo == NULL) {
+                exit_horribly(NULL, "missing index for constraint \"%s\"\n", coninfo->dobj.name);
+            }
             appendPQExpBuffer(q, ",\n    ");
             appendPQExpBuffer(q, "CONSTRAINT %s ", fmtId(coninfo->dobj.name));
             dumpUniquePrimaryDef(q, coninfo, indxinfo, isBcompatibility);
@@ -21149,6 +21155,9 @@ static void dumpTableSchema(Archive* fout, TableInfo* tbinfo)
         } else if (tbinfo->autoincindex != 0) {
             ddr_Assert(actual_atts != 0);
             IndxInfo* indxinfo = (IndxInfo*)findObjectByDumpId(tbinfo->autoincindex);
+            if (indxinfo == NULL) {
+                exit_horribly(NULL, "missing index for constraint\n", tbinfo->dobj.name);
+            }
             uint32 posoffset;
             const char* endpos = NULL;
             char* usingpos = strstr(indxinfo->indexdef, " USING ");

@@ -1778,7 +1778,7 @@ static void bootstrap_template1(void)
     nRet = snprintf_s(headerline, sizeof(headerline), sizeof(headerline) - 1, "# PostgreSQL %s\n", PG_MAJORVERSION);
     securec_check_ss_c(nRet, "\0", "\0");
 
-    if (strcmp(headerline, *bki_lines) != 0) {
+    if (*bki_lines != NULL && strcmp(headerline, *bki_lines) != 0) {
         write_stderr(_("%s: input file \"%s\" does not belong to PostgreSQL %s\n"
                        "Check your installation or specify the correct path "
                        "using the option -L.\n"),

@@ -145,7 +145,10 @@ bool RawValue::process(const ICachedColumn *cached_column, char *err_msg)
         HooksManager::get_estimated_processed_data_size(cached_column->get_column_hook_executors(), binary_size) +
         sizeof(Oid),
         sizeof(unsigned char));
-    RETURN_IF(m_processed_data == NULL, false);
+    if (m_processed_data == NULL) {
+        libpq_free(binary);
+        return false;
+    }
     int processed_size = HooksManager::process_data(cached_column, cached_column->get_column_hook_executors(), binary,
         binary_size, m_processed_data);
     if (processed_size <= 0) {

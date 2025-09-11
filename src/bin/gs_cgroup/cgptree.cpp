@@ -866,6 +866,9 @@ static struct controller_info* cgptree_get_controller_list(void)
                 free(curr_cinfo->mount_point);
             cgptree_free_group_tree(curr_cinfo->group_head);
             free(curr_cinfo);
+            if (curr_path != NULL) {
+                free(curr_path);
+            }
             break;
         }
 

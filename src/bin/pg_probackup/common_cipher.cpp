@@ -261,6 +261,8 @@ void CryptoModuleParamsCheck(bool gen_key, char* params, const char* module_encr
             }
             fprintf(stderr, ("invalid key\n"));
             exit(1);	
+        } else {
+            OPENSSL_free(tmpkey);
         }
     }
 }
