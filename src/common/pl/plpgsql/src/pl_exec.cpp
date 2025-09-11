@@ -284,6 +284,12 @@ static TupleDesc get_cursor_tupledesc_exec(PLpgSQL_expr* expr, bool isOnlySelect
 void AutonomPipelinedFuncRewriteResult(PLpgSQL_execstate *pExecstate);
 void PipelinedFuncRewriteResult(PLpgSQL_execstate *estate, ATResult *atResult);
 static bool is_has_update_in_query(PLpgSQL_expr* expr);
+
+extern Const* makeConst(Oid consttype, int32 consttypmod, Oid constcollid, int constlen, Datum constvalue, bool constisnull,
+    bool constbyval, Cursor_Data* cur);
+
+extern void check_variable_value_info(const char* var_name, const Expr* var_expr);
+
 /* ----------
  * plpgsql_check_line_validity	Called by the debugger plugin for
  * validating a given linenumber
@@ -13936,6 +13942,12 @@ static void exec_move_row(PLpgSQL_execstate* estate,
                     } else {
                         exec_assign_value(estate, (PLpgSQL_datum*)var, value, valtype, &isnull, tableOfIndex);
                     }
+
+                    if (row->is_user_var != NULL && row->is_user_var[fnum] == true) {
+                         Const *con = makeConst(var->datatype->typoid, -1, InvalidOid, -2, var->value, isnull, false, NULL);
+                         check_variable_value_info(var->varname, (const Expr*)con);
+                    }
+                    
                 }
                 if (fromExecSql) {
                     free_func_tableof_index();

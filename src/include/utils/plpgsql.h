@@ -592,7 +592,8 @@ typedef struct { /* Row variable */
     Oid recordVarTypOid; /* package record var's composite type oid */
     bool hasExceptionInit;
     bool atomically_null_object;
-    List* nest_typnames; 
+    List* nest_typnames;
+    bool* is_user_var;
 } PLpgSQL_row;
 
 typedef struct {
