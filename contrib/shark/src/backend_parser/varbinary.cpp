@@ -33,6 +33,7 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/pg_locale.h"
+#include "utils/date.h"
 #include "utils/sortsupport.h"
 #include "lib/stringinfo.h"
 
@@ -57,6 +58,14 @@ PG_FUNCTION_INFO_V1(varbinaryint4);
 PG_FUNCTION_INFO_V1(varbinaryint8);
 PG_FUNCTION_INFO_V1(float4varbinary);
 PG_FUNCTION_INFO_V1(float8varbinary);
+PG_FUNCTION_INFO_V1(numeric_varbinary);
+PG_FUNCTION_INFO_V1(varbinary_numeric);
+PG_FUNCTION_INFO_V1(date_varbinary);
+PG_FUNCTION_INFO_V1(varbinary_date);
+PG_FUNCTION_INFO_V1(time_varbinary);
+PG_FUNCTION_INFO_V1(varbinary_time);
+PG_FUNCTION_INFO_V1(smalldatetime_varbinary);
+PG_FUNCTION_INFO_V1(varbinary_smalldatetime);
 
 extern "C" Datum varbinaryin(PG_FUNCTION_ARGS);
 extern "C" Datum varbinaryout(PG_FUNCTION_ARGS);
@@ -79,6 +88,14 @@ extern "C" Datum varbinaryint4(PG_FUNCTION_ARGS);
 extern "C" Datum varbinaryint8(PG_FUNCTION_ARGS);
 extern "C" Datum float4varbinary(PG_FUNCTION_ARGS);
 extern "C" Datum float8varbinary(PG_FUNCTION_ARGS);
+extern "C" Datum numeric_varbinary(PG_FUNCTION_ARGS);
+extern "C" Datum varbinary_numeric(PG_FUNCTION_ARGS);
+extern "C" Datum date_varbinary(PG_FUNCTION_ARGS);
+extern "C" Datum varbinary_date(PG_FUNCTION_ARGS);
+extern "C" Datum time_varbinary(PG_FUNCTION_ARGS);
+extern "C" Datum varbinary_time(PG_FUNCTION_ARGS);
+extern "C" Datum smalldatetime_varbinary(PG_FUNCTION_ARGS);
+extern "C" Datum varbinary_smalldatetime(PG_FUNCTION_ARGS);
 
 /*****************************************************************************
  *     USER I/O ROUTINES                                                         *
@@ -906,4 +923,118 @@ Datum varbinary_length(PG_FUNCTION_ARGS)
     int32        limit = VARSIZE_ANY_EXHDR(source);
 
     PG_RETURN_INT32(limit);
+}
+
+/* type's binary format to varbinary */
+static Datum bformat_varbinary(PG_FUNCTION_ARGS, bytea* vlena, const bool is_int)
+{
+    int32 typmod = PG_GETARG_INT32(1);
+    int32 maxlen;
+    bool isExplicit = PG_GETARG_BOOL(2);
+    int32 len = VARSIZE_ANY_EXHDR(vlena);
+
+    /* If typmod is -1 (or invalid), use the actual length */
+    if (typmod < (int32)VARHDRSZ)
+        maxlen = len;
+    else
+        maxlen = typmod - VARHDRSZ;
+
+    if (!isExplicit) {
+        if (len > maxlen) {
+            ereport(ERROR,
+                (errcode(ERRCODE_STRING_DATA_RIGHT_TRUNCATION), errmsg("String or binary data would be truncated.\n"
+                                                                       "The statement has been terminated.")));
+        }
+    }
+
+    /* No work if typmod is invalid or supplied data fits it already */
+    if (len <= maxlen) {
+        PG_RETURN_BYTEA_P(vlena);
+    }
+
+    if (maxlen < len) {
+        bytea* result;
+        char* r = NULL;
+        char* s = NULL;
+        errno_t ss_rc = 0;
+
+        result = (bytea*)palloc_huge(CurrentMemoryContext, maxlen + VARHDRSZ);
+        SET_VARSIZE(result, maxlen + VARHDRSZ);
+        r = VARDATA(result);
+        s = VARDATA_ANY(vlena);
+        if (is_int) {
+            ss_rc = memcpy_s(r, maxlen, s + (len - maxlen), maxlen); /* truncate from left */
+        } else {
+            ss_rc = memcpy_s(r, maxlen, s, maxlen); /* truncate from right */
+        }
+        securec_check(ss_rc, "\0", "\0");
+        PG_RETURN_BYTEA_P(result);
+    } else {
+        PG_RETURN_BYTEA_P(vlena);
+    }
+}
+
+Datum numeric_varbinary(PG_FUNCTION_ARGS)
+{
+    bytea* vlena = DatumGetByteaPP(DirectFunctionCall1(numeric_send, PG_GETARG_DATUM(0)));
+    return bformat_varbinary(fcinfo, vlena, false);
+}
+
+Datum varbinary_numeric(PG_FUNCTION_ARGS)
+{
+    bytea* vlena = PG_GETARG_BYTEA_PP(0);
+    StringInfoData buf;
+    initStringInfo(&buf);
+    pq_sendbytes(&buf, VARDATA_ANY(vlena), VARSIZE_ANY_EXHDR(vlena));
+
+    return DirectFunctionCall3(numeric_recv, PointerGetDatum(&buf), ObjectIdGetDatum(InvalidOid), PG_GETARG_DATUM(1));
+}
+
+Datum date_varbinary(PG_FUNCTION_ARGS)
+{
+    bytea* vlena = DatumGetByteaPP(DirectFunctionCall1(date_send, PG_GETARG_DATUM(0)));
+    return bformat_varbinary(fcinfo, vlena, true);
+}
+
+Datum varbinary_date(PG_FUNCTION_ARGS)
+{
+    bytea* vlena = PG_GETARG_BYTEA_PP(0);
+    StringInfoData buf;
+    initStringInfo(&buf);
+    pq_sendbytes(&buf, VARDATA_ANY(vlena), VARSIZE_ANY_EXHDR(vlena));
+
+    return DirectFunctionCall3(date_recv, PointerGetDatum(&buf), ObjectIdGetDatum(InvalidOid), PG_GETARG_DATUM(1));
+}
+
+Datum time_varbinary(PG_FUNCTION_ARGS)
+{
+    bytea* vlena = DatumGetByteaPP(DirectFunctionCall1(time_send, PG_GETARG_DATUM(0)));
+    return bformat_varbinary(fcinfo, vlena, true);
+}
+
+Datum varbinary_time(PG_FUNCTION_ARGS)
+{
+    bytea* vlena = PG_GETARG_BYTEA_PP(0);
+    StringInfoData buf;
+    initStringInfo(&buf);
+    pq_sendbytes(&buf, VARDATA_ANY(vlena), VARSIZE_ANY_EXHDR(vlena));
+
+    return DirectFunctionCall3(time_recv, PointerGetDatum(&buf), ObjectIdGetDatum(InvalidOid), PG_GETARG_DATUM(1));
+}
+
+Datum smalldatetime_varbinary(PG_FUNCTION_ARGS)
+{
+    bytea* vlena = DatumGetByteaPP(DirectFunctionCall1(smalldatetime_send, PG_GETARG_DATUM(0)));
+    return bformat_varbinary(fcinfo, vlena, true);
+}
+
+Datum varbinary_smalldatetime(PG_FUNCTION_ARGS)
+{
+    bytea* vlena = PG_GETARG_BYTEA_PP(0);
+    StringInfoData buf;
+    initStringInfo(&buf);
+    pq_sendbytes(&buf, VARDATA_ANY(vlena), VARSIZE_ANY_EXHDR(vlena));
+
+    return DirectFunctionCall3(smalldatetime_recv, PointerGetDatum(&buf), ObjectIdGetDatum(InvalidOid),
+                               PG_GETARG_DATUM(1));
 }
