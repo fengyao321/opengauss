@@ -645,11 +645,13 @@ static void _outPlannedStmt(StringInfo str, PlannedStmt* node)
         WRITE_UINT_FIELD(cause_type);
     }
 #ifdef USE_SPQ
-    WRITE_UINT64_FIELD(spq_session_id);
-    WRITE_INT_FIELD(current_id);
-    WRITE_BOOL_FIELD(enable_adaptive_scan);
-    WRITE_BOOL_FIELD(is_spq_optmized);
-    WRITE_INT_FIELD(write_node_index);
+    if (t_thrd.proc->workingVersionNum >= SPQ_VERSION_NUM) {
+        WRITE_UINT64_FIELD(spq_session_id);
+        WRITE_INT_FIELD(current_id);
+        WRITE_BOOL_FIELD(enable_adaptive_scan);
+        WRITE_BOOL_FIELD(is_spq_optmized);
+        WRITE_INT_FIELD(write_node_index);
+    }
 #endif
 }
 
@@ -887,8 +889,10 @@ static void _outJoinPlanInfo(StringInfo str, Join* node)
     WRITE_NODE_FIELD(nulleqqual);
     WRITE_UINT_FIELD(skewoptimize);
 #ifdef USE_SPQ
-    WRITE_BOOL_FIELD(prefetch_inner);
-    WRITE_BOOL_FIELD(is_set_op_join);
+    if (t_thrd.proc->workingVersionNum >= SPQ_VERSION_NUM) {
+        WRITE_BOOL_FIELD(prefetch_inner);
+        WRITE_BOOL_FIELD(is_set_op_join);
+    }
 #endif
 }
 
@@ -1253,7 +1257,9 @@ static void _outStream(StringInfo str, Stream* node)
     WRITE_NODE_FIELD(origin_consumer_nodes);
     WRITE_BOOL_FIELD(is_recursive_local);
 #ifdef USE_SPQ
-    WRITE_INT_FIELD(streamID);
+    if (t_thrd.proc->workingVersionNum >= SPQ_VERSION_NUM) {
+        WRITE_INT_FIELD(streamID);
+    }
 #endif
 }
 
@@ -1887,7 +1893,9 @@ static void _outVecHashAgg(StringInfo str, VecAgg* node)
 
     WRITE_ENUM_FIELD(aggstrategy, AggStrategy);
 #ifdef USE_SPQ
-    WRITE_ENUM_FIELD(aggsplittype, AggSplit);
+    if (t_thrd.proc->workingVersionNum >= SPQ_VERSION_NUM) {
+        WRITE_ENUM_FIELD(aggsplittype, AggSplit);
+    }
 #endif
     WRITE_INT_FIELD(numCols);
 
@@ -1924,7 +1932,9 @@ static void _outAgg(StringInfo str, Agg* node)
 
     WRITE_ENUM_FIELD(aggstrategy, AggStrategy);
 #ifdef USE_SPQ
-    WRITE_ENUM_FIELD(aggsplittype, AggSplit);
+    if (t_thrd.proc->workingVersionNum >= SPQ_VERSION_NUM) {
+        WRITE_ENUM_FIELD(aggsplittype, AggSplit);
+    }
 #endif
     WRITE_INT_FIELD(numCols);
 
@@ -2049,8 +2059,10 @@ static void _outMaterial(StringInfo str, Material* node)
     WRITE_BOOL_FIELD(materialize_all);
     out_mem_info(str, &node->mem_info);
 #ifdef USE_SPQ
-    WRITE_BOOL_FIELD(spq_strict);
-    WRITE_BOOL_FIELD(spq_shield_child_from_rescans);
+    if (t_thrd.proc->workingVersionNum >= SPQ_VERSION_NUM) {
+        WRITE_BOOL_FIELD(spq_strict);
+        WRITE_BOOL_FIELD(spq_shield_child_from_rescans);
+    }
 #endif
 }
 
@@ -2639,7 +2651,9 @@ static void _outAggref(StringInfo str, Aggref* node)
     WRITE_INT_FIELD(aggstage);
 #endif /* PGXC */
 #ifdef USE_SPQ
-    WRITE_ENUM_FIELD(aggsplittype, AggSplit);
+    if (t_thrd.proc->workingVersionNum >= SPQ_VERSION_NUM) {
+        WRITE_ENUM_FIELD(aggsplittype, AggSplit);
+    }
 #endif
     WRITE_OID_FIELD(aggcollid);
     WRITE_OID_FIELD(inputcollid);

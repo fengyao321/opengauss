@@ -738,7 +738,13 @@ THR_LOCAL bool skip_read_extern_fields = false;
 
 
 #ifdef USE_SPQ
-#define READ_STREAM_ID() READ_INT_FIELD(streamID)
+#define READ_STREAM_ID()                                     \
+    do {                                                     \
+        IF_EXIST(streamID)                                   \
+        {                                                    \
+            READ_INT_FIELD(streamID);                        \
+        }                                                    \
+    } while (0)
 #else
 #define READ_STREAM_ID() {}
 #endif
@@ -2306,7 +2312,10 @@ static Aggref* _readAggref(void)
     READ_INT_FIELD(aggstage);
 #endif /* PGXC */
 #ifdef USE_SPQ
-    READ_ENUM_FIELD(aggsplittype, AggSplit);
+    IF_EXIST(aggsplittype)
+    {
+        READ_ENUM_FIELD(aggsplittype, AggSplit);
+    }
 #endif
     READ_OID_FIELD(aggcollid);
     READ_OID_FIELD(inputcollid);
@@ -3713,7 +3722,9 @@ static Agg* _readAgg(Agg* local_node)
 
     READ_ENUM_FIELD(aggstrategy, AggStrategy);
 #ifdef USE_SPQ
-    READ_ENUM_FIELD(aggsplittype, AggSplit);
+    IF_EXIST (aggsplittype) {
+        READ_ENUM_FIELD(aggsplittype, AggSplit);
+    }
 #endif
     READ_INT_FIELD(numCols);
     READ_ATTR_ARRAY(grpColIdx, numCols);
@@ -4720,8 +4731,12 @@ static Material* _readMaterial(Material* local_node)
     READ_BOOL_FIELD(materialize_all);
     read_mem_info(&local_node->mem_info);
 #ifdef USE_SPQ   
-    READ_BOOL_FIELD(spq_strict);
-    READ_BOOL_FIELD(spq_shield_child_from_rescans);
+    IF_EXIST (spq_strict) {
+        READ_BOOL_FIELD(spq_strict);
+    }
+    IF_EXIST (spq_shield_child_from_rescans) {
+        READ_BOOL_FIELD(spq_shield_child_from_rescans);
+    }
 #endif
 
     READ_DONE();
@@ -4810,8 +4825,12 @@ static Join* _readJoin(Join* local_node)
     READ_NODE_FIELD(nulleqqual);
     READ_UINT_FIELD(skewoptimize);
 #ifdef USE_SPQ
-    READ_BOOL_FIELD(prefetch_inner);
-    READ_BOOL_FIELD(is_set_op_join);
+    IF_EXIST (prefetch_inner) {
+        READ_BOOL_FIELD(prefetch_inner);
+    }
+    IF_EXIST (is_set_op_join) {
+        READ_BOOL_FIELD(is_set_op_join);
+    }
 #endif
 
     READ_DONE();
@@ -5017,11 +5036,21 @@ static PlannedStmt* _readPlannedStmt(void)
         READ_UINT_FIELD(cause_type);
     }
 #ifdef USE_SPQ
-    READ_UINT64_FIELD(spq_session_id);
-    READ_INT_FIELD(current_id);
-    READ_BOOL_FIELD(enable_adaptive_scan);
-    READ_BOOL_FIELD(is_spq_optmized);
-    READ_INT_FIELD(write_node_index);
+    IF_EXIST(spq_session_id) {
+        READ_UINT64_FIELD(spq_session_id);
+    }
+    IF_EXIST(current_id) {
+        READ_INT_FIELD(current_id);
+    }
+    IF_EXIST(enable_adaptive_scan) {
+        READ_BOOL_FIELD(enable_adaptive_scan);
+    }
+    IF_EXIST(is_spq_optmized) {
+        READ_BOOL_FIELD(is_spq_optmized);
+    }
+    IF_EXIST(write_node_index) {
+        READ_INT_FIELD(write_node_index);
+    }
 #endif
 
     READ_DONE();
@@ -5717,7 +5746,9 @@ static VecAgg* _readVecAgg(VecAgg* local_node)
 
     READ_ENUM_FIELD(aggstrategy, AggStrategy);
 #ifdef USE_SPQ
-    READ_ENUM_FIELD(aggsplittype, AggSplit);
+    IF_EXIST(aggsplittype) {
+        READ_ENUM_FIELD(aggsplittype, AggSplit);
+    }
 #endif
     READ_INT_FIELD(numCols);
     READ_ATTR_ARRAY(grpColIdx, numCols);
