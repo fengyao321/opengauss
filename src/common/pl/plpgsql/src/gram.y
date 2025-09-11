@@ -10823,6 +10823,7 @@ make_execsql_stmt(int firsttoken, int location)
     PLpgSQL_row* row_data = NULL;
     PLpgSQL_rec* rec_data = NULL;
     PLpgSQL_var* array_data = NULL;
+    bool is_value = false;
     for (;;)
     {
         prev_tok = tok;
@@ -10830,9 +10831,16 @@ make_execsql_stmt(int firsttoken, int location)
         if (tok == COMMENTSTRING) {
             prev_prev_tok = prev_tok;
         }
-
-        if (prev_tok == K_SELECT && tok == T_WORD && strcmp(yylval.word.ident, "value") == 0)
+        /* value function */
+        if (is_value) {
+            if (tok != '(')
+                object_rel_value = false;
+            is_value = false;
+        }
+        if (prev_tok == K_SELECT && tok == T_WORD && strcmp(yylval.word.ident, "value") == 0) {
             object_rel_value = true;
+            is_value = true;
+        }
         if (have_into && into_end_loc < 0)
             into_end_loc = yylloc;		/* token after the INTO part */
 
