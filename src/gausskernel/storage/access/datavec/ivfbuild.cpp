@@ -913,7 +913,6 @@ static void GetClosestCenterOnNPU(int *closestCenterIndexs, float *closestCenter
         offset += actualBatchSize;
     }
 
-    #pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < numSamples; i++) {
         int curMinIndex = -1;
         float curMinDistance = FLT_MAX;
@@ -928,7 +927,6 @@ static void GetClosestCenterOnNPU(int *closestCenterIndexs, float *closestCenter
         closestCenterIndexs[i] = curMinIndex;
         closestCenterDistances[i] = curMinDistance;
     }
-    
     pfree(resMatrix);
 }
 

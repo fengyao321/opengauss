@@ -36,9 +36,11 @@
 #include "utils/memutils.h"
 #include "access/datavec/vector.h"
 #include "access/datavec/ivfnpuadaptor.h"
+#include "access/datavec/common_parallel.h"
 
 #define L2_FUNC_OID 8433
 #define MAX_HBM 25.0
+#define DEFAULT_PARALLEL_WORKERS 32
 
 static int g_deviceNum = 6;
 
@@ -149,20 +151,23 @@ static float *ComputeDistance(FmgrInfo *procinfo, VectorArray samplesA, VectorAr
 
     const bool isL2Distance = (procinfo->fn_oid == L2_FUNC_OID);
     const bool isSameSamples = (samplesA == samplesB);
-    #pragma omp parallel for schedule(dynamic)
-    for (int i = 0; i < numSamplesA; i++) {
-        for (int j = 0; j < numSamplesB; j++) {
-            int64 idx = (int64)i * numSamplesB + j;
-            if (!isL2Distance) {
-                distanceInSamples[idx] =GetDiffDistance(procinfo, 0, 0, distanceInSamples[idx]);
-            } else {
-                float matrixIndexA = squareAmatrix[i];
-                float matrixIndexB = isSameSamples ? squareAmatrix[j] : squareBmatrix[j];
-                distanceInSamples[idx] = GetDiffDistance(procinfo, matrixIndexA, matrixIndexB,
-                    distanceInSamples[idx]);
+    auto fillArray = [numSamplesB, numSamplesA, isL2Distance, isSameSamples, distanceInSamples,
+        procinfo, squareBmatrix, squareAmatrix](int begin, int end) {
+        for (int i = begin; i < end; i++) {
+            for (int j = 0; j < numSamplesB; j++) {
+                int64 idx = (int64)i * numSamplesB + j;
+                if (!isL2Distance) {
+                    distanceInSamples[idx] =GetDiffDistance(procinfo, 0, 0, distanceInSamples[idx]);
+                } else {
+                    float matrixIndexA = squareAmatrix[i];
+                    float matrixIndexB = isSameSamples ? squareAmatrix[j] : squareBmatrix[j];
+                    distanceInSamples[idx] = GetDiffDistance(procinfo, matrixIndexA, matrixIndexB,
+                        distanceInSamples[idx]);
+                }
             }
         }
-    }
+    };
+    BeginCommonParallel(fillArray, DEFAULT_PARALLEL_WORKERS, numSamplesA);
 
     pfree(bmatrix);
     pfree(tBmatrix);
