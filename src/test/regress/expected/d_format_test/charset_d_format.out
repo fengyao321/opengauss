@@ -514,6 +514,7 @@ where column_constraint can be:
   DEFAULT default_expr |
   GENERATED ALWAYS AS ( generation_expr ) [STORED] |
   AUTO_INCREMENT |
+  IDENTITY [ (seed , increment) ] |
   UNIQUE [KEY] index_parameters |
   PRIMARY KEY index_parameters |
   ENCRYPTED WITH ( COLUMN_ENCRYPTION_KEY = column_encryption_key, ENCRYPTION_TYPE = encryption_type_value ) |
@@ -561,6 +562,7 @@ NOTICE: 'AUTO_INCREMENT' is only available in CENTRALIZED mode and B-format data
 NOTICE: '[ CHARACTER SET | CHARSET ]' is only available in CENTRALIZED mode and B-format database!
 NOTICE: '[ COLLATE [ = ] collation ]' is only available in CENTRALIZED mode and B-format database!
 NOTICE: '[ VISIBLE | INVISIBLE ]' is only avaliable in CENTRALIZED mode and B-format database!
+NOTICE: 'IDENTITY [ (seed , increment) ]' is only avaliable in D-format database!
 
 \h create table partition;
 Command:     CREATE TABLE PARTITION
@@ -786,6 +788,7 @@ where column_constraint can be:
       DEFAULT default_expr |
       GENERATED ALWAYS AS ( generation_expr ) [STORED] |
       AUTO_INCREMENT |
+      IDENTITY [ (seed , increment) ] |
       UNIQUE [KEY] index_parameters |
       PRIMARY KEY index_parameters |
       ENCRYPTED WITH ( COLUMN_ENCRYPTION_KEY = column_encryption_key, ENCRYPTION_TYPE = encryption_type_value ) |
@@ -823,6 +826,7 @@ NOTICE: '[ FIRST | AFTER column_name ]' clause is only available in CENTRALIZED 
 NOTICE: '[ FIRST | AFTER column_name ]' in 'MODIFY | CHANGE [ COLUMN ] ...' clause is only available in B-format database!
 NOTICE: '[ CHARACTER SET | CHARSET charset ]' is only available in CENTRALIZED mode and B-format database!
 NOTICE: '[ VISIBLE | INVISIBLE ]' is only avaliable in CENTRALIZED mode and B-format database!
+NOTICE: 'IDENTITY [ (seed , increment) ]' is only avaliable in D-format database!
 
 alter session set current_schema = s_charset_1;
 create table s_t_charset_1(s1 varchar(20));
