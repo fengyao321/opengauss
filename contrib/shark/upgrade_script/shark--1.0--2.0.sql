@@ -1840,6 +1840,73 @@ LANGUAGE C IMMUTABLE STRICT;
 CREATE CAST (sys.VARBINARY as INT8)
 WITH FUNCTION sys.varbinaryint8 (sys.VARBINARY) AS IMPLICIT;
 
+
+CREATE OR REPLACE FUNCTION sys.varbinary_numeric(sys.VARBINARY)
+RETURNS numeric
+AS '$libdir/shark', 'varbinary_numeric'
+LANGUAGE C IMMUTABLE STRICT;
+
+CREATE CAST (sys.VARBINARY as numeric)
+WITH FUNCTION sys.varbinary_numeric (sys.VARBINARY) AS ASSIGNMENT;
+
+CREATE OR REPLACE FUNCTION sys.numeric_varbinary(numeric, integer, boolean)
+RETURNS sys.VARBINARY
+AS '$libdir/shark', 'numeric_varbinary'
+LANGUAGE C IMMUTABLE STRICT;
+
+CREATE CAST (numeric AS sys.VARBINARY)
+WITH FUNCTION sys.numeric_varbinary (numeric, integer, boolean) AS ASSIGNMENT;
+
+CREATE OR REPLACE FUNCTION sys.varbinary_date(sys.VARBINARY)
+    RETURNS date
+    AS '$libdir/shark',
+    'varbinary_date' LANGUAGE C IMMUTABLE STRICT;
+
+CREATE CAST(sys.VARBINARY as date)
+    WITH FUNCTION sys.varbinary_date(sys.VARBINARY) AS ASSIGNMENT;
+
+CREATE OR REPLACE FUNCTION sys.date_varbinary(date, integer, boolean)
+    RETURNS sys.VARBINARY
+    AS '$libdir/shark',
+    'date_varbinary' LANGUAGE C IMMUTABLE STRICT;
+
+CREATE CAST(date AS sys.VARBINARY)
+    WITH FUNCTION sys.date_varbinary(date, integer, boolean) AS ASSIGNMENT;
+
+
+CREATE OR REPLACE FUNCTION sys.varbinary_time(sys.VARBINARY)
+    RETURNS time
+    AS '$libdir/shark',
+    'varbinary_time' LANGUAGE C IMMUTABLE STRICT;
+
+CREATE CAST(sys.VARBINARY as time)
+    WITH FUNCTION sys.varbinary_time(sys.VARBINARY) AS ASSIGNMENT;
+
+CREATE OR REPLACE FUNCTION sys.time_varbinary(time, integer, boolean)
+    RETURNS sys.VARBINARY
+    AS '$libdir/shark',
+    'time_varbinary' LANGUAGE C IMMUTABLE STRICT;
+
+CREATE CAST(time AS sys.VARBINARY)
+    WITH FUNCTION sys.time_varbinary(time, integer, boolean) AS ASSIGNMENT;
+
+
+CREATE OR REPLACE FUNCTION sys.varbinary_smalldatetime(sys.VARBINARY)
+    RETURNS smalldatetime
+    AS '$libdir/shark',
+    'varbinary_smalldatetime' LANGUAGE C IMMUTABLE STRICT;
+
+CREATE CAST(sys.VARBINARY as smalldatetime)
+    WITH FUNCTION sys.varbinary_smalldatetime(sys.VARBINARY) AS ASSIGNMENT;
+
+CREATE OR REPLACE FUNCTION sys.smalldatetime_varbinary(smalldatetime, integer, boolean)
+    RETURNS sys.VARBINARY
+    AS '$libdir/shark',
+    'smalldatetime_varbinary' LANGUAGE C IMMUTABLE STRICT;
+
+CREATE CAST(smalldatetime AS sys.VARBINARY)
+    WITH FUNCTION sys.smalldatetime_varbinary(smalldatetime, integer, boolean) AS ASSIGNMENT;
+
 -- Add support for varbinary and binary with operators
 -- Support equals
 CREATE FUNCTION sys.varbinary_eq(leftarg sys.varbinary, rightarg sys.varbinary)

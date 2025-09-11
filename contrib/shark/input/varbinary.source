@@ -92,12 +92,18 @@ SELECT id, a FROM t2 WHERE id = 11;
 SELECT id, a::float8 FROM t2 WHERE id = 11; -- sqlserve not suport cast float to varbinary
 
 -- test typecast numeric
-select 256::numeric::varbinary; --error
-select 256::varbinary::numeric; --error
+select 256::numeric::varbinary;
+select 256::numeric::varbinary::numeric;
+SELECT CAST(CAST(12.34 AS DECIMAL) AS VARBINARY);
+SELECT CAST(CAST(CAST(12.34 AS DECIMAL) AS VARBINARY) AS DECIMAL);
 
 -- test typecast date
-SELECT '2023-10-01'::date::varbinary; -- error
-SELECT '2023-10-01'::smalldatetime::varbinary; -- error
+SELECT '2023-10-01'::date::varbinary;
+SELECT '2023-10-01'::date::varbinary::date;
+SELECT '2023-10-01'::smalldatetime::varbinary;
+SELECT '2023-10-01'::smalldatetime::varbinary::smalldatetime;
+SELECT '10:10:10'::time::varbinary;
+SELECT '10:10:10'::time::varbinary::time;
 SELECT '2023-10-01'::timestamp::varbinary; -- error
 SELECT '2023-10-01'::timestamptz::varbinary; -- error
 SELECT '2023-10-01'::abstime::varbinary; -- error

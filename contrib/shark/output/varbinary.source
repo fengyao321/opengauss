@@ -309,27 +309,67 @@ LINE 1: SELECT id, a::float8 FROM t2 WHERE id = 11;
                     ^
 CONTEXT:  referenced column: a
 -- test typecast numeric
-select 256::numeric::varbinary; --error
-ERROR:  cannot cast type numeric to varbinary
-LINE 1: select 256::numeric::varbinary;
-                           ^
-CONTEXT:  referenced column: varbinary
-select 256::varbinary::numeric; --error
-ERROR:  cannot cast type varbinary to numeric
-LINE 1: select 256::varbinary::numeric;
-                             ^
-CONTEXT:  referenced column: numeric
+select 256::numeric::varbinary;
+       varbinary        
+------------------------
+ 0x00010000000000000100
+(1 row)
+
+select 256::numeric::varbinary::numeric;
+ numeric 
+---------
+     256
+(1 row)
+
+SELECT CAST(CAST(12.34 AS DECIMAL) AS VARBINARY);
+         varbinary          
+----------------------------
+ 0x0002000000000002000c0d48
+(1 row)
+
+SELECT CAST(CAST(CAST(12.34 AS DECIMAL) AS VARBINARY) AS DECIMAL);
+ numeric 
+---------
+   12.34
+(1 row)
+
 -- test typecast date
-SELECT '2023-10-01'::date::varbinary; -- error
-ERROR:  cannot cast type date to varbinary
-LINE 1: SELECT '2023-10-01'::date::varbinary;
-                                 ^
-CONTEXT:  referenced column: varbinary
-SELECT '2023-10-01'::smalldatetime::varbinary; -- error
-ERROR:  cannot cast type smalldatetime to varbinary
-LINE 1: SELECT '2023-10-01'::smalldatetime::varbinary;
-                                          ^
-CONTEXT:  referenced column: varbinary
+SELECT '2023-10-01'::date::varbinary;
+ varbinary  
+------------
+ 0x000021e2
+(1 row)
+
+SELECT '2023-10-01'::date::varbinary::date;
+    date    
+------------
+ 10-01-2023
+(1 row)
+
+SELECT '2023-10-01'::smalldatetime::varbinary;
+     varbinary      
+--------------------
+ 0x0002a99b1b82c000
+(1 row)
+
+SELECT '2023-10-01'::smalldatetime::varbinary::smalldatetime;
+      smalldatetime       
+--------------------------
+ Sun Oct 01 00:00:00 2023
+(1 row)
+
+SELECT '10:10:10'::time::varbinary;
+     varbinary      
+--------------------
+ 0x0000000886204480
+(1 row)
+
+SELECT '10:10:10'::time::varbinary::time;
+   time   
+----------
+ 10:10:10
+(1 row)
+
 SELECT '2023-10-01'::timestamp::varbinary; -- error
 ERROR:  cannot cast type timestamp without time zone to varbinary
 LINE 1: SELECT '2023-10-01'::timestamp::varbinary;
