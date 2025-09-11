@@ -16,6 +16,7 @@
 #include "commands/explain.h"
 #include "executor/instrument.h"
 #include "utils/guc.h"
+#include "instruments/instr_statement.h"
 
 PG_MODULE_MAGIC;
 
@@ -221,6 +222,7 @@ static void explain_ExecutorRun(QueryDesc* queryDesc, ScanDirection direction, l
     PG_CATCH();
     {
         nesting_level--;
+        instr_stmt_exec_report_query_plan(queryDesc);
         PG_RE_THROW();
     }
     PG_END_TRY();

@@ -1214,7 +1214,7 @@ drop function test_debug1;
 
 alter system set enable_stmt_track=on;
 set log_min_duration_statement=0;
-set track_stmt_stat_level='L1,L1';
+set track_stmt_stat_level='L0,L0';
 alter system set instr_unique_sql_count = 10000;
 delete from dbe_perf.statement_history;
 

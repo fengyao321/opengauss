@@ -2412,7 +2412,6 @@ typedef struct  statement_beentry_full_sql_context{
     int64 current_row_count; /* Record the number of rows affected by current query */
     int64 last_row_count; /* Record the number of rows affected by last query */
 
-    void *root_query_plan; /* Record the root query plan before report */
     bool is_exceed_query_plan_threshold; /* if true when slow sql take effect */
     TimestampTz record_query_plan_fin_time; /* finish time when execute time exceed log_min_duration_statement */
 

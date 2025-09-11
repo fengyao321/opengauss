@@ -19,17 +19,17 @@ PERFORM pg_sleep(0.1);
 end;
 /
 -- record all sql
-set track_stmt_stat_level = 'L1,L1';
+set track_stmt_stat_level = 'L0,L0';
 set instr_unique_sql_track_type = 'all';
 call test_slow_sql();
 -- record slow sql
-set track_stmt_stat_level = 'OFF,L1';
+set track_stmt_stat_level = 'OFF,L0';
 call test_slow_sql();
 call pg_sleep(0.2);
 select query, query_plan, is_slow_sql from statement_history where parent_query_id != 0 order by start_time;
 delete from statement_history;
 
-set track_stmt_stat_level = 'L1,L1';
+set track_stmt_stat_level = 'L0,L0';
 set instr_unique_sql_track_type = 'all';
 
 --test exec_plsql(possibly with an insert query)
