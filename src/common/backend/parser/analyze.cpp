@@ -6951,6 +6951,13 @@ static Query* TryTransformInsertDirectly(ParseState* pstate, InsertStmt* stmt)
     return query;
 }
 
+static bool RestrictedSysCatalog(Relation relation)
+{
+    return (strcmp(RelationGetRelationName(relation), "pg_authid") == 0 ||
+            strcmp(RelationGetRelationName(relation), "gs_global_config") == 0 ||
+            strcmp(RelationGetRelationName(relation), "pg_class") == 0);
+}
+
 static void CheckValidResultRelationCommon(Query* query, Relation relation, const char* cmdTypeName)
 {
     /*
@@ -6960,11 +6967,13 @@ static void CheckValidResultRelationCommon(Query* query, Relation relation, cons
      *
      * Restrict DML privileges to gs_global_config which stored parameters like bucketmap
      * length. These parameters will not be modified after initdb.
+     *
+     * Restrict DML privileges to pg_class which stored information of tables, modification of
+     * it may lead to database malfunction.
      */
     if (IsUnderPostmaster && !g_instance.attr.attr_common.allowSystemTableMods &&
         !u_sess->attr.attr_common.IsInplaceUpgrade && IsSystemRelation(relation) &&
-        (strcmp(RelationGetRelationName(relation), "pg_authid") == 0 ||
-        strcmp(RelationGetRelationName(relation), "gs_global_config") == 0)) {
+        RestrictedSysCatalog(relation)) {
         ereport(ERROR,
             (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
                 errmsg("permission denied: \"%s\" is a system catalog",

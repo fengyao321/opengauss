@@ -1840,5 +1840,10 @@ drop user auditadmin_user02;
 reset role;
 drop user createrole_user01;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+create table test(a int);
+update pg_tables set tablename = 'update' where tablename = 'test';
+ERROR:  permission denied: "pg_class" is a system catalog
+delete from pg_tables;
+ERROR:  permission denied: "pg_class" is a system catalog
 \c regression;
 drop database test_privileges;

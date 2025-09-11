@@ -1132,5 +1132,9 @@ reset role;
 drop user createrole_user01;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 
+create table test(a int);
+update pg_tables set tablename = 'update' where tablename = 'test';
+delete from pg_tables;
+
 \c regression;
 drop database test_privileges;
