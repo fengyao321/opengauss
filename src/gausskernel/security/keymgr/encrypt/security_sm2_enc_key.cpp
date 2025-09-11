@@ -47,7 +47,7 @@ Sm2KeyPair* generate_encrypt_pair_key()
         return NULL;
     }
 
-    EC_GROUP *encrypted_group = EC_GROUP_new_by_curve_name(NID_brainpoolP256r1);
+    EC_GROUP *encrypted_group = EC_GROUP_new_by_curve_name(NID_sm2);
     if (encrypted_group == NULL) {
         EC_KEY_free(encrypted_key);
         return NULL;
