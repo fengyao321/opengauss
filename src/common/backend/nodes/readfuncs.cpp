@@ -69,6 +69,13 @@
 
 THR_LOCAL bool skip_read_extern_fields = false;
 
+static inline void CheckStrNotNull(const char *token, char *errMsg)
+{
+    if (unlikely(token == NULL)) {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg(errMsg)));
+    }
+}
+
 #define IS_DATANODE_BUT_NOT_SINGLENODE (IS_PGXC_DATANODE && !IS_SINGLE_NODE)
 /*
  * Macros to simplify reading of different kinds of fields.  Use these
@@ -194,6 +201,7 @@ THR_LOCAL bool skip_read_extern_fields = false;
         token = pg_strtok(&length); /* skip :fldname */                           \
         for (int i = 0; i < local_node->size; i++) {                              \
             token = pg_strtok(&length); /* get field value */                     \
+            CheckStrNotNull(token, "insufficient tokens for field.");             \
             local_node->fldname[i] = atof(token);                                 \
         }                                                                         \
     } while (0)
@@ -269,6 +277,7 @@ THR_LOCAL bool skip_read_extern_fields = false;
                     char* _collname = nullable_string(token, length);                     \
                     Assert(_collname != NULL);                                            \
                     if (!IS_PGXC_COORDINATOR) {                                           \
+                        CheckStrNotNull(_collname, "_collname has to be supplied.");      \
                         List* _collnameList = list_make1(makeString(_collname));          \
                         local_node->fldname[i] = get_collation_oid(_collnameList, false); \
                         list_free_ext(_collnameList);                                     \
@@ -326,6 +335,7 @@ THR_LOCAL bool skip_read_extern_fields = false;
     do {                                                  \
         token = pg_strtok(&length); /* skip :fldname */   \
         token = pg_strtok(&length); /* get field value */ \
+        CheckStrNotNull(token, "insufficient tokens for field."); \
         local_node->fldname = atof(token);                \
     } while (0)
 
@@ -450,6 +460,8 @@ THR_LOCAL bool skip_read_extern_fields = false;
                 exprtypenamespace = nullable_string(token, length);                                               \
                 /* No need to reset field on CN or singlenode, keep pg_strtok() for forward compatibility */      \
                 if (IS_DATANODE_BUT_NOT_SINGLENODE) {                                                             \
+                    CheckStrNotNull(exprtypename, "exprtypename has to be supplied.");                            \
+                    CheckStrNotNull(exprtypenamespace, "exprtypenamespace has to be supplied.");                  \
                     local_node->fldname = get_typeoid(get_namespace_oid(exprtypenamespace, false), exprtypename); \
                 }                                                                                                 \
                 pfree_ext(exprtypename);                                                                          \
@@ -468,9 +480,11 @@ THR_LOCAL bool skip_read_extern_fields = false;
             token = pg_strtok(&length);                                                       \
             token = pg_strtok(&length);                                                       \
             exprtypename = nullable_string(token, length);                                    \
+            CheckStrNotNull(exprtypename, "exprtypename has to be supplied.");      \
             token = pg_strtok(&length);                                                       \
             token = pg_strtok(&length);                                                       \
             exprtypenamespace = nullable_string(token, length);                               \
+            CheckStrNotNull(exprtypenamespace, "exprtypenamespace has to be supplied.");      \
             typePtr = get_typeoid(get_namespace_oid(exprtypenamespace, false), exprtypename); \
             pfree_ext(exprtypename);                                                          \
             pfree_ext(exprtypenamespace);                                                     \
@@ -533,6 +547,8 @@ THR_LOCAL bool skip_read_extern_fields = false;
                 bool notfound = false;                                                                      \
                 if (IS_DATANODE_BUT_NOT_SINGLENODE && !skip_read_extern_fields) {                           \
                     Oid funcoid = InvalidOid;                                                               \
+                    CheckStrNotNull(funcname, "funcname has to be supplied.");                              \
+                    CheckStrNotNull(funcnamespace, "funcnamespace has to be supplied.");                    \
                     do {                                                                                    \
                         Oid nspid = get_namespace_oid(funcnamespace, true);                                 \
                         if (!OidIsValid(nspid)) {                                                           \
@@ -584,6 +600,9 @@ THR_LOCAL bool skip_read_extern_fields = false;
             token = pg_strtok(&length);                                                         \
             oprrightname = nullable_string(token, length);                                      \
             if (IS_DATANODE_BUT_NOT_SINGLENODE) {                                               \
+                CheckStrNotNull(opname, "opname has to be supplied.");                          \
+                CheckStrNotNull(opnamespace, "opnamespace has to be supplied.");                \
+                CheckStrNotNull(oprleftname, "oprleftname has to be supplied.");                \
                 namespaceId = get_namespace_oid(opnamespace, false);                            \
                 oprleft = get_typeoid(namespaceId, oprleftname);                                \
                 oprright = oprleft;                                                             \
@@ -605,6 +624,7 @@ THR_LOCAL bool skip_read_extern_fields = false;
             token = pg_strtok(&length);                                                                \
             token = pg_strtok(&length);                                                                \
             token = pg_strtok(&length);                                                                \
+            CheckStrNotNull(token, "insufficient tokens for field.");                                  \
             local_node->fldname[i] = atooid(token);                                                    \
             if (local_node->fldname[i] >= FirstNormalObjectId) {                                       \
                 char* opname;                                                                          \
@@ -627,6 +647,9 @@ THR_LOCAL bool skip_read_extern_fields = false;
                 token = pg_strtok(&length);                                                            \
                 oprrightname = nullable_string(token, length);                                         \
                 if (IS_DATANODE_BUT_NOT_SINGLENODE) {                                                  \
+                    CheckStrNotNull(opname, "opname has to be supplied.");                             \
+                    CheckStrNotNull(opnamespace, "opnamespace has to be supplied.");                   \
+                    CheckStrNotNull(oprleftname, "oprleftname has to be supplied.");                   \
                     namespaceId = get_namespace_oid(opnamespace, false);                               \
                     oprleft = get_typeoid(namespaceId, oprleftname);                                   \
                     oprright = oprleft;                                                                \
@@ -650,9 +673,11 @@ THR_LOCAL bool skip_read_extern_fields = false;
                 token = pg_strtok(&length);                                           \
                 token = pg_strtok(&length);                                           \
                 relname = nullable_string(token, length);                             \
+                CheckStrNotNull(relname, "relname has to be supplied.");              \
                 token = pg_strtok(&length);                                           \
                 token = pg_strtok(&length);                                           \
                 relnamespace = nullable_string(token, length);                        \
+                CheckStrNotNull(relnamespace, "relnamespace has to be supplied.");    \
                 local_node->fldname = get_valid_relname_relid(relnamespace, relname); \
                 pfree_ext(relname);                                                   \
                 pfree_ext(relnamespace);                                              \
@@ -674,6 +699,8 @@ THR_LOCAL bool skip_read_extern_fields = false;
             synSchema = nullable_string(token, length);                                                  \
             Assert(synName != NULL && synSchema != NULL);                                                \
             if (!IS_SINGLE_NODE && !IS_PGXC_COORDINATOR && !isRestoreMode) {                             \
+                CheckStrNotNull(synName, "synName has to be supplied.");                                 \
+                CheckStrNotNull(synSchema, "synSchema has to be supplied.");                             \
                 local_node->fldname = GetSynonymOid(synName, get_namespace_oid(synSchema, false), true); \
             }                                                                                            \
             pfree_ext(synName);                                                                          \
@@ -2265,20 +2292,24 @@ static Aggref* _readAggref(void)
         token = pg_strtok(&length); /* skip name: pronamespace */
         token = pg_strtok(&length); /* get pronamespace value */
         pronamespace = nullable_string(token, length);
+        CheckStrNotNull(pronamespace, "pronamespace has to be supplied.");
         namespace_oid = get_namespace_oid(pronamespace, false);
         token = pg_strtok(&length); /* skip name: proname */
         token = pg_strtok(&length); /* get proname value */
         proname = nullable_string(token, length);
+        CheckStrNotNull(proname, "proname has to be supplied.");
 
         token = pg_strtok(&length); /* skip name: rettypenamespace */
         token = pg_strtok(&length); /* get rettypenamespace value */
         rettypenamespace = nullable_string(token, length);
+        CheckStrNotNull(rettypenamespace, "rettypenamespace has to be supplied.");
         type_namespace_oid = get_namespace_oid(rettypenamespace, false);
 
         token = pg_strtok(&length); /* skip name: rettypename */
         token = pg_strtok(&length); /* get rettypename value */
         rettypename = nullable_string(token, length);
 
+        CheckStrNotNull(rettypename, "rettypename has to be supplied.");
         rettype = get_typeoid(type_namespace_oid, rettypename);
 
         token = pg_strtok(&length); /* skip name: pronargs */
@@ -2294,11 +2325,13 @@ static Aggref* _readAggref(void)
             Oid argtype = 0;
             token = pg_strtok(&length); /* get argtypenamespace value */
             argtypenamespace = nullable_string(token, length);
+            CheckStrNotNull(argtypenamespace, "argtypenamespace has to be supplied.");
             arg_type_namespace_oid = get_namespace_oid(argtypenamespace, false);
 
             token = pg_strtok(&length); /* get argtypename value */
             argtypename = nullable_string(token, length);
 
+            CheckStrNotNull(argtypename, "argtypename has to be supplied.");
             argtype = get_typeoid(arg_type_namespace_oid, argtypename);
             argtypes[i] = argtype;
         }
@@ -2650,6 +2683,7 @@ static BoolExpr* _readBoolExpr(void)
     /* do-it-yourself enum representation */
     token = pg_strtok(&length); /* skip :boolop */
     token = pg_strtok(&length); /* get field value */
+    CheckStrNotNull(token, "insufficient tokens for field.");
     if (strncmp(token, "and", 3) == 0)
         local_node->boolop = AND_EXPR;
     else if (strncmp(token, "or", 2) == 0)
@@ -2847,6 +2881,7 @@ static CollateExpr* _readCollateExpr(void)
             char* collname = nullable_string(token, length);
             Assert(collname != NULL);
             if (!IS_PGXC_COORDINATOR) {
+                CheckStrNotNull(collname, "NULL collname for read collate expr.");
                 List* collnameList = list_make1(makeString(collname));
                 local_node->collOid = get_collation_oid(collnameList, false);
                 list_free_ext(collnameList);
@@ -4063,8 +4098,11 @@ static IndexOnlyScan* _readIndexOnlyScan(IndexOnlyScan* local_node)
             token = pg_strtok(&length);
             token = pg_strtok(&length);
             relnamespace = nullable_string(token, length);
-            if (!IS_PGXC_COORDINATOR)
+            if (!IS_PGXC_COORDINATOR) {
+                CheckStrNotNull(relname, "indexname has to be supplied.");
+                CheckStrNotNull(relnamespace, "relnamespace has to be supplied.");
                 local_node->indexid = get_valid_relname_relid(relnamespace, relname);
+            }
 
             pfree_ext(relname);
             pfree_ext(relnamespace);
@@ -4109,6 +4147,8 @@ static BitmapIndexScan* _readBitmapIndexScan(BitmapIndexScan* local_node)
             token = pg_strtok(&length);
             indexnamespace = nullable_string(token, length);
             if (!IS_PGXC_COORDINATOR)
+                CheckStrNotNull(indexname, "indexname has to be supplied.");
+                CheckStrNotNull(indexnamespace, "indexnamespace has to be supplied.");
                 local_node->indexid = get_valid_relname_relid(indexnamespace, indexname);
 
             pfree_ext(indexname);
@@ -4155,6 +4195,8 @@ static CStoreIndexCtidScan* _readCStoreIndexCtidScan(CStoreIndexCtidScan* local_
             token = pg_strtok(&length);
             indexnamespace = nullable_string(token, length);
             if (!IS_PGXC_COORDINATOR) {
+                CheckStrNotNull(indexname, "indexname has to be supplied.");
+                CheckStrNotNull(indexnamespace, "indexnamespace has to be supplied.");
                 local_node->indexid = get_valid_relname_relid(indexnamespace, indexname);
             }
             pfree_ext(indexname);
@@ -4202,6 +4244,8 @@ static IndexScan* _readIndexScan(IndexScan* local_node)
             token = pg_strtok(&length);
             indexnamespace = nullable_string(token, length);
             if (!IS_PGXC_COORDINATOR)
+                CheckStrNotNull(indexname, "indexname has to be supplied.");
+                CheckStrNotNull(indexnamespace, "indexnamespace has to be supplied.");
                 local_node->indexid = get_valid_relname_relid(indexnamespace, indexname);
 
             pfree_ext(indexname);
@@ -4250,6 +4294,8 @@ static CStoreIndexScan* _readCStoreIndexScan(CStoreIndexScan* local_node)
             token = pg_strtok(&length);
             indexnamespace = nullable_string(token, length);
             if (!IS_PGXC_COORDINATOR)
+                CheckStrNotNull(indexname, "indexname has to be supplied.");
+                CheckStrNotNull(indexnamespace, "indexnamespace has to be supplied.");
                 local_node->indexid = get_valid_relname_relid(indexnamespace, indexname);
 
             pfree_ext(indexname);
@@ -4295,6 +4341,8 @@ static AnnIndexScan* _readAnnIndexScan(AnnIndexScan* local_node)
             token = pg_strtok(&length);
             indexnamespace = nullable_string(token, length);
             if (!IS_PGXC_COORDINATOR)
+                CheckStrNotNull(indexname, "indexnamespace has to be supplied.");
+                CheckStrNotNull(indexnamespace, "indexnamespace has to be supplied.");
                 local_node->indexid = get_valid_relname_relid(indexnamespace, indexname);
 
             pfree_ext(indexname);
@@ -5083,6 +5131,7 @@ static PlanRowMark* _readPlanRowMark(void)
     }
     /* convert noWait (true/false) to LockWaitPolicy (LockWaitError/LockWaitBlock) */
     IF_EXIST(noWait) {
+        CheckStrNotNull(token, "insufficient tokens for field.");
         READ_ENUM_EXPR(waitPolicy, LockWaitPolicy, (strtobool(token) ? LockWaitError : LockWaitBlock));
     }
     READ_BOOL_FIELD(isParent);
@@ -5294,6 +5343,7 @@ static ExtensiblePlan* _readExtensiblePlan(ExtensiblePlan* local_node)
     token = pg_strtok(&length); /* skip methods: */
     token = pg_strtok(&length); /* ExtensibleName */
     extensible_name = nullable_string(token, length);
+    CheckStrNotNull(extensible_name, "extensible_name has to be supplied.");
     methods = GetExtensiblePlanMethods(extensible_name, false);
     local_node->methods = methods;
     READ_DONE();
@@ -5917,6 +5967,7 @@ static HDFSTableAnalyze* _readHDFSTableAnalyze(HDFSTableAnalyze* local_node)
     token = pg_strtok(&length); /* skip :fldname */
     for (int i = 0; i < ANALYZE_MODE_MAX_NUM - 1; i++) {
         token = pg_strtok(&length); /* get field value */
+        CheckStrNotNull(token, "insufficient tokens for field.");
         local_node->sampleRate[i] = atof(token);
     }
     READ_UINT_FIELD(orgCnNodeNo);
@@ -6725,8 +6776,9 @@ static TdigestData* _readTdigestData()
     double compression = (token == NULL ? 0 : atof(token));
     int compressNum = 6;
     int compressAdd = 10;
+    int allocatedNodes = (compressNum * (int)compression) + compressAdd;
     TdigestData* local_node = makeNodeWithSize(TdigestData, sizeof(TdigestData) +
-        (((compressNum * (int)compression) + compressAdd) * sizeof(CentroidPoint)));
+        (allocatedNodes * sizeof(CentroidPoint)));
     local_node->compression = compression;
 
     READ_INT_FIELD(cap);
@@ -6735,6 +6787,11 @@ static TdigestData* _readTdigestData()
     READ_FLOAT_FIELD(merged_count);
     READ_FLOAT_FIELD(unmerged_count);
     READ_FLOAT_FIELD(valuetoc);
+
+    if ((local_node->merged_nodes + local_node->unmerged_nodes) > allocatedNodes) {
+        ereport(ERROR, (errcode(ERRCODE_DATA_CORRUPTED),
+            errmsg("TDigest data corrupted: too many nodes")));
+    }
 
     for (int i = 0; i < (local_node->merged_nodes + local_node->unmerged_nodes); i++) {
         READ_FLOAT_FIELD(nodes[i].mean);
