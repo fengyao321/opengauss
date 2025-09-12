@@ -196,6 +196,48 @@ begin
 end;
 /
 NOTICE:  SQLSTATE = 22012, SQLCODE = 33816706, SQLERRM = division by zero
+DROP FUNCTION IF EXISTS f11;
+NOTICE:  function f11() does not exist, skipping
+CREATE OR REPLACE FUNCTION f11()
+RETURNS bigint
+LANGUAGE 'plpgsql'
+AS $$
+BEGIN
+    DECLARE EXIT handler FOR SQLEXCEPTION
+    BEGIN
+        raise notice 'error';
+    END;
+	return 111;
+	return 222;
+	return 333;
+END
+$$ ;
+call f11();
+ f11 
+-----
+ 111
+(1 row)
+
+DROP FUNCTION IF EXISTS f11;
+DROP FUNCTION IF EXISTS f12;
+NOTICE:  function f12() does not exist, skipping
+CREATE OR REPLACE FUNCTION f12()
+RETURNS bigint
+LANGUAGE 'plpgsql'
+AS $$
+BEGIN
+	return 111;
+	return 222;
+	return 333;
+END
+$$ ;
+call f12();
+ f12 
+-----
+ 111
+(1 row)
+
+DROP FUNCTION IF EXISTS f12;
 -- use declare handler and exception when at the same time
 declare
     a int;

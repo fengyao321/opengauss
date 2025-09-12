@@ -4221,7 +4221,8 @@ static int expand_stmts(PLpgSQL_execstate* estate, List* stmts, bool& exception_
 
                     /* Run the block's statements */
                     rc = exec_stmt(estate, stmt, resignal_in_handler);
-                    if (stmt->cmd_type == PLPGSQL_STMT_EXIT && rc == PLPGSQL_RC_EXIT) {
+                    if ((stmt->cmd_type == PLPGSQL_STMT_EXIT && rc == PLPGSQL_RC_EXIT) ||
+                        (stmt->cmd_type == PLPGSQL_STMT_RETURN && rc == PLPGSQL_RC_RETURN)) {
                         early_exit = true;
                     }
                     estate->err_text = gettext_noop("during statement block exit");
