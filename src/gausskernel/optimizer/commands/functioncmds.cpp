@@ -2780,6 +2780,7 @@ ObjectAddress AlterFunction(AlterFunctionStmt* stmt)
     DefElem* result_cache_item = NULL;
     ObjectAddress address;
     bool isNull = false;
+    bool onlyHasInParam = false;
 
     funcOid = LookupFuncNameTypeNames(stmt->func->funcname, stmt->func->funcargs, false);
 #ifndef ENABLE_MULTIPLE_NODES
@@ -2920,6 +2921,10 @@ ObjectAddress AlterFunction(AlterFunctionStmt* stmt)
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("Do not support package for ALTER FUNCTION.")));
     }
 
+    (void)SysCacheGetAttr(PROCNAMEARGSNSP, tup,
+                          Anum_pg_proc_proallargtypes,
+                          &onlyHasInParam);
+
     if (set_items != NULL || fencedItem != NULL || shippable_item != NULL) {
         Datum datum;
         bool isnull = false;
@@ -2987,7 +2992,7 @@ ObjectAddress AlterFunction(AlterFunctionStmt* stmt)
 
     /* if non-immutable is specified, clear parallel_enable info */
     if (result_cache_item != NULL || procForm->provolatile != PROVOLATILE_IMMUTABLE) {
-        UpdatePgProcExt(funcOid, result_cache_item, tup, procForm->provolatile);
+        UpdatePgProcExt(funcOid, result_cache_item, procForm, onlyHasInParam);
     }
 
     /* Recode time of alter funciton. */

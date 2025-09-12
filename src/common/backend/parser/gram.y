@@ -18093,14 +18093,6 @@ func_return:
 					 */
 					$$ = $1;
 				}
-			| func_type {
-				if (enable_plpgsql_gsdependency_guc()) {
-					pg_yyget_extra(yyscanner)->core_yy_extra.return_pos_end = yylloc;
-				}
-			} DETERMINISTIC
-				{
-					$$ = $1;
-				}
 		;
 
 /*
@@ -18215,6 +18207,11 @@ common_func_opt_item:
 				}
 			| VOLATILE
 				{
+					$$ = makeDefElem("volatility", (Node *)makeString("volatile"));
+				}
+			|  DETERMINISTIC
+				{
+					/* not support, just set default volatility: volatile */
 					$$ = makeDefElem("volatility", (Node *)makeString("volatile"));
 				}
 			| SHIPPABLE

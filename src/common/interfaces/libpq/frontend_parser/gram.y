@@ -3182,10 +3182,6 @@ func_return:
 					 */
 					$$ = $1;
 				}
-			| func_type DETERMINISTIC
-				{
-					$$ = $1;
-				}
 		;
 
 
@@ -3215,6 +3211,11 @@ common_func_opt_item:
 				}
 			| VOLATILE
 				{
+					$$ = makeDefElem("volatility", (Node *)makeString("volatile"));
+				}
+			|  DETERMINISTIC
+				{
+					/* not support, just set default volatility: volatile */
 					$$ = makeDefElem("volatility", (Node *)makeString("volatile"));
 				}
 			| SHIPPABLE

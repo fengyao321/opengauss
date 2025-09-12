@@ -85,7 +85,7 @@ extern FunctionPartitionStrategy GetParallelStrategyAndKey(Oid oid, List** partk
 extern void DeletePgProcExt(Oid oid);
 extern Oid GetProprocoidByOid(Oid oid);
 extern bool GetResultCacheByOid(Oid oid);
-extern void UpdatePgProcExt(Oid funcOid, DefElem* result_cache_item, HeapTuple proctup, char provolatile);
+extern void UpdatePgProcExt(Oid funcOid, DefElem* result_cache_item, Form_pg_proc procForm, bool onlyHasInParam);
 extern void check_func_can_cache_result(CreateFunctionStmt* n, bool notsupport);
 extern bool func_cache_support_type(Oid typ);
 

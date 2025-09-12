@@ -102,14 +102,20 @@ void InsertPgProcExt(Oid oid, FunctionPartitionInfo* partInfo, Oid proprocoid, b
     heap_close(rel, RowExclusiveLock);
 }
 
-static bool CheckFunctionCanCache(Oid funcOid, HeapTuple proctup)
+static bool CheckFunctionCanCache(Oid funcOid, Form_pg_proc procForm, bool onlyHasInParam)
 {
     Datum tmp;
     bool isNull = false;
     int nargs;
     int i;
 
-    Form_pg_proc procForm = (Form_pg_proc)GETSTRUCT(proctup);
+    if (!onlyHasInParam) {
+        ereport(WARNING,
+            (errmsg("Function result cache cannot use when function has parameters of non-IN type, "
+                    "ignore it.")));
+        return false;
+    }
+
     if (!IsPlpgsqlLanguageOid(procForm->prolang) ||
             procForm->provolatile == PROVOLATILE_VOLATILE ||
             procForm->proisagg || procForm->proiswindow ||
@@ -125,17 +131,6 @@ static bool CheckFunctionCanCache(Oid funcOid, HeapTuple proctup)
         !func_cache_support_type(procForm->prorettype)) {
         ereport(WARNING,
             (errmsg("Function result cache cannot use when function return not support data type, "
-                    "ignore it.")));
-        return false;
-    }
-
-    (void)SysCacheGetAttr(PROCNAMEARGSNSP, proctup,
-                          Anum_pg_proc_proallargtypes,
-                          &isNull);
-    /* Containing none-IN args */
-    if (!isNull) {
-        ereport(WARNING,
-            (errmsg("Function result cache cannot use when function has parameters of non-IN type, "
                     "ignore it.")));
         return false;
     }
@@ -157,7 +152,7 @@ static bool CheckFunctionCanCache(Oid funcOid, HeapTuple proctup)
     }
 }
 
-void UpdatePgProcExt(Oid funcOid, DefElem* result_cache_item, HeapTuple proctup, char provolatile)
+void UpdatePgProcExt(Oid funcOid, DefElem* result_cache_item, Form_pg_proc procForm, bool onlyHasInParam)
 {
     bool isNull = false;
     Relation rel;
@@ -172,11 +167,11 @@ void UpdatePgProcExt(Oid funcOid, DefElem* result_cache_item, HeapTuple proctup,
                 (result_cache_item == NULL || (result_cache_item != NULL && intVal(result_cache_item->arg)))) ||
             (result_cache_item != NULL && intVal(result_cache_item->arg));
         if (funcCanCache) {
-            funcCanCache = CheckFunctionCanCache(funcOid, proctup);
+            funcCanCache = CheckFunctionCanCache(funcOid, procForm, onlyHasInParam);
         }
 
         /* delete tuple */
-        if (!funcCanCache && provolatile != PROVOLATILE_IMMUTABLE) {
+        if (!funcCanCache && procForm->provolatile != PROVOLATILE_IMMUTABLE) {
             simple_heap_delete(rel, &tup->t_self);
             ReleaseSysCache(tup);
             heap_close(rel, RowExclusiveLock);
@@ -184,7 +179,7 @@ void UpdatePgProcExt(Oid funcOid, DefElem* result_cache_item, HeapTuple proctup,
         }
 
         /* replace value */
-        if (result_cache_item != NULL || provolatile != PROVOLATILE_IMMUTABLE) {
+        if (result_cache_item != NULL || procForm->provolatile != PROVOLATILE_IMMUTABLE) {
             Datum repl_val[Natts_pg_proc_ext];
             bool repl_null[Natts_pg_proc_ext];
             bool repl_repl[Natts_pg_proc_ext];
@@ -199,7 +194,7 @@ void UpdatePgProcExt(Oid funcOid, DefElem* result_cache_item, HeapTuple proctup,
                 repl_null[Anum_pg_proc_ext_result_cache - 1] = false;
             }
 
-            if (provolatile != PROVOLATILE_IMMUTABLE) {
+            if (procForm->provolatile != PROVOLATILE_IMMUTABLE) {
                 repl_repl[Anum_pg_proc_ext_parallel_cursor_seq - 1] = true;
                 repl_null[Anum_pg_proc_ext_parallel_cursor_seq - 1] = true;
                 repl_repl[Anum_pg_proc_ext_parallel_cursor_strategy - 1] = true;
@@ -222,7 +217,8 @@ void UpdatePgProcExt(Oid funcOid, DefElem* result_cache_item, HeapTuple proctup,
     }
 
     /* tuple not exists, result_cache is true and function is not volatile, insert it */
-    if (result_cache_item != NULL && intVal(result_cache_item->arg) && CheckFunctionCanCache(funcOid, proctup)) {
+    if (result_cache_item != NULL && intVal(result_cache_item->arg) &&
+        CheckFunctionCanCache(funcOid, procForm, onlyHasInParam)) {
         InsertPgProcExtInternal(rel, NULL, funcOid, NULL, InvalidOid, true);
     }
     heap_close(rel, RowExclusiveLock);
