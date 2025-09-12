@@ -979,6 +979,14 @@ drop function test_cycle_func1(text);
 drop function test_cycle_func2(text);
 drop table if exists test_cycle;
 
+CREATE or replace FUNCTION func_add_sql1(num1 integer, num2 integer) RETURN integer result_cache deterministic
+AS
+BEGIN
+RETURN num1 + num2;
+END;
+/
+alter function func_add_sql1(int,int) deterministic;
+drop function func_add_sql1;
 drop table if exists testtab,all_support_type,multi_col,tab_tmp;
 set search_path to default;
 drop schema func_result_cache;
