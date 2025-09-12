@@ -962,5 +962,157 @@ drop table t_serial_002;
 drop table t_serial_002_1;
 drop table t_serial_identity_001;
 drop table t_serial_identity_001_1;
+-- numeric identity test.
+---- select into
+-- max/min value
+create table t_identity_numeric_t1(id numeric(25, 0) identity(200, 2), id1 serial, name varchar(10));
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t1_id_seq_identity" for serial column "t_identity_numeric_t1.id"
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t1_id1_seq" for serial column "t_identity_numeric_t1.id1"
+set identity_insert = on;
+select id, name into t_identity_numeric_t1_1 from t_identity_numeric_t1;
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t1_1_id_seq_identity" for serial column "t_identity_numeric_t1_1.id"
+\d+ t_identity_numeric_t1_1
+                                                    Table "identity_schema.t_identity_numeric_t1_1"
+ Column |         Type          |                                   Modifiers                                   | Storage  | Stats target | Description 
+--------+-----------------------+-------------------------------------------------------------------------------+----------+--------------+-------------
+ id     | numeric(25,0)         | not null default nextval('t_identity_numeric_t1_1_id_seq_identity'::regclass) | main     |              | 
+ name   | character varying(10) |                                                                               | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+insert into t_identity_numeric_t1_1(id, name) values(987654321098765432109876, 'xxx'); -- over int64
+select * from t_identity_numeric_t1_1 order by id;
+            id            | name 
+--------------------------+------
+ 987654321098765432109876 | xxx
+(1 row)
+
+set identity_insert = off;
+drop table t_identity_numeric_t1;
+drop table t_identity_numeric_t1_1;
+-- start
+create table t_identity_numeric_t2(id numeric(25, 0) identity(987654321098765432100000, 2), id1 serial, name varchar(10));
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t2_id_seq_identity" for serial column "t_identity_numeric_t2.id"
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t2_id1_seq" for serial column "t_identity_numeric_t2.id1"
+set identity_insert = on;
+select id, name into t_identity_numeric_t2_1 from t_identity_numeric_t2;
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t2_1_id_seq_identity" for serial column "t_identity_numeric_t2_1.id"
+set identity_insert = off;
+\d+ t_identity_numeric_t2_1
+                                                    Table "identity_schema.t_identity_numeric_t2_1"
+ Column |         Type          |                                   Modifiers                                   | Storage  | Stats target | Description 
+--------+-----------------------+-------------------------------------------------------------------------------+----------+--------------+-------------
+ id     | numeric(25,0)         | not null default nextval('t_identity_numeric_t2_1_id_seq_identity'::regclass) | main     |              | 
+ name   | character varying(10) |                                                                               | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+insert into t_identity_numeric_t2_1(name) values('xxx'); -- over int64
+select * from t_identity_numeric_t2_1 order by id;
+            id            | name 
+--------------------------+------
+ 987654321098765432100000 | xxx
+(1 row)
+
+drop table t_identity_numeric_t2;
+drop table t_identity_numeric_t2_1;
+-- increment
+create table t_identity_numeric_t3(id numeric(25, 0) identity(2, 987654321098765432100000), id1 serial, name varchar(10));
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t3_id_seq_identity" for serial column "t_identity_numeric_t3.id"
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t3_id1_seq" for serial column "t_identity_numeric_t3.id1"
+set identity_insert = on;
+select id, name into t_identity_numeric_t3_1 from t_identity_numeric_t3;
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t3_1_id_seq_identity" for serial column "t_identity_numeric_t3_1.id"
+set identity_insert = off;
+\d+ t_identity_numeric_t3_1
+                                                    Table "identity_schema.t_identity_numeric_t3_1"
+ Column |         Type          |                                   Modifiers                                   | Storage  | Stats target | Description 
+--------+-----------------------+-------------------------------------------------------------------------------+----------+--------------+-------------
+ id     | numeric(25,0)         | not null default nextval('t_identity_numeric_t3_1_id_seq_identity'::regclass) | main     |              | 
+ name   | character varying(10) |                                                                               | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+insert into t_identity_numeric_t3_1(name) values('xxx'); -- over int64
+insert into t_identity_numeric_t3_1(name) values('xxx1');
+select * from t_identity_numeric_t3_1 order by id;
+            id            | name 
+--------------------------+------
+                        2 | xxx
+ 987654321098765432100002 | xxx1
+(2 rows)
+
+drop table t_identity_numeric_t3;
+drop table t_identity_numeric_t3_1;
+---- create table like.
+-- max/min value
+create table t_identity_numeric_t4(id numeric(38, 0) identity, name varchar(10));
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t4_id_seq_identity" for serial column "t_identity_numeric_t4.id"
+create table t_identity_numeric_t4_1 (like t_identity_numeric_t4);
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t4_1_id_seq_identity" for serial column "t_identity_numeric_t4_1.id"
+\d+ t_identity_numeric_t4_1;
+                                                    Table "identity_schema.t_identity_numeric_t4_1"
+ Column |         Type          |                                   Modifiers                                   | Storage  | Stats target | Description 
+--------+-----------------------+-------------------------------------------------------------------------------+----------+--------------+-------------
+ id     | numeric(38,0)         | not null default nextval('t_identity_numeric_t4_1_id_seq_identity'::regclass) | main     |              | 
+ name   | character varying(10) |                                                                               | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+set identity_insert = on;
+insert into t_identity_numeric_t4_1(id, name) values(987654321098765432109876543210, 'xxx'); -- over int64
+set identity_insert = off;
+select * from t_identity_numeric_t4_1 order by id;
+               id               | name 
+--------------------------------+------
+ 987654321098765432109876543210 | xxx
+(1 row)
+
+drop table t_identity_numeric_t4;
+drop table t_identity_numeric_t4_1;
+-- start
+create table t_identity_numeric_t5(id numeric(38, 0) identity(987654321098765432100000, 2), id1 serial, name varchar(10));
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t5_id_seq_identity" for serial column "t_identity_numeric_t5.id"
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t5_id1_seq" for serial column "t_identity_numeric_t5.id1"
+create table t_identity_numeric_t5_1 (like t_identity_numeric_t5);
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t5_1_id_seq_identity" for serial column "t_identity_numeric_t5_1.id"
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t5_1_id1_seq" for serial column "t_identity_numeric_t5_1.id1"
+insert into t_identity_numeric_t5_1(name) values('xxx'); -- over int64
+select * from t_identity_numeric_t5_1 order by id;
+            id            | id1 | name 
+--------------------------+-----+------
+ 987654321098765432100000 |   1 | xxx
+(1 row)
+
+drop table t_identity_numeric_t5;
+drop table t_identity_numeric_t5_1;
+-- increment
+create table t_identity_numeric_t6(id numeric(38, 0) identity(2, 987654321098765432100000), id1 serial, name varchar(10));
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t6_id_seq_identity" for serial column "t_identity_numeric_t6.id"
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t6_id1_seq" for serial column "t_identity_numeric_t6.id1"
+create table t_identity_numeric_t6_1 (like t_identity_numeric_t6);
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t6_1_id_seq_identity" for serial column "t_identity_numeric_t6_1.id"
+NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t6_1_id1_seq" for serial column "t_identity_numeric_t6_1.id1"
+\d+ t_identity_numeric_t6_1
+                                                    Table "identity_schema.t_identity_numeric_t6_1"
+ Column |         Type          |                                   Modifiers                                   | Storage  | Stats target | Description 
+--------+-----------------------+-------------------------------------------------------------------------------+----------+--------------+-------------
+ id     | numeric(38,0)         | not null default nextval('t_identity_numeric_t6_1_id_seq_identity'::regclass) | main     |              | 
+ id1    | integer               | not null default nextval('t_identity_numeric_t6_1_id1_seq'::regclass)         | plain    |              | 
+ name   | character varying(10) |                                                                               | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+insert into t_identity_numeric_t6_1(name) values('xxx'); -- over int64
+insert into t_identity_numeric_t6_1(name) values('xxx1');
+select * from t_identity_numeric_t6_1 order by id;
+            id            | id1 | name 
+--------------------------+-----+------
+                        2 |   1 | xxx
+ 987654321098765432100002 |   2 | xxx1
+(2 rows)
+
+drop table t_identity_numeric_t6;
+drop table t_identity_numeric_t6_1;
 reset current_schema;
 drop schema identity_schema;

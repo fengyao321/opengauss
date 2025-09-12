@@ -5374,6 +5374,17 @@ static void addInitAttrType(List* tableElts)
     }
 }
 
+static Node* makeIntConst(int val, int location)
+{
+    A_Const *n = makeNode(A_Const);
+
+    n->val.type = T_Integer;
+    n->val.val.ival = val;
+    n->location = location;
+
+    return (Node *)n;
+}
+
 char* GetCreateTableStmt(Query* parsetree, CreateTableAsStmt* stmt)
 {
     /* Start building a CreateStmt for creating the target table */
@@ -5497,21 +5508,22 @@ char* GetCreateTableStmt(Query* parsetree, CreateTableAsStmt* stmt)
                 if (!identity_data) {
                     if (seqId = pg_get_serial_sequence_internal(rte->relid, tle->resorigcol, true, NULL);
                         OidIsValid(seqId)) {
-                        int64 uuid = 0;
-                        int64 start = 0;
-                        int64 increment = 0;
-                        int64 maxvalue = 0;
-                        int64 minvalue = 0;
-                        int64 cachevalue = 0;
+                        GTM_UUID uuid = 0;
+                        int128 start = 0;
+                        int128 increment = 0;
+                        int128 maxvalue = 0;
+                        int128 minvalue = 0;
+                        int128 cachevalue = 0;
                         bool cycle = false;
 
                         Relation relseq = relation_open(seqId, AccessShareLock);
+                        bool large = (get_rel_relkind(seqId) == RELKIND_LARGE_SEQUENCE);
                         get_sequence_params(relseq, &uuid, &start, &increment,
-                                            &maxvalue, &minvalue, &cachevalue, &cycle);
+                                            &maxvalue, &minvalue, &cachevalue, &cycle, large);
                         relation_close(relseq, AccessShareLock);
                         identity_data = (IdentityCopyData *)palloc(sizeof(IdentityCopyData));
-                        identity_data->start = (int128)start;
-                        identity_data->increment = (int128)increment;
+                        identity_data->start = start;
+                        identity_data->increment = increment;
                         Constraint *constraint = makeNode(Constraint);
                         List* options = list_make2(
                             (Node *)makeDefElem("start",
@@ -5525,6 +5537,13 @@ char* GetCreateTableStmt(Query* parsetree, CreateTableAsStmt* stmt)
                         constraint->location = -1;
                         coldef->constraints = lappend(coldef->constraints, constraint);
                         coldef->is_identity = true;
+                        /* calculate numberic precision and scale. */
+                        if (tpname->typeOid == NUMERICOID) {
+                            int32 precision = (int32)((((uint32)(tpname->typemod - VARHDRSZ)) >> 16) & 0xffff);
+                            int32 scale = (int16)(((uint32)(tpname->typemod - VARHDRSZ)) & 0xffff);
+                            tpname->typmods = list_make2((Node*)makeIntConst(precision, -1),
+                                                         (Node*)makeIntConst(scale, -1));
+                        }
                     }
                 }
                 /*

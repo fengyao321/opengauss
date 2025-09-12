@@ -2375,7 +2375,7 @@ template<typename T_Form, typename T_Int, bool large>
 static void ProcessSequenceOptMaxMin(DefElem* elm, T_Form newm, bool isInit, Oid type_id, int typeMods)
 {
     if (elm != NULL && elm->arg) {
-        int maxValue = defGetInt<T_Int, large>(elm);
+        T_Int maxValue = defGetInt<T_Int, large>(elm);
         if (maxValue == SEQ_MAXVALUE_8) {
             AssignInt<T_Int, large>(&(newm->max_value), SEQ_MAXVALUE_8);
             AssignInt<T_Int, large>(&(newm->min_value), SEQ_MINVALUE_8);
@@ -2673,57 +2673,66 @@ sequence_values *get_sequence_values(Oid sequenceId)
  * deparse to DefElem list of sequence parameters from sepcified sequence
  * and initial some import values.
  */
-List* sequence_to_options(Oid sequenceId)
+List* sequence_to_options(Oid sequenceId, bool large)
 {
-    int64 uuid;
-    int64 start;
-    int64 increment;
-    int64 maxvalue;
-    int64 minvalue;
-    int64 cachevalue;
+    int128 start;
+    int128 increment;
+    int128 maxvalue;
+    int128 minvalue;
+    int128 cachevalue;
+    GTM_UUID uuid;
     bool cycle = false;
     List* options = NIL;
 
     /* open sequence relation, and lock it. */
     Relation relseq = relation_open(sequenceId, AccessShareLock);
-    (void)get_sequence_params(relseq, &uuid, &start, &increment, &maxvalue, &minvalue, &cachevalue, &cycle);
+    (void)get_sequence_params(relseq, &uuid, &start, &increment, &maxvalue,
+                              &minvalue, &cachevalue, &cycle, large);
     relation_close(relseq, AccessShareLock);
-    /* ignore uuid, as, cachevalue. */
+    /* ignore uuid, as. */
     options = lappend(options,
-                            (Node*)makeDefElem("cache", (Node*)makeFloat(psprintf(INT64_FORMAT, cachevalue))));
+                            (Node*)makeDefElem("cache", (Node*)makeFloat(Int8or16Out<int128, true>(cachevalue))));
     options = lappend(options,
                             (Node*)makeDefElem("cycle", (Node*)makeBoolConst(cycle, false)));
     options = lappend(options,
-                            (Node*)makeDefElem("minvalue", (Node*)makeFloat(psprintf(INT64_FORMAT, minvalue))));
+                            (Node*)makeDefElem("minvalue", (Node*)makeFloat(Int8or16Out<int128, true>(minvalue))));
     options = lappend(options,
-                            (Node*)makeDefElem("maxvalue", (Node*)makeFloat(psprintf(INT64_FORMAT, maxvalue))));
+                            (Node*)makeDefElem("maxvalue", (Node*)makeFloat(Int8or16Out<int128, true>(maxvalue))));
     options = lappend(options,
-                            (Node*)makeDefElem("increment", (Node*)makeFloat(psprintf(INT64_FORMAT, increment))));
+                            (Node*)makeDefElem("increment", (Node*)makeFloat(Int8or16Out<int128, true>(increment))));
     options = lappend(options,
-                            (Node*)makeDefElem("start", (Node*)makeFloat(psprintf(INT64_FORMAT, start))));
+                            (Node*)makeDefElem("start", (Node*)makeFloat(Int8or16Out<int128, true>(start))));
     return options;
 }
-
 
 /*
  * Return sequence parameters
  */
-void get_sequence_params(Relation rel, int64* uuid, int64* start, int64* increment, int64* maxvalue, int64* minvalue,
-    int64* cache, bool* cycle)
+void get_sequence_params(Relation rel, GTM_UUID* uuid, int128* start,
+    int128*increment, int128* maxvalue, int128* minvalue,
+    int128* cache, bool* cycle, bool large)
 {
     Buffer buf;
     SeqTableData elm;
     HeapTupleData seqtuple;
-    Form_pg_sequence seq;
 
-    seq = read_seq_tuple<Form_pg_sequence>(&elm, rel, &buf, &seqtuple, uuid);
-
-    *start = seq->start_value;
-    *increment = seq->increment_by;
-    *maxvalue = seq->max_value;
-    *minvalue = seq->min_value;
-    *cache = seq->cache_value;
-    *cycle = seq->is_cycled;
+    if (large) {
+        Form_pg_large_sequence seq = read_seq_tuple<Form_pg_large_sequence>(&elm, rel, &buf, &seqtuple, uuid);
+        *start = seq->start_value;
+        *increment = seq->increment_by;
+        *maxvalue = seq->max_value;
+        *minvalue = seq->min_value;
+        *cache = seq->cache_value;
+        *cycle = seq->is_cycled;
+    } else {
+        Form_pg_sequence seq = read_seq_tuple<Form_pg_sequence>(&elm, rel, &buf, &seqtuple, uuid);
+        *start = (int128)seq->start_value;
+        *increment = (int128)seq->increment_by;
+        *maxvalue = (int128)seq->max_value;
+        *minvalue = (int128)seq->min_value;
+        *cache = (int128)seq->cache_value;
+        *cycle = (int128)seq->is_cycled;
+    }
 
     /* Now we're done with the old page */
     UnlockReleaseBuffer(buf);

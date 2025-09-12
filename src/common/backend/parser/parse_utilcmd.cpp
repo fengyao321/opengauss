@@ -2302,7 +2302,7 @@ static void transformTableLikeClause(
                             if (isForIdentity) {
                                 // read identity sequence value from tuple.
                                 // keep def->is_serial = true, to avoid setting def->cooked_default
-                                seqoptions = sequence_to_options(seqId);
+                                seqoptions = sequence_to_options(seqId, large);
                             }
                             createSeqOwnedByTable(cxt, def, preCheck, large, is_autoinc, isForIdentity, seqoptions);
                         }

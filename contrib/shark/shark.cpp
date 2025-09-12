@@ -14,6 +14,7 @@
 #include "commands/matview.h"
 #include "utils/builtins.h"
 #include "utils/typcache.h"
+#include "utils/lsyscache.h"
 #include "utils/numeric.h"
 #include "catalog/pg_database.h"
 #include "catalog/pg_authid.h"
@@ -36,7 +37,7 @@ static char* get_collation_name_for_db(Oid dbOid);
 static bool is_login(Oid id);
 static RangeVar* pltsqlMakeRangeVarFromName(const char *ident);
 static int128 get_last_value_from_seq(Oid seqid);
-static bool get_seed(Oid seqid, int64* start, int128* res, bool* success);
+static bool get_seed(Oid seqid, int128* start, int128* res, bool* success);
 static int days_in_date(int day, int month, int year);
 static bool int64_multiply_add(int64 val, int64 multiplier, int64 *sum);
 static bool int32_multiply_add(int32 val, int32 multiplier, int32 *sum);
@@ -545,7 +546,7 @@ Datum get_ident_current(PG_FUNCTION_ARGS)
     Oid seqid = InvalidOid;
     int128 res  = 0;
     bool success = false;
-    int64 start = 0;
+    int128 start = 0;
     bool seqidSuccess = false;
 
     PG_TRY();
@@ -576,12 +577,12 @@ Datum get_ident_current(PG_FUNCTION_ARGS)
         PG_RETURN_INT128(res);
     }
     if (seqidSuccess) {
-        PG_RETURN_INT64(start);
+        PG_RETURN_INT128(start);
     }
     PG_RETURN_NULL();
 }
 
-static bool get_seed(Oid seqid, int64* start, int128* res, bool* success)
+static bool get_seed(Oid seqid, int128* start, int128* res, bool* success)
 {
     PG_TRY();
     {
@@ -597,14 +598,17 @@ static bool get_seed(Oid seqid, int64* start, int128* res, bool* success)
 
     /* If the relation exists, return the seed */
     if (seqid != InvalidOid) {
-        int64 uuid = 0;
-        int64 increment = 0;
-        int64 maxvalue = 0;
-        int64 minvalue = 0;
-        int64 cachevalue = 0;
+        GTM_UUID uuid = 0;
+        int128 increment = 0;
+        int128 maxvalue = 0;
+        int128 minvalue = 0;
+        int128 cachevalue = 0;
         bool cycle = false;
+        bool large = (get_rel_relkind(seqid) == RELKIND_LARGE_SEQUENCE);
+
         Relation relseq = relation_open(seqid, AccessShareLock);
-        get_sequence_params(relseq, &uuid, start, &increment, &maxvalue, &minvalue, &cachevalue, &cycle);
+        get_sequence_params(relseq, &uuid, start, &increment, &maxvalue,
+                            &minvalue, &cachevalue, &cycle, large);
         relation_close(relseq, AccessShareLock);
         return true;
     }
