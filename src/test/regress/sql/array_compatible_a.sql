@@ -615,3 +615,33 @@ drop PROCEDURE if exists proc9;
 DROP TYPE num_type;
 DROP TYPE int_type;
 DROP TYPE char_type;
+
+create table test_nest_table(id serial,nt int);
+declare
+  type num_type is table of int;
+  type nest_num_type is table of num_type;
+  nt nest_num_type := nest_num_type();
+  b int;
+begin
+  nt(1)(1):=11;
+  nt(2)(1):=22;
+  nt(3)(1):=33;
+  nt(4)(1):=44;
+  b :=10;
+
+  raise notice '%',nt(1)(1);
+  raise notice '%',nt(2)(1);
+  raise notice '%',nt(3)(1);
+  raise notice '%',nt(4)(1);
+  raise notice '%',b;
+
+  insert into test_nest_table(nt) values(nt(1)(1));
+  insert into test_nest_table(nt) values(nt(2)(1));
+  insert into test_nest_table(nt) values(nt(3)(1));
+  insert into test_nest_table(nt) values(nt(4)(1));
+  insert into test_nest_table(nt) values(b);
+end;
+/
+
+select * from test_nest_table;
+drop table test_nest_table;
