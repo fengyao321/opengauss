@@ -176,6 +176,41 @@ begin
 end;
 /
 
+
+DROP FUNCTION IF EXISTS f11;
+CREATE OR REPLACE FUNCTION f11()
+RETURNS bigint
+LANGUAGE 'plpgsql'
+AS $$
+BEGIN
+    DECLARE EXIT handler FOR SQLEXCEPTION
+    BEGIN
+        raise notice 'error';
+    END;
+	return 111;
+	return 222;
+	return 333;
+END
+$$ ;
+
+call f11();
+DROP FUNCTION IF EXISTS f11;
+
+DROP FUNCTION IF EXISTS f12;
+CREATE OR REPLACE FUNCTION f12()
+RETURNS bigint
+LANGUAGE 'plpgsql'
+AS $$
+BEGIN
+	return 111;
+	return 222;
+	return 333;
+END
+$$ ;
+
+call f12();
+DROP FUNCTION IF EXISTS f12;
+
 -- use declare handler and exception when at the same time
 declare
     a int;
