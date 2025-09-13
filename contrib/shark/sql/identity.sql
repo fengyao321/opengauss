@@ -413,15 +413,17 @@ select * from target_table order by id;
 drop table source_table;
 drop table target_table;
 
--- SELECT INTO
+-- ## SELECT INTO, copy identity attr of single source table.
 create table t_identity_0024(id int identity(100, 1), name varchar(10), age int);
 insert into t_identity_0024 (name, age) values('xx', 11);
 insert into t_identity_0024 (name, age) values('xxx', 12);
 create table t_identity_0025(id1 int, name varchar(10));
+-- expected: successs
 select name, age into t_identity_0024_01 from t_identity_0024;
 \d+ t_identity_0024_01
 
 -- expected: success
+set identity_insert = on;
 select id into t_identity_0024_02 from t_identity_0024;
 
 select id as id_alias into t_identity_0024_02_1 from t_identity_0024;
@@ -438,9 +440,11 @@ select * from t_identity_0024_04 order by id;
 select ident_current('t_identity_0024_04');
 insert into t_identity_0024_04(alias_age) values (23);
 select * from t_identity_0024_04 order by id;
+set identity_insert = off;
 -- expected: error
 insert into t_identity_0024_04(id, alias_age) values (1000, 22);
 set identity_insert = on;
+-- expected: success
 insert into t_identity_0024_04(id, alias_age) values (1000, 22);
 set identity_insert = off;
 select ident_current('t_identity_0024_04');
@@ -450,6 +454,25 @@ select * from t_identity_0024_04 order by id;
 select i1.id, i2.id1, i1.age as alias_age into t_identity_0024_05 from t_identity_0024 i1, t_identity_0025 i2 where i1.id = i2.id1;
 \d+ t_identity_0024_05
 
+-- same to serial.
+-- expected: success
+create table t_serial_001(id serial, name varchar(10));
+select * into t_serial_001_1 from t_serial_001;
+\d+ t_serial_001_1
+-- expected: success
+create table t_serial_002(id serial, id1 serial, name varchar(10));
+select * into t_serial_002_1 from t_serial_002;
+\d+ t_serial_002_1
+create table t_serial_identity_001(id int identity(200, 2), id1 serial, name varchar(10));
+-- expected: error
+select * into t_serial_identity_001_1 from t_serial_identity_001;
+set identity_insert = on;
+-- expected: success
+select * into t_serial_identity_001_1 from t_serial_identity_001;
+set identity_insert = off;
+\d+ t_serial_identity_001_1
+
+
 drop table t_identity_0024;
 drop table t_identity_0024_01;
 drop table t_identity_0024_02;
@@ -458,6 +481,12 @@ drop table t_identity_0024_03;
 drop table t_identity_0024_04;
 drop table t_identity_0024_05;
 drop table t_identity_0025;
+drop table t_serial_001;
+drop table t_serial_001_1;
+drop table t_serial_002;
+drop table t_serial_002_1;
+drop table t_serial_identity_001;
+drop table t_serial_identity_001_1;
 
 reset current_schema;
 drop schema identity_schema;

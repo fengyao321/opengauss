@@ -1351,6 +1351,8 @@ static ObjectAddress AlterSequence(const AlterSeqStmt* stmt)
 
     /* invalidate relation(sequence) */
     CacheInvalidateRelcache(seqrel);
+    /* make possible dependency relation visible in current tranction. */
+    CommandCounterIncrement();
 
     ObjectAddressSet(address, RelationRelationId, relid);
     relation_close(seqrel, NoLock);

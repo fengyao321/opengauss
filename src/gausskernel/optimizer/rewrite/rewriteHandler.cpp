@@ -5400,9 +5400,10 @@ char* GetCreateTableStmt(Query* parsetree, CreateTableAsStmt* stmt)
      * the column names derived from the query. (Too few column names are OK, too
      * many are not.).
      */
-    IdentityCopyData* identity_data = NULL;
     ListCell* col = NULL;
     ListCell* lc = list_head(into->colNames);
+    IdentityCopyData* identity_data = NULL;
+
     foreach (col, tlist) {
         TargetEntry* tle = (TargetEntry*)lfirst(col);
         ColumnDef* coldef = NULL;
@@ -5436,7 +5437,6 @@ char* GetCreateTableStmt(Query* parsetree, CreateTableAsStmt* stmt)
 
         coldef = makeNode(ColumnDef);
         tpname = makeNode(TypeName);
-    
         /* Take the column name specified if any */
         if (lc != NULL) {
             coldef->colname = strVal(lfirst(lc));
@@ -5483,47 +5483,68 @@ char* GetCreateTableStmt(Query* parsetree, CreateTableAsStmt* stmt)
             coldef->clientLogicColumnRef = coldef_enc;
         }
 
-        coldef->typname = tpname;
-        // support copy identity(start/increment) of source table in SELECT INTO clause
-        // for D format, and only when list_length(rtable) == 1.
+        /*
+         * support copy identity(start/increment) of source table in SELECT INTO clause
+         * for D format, and only when list_length(rtable) == 1.
+         * currently we can only to confirm one column's identity or serial
+         * by searching dependency.
+        */
         if (DB_IS_CMPT(D_FORMAT) && stmt->is_select_into &&
-            list_length(cparsetree->rtable) == 1 &&
-            // only one identity column.
-            identity_data == NULL) {
+            list_length(cparsetree->rtable) == 1) {
                 RangeTblEntry* rte = lfirst_node(RangeTblEntry, list_head(cparsetree->rtable));
                 Oid seqId = InvalidOid;
-                if (seqId = pg_get_serial_sequence_internal(rte->relid, tle->resorigcol, true, NULL);
-                    OidIsValid(seqId)) {
-                    int64 uuid = 0;
-                    int64 start = 0;
-                    int64 increment = 0;
-                    int64 maxvalue = 0;
-                    int64 minvalue = 0;
-                    int64 cachevalue = 0;
-                    bool cycle = false;
+                /* only one identity column. */
+                if (!identity_data) {
+                    if (seqId = pg_get_serial_sequence_internal(rte->relid, tle->resorigcol, true, NULL);
+                        OidIsValid(seqId)) {
+                        int64 uuid = 0;
+                        int64 start = 0;
+                        int64 increment = 0;
+                        int64 maxvalue = 0;
+                        int64 minvalue = 0;
+                        int64 cachevalue = 0;
+                        bool cycle = false;
 
-                    Relation relseq = relation_open(seqId, AccessShareLock);
-                    get_sequence_params(relseq, &uuid, &start, &increment, &maxvalue, &minvalue, &cachevalue, &cycle);
-                    relation_close(relseq, AccessShareLock);
-                    identity_data = (IdentityCopyData *)palloc(sizeof(IdentityCopyData));
-                    identity_data->start = (int128)start;
-                    identity_data->increment = (int128)increment;
-                    // reuse to mark this coldef has identity in deparse_query.
-                    coldef->is_serial = true;
-                    Constraint *constraint = makeNode(Constraint);
-                    List* options = list_make2(
-                        (Node *)makeDefElem("start",
-                                            (Node *)makeFloat(IdentityInt16Out(identity_data->start))),
-                        (Node *)makeDefElem("increment",
-                                            (Node *)makeFloat(IdentityInt16Out(identity_data->increment))));
-                    constraint->contype = CONSTR_IDENTITY;
-                    /* keep same to rules in gram.y. */
-                    constraint->generated_when = ATTRIBUTE_IDENTITY_ALWAYS;
-                    constraint->options = options;
-                    constraint->location = -1;
-                    coldef->constraints = lappend(coldef->constraints, constraint);
+                        Relation relseq = relation_open(seqId, AccessShareLock);
+                        get_sequence_params(relseq, &uuid, &start, &increment,
+                                            &maxvalue, &minvalue, &cachevalue, &cycle);
+                        relation_close(relseq, AccessShareLock);
+                        identity_data = (IdentityCopyData *)palloc(sizeof(IdentityCopyData));
+                        identity_data->start = (int128)start;
+                        identity_data->increment = (int128)increment;
+                        Constraint *constraint = makeNode(Constraint);
+                        List* options = list_make2(
+                            (Node *)makeDefElem("start",
+                                                (Node *)makeFloat(IdentityInt16Out(identity_data->start))),
+                            (Node *)makeDefElem("increment",
+                                                (Node *)makeFloat(IdentityInt16Out(identity_data->increment))));
+                        constraint->contype = CONSTR_IDENTITY;
+                        /* keep same to grammer rules in shark extension. */
+                        constraint->generated_when = ATTRIBUTE_IDENTITY_ALWAYS;
+                        constraint->options = options;
+                        constraint->location = -1;
+                        coldef->constraints = lappend(coldef->constraints, constraint);
+                        coldef->is_identity = true;
+                    }
+                }
+                /*
+                 * for serial type, maybe more than one serial columns.
+                 * can't be defined with identity in same column.
+                 */
+                if (!coldef->is_identity) {
+                    if (seqId = pg_get_serial_sequence_internal(rte->relid, tle->resorigcol, false, NULL);
+                        OidIsValid(seqId)) {
+                        char *typName = "unknown";
+                        if (tpname->typeOid == INT2OID) typName = "smallserial";
+                        else if (tpname->typeOid == INT4OID) typName = "serial";
+                        else if (tpname->typeOid == INT8OID) typName = "bigserial";
+                        else if (tpname->typeOid == NUMERICOID) typName = "largeserial";
+                        tpname->names = list_make1(makeString(typName));
+                        coldef->is_serial = true;
+                    }
                 }
         }
+        coldef->typname = tpname;
     
         tableElts = lappend(tableElts, coldef);
     }
@@ -5666,7 +5687,8 @@ char* GetInsertIntoStmt(CreateTableAsStmt* stmt, bool hasNewColumn)
         appendStringInfo(cquery, " INTO %s", quote_identifier(relation->relname));
 
     /* if has new column and have data to insert */
-    if (u_sess->attr.attr_sql.sql_compatibility == B_FORMAT && hasNewColumn && !stmt->into->skipData) {
+    if ((u_sess->attr.attr_sql.sql_compatibility == B_FORMAT && hasNewColumn && !stmt->into->skipData) ||
+        DB_IS_CMPT(D_FORMAT)) {
         appendStringInfoString(cquery, " (");
         ListCell* lc = NULL;
         const char* delimiter = "";
