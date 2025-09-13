@@ -2506,7 +2506,15 @@ static void CBBufCtrlRecycle(void *db_handle)
 
 void DmsThreadDeinit()
 {
-    proc_exit(0);
+    PG_TRY();
+    {
+        proc_exit(0);
+    }
+    PG_CATCH();
+    {
+        ThreadExitCXX(0);
+    }
+    PG_END_TRY();
 }
 
 int CBDoCheckpointImmediately(unsigned long long *ckpt_lsn)
