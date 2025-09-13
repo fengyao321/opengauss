@@ -2253,8 +2253,8 @@ void audit_report(AuditType type, AuditResult result, const char *object_name, c
     if (detail_info_xid != NULL) {
         pfree(detail_info_xid);
     }
-    if (buf.len > 0) {
-        pfree(buf.data);
+    if (buf.data != NULL) {
+        FreeStringInfo(&buf);
     } else {
         ereport(LOG, (errmsg("audit buf data empty")));
     }
