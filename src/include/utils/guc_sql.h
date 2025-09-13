@@ -20,5 +20,6 @@ typedef struct behavior_compat_entry {
 } behavior_compat_entry;
 
 extern void InitSqlConfigureNames();
+extern char* GetCompatOptions(const char* value);
 
 #endif /* GUC_SQL_H */

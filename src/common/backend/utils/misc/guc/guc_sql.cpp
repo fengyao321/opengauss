@@ -186,7 +186,6 @@ static bool check_d_format_behavior_compat_options(char **newval, void **extra, 
 static void assign_d_format_behavior_compat_options(const char *newval, void *extra);
 static bool check_behavior_compat_options(char** newval, void** extra, GucSource source);
 static void assign_behavior_compat_options(const char* newval, void* extra);
-static const char* show_behavior_compat_options(void);
 static bool check_plsql_compile_behavior_compat_options(char** newval, void** extra, GucSource source);
 static void assign_plsql_compile_behavior_compat_options(const char* newval, void* extra);
 static void assign_connection_info(const char* newval, void* extra);
@@ -3255,7 +3254,7 @@ static void InitSqlConfigureNamesString()
             "sql_mode_full_group",
             check_behavior_compat_options,
             assign_behavior_compat_options,
-            show_behavior_compat_options},
+            NULL},
         {{"disable_keyword_options",
           PGC_USERSET,
           NODE_ALL,
@@ -4167,43 +4166,6 @@ static void assign_behavior_compat_options(const char* newval, void* extra)
     u_sess->utils_cxt.behavior_compat_flags = result;
 }
 
-static const char* show_behavior_compat_options(void)
-{
-    char *rawstring = NULL;
-    List *elemlist = NULL;
-    ListCell *cell = NULL;
-    int start = 0;
-    int64 result = 0;
-    StringInfoData strInfo;
-    bool isFirst = true;
-    initStringInfo(&strInfo);
-
-    rawstring = pstrdup(u_sess->attr.attr_sql.behavior_compat_string);
-    (void)SplitIdentifierString(rawstring, ',', &elemlist);
-
-    foreach (cell, elemlist) {
-        for (start = 0; start < OPT_MAX; start++) {
-            const char *item = (const char*)lfirst(cell);
-
-            if (strcmp(item, behavior_compat_options[start].name) == 0
-                && (result & behavior_compat_options[start].flag) == 0) {
-                result += behavior_compat_options[start].flag;
-                if (isFirst) {
-                    isFirst = false;
-                    appendStringInfo(&strInfo, "%s", item);
-                } else {
-                    appendStringInfo(&strInfo, ",%s", item);
-                }
-            }
-        }
-    }
-
-    pfree(rawstring);
-    list_free(elemlist);
-
-    return (const char *)strInfo.data;
-}
-
 typedef int16 (*getIgnoreKeywordTokenHook)(const char *item);
 
 static int get_ignore_keyword_token(const char *item)
@@ -5041,4 +5003,37 @@ static void AssignAnsiNulls(bool newval, void* extra)
 static void  AssignTransformNullEquals(bool newval, void* extra)
 {
     u_sess->attr.attr_sql.ansi_nulls = !newval;
+}
+
+char* GetCompatOptions(const char* value)
+{
+    List *elemlist = NULL;
+    ListCell *cell = NULL;
+    int start = 0;
+    int64 result = 0;
+    StringInfoData strInfo;
+    bool isFirst = true;
+    initStringInfo(&strInfo);
+    char* valueCopy = pstrdup(value);
+    (void)SplitIdentifierString((char *)valueCopy, ',', &elemlist);
+
+    foreach (cell, elemlist) {
+        for (start = 0; start < OPT_MAX; start++) {
+            const char *item = (const char*)lfirst(cell);
+
+            if (strcmp(item, behavior_compat_options[start].name) == 0
+                && (result & behavior_compat_options[start].flag) == 0) {
+                result += behavior_compat_options[start].flag;
+                if (isFirst) {
+                    isFirst = false;
+                    appendStringInfo(&strInfo, "%s", item);
+                } else {
+                    appendStringInfo(&strInfo, ",%s", item);
+                }
+            }
+        }
+    }
+
+    list_free(elemlist);
+    return strInfo.data;
 }
