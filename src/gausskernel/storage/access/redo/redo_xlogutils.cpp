@@ -50,6 +50,8 @@
 #include "utils/rel.h"
 #include "utils/rel_gs.h"
 #include "access/ustore/knl_uextremeredo.h"
+#include "access/hash_xlog.h"
+#include "access/ubtree.h"
 
 #include "commands/dbcommands.h"
 #include "access/extreme_rto/standby_read/block_info_meta.h"
@@ -1634,9 +1636,40 @@ static inline bool IsBtreeVacuum(const XLogBlockHead *blockhead)
     return (rmid == RM_BTREE_ID) && (info == XLOG_BTREE_VACUUM);
 }
 
+static inline bool IsHashRedo(const XLogBlockHead *blockhead)
+{
+    uint8 info = blockhead->xl_info & (~XLR_INFO_MASK);
+    RmgrId rmid = blockhead->xl_rmid;
+
+    return (rmid == RM_HASH_ID) &&
+            ((info == XLOG_HASH_SPLIT_ALLOCATE_PAGE) ||
+            (info == XLOG_HASH_MOVE_PAGE_CONTENTS)  ||
+            (info == XLOG_HASH_SQUEEZE_PAGE) ||
+            (info == XLOG_HASH_DELETE) ||
+            (info == XLOG_HASH_VACUUM_ONE_PAGE));
+}
+
+static inline bool IsUBTreeVacuum(const XLogBlockHead *blockhead)
+{
+    uint8 info = blockhead->xl_info & (~XLR_INFO_MASK);
+    RmgrId rmid = blockhead->xl_rmid;
+
+    return (rmid == RM_UBTREE_ID) && (info == XLOG_UBTREE_VACUUM);
+}
+
 static inline bool GetCleanupLock(const XLogBlockHead *blockhead)
 {
     if (IsHeap2Clean(blockhead) || IsBtreeVacuum(blockhead)) {
+        return true;
+    }
+
+    return false;
+}
+
+bool OndemandGetCleanupLock(const XLogBlockHead *blockhead)
+{
+    if (IsHeap2Clean(blockhead) || IsBtreeVacuum(blockhead) || IsHashRedo(blockhead) ||
+        IsUBTreeVacuum(blockhead)) {
         return true;
     }
 
@@ -1694,7 +1727,8 @@ XLogRedoAction XLogBlockGetOperatorBuffer(XLogBlockHead *blockhead, void *blockr
             }
         }
 
-        bool getCleanupLock = GetCleanupLock(blockhead);
+        bool getCleanupLock = (SS_IN_ONDEMAND_RECOVERY) ? OndemandGetCleanupLock(blockhead) :
+                                                          GetCleanupLock(blockhead);
         if (willinit) {
             mode = RBM_ZERO_AND_LOCK;
         } else if (blockdatarec->blockhead.has_image) {

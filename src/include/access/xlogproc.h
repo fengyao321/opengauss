@@ -1289,6 +1289,7 @@ extern XLogRecParseState* xact_redo_parse_to_block(XLogReaderState* record, uint
 extern bool XLogBlockRedoForExtremeRTO(XLogRecParseState* redoblocktate, RedoBufferInfo *bufferinfo,
                                                       bool notfound, RedoTimeCost &readBufCost, RedoTimeCost &redoCost);
 extern void XlogBlockRedoForOndemandExtremeRTOQuery(XLogRecParseState *redoBlockState, RedoBufferInfo *bufferInfo);
+extern bool OndemandGetCleanupLock(const XLogBlockHead *blockhead);
 void XLogBlockParseStateRelease_debug(XLogRecParseState* recordstate, const char *func, uint32 line);
 #define XLogBlockParseStateRelease(recordstate)  XLogBlockParseStateRelease_debug(recordstate, __FUNCTION__, __LINE__)
 #ifdef USE_ASSERT_CHECKING

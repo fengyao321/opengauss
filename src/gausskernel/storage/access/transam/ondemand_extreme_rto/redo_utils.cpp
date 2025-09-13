@@ -411,6 +411,7 @@ BufferDesc *RedoForOndemandExtremeRTOQuery(BufferDesc *bufHdr, char relpersisten
     }
 
     bool needMarkDirty = false;
+    bool hasLockForCleanup = false;
     LWLock *xlog_partition_lock = NULL;
     Buffer buf = BufferDescriptorGetBuffer(bufHdr);
     ondemand_extreme_rto::RedoItemHashEntry *redoItemEntry = NULL;
@@ -474,7 +475,12 @@ BufferDesc *RedoForOndemandExtremeRTOQuery(BufferDesc *bufHdr, char relpersisten
         /* lock the share buffer for replaying the xlog */
         if (!LWLockHeldByMeInMode(BufferDescriptorGetContentLock(bufHdr), LW_EXCLUSIVE)) {
             LockBuffer(buf, BUFFER_LOCK_UNLOCK);
-            LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
+            if (OndemandGetCleanupLock(blockHead) && !hasLockForCleanup) {
+                LockBufferForCleanup(buf);
+                hasLockForCleanup = true;
+            } else {
+                LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
+            }
         }
 
         switch (blockValid) {
