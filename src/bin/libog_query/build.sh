@@ -24,14 +24,14 @@ if [ "$mode" == "A" ]; then
     cp src_mock.cpp source_server/source/src_mock.cpp
     cp Makefile source_server/source/Makefile
     cd source_server/source
-    make build_shared -sj
+    make CFLAGS="-fstack-protector-strong" CXXFLAGS="-fstack-protector-strong" build_shared -sj
 elif [ "$mode" == "B" ]; then
     mkdir -p source_dolphin
     tar -zxf source_dolphin.tar.gz -C source_dolphin
     cp src_mock.cpp source_dolphin/source/src_mock.cpp
     cp Makefile source_dolphin/source/Makefile
     cd source_dolphin/source
-    make CFLAGS="-DDOLPHIN" CXXFLAGS="-DDOLPHIN" build_shared -sj
+    make CFLAGS="-DDOLPHIN -fstack-protector-strong" CXXFLAGS="-DDOLPHIN -fstack-protector-strong" build_shared -sj
 fi
 
 cp libog_query.so ../../libog_query.so

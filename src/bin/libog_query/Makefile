@@ -73,6 +73,8 @@ clean:
 $(ARLIB): $(OBJ_FILES) Makefile
 	@$(AR) $@ $(OBJ_FILES)
 
+override LDFLAGS += -Wl,-z,relro -Wl,-z,now
+
 $(SOLIB): $(OBJ_FILES) Makefile
 	@$(CC) $(CFLAGS) -shared -Wl,$(SOFLAG),$(SONAME) $(LDFLAGS) -o $@ $(OBJ_FILES) $(LIBS)
 
