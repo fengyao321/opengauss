@@ -756,7 +756,7 @@ static void StartCleanWorker(int* count)
     }
 
     /* We do clean work by starting clean worker in primary mode, do it ourself in standby mode. */
-    if (pmState == PM_RUN && (!ENABLE_DMS || SS_PRIMARY_MODE)) { 
+    if (pmState == PM_RUN && (!ENABLE_DMS || SS_NORMAL_PRIMARY)) {
         if (g_instance.stat_cxt.instr_stmt_is_cleaning) {
             return;
         }

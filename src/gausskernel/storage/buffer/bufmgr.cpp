@@ -3209,14 +3209,14 @@ retry:
         return buf;
     }
 
-    if (ENABLE_DMS && AmDmsProcess() && !dms_drc_accessible((uint8)DRC_RES_PAGE_TYPE) &&
-        t_thrd.dms_cxt.in_ondemand_redo) {
-        return buf;
-    }
-
     new_partition_lock = BufMappingPartitionLock(new_hash);
     /* Loop here in case we have to try another victim buffer */
     for (;;) {
+        if (ENABLE_DMS && AmDmsProcess() && !dms_drc_accessible((uint8)DRC_RES_PAGE_TYPE) &&
+            t_thrd.dms_cxt.in_ondemand_redo) {
+            return NULL;
+        }
+
         bool needGetLock = false;
         /*
          * Ensure, while the spinlock's not yet held, that there's a free refcount
@@ -3343,11 +3343,7 @@ retry:
                 continue;
             }
         }
-        /* when in failover worker thread should exit */
-        if (SS_IN_FAILOVER && SS_AM_BACKENDS_WORKERS) {
-            ereport(ERROR, (errmodule(MOD_DMS), (errmsg("worker thread which in failover are exiting"))));
-            gs_thread_exit(0);
-        }
+
         /*
          * To change the association of a valid buffer, we'll need to have
          * exclusive lock on both the old and new mapping partitions.
