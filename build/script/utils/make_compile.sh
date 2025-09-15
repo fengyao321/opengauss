@@ -337,7 +337,7 @@ function install_gaussdb()
 
 function spq_build() {
     if [ -z "${SPQ_ROOT}" ]; then
-        SPQ_ROOT="${ROOT_DIR}/../spq"
+        SPQ_ROOT="${ROOT_DIR}/contrib/spq_plugin_v2"
         echo "INFO: Auto set SPQ_ROOT to ${SPQ_ROOT}"
     fi
 
