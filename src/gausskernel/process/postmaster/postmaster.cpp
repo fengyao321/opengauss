@@ -16000,7 +16000,7 @@ int SSCountAndPrintChildren(int target)
 {
     Dlelem* curr = NULL;
     int cnt = 0;
-
+    int ignore_cnt = 0;
     for (curr = DLGetHead(g_instance.backend_list); curr; curr = DLGetSucc(curr)) {
         Backend* bp = (Backend*)DLE_VAL(curr);
 
@@ -16028,7 +16028,16 @@ int SSCountAndPrintChildren(int target)
         ereport(WARNING, (errmodule(MOD_DMS),
                 errmsg("[SS reform] print thread no exiting, thread id:%lu, thread role:%d",
                 bp->pid, bp->role)));
+
+        /* Get the total number of CMA procs. */
+        int allCMProcNum = pg_atomic_read_u32(&g_instance.conn_cxt.CurCMAProcCount);
+        for (int i = 0; i < allCMProcNum; i++) {
+            ThreadId cma_pid = g_instance.proc_base->cmAgentAllProcs[i]->pid;
+            if (bp->pid == cma_pid) {
+                ignore_cnt++;
+            }
+        }
     }
 
-    return cnt;
+    return (cnt - ignore_cnt);
 }
