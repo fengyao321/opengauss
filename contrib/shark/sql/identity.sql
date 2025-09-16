@@ -488,5 +488,71 @@ drop table t_serial_002_1;
 drop table t_serial_identity_001;
 drop table t_serial_identity_001_1;
 
+-- numeric identity test.
+---- select into
+-- max/min value
+create table t_identity_numeric_t1(id numeric(25, 0) identity(200, 2), id1 serial, name varchar(10));
+set identity_insert = on;
+select id, name into t_identity_numeric_t1_1 from t_identity_numeric_t1;
+\d+ t_identity_numeric_t1_1
+insert into t_identity_numeric_t1_1(id, name) values(987654321098765432109876, 'xxx'); -- over int64
+select * from t_identity_numeric_t1_1 order by id;
+set identity_insert = off;
+drop table t_identity_numeric_t1;
+drop table t_identity_numeric_t1_1;
+
+-- start
+create table t_identity_numeric_t2(id numeric(25, 0) identity(987654321098765432100000, 2), id1 serial, name varchar(10));
+set identity_insert = on;
+select id, name into t_identity_numeric_t2_1 from t_identity_numeric_t2;
+set identity_insert = off;
+\d+ t_identity_numeric_t2_1
+insert into t_identity_numeric_t2_1(name) values('xxx'); -- over int64
+select * from t_identity_numeric_t2_1 order by id;
+drop table t_identity_numeric_t2;
+drop table t_identity_numeric_t2_1;
+
+-- increment
+create table t_identity_numeric_t3(id numeric(25, 0) identity(2, 987654321098765432100000), id1 serial, name varchar(10));
+set identity_insert = on;
+select id, name into t_identity_numeric_t3_1 from t_identity_numeric_t3;
+set identity_insert = off;
+\d+ t_identity_numeric_t3_1
+insert into t_identity_numeric_t3_1(name) values('xxx'); -- over int64
+insert into t_identity_numeric_t3_1(name) values('xxx1');
+select * from t_identity_numeric_t3_1 order by id;
+drop table t_identity_numeric_t3;
+drop table t_identity_numeric_t3_1;
+
+---- create table like.
+-- max/min value
+create table t_identity_numeric_t4(id numeric(38, 0) identity, name varchar(10));
+create table t_identity_numeric_t4_1 (like t_identity_numeric_t4);
+\d+ t_identity_numeric_t4_1;
+set identity_insert = on;
+insert into t_identity_numeric_t4_1(id, name) values(987654321098765432109876543210, 'xxx'); -- over int64
+set identity_insert = off;
+select * from t_identity_numeric_t4_1 order by id;
+drop table t_identity_numeric_t4;
+drop table t_identity_numeric_t4_1;
+
+-- start
+create table t_identity_numeric_t5(id numeric(38, 0) identity(987654321098765432100000, 2), id1 serial, name varchar(10));
+create table t_identity_numeric_t5_1 (like t_identity_numeric_t5);
+insert into t_identity_numeric_t5_1(name) values('xxx'); -- over int64
+select * from t_identity_numeric_t5_1 order by id;
+drop table t_identity_numeric_t5;
+drop table t_identity_numeric_t5_1;
+
+-- increment
+create table t_identity_numeric_t6(id numeric(38, 0) identity(2, 987654321098765432100000), id1 serial, name varchar(10));
+create table t_identity_numeric_t6_1 (like t_identity_numeric_t6);
+\d+ t_identity_numeric_t6_1
+insert into t_identity_numeric_t6_1(name) values('xxx'); -- over int64
+insert into t_identity_numeric_t6_1(name) values('xxx1');
+select * from t_identity_numeric_t6_1 order by id;
+drop table t_identity_numeric_t6;
+drop table t_identity_numeric_t6_1;
+
 reset current_schema;
 drop schema identity_schema;

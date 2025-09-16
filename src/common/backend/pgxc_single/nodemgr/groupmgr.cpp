@@ -2641,15 +2641,16 @@ static void PgxcGroupSetSeqNodes(const char* group_name, bool allnodes)
             }
 
             if (allnodes) {
-                int64 uuid;
-                int64 start;
-                int64 increment;
-                int64 maxvalue;
-                int64 minvalue;
-                int64 cachevalue;
+                GTM_UUID uuid;
+                int128 start;
+                int128 increment;
+                int128 maxvalue;
+                int128 minvalue;
+                int128 cachevalue;
                 bool cycle = false;
 
-                get_sequence_params(relseq, &uuid, &start, &increment, &maxvalue, &minvalue, &cachevalue, &cycle);
+                get_sequence_params(relseq, &uuid, &start, &increment, &maxvalue,
+                                    &minvalue, &cachevalue, &cycle, false);
                 Const* n = makeConst(INT8OID, -1, InvalidOid, sizeof(int64), Int64GetDatum(uuid), false, true);
                 uuids = lappend(uuids, n);
 
@@ -2660,11 +2661,11 @@ static void PgxcGroupSetSeqNodes(const char* group_name, bool allnodes)
                     "MAXVALUE %ld MINVALUE %ld CACHE %ld %s;",
                     nspName,
                     seqName,
-                    start,
-                    increment,
-                    maxvalue,
-                    minvalue,
-                    cachevalue,
+                    (int64)start,
+                    (int64)increment,
+                    (int64)maxvalue,
+                    (int64)minvalue,
+                    (int64)cachevalue,
                     cycle ? "CACHE" : " ");
                 securec_check_ss(rc, "\0", "\0");
 
