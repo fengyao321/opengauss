@@ -30,7 +30,6 @@ include $(top_builddir)/src/Makefile.global
 
 override CPPFLAGS := -I$(libpq_srcdir) -DFRONTEND -fPIE $(CPPFLAGS) -I${top_builddir}/src/include
 override LDFLAGS := $(LDFLAGS) -L/usr/local/lib
-RPATH_FLAG = -Wl,-rpath=/usr/local/softbus/ctrlbus/lib
 
 ifneq "$(MAKECMDGOALS)" "clean"
   ifneq "$(MAKECMDGOALS)" "distclean"
@@ -49,7 +48,7 @@ matrix_mem.o: link_matrix_mem
 	$(CC) $(CPPFLAGS) -c matrix_mem.cpp -o matrix_mem.o
 
 all: $(OBJS)
-	$(CC) -fPIE -pie $(CXXFLAGS) $(OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) $(RPATH_FLAG) -o smb_mgr
+	$(CC) -fPIE -pie $(CXXFLAGS) $(OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o smb_mgr
 
 install: all installdirs
 	$(INSTALL_PROGRAM) smb_mgr$(X) '$(DESTDIR)$(bindir)/smb_mgr$(X)'
