@@ -421,7 +421,7 @@ if(NOT "${ENABLE_UT}" STREQUAL "ON")
     list(APPEND gaussdb_LINK_OPTIONS ${LIBUWAL_LINK_OPTIONS})
 
     add_executable(gaussdb ${gaussdb_objects})
-    target_link_options(gaussdb PRIVATE ${gaussdb_LINK_OPTIONS} "-Wl,-rpath=/usr/local/softbus/ctrlbus/lib")
+    target_link_options(gaussdb PRIVATE ${gaussdb_LINK_OPTIONS})
 if("${ENABLE_RELOCATION}" STREQUAL "ON")
     target_link_options(gaussdb PRIVATE ${gaussdb_LINK_OPTIONS} "LINKER:-q")
 endif()

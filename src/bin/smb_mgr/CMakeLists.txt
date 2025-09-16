@@ -30,7 +30,4 @@ target_link_directories(smb_mgr PUBLIC
     ${ZLIB_LIB_PATH} ${LIBOBS_LIB_PATH} ${LIBEDIT_LIB_PATH} ${LIBCGROUP_LIB_PATH} ${SECURE_LIB_PATH} ${CMAKE_BINARY_DIR}/lib 
     ${PROJECT_SRC_DIR}/include/storage /usr/local/lib
 )
-target_link_options(smb_mgr PRIVATE
-    "-Wl,-rpath=/usr/local/softbus/ctrlbus/lib"
-)
 install(TARGETS smb_mgr RUNTIME DESTINATION bin)
