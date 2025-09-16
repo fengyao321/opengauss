@@ -104,8 +104,6 @@ void InsertPgProcExt(Oid oid, FunctionPartitionInfo* partInfo, Oid proprocoid, b
 
 static bool CheckFunctionCanCache(Oid funcOid, Form_pg_proc procForm, bool onlyHasInParam)
 {
-    Datum tmp;
-    bool isNull = false;
     int nargs;
     int i;
 
@@ -150,6 +148,7 @@ static bool CheckFunctionCanCache(Oid funcOid, Form_pg_proc procForm, bool onlyH
             return false;
         }
     }
+    return true;
 }
 
 void UpdatePgProcExt(Oid funcOid, DefElem* result_cache_item, Form_pg_proc procForm, bool onlyHasInParam)
