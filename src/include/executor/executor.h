@@ -280,11 +280,6 @@ extern void instr_stmt_report_query_plan(QueryDesc *queryDesc);
 
 static inline TupleTableSlot *ExecProcNode(PlanState *node)
 {
-    statement_beentry_full_sql_context sscxt = t_thrd.shemem_ptr_cxt.MyBEEntry->statement_cxt;
-    if (sscxt.is_exceed_query_plan_threshold) {
-        instr_stmt_report_query_plan((QueryDesc *)(sscxt.root_query_plan));
-        sscxt.root_query_plan = NULL;
-    }
     TupleTableSlot* result;
     Assert(node->ExecProcNode);
 

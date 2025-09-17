@@ -467,20 +467,10 @@ void ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, long count)
     bool has_track_operator = false;
     char* old_stmt_name = u_sess->pcache_cxt.cur_stmt_name;
 
-    /* 
-     * For normal query, ExecutorRun will be called several times, we only record the first queryDesc,
-     * otherwise root_query_plan will be overwritten,
-     * and root_query_plan->planstate will be NULL,
-     * which may cause incorrect query_plan in statement_history
-     */
-    if (u_sess->statement_cxt.executer_run_level == 0) {
-        BEENTRY_STMEMENET_CXT.root_query_plan = queryDesc;
-    }
     u_sess->statement_cxt.executer_run_level++;
     if (u_sess->SPI_cxt._connected >= 0) {
         u_sess->pcache_cxt.cur_stmt_name = NULL;
     }
-    instr_stmt_exec_report_query_plan(queryDesc);
     exec_explain_plan(queryDesc);
     if (u_sess->attr.attr_resource.use_workload_manager &&
         u_sess->attr.attr_resource.resource_track_level == RESOURCE_TRACK_OPERATOR && 
@@ -584,6 +574,7 @@ void ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, long count)
         }
     }
 
+    instr_stmt_exec_report_query_plan(queryDesc);
     u_sess->pcache_cxt.cur_stmt_name = old_stmt_name;
     u_sess->statement_cxt.executer_run_level--;
 }

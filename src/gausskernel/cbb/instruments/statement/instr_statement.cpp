@@ -2385,13 +2385,11 @@ void instr_stmt_exec_report_query_plan(QueryDesc *queryDesc)
     }
 
     if (instr_stmt_level_slowsql_only_open()) {
-        if (CURRENT_STMT_METRIC_HANDLE->slow_query_threshold == 0) {
+        if (GetCurrentTimestamp() - CURRENT_STMT_METRIC_HANDLE->start_time >
+                CURRENT_STMT_METRIC_HANDLE->slow_query_threshold) {
             instr_stmt_report_query_plan(queryDesc);
             return;
         }
-
-        int delayms = u_sess->attr.attr_storage.log_min_duration_statement;
-        (void)enable_query_plan_sig_alarm(delayms);
     }
 }
 
