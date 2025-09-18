@@ -1362,6 +1362,7 @@ typedef struct knl_t_arch_context {
 #endif
     /* for standby millsecond*/
     long last_arch_time;
+    long last_slot_advance_time;
     char *slot_name;
     volatile int slot_tline;
     int slot_idx;

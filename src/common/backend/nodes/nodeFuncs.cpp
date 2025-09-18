@@ -2787,6 +2787,7 @@ Node* expression_tree_mutator(Node* node, Node* (*mutator)(Node*, void*), void* 
              * recurse into the sub-query if it wants to.
              */
             MUTATE(newnode->ctequery, cte->ctequery, Node*);
+            MUTATE(newnode->swoptions, cte->swoptions, StartWithOptions*);
             return (Node*)newnode;
         } break;
         case T_List: {
@@ -2894,6 +2895,14 @@ Node* expression_tree_mutator(Node* node, Node* (*mutator)(Node*, void*), void* 
 
             FLATCOPY(newnode, tcc, TimeCapsuleClause, isCopy);
             MUTATE(newnode->tvver, tcc->tvver, Node*);
+            return (Node*)newnode;
+        } break;
+        case T_StartWithOptions: {
+            StartWithOptions *swoptions = (StartWithOptions *)node;
+            StartWithOptions *newnode = NULL;
+            FLATCOPY(newnode, swoptions, StartWithOptions, isCopy);
+            MUTATE(newnode->connect_by_level_quals, swoptions->connect_by_level_quals, Node*);
+            MUTATE(newnode->start_with_quals, swoptions->start_with_quals, Node*);
             return (Node*)newnode;
         } break;
         case T_PrefixKey: {

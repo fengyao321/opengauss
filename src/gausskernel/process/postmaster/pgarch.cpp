@@ -755,9 +755,10 @@ static void pgarch_ArchiverObsCopyLoop(XLogRecPtr flushPtr, doArchive fun)
             gettimeofday(&tv, NULL);
             currTimestamp = TIME_GET_MILLISEC(tv);
             t_thrd.arch.pitr_task_last_lsn = targetLsn;
-            if (currTimestamp - t_thrd.arch.last_arch_time >
+            if (currTimestamp - t_thrd.arch.last_slot_advance_time  >
                 (u_sess->attr.attr_storage.archive_interval * millitosec)) {
                 AdvanceArchiveSlot(targetLsn);
+                t_thrd.arch.last_slot_advance_time = currTimestamp;
             }
             t_thrd.arch.last_arch_time = currTimestamp;
             UpdateArchivedLsn(targetLsn);
@@ -1266,6 +1267,7 @@ static void InitArchiverLastTaskLsn(ArchiveSlotConfig* obs_archive_slot)
 
     if (obs_archive_slot == NULL) {
         t_thrd.arch.last_arch_time = TIME_GET_MILLISEC(tv);
+        t_thrd.arch.last_slot_advance_time = t_thrd.arch.last_arch_time;
         obs_archive_slot = getArchiveReplicationSlot();
     }
     volatile int *slot_idx = &t_thrd.arch.slot_idx;

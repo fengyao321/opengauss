@@ -5176,7 +5176,8 @@ static void mark_append_path(PlannerInfo* root, RelOptInfo* rel, Path* pathnode,
             Distribution* subplan_dist = ng_get_correlated_subplan_group_distribution();
 
             if (!is_replicated_path(subpath) || !ng_is_same_group(distribution, subplan_dist)) {
-                subpath = create_stream_path(root, rel, STREAM_BROADCAST, NIL, NIL, subpath, 1.0, subplan_dist);
+                subpath = create_stream_path(root, subpath->parent, STREAM_BROADCAST, NIL, NIL, subpath, 1.0,
+                    subplan_dist);
             }
 
             ContainStreamContext context;
