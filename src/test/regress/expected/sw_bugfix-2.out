@@ -55,10 +55,10 @@ START WITH name = '耒阳市'
 CONNECT BY id = PRIOR fatherid;
  id |  name  | fatherid | name_desc | connect_by_root |   sys_connect_by_path    
 ----+--------+----------+-----------+-----------------+--------------------------
- 14 | 耒阳市 |       13 |           |                 | ->null
- 13 | 衡阳市 |        2 |           |                 | ->null->null
-  2 | 湖南省 |        1 |           |                 | ->null->null->null
-  1 | 中国   |        0 |           |                 | ->null->null->null->null
+ 14 | 耒阳市 |       13 |           | null            | ->null
+ 13 | 衡阳市 |        2 |           | null            | ->null->null
+  2 | 湖南省 |        1 |           | null            | ->null->null->null
+  1 | 中国   |        0 |           | null            | ->null->null->null->null
 (4 rows)
 
 -- 新插入相同数据，原有drop列后的空值和当前有效值并存
@@ -90,36 +90,36 @@ START WITH name = '耒阳市'
 CONNECT BY id = PRIOR fatherid;
  id |  name  | fatherid | name_desc | connect_by_root |        sys_connect_by_path        
 ----+--------+----------+-----------+-----------------+-----------------------------------
- 14 | 耒阳市 |       13 |           |                 | ->null
+ 14 | 耒阳市 |       13 |           | null            | ->null
  13 | 衡阳市 |        2 | Hengyang  | null            | ->null->Hengyang
   2 | 湖南省 |        1 | Hunan     | null            | ->null->Hengyang->Hunan
   1 | 中国   |        0 | China     | null            | ->null->Hengyang->Hunan->China
-  1 | 中国   |        0 |           |                 | ->null->Hengyang->Hunan->null
-  2 | 湖南省 |        1 |           |                 | ->null->Hengyang->null
+  1 | 中国   |        0 |           | null            | ->null->Hengyang->Hunan->null
+  2 | 湖南省 |        1 |           | null            | ->null->Hengyang->null
   1 | 中国   |        0 | China     | null            | ->null->Hengyang->null->China
-  1 | 中国   |        0 |           |                 | ->null->Hengyang->null->null
- 13 | 衡阳市 |        2 |           |                 | ->null->null
+  1 | 中国   |        0 |           | null            | ->null->Hengyang->null->null
+ 13 | 衡阳市 |        2 |           | null            | ->null->null
   2 | 湖南省 |        1 | Hunan     | null            | ->null->null->Hunan
   1 | 中国   |        0 | China     | null            | ->null->null->Hunan->China
-  1 | 中国   |        0 |           |                 | ->null->null->Hunan->null
-  2 | 湖南省 |        1 |           |                 | ->null->null->null
+  1 | 中国   |        0 |           | null            | ->null->null->Hunan->null
+  2 | 湖南省 |        1 |           | null            | ->null->null->null
   1 | 中国   |        0 | China     | null            | ->null->null->null->China
-  1 | 中国   |        0 |           |                 | ->null->null->null->null
+  1 | 中国   |        0 |           | null            | ->null->null->null->null
  14 | 耒阳市 |       13 | Leiyang   | Leiyang         | ->Leiyang
  13 | 衡阳市 |        2 | Hengyang  | Leiyang         | ->Leiyang->Hengyang
   2 | 湖南省 |        1 | Hunan     | Leiyang         | ->Leiyang->Hengyang->Hunan
   1 | 中国   |        0 | China     | Leiyang         | ->Leiyang->Hengyang->Hunan->China
-  1 | 中国   |        0 |           |                 | ->Leiyang->Hengyang->Hunan->null
-  2 | 湖南省 |        1 |           |                 | ->Leiyang->Hengyang->null
+  1 | 中国   |        0 |           | Leiyang         | ->Leiyang->Hengyang->Hunan->null
+  2 | 湖南省 |        1 |           | Leiyang         | ->Leiyang->Hengyang->null
   1 | 中国   |        0 | China     | Leiyang         | ->Leiyang->Hengyang->null->China
-  1 | 中国   |        0 |           |                 | ->Leiyang->Hengyang->null->null
- 13 | 衡阳市 |        2 |           |                 | ->Leiyang->null
+  1 | 中国   |        0 |           | Leiyang         | ->Leiyang->Hengyang->null->null
+ 13 | 衡阳市 |        2 |           | Leiyang         | ->Leiyang->null
   2 | 湖南省 |        1 | Hunan     | Leiyang         | ->Leiyang->null->Hunan
   1 | 中国   |        0 | China     | Leiyang         | ->Leiyang->null->Hunan->China
-  1 | 中国   |        0 |           |                 | ->Leiyang->null->Hunan->null
-  2 | 湖南省 |        1 |           |                 | ->Leiyang->null->null
+  1 | 中国   |        0 |           | Leiyang         | ->Leiyang->null->Hunan->null
+  2 | 湖南省 |        1 |           | Leiyang         | ->Leiyang->null->null
   1 | 中国   |        0 | China     | Leiyang         | ->Leiyang->null->null->China
-  1 | 中国   |        0 |           |                 | ->Leiyang->null->null->null
+  1 | 中国   |        0 |           | Leiyang         | ->Leiyang->null->null->null
 (30 rows)
 
 SELECT * FROM t1_area START WITH id in ('1','2') CONNECT BY PRIOR fatherid = id;

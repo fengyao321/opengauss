@@ -662,6 +662,7 @@ static void knl_t_arch_init(knl_t_arch_context* arch)
     arch->pitr_task_last_lsn = 0;
     arch->task_wait_interval = 1000;
     arch->last_arch_time = 0;
+    arch->last_slot_advance_time = 0;
     arch->arch_start_timestamp = 0;
     arch->arch_start_lsn = InvalidXLogRecPtr;
     arch->sync_walsender_idx = -1;

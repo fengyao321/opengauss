@@ -998,8 +998,15 @@ Datum connect_by_root(PG_FUNCTION_ARGS)
     }
 
     Datum datum = (Datum)0;
-    const char *value = TextDatumGetCString(PG_GETARG_TEXT_PP(0));
+    const char *value = NULL;
     bool constArrayList = false;
+
+    Datum input_arg = (Datum)PG_GETARG_DATUM(0);
+    if (input_arg == 0) {
+        value = SWCB_DEFAULT_NULLSTR;
+    } else {
+        value = TextDatumGetCString(PG_GETARG_TEXT_PP(0));
+    }
 
     /*
      * step[1]:
