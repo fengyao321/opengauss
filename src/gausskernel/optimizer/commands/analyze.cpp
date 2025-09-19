@@ -1,4 +1,4 @@
-/* -------------------------------------------------------------------------
+﻿/* -------------------------------------------------------------------------
  *
  * analyze.cpp
  *	  the openGauss statistics generator
@@ -4247,6 +4247,8 @@ static int64 acquirePartitionedSampleRows(Relation onerel, VacuumStmt* vacstmt, 
     partCell = list_head(partList);
     for (counter = 0; counter < nParts; counter++) {
         double partBlock = 0;
+        double trows = 0;
+        double tdrows = 0;
 
         partBlock = partBlocks[counter];
         partRel = (Relation)lfirst(partCell);
@@ -4262,8 +4264,6 @@ static int64 acquirePartitionedSampleRows(Relation onerel, VacuumStmt* vacstmt, 
 
             if (parttargrows > 0) {
                 int64 partrows = 0;
-                double trows = 0;
-                double tdrows = 0;
 
                 /* Fetch a random sample of the partition's rows */
                 if (!RelationIsColStore(onerel))
@@ -4277,15 +4277,15 @@ static int64 acquirePartitionedSampleRows(Relation onerel, VacuumStmt* vacstmt, 
                 numRows += partrows;
                 *totalrows += trows;
                 *totaldeadrows += tdrows;
-
-                /*
-                 * Remember to report sampled rows to stats collector. Otherwise, stats
-                 * collector will not set new state for this partition and the partition
-                 * ill always in a "need to be analyzed" state.
-                 */
-                if (!estimate_table_rownum)
-                    pgstat_report_analyze(partRel, trows, tdrows);
             }
+        }
+        /*
+         * Remember to report sampled rows to stats collector. Otherwise, stats
+         * collector will not set new state for this partition and the partition
+         * ill always in a "need to be analyzed" state.
+         */
+        if (!estimate_table_rownum) {
+            pgstat_report_analyze(partRel, trows, tdrows);
         }
 
         partCell = lnext(partCell);

@@ -6297,7 +6297,6 @@ void convert_ORANY_to_join(
  * @in jtlink1 - current joinExpr
  * @available_rels1 - available rel number.
  * @replace - if the node should be replaced
- * @isnull - isnull flag of clause
  * @return - not null expr this expr will replace op_expr.
  */
 Node*
@@ -6306,8 +6305,7 @@ convert_OREXPR_to_join(PlannerInfo *root, BoolExpr *or_clause,
                                 SubLink *expr_sublink, 
                                 Node **jtlink1, 
                                 Relids *available_rels,
-                                bool replace,
-                                bool isnull)
+                                bool replace)
 {
     Query       *subQuery = NULL;
     List        *EqualExprList = NULL;
@@ -6329,7 +6327,7 @@ convert_OREXPR_to_join(PlannerInfo *root, BoolExpr *or_clause,
     expr_sublink->subselect = (Node *)subQuery;
     
     if (get_pullUp_equal_expr((Node*)subQuery->jointree, &EqualExprList) && EqualExprList) {
-        joinQual = transform_equal_expr(root, subQuery, EqualExprList, NULL, false, isnull);
+        joinQual = transform_equal_expr(root, subQuery, EqualExprList, NULL, false, false);
         
         /*
          * Upper-level vars in subquery will now be one level closer to their
@@ -6475,10 +6473,8 @@ void convert_ORCLAUSE_to_join(PlannerInfo *root, BoolExpr *or_clause, Node **jtl
                     if (sublink->subLinkType != EXPR_SUBLINK) {
                         continue;
                     }
-
                     notNullExpr = convert_OREXPR_to_join(root, or_clause, clause, sublink,
-                                            jtlink1, available_rels1, replace, isnull);
-
+                                                         jtlink1, available_rels1, replace);
                     if (notNullExpr != NULL) {
                         replace = true;
                     }

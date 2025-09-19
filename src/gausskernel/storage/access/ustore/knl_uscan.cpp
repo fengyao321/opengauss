@@ -1243,6 +1243,11 @@ UHeapTuple UHeapGetNext(TableScanDesc sscan, ScanDirection dir, bool* has_cur_xa
         return NULL;
     }
 
+    if (!scan->rs_base.rs_pageatatime && scan->rs_cutup != NULL &&
+        !(u_sess->attr.attr_common.XactReadOnly && u_sess->attr.attr_storage.enable_show_any_tuples)) {
+        UHeapFreeTuple(scan->rs_cutup);
+    }
+
     scan->rs_cutup = uhtup;
 
     pgstat_count_heap_getnext(scan->rs_base.rs_rd);
