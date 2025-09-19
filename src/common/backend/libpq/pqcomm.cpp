@@ -1237,9 +1237,13 @@ static int pq_recvbuf(void)
         int r;
 
         WaitState oldStatus = pgstat_report_waitstatus(STATE_WAIT_COMM);
+
+        t_thrd.libpq_cxt.WorkerRecvStartupPacket = true;
         r = secure_read(u_sess->proc_cxt.MyProcPort,
             t_thrd.libpq_cxt.PqRecvBuffer + t_thrd.libpq_cxt.PqRecvLength,
             PQ_RECV_BUFFER_SIZE - t_thrd.libpq_cxt.PqRecvLength);
+        t_thrd.libpq_cxt.WorkerRecvStartupPacket = false;
+        
         (void)pgstat_report_waitstatus(oldStatus);
 
         if (r < 0) {

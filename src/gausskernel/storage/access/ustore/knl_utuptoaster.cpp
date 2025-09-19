@@ -196,7 +196,7 @@ UHeapTuple UHeapToastInsertOrUpdate(Relation relation, UHeapTuple newtup, UHeapT
              * we have to delete it later.
              */
             if (att->attlen == -1 && !toastOldIsNull[i] && VARATT_IS_EXTERNAL_ONDISK(oldValue)) {
-                if (toastIsNull[i] || !VARATT_IS_EXTERNAL_ONDISK(newValue) || RelationIsLogicallyLogged(relation) ||
+                if (toastIsNull[i] || !VARATT_IS_EXTERNAL_ONDISK(newValue) ||
                     memcmp((char *)oldValue, (char *)newValue, VARSIZE_EXTERNAL(oldValue)) != 0) {
                     /*
                      * The old external stored value isn't needed any more
@@ -204,6 +204,16 @@ UHeapTuple UHeapToastInsertOrUpdate(Relation relation, UHeapTuple newtup, UHeapT
                      */
                     toastDelOld[i] = true;
                     needDelOld = true;
+                } else if (RelationIsLogicallyLogged(relation)) {
+                    /*
+                     * Logical decode needs to track 'delete' and 'insert' actions, even if the column is not modified.
+                     * We just do the same toast action as how it stores before and don't care about current attstorage.
+                     * For example: attstorage is modified form 'x' to 'p', if we store as 'p' now, it may exceed
+                     * the block size because toast doesn't process attstorage 'p'.
+                     */
+                    needDelOld = true;
+                    toastDelOld[i] = true;
+                    toastAction[i] = 'l';
                 } else {
                     /*
                      * This attribute isn't changed by this update so we reuse
@@ -238,7 +248,7 @@ UHeapTuple UHeapToastInsertOrUpdate(Relation relation, UHeapTuple newtup, UHeapT
             /*
              * If the table's attribute says PLAIN always, force it so.
              */
-            if (att->attstorage == 'p')
+            if (att->attstorage == 'p' && toastAction[i] != 'l')
                 toastAction[i] = 'p';
 
             /*
@@ -251,7 +261,7 @@ UHeapTuple UHeapToastInsertOrUpdate(Relation relation, UHeapTuple newtup, UHeapT
              */
             if (VARATT_IS_EXTERNAL(newValue)) {
                 toastOldExternal[i] = newValue;
-                if (att->attstorage == 'p')
+                if (att->attstorage == 'p' && toastAction[i] != 'l')
                     newValue = heap_tuple_untoast_attr(newValue);
                 else
                     newValue = heap_tuple_fetch_attr(newValue);
@@ -271,6 +281,24 @@ UHeapTuple UHeapToastInsertOrUpdate(Relation relation, UHeapTuple newtup, UHeapT
              */
             toastAction[i] = 'p';
         }
+    }
+
+    /* For unmodified toast columns, save toast if wal level is logical */
+    for (i = 0; i < numAttrs; i++) {
+        if (toastAction[i] != 'l') {
+            continue;
+        }
+ 
+        /* toast external store */
+        Datum oldValue = toastValues[i];
+        toastValues[i] = UHeapToastSaveDatum(relation, toastValues[i], toastOldExternal[i], options);
+        if (toastFree[i]) {
+            pfree(DatumGetPointer(oldValue));
+        }
+        toastFree[i] = true;
+        needChange = true;
+        needFree = true;
+        toastAction[i] = 'p';
     }
 
     /* ----------

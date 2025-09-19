@@ -424,10 +424,15 @@ bool HeapamTupleCheckCompress(Tuple tuple)
     return HEAP_TUPLE_IS_COMPRESSED(((HeapTuple)tuple)->t_data);
 }
 
+Snapshot HeapamTupleFetchEpqSnapshot(EPQState * /* epqstate */)
+{
+    return SnapshotAny;
+}
+
 void HeapamTcapPromoteLock(Relation relation, LOCKMODE *lockmode)
 {
-    /* Protect old versions from recycling during timecapsule. */
-    *lockmode = AccessExclusiveLock;
+    /* astore engine not support tcap now and do nothing. Need block autovacuum if support in future version. */
+    return;
 }
 
 bool HeapamTcapValidateSnap(Relation relation, Snapshot snap)
@@ -548,6 +553,7 @@ static const TableAmRoutine g_heapam_methods = {
     tuple_lock_updated : HeapamTupleLockUpdated,
     tuple_check_visible: HeapamTupleCheckVisible,
     tuple_abort_speculative: HeapamAbortSpeculative,
+    tuple_fetch_epq_snapshot : HeapamTupleFetchEpqSnapshot,
     tuple_check_compress: HeapamTupleCheckCompress,
 
     /* ------------------------------------------------------------------------
@@ -567,6 +573,11 @@ static const TableAmRoutine g_heapam_methods = {
     tcap_delete_delta : HeapamTcapDeleteDelta,
     tcap_insert_lost : HeapamTcapInsertLost
 };
+
+Snapshot tableam_eval_planqual_fetch_snapshot(Relation relation, EPQState *epqstate)
+{
+    return relation->rd_tam_ops->tuple_fetch_epq_snapshot(epqstate);
+}
 
 /*
  * Implementation of uheap accessor methods.
@@ -1119,6 +1130,15 @@ bool UHeapamTupleCheckCompress(Tuple tuple)
     return false;
 }
 
+Snapshot UHeapamFetchEpqSnapshot(EPQState *epqstate)
+{
+    /*
+     * Try to fetch the row with mvcc snapshot in ustore epq to prevent it from being cleared
+     * by another session.
+     */
+    return epqstate->parentestate->es_snapshot;
+}
+
 void UHeapamTupleCheckVisible(Snapshot snapshot, Tuple tuple, Buffer buffer)
 {
     UHeapTupleCheckVisible(snapshot, (UHeapTuple)tuple, buffer);
@@ -1252,6 +1272,7 @@ static const TableAmRoutine g_ustoream_methods = {
     tuple_lock_updated : UHeapamTupleLockUpdated,
     tuple_check_visible : UHeapamTupleCheckVisible,
     tuple_abort_speculative : UHeapamAbortSpeculative,
+    tuple_fetch_epq_snapshot : UHeapamFetchEpqSnapshot,
     tuple_check_compress: UHeapamTupleCheckCompress,
 
     /* ------------------------------------------------------------------------

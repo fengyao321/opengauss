@@ -600,6 +600,10 @@ static void StartPageRedoWorkers(uint32 totalThrdNum)
     RedoRoleInit(&(g_dispatcher->readLine.readPageThd), tmpWorkers[workerCnt++], REDO_READ_PAGE_WORKER, 0, false);
     RedoRoleInit(&(g_dispatcher->readLine.readThd), tmpWorkers[workerCnt++], REDO_READ_WORKER, 0, false);
 
+    g_GlobalLsnForwarder.record.ReadRecPtr = InvalidXLogRecPtr;
+    g_GlobalLsnForwarder.record.EndRecPtr = InvalidXLogRecPtr;
+    g_GlobalLsnForwarder.record.refcount = 0;
+
     for (started = 0; started < totalThrdNum; started++) {
         if (StartPageRedoWorker(g_dispatcher->allWorkers[started]) == NULL) {
             ereport(PANIC,

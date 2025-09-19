@@ -671,7 +671,6 @@ uint16 first_version_dw_single_flush(BufferDesc *buf_desc)
 
     /* used to block the io for snapshot feature */
     (void)LWLockAcquire(g_instance.ckpt_cxt_ctl->snapshotBlockLock, LW_SHARED);
-    LWLockRelease(g_instance.ckpt_cxt_ctl->snapshotBlockLock);
 
     uint64 buf_state = LockBufHdr(buf_desc);
     Block block = BufHdrGetBlock(buf_desc);
@@ -713,6 +712,7 @@ uint16 first_version_dw_single_flush(BufferDesc *buf_desc)
     dw_pwrite_file(dw_single_cxt->fd, buf, BLCKSZ, page_write_offset, SINGLE_DW_FILE_NAME);
 
     (void)pg_atomic_add_fetch_u64(&dw_single_cxt->single_stat_info.total_writes, 1);
+    LWLockRelease(g_instance.ckpt_cxt_ctl->snapshotBlockLock);
 
     return actual_pos;
 }
@@ -732,7 +732,6 @@ uint16 second_version_dw_single_flush(BufferTag tag, Block block, XLogRecPtr pag
 
     /* used to block the io for snapshot feature */
     (void)LWLockAcquire(g_instance.ckpt_cxt_ctl->snapshotBlockLock, LW_SHARED);
-    LWLockRelease(g_instance.ckpt_cxt_ctl->snapshotBlockLock);
 
     /* first step, copy buffer to dw buf, than flush page lsn, the buffer content lock  is already held */
     rc = memcpy_s(buf, BLCKSZ, block, BLCKSZ);
@@ -775,6 +774,7 @@ uint16 second_version_dw_single_flush(BufferTag tag, Block block, XLogRecPtr pag
 
     LWLockRelease(dw_single_cxt->second_buftag_lock);
     (void)pg_atomic_add_fetch_u64(&dw_single_cxt->single_stat_info.second_total_writes, 1);
+    LWLockRelease(g_instance.ckpt_cxt_ctl->snapshotBlockLock);
 
     return (actual_pos + DW_FIRST_DATA_PAGE_NUM);
 }

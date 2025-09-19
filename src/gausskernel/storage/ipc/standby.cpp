@@ -24,6 +24,7 @@
 #include "access/xloginsert.h"
 #include "access/csnlog.h"
 #include "access/multi_redo_api.h"
+#include "access/double_write.h"
 #include "miscadmin.h"
 #include "storage/buf/bufmgr.h"
 #include "storage/lmgr.h"
@@ -136,7 +137,8 @@ static TimestampTz GetStandbyLimitTime(TimestampTz startTime)
 {
     TimestampTz rtime = startTime;
 
-    if (u_sess->attr.attr_storage.max_standby_streaming_delay < 0)
+    if (u_sess->attr.attr_storage.max_standby_streaming_delay < 0 ||
+        is_dw_snapshot_blocked())
         return 0; /* wait forever */
 
     return TimestampTzPlusMilliseconds(rtime, u_sess->attr.attr_storage.max_standby_streaming_delay);

@@ -503,6 +503,8 @@ typedef struct TableAmRoutine {
 
     void (*tuple_abort_speculative)(Relation relation, Tuple tuple);
 
+    Snapshot (*tuple_fetch_epq_snapshot)(EPQState *epqstate);
+
     bool (*tuple_check_compress)(Tuple tuple);
 
     /* ------------------------------------------------------------------------
@@ -533,6 +535,7 @@ typedef struct TableAmRoutine {
 extern const TableAmRoutine * const g_tableam_routines[];
 extern void HeapamScanIndexFetchEnd(IndexFetchTableData *scan);
 extern void heapam_index_fetch_reset(IndexFetchTableData *scan);
+extern Snapshot tableam_eval_planqual_fetch_snapshot(Relation relation, EPQState *epqstate);
 extern IndexFetchTableData *HeapamScanIndexFetchBegin(Relation rel);
 
 static inline const TableAmRoutine* GetTableAmRoutine(TableAmType type)

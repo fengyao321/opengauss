@@ -2241,7 +2241,6 @@ static void dw_batch_flush(dw_batch_file_context *dw_cxt, XLogRecPtr latest_lsn,
     
     /* used to block the io for snapshot feature */
     (void)LWLockAcquire(g_instance.ckpt_cxt_ctl->snapshotBlockLock, LW_SHARED);
-    LWLockRelease(g_instance.ckpt_cxt_ctl->snapshotBlockLock);
 
     if (!XLogRecPtrIsInvalid(latest_lsn)) {
         XLogWaitFlush(latest_lsn);
@@ -2274,6 +2273,7 @@ static void dw_batch_flush(dw_batch_file_context *dw_cxt, XLogRecPtr latest_lsn,
     dw_cxt->write_pos = 0;
     thrd_dw_cxt->dw_page_idx = offset_page;
     LWLockRelease(dw_cxt->flush_lock);
+    LWLockRelease(g_instance.ckpt_cxt_ctl->snapshotBlockLock);
 
     ereport(DW_LOG_LEVEL,
             (errmodule(MOD_DW),

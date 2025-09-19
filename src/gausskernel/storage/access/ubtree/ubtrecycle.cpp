@@ -31,6 +31,8 @@
 #include "utils/builtins.h"
 #include "datatype/timestamp.h"
 
+#define UBTREE_NBLOCKS_DIFF 24
+
 uint32 BlockGetMaxItems(BlockNumber blkno)
 {
     uint32 freeSpace = BLCKSZ - sizeof(PageHeaderData) - offsetof(UBTRecycleQueueHeaderData, items);
@@ -445,6 +447,14 @@ Buffer UBTreeGetAvailablePage(Relation rel, UBTRecycleForkNumber forkNumber, UBT
     Buffer metaBuf = ReadRecycleQueueBuffer(rel, metaBlockNumber);
     LockBuffer(metaBuf, BT_READ);
     UBTRecycleMeta metaData = (UBTRecycleMeta)PageGetContents(BufferGetPage(metaBuf));
+    BlockNumber meta_block_upper = 0;
+    if (nblocks > UBTREE_NBLOCKS_DIFF) {
+        meta_block_upper = (nblocks - UBTREE_NBLOCKS_DIFF);
+    }
+    if (metaData->nblocksUpper < meta_block_upper) {
+        metaData->nblocksUpper = meta_block_upper;
+        metaChanged = true;
+    }
     for (BlockNumber curBlkno = metaData->nblocksUpper; curBlkno < nblocks; curBlkno++) {
         if (t_thrd.int_cxt.QueryCancelPending || t_thrd.int_cxt.ProcDiePending) {
             ereport(ERROR, (errmsg("Received cancel interrupt while getting available page.")));

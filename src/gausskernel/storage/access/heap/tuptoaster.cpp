@@ -612,6 +612,7 @@ HeapTuple toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtu
      *		' '		default handling
      *		'p'		already processed --- don't touch it
      *		'x'		incompressible, but OK to move off
+     *      'l'     logical wal, need save toast no-modified columns
      *
      * NOTE: toast_sizes[i] is only made valid for varlena attributes with
      *		toast_action[i] different from 'p'.
@@ -644,7 +645,7 @@ HeapTuple toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtu
              */
             if (att[i].attlen == -1 && !toast_oldisnull[i] &&
                 (VARATT_IS_EXTERNAL_ONDISK_B(old_value) || VARATT_IS_HUGE_TOAST_POINTER(old_value))) {
-                if (toast_isnull[i] || (RelationIsLogicallyLogged(rel) && !VARATT_IS_HUGE_TOAST_POINTER(new_value)) ||
+                if (toast_isnull[i] ||
                     !(VARATT_IS_EXTERNAL_ONDISK_B(new_value) || VARATT_IS_HUGE_TOAST_POINTER(new_value)) ||
                     VARTAG_EXTERNAL(new_value) != VARTAG_EXTERNAL(old_value) ||
                     memcmp((char *)old_value, (char *)new_value, VARSIZE_EXTERNAL(old_value)) != 0) {
@@ -654,6 +655,16 @@ HeapTuple toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtu
                      */
                     toast_delold[i] = true;
                     need_delold = true;
+                } else if (RelationIsLogicallyLogged(rel) && !VARATT_IS_HUGE_TOAST_POINTER(new_value)) {
+                    /*
+                     * Logical decode needs to track 'delete' and 'insert' actions, even if the column is not modified.
+                     * We just do the same toast action as how it stores before and don't care about current attstorage.
+                     * For example: attstorage is modified form 'x' to 'p', if we store as 'p' now, it may exceed
+                     * the block size because toast doesn't process attstorage 'p'.
+                     */
+                    toast_delold[i] = true;
+                    need_delold = true;
+                    toast_action[i] = 'l';
                 } else {
                     /*
                      * This attribute isn't changed by this update so we reuse
@@ -687,7 +698,7 @@ HeapTuple toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtu
             /*
              * If the table's attribute says PLAIN always, force it so.
              */
-            if (att[i].attstorage == 'p') {
+            if (att[i].attstorage == 'p' && toast_action[i] != 'l') {
                 toast_action[i] = 'p';
             }
 
@@ -700,7 +711,7 @@ HeapTuple toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtu
              */
             if (VARATT_IS_EXTERNAL(new_value) && !VARATT_IS_HUGE_TOAST_POINTER(new_value)) {
                 toast_oldexternal[i] = new_value;
-                if (att[i].attstorage == 'p') {
+                if (att[i].attstorage == 'p' && toast_action[i] != 'l') {
                     new_value = heap_tuple_untoast_attr(new_value);
                 } else {
                     new_value = heap_tuple_fetch_attr(new_value);
@@ -729,6 +740,24 @@ HeapTuple toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtu
              */
             toast_action[i] = 'p';
         }
+    }
+
+    /* For unmodified toast columns, save toast if wal level is logical */
+    for (i = 0; i < num_attrs; i++) {
+        if (toast_action[i] != 'l') {
+            continue;
+        }
+
+        /* toast external store */
+        Datum old_value = toast_values[i];
+        toast_values[i] = toast_save_datum(rel, toast_values[i], toast_oldexternal[i], options);
+        if (toast_free[i]) {
+            pfree(DatumGetPointer(old_value));
+        }
+        toast_free[i] = true;
+        need_change = true;
+        need_free = true;
+        toast_action[i] = 'p';
     }
 
     /*

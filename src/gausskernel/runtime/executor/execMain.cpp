@@ -3765,8 +3765,10 @@ void EvalPlanQualFetchRowMarks(EPQState *epqstate)
                 Partition p = partitionOpen(erm->relation, tableoid, NoLock, bucketid);
                 Relation fakeRelation = partitionGetRelation(erm->relation, p);
 
+                Snapshot snapshot = tableam_eval_planqual_fetch_snapshot(fakeRelation, epqstate);
+
                 /* okay, fetch the tuple */
-                if (!tableam_tuple_fetch(fakeRelation, SnapshotAny, &tuple, &buffer, false, NULL)) {
+                if (!tableam_tuple_fetch(fakeRelation, snapshot, &tuple, &buffer, false, NULL)) {
                     ereport(ERROR, (errcode(ERRCODE_FETCH_DATA_FAILED),
                         errmsg("failed to fetch tuple for EvalPlanQual recheck from partition relation.")));
                 }
@@ -3779,7 +3781,10 @@ void EvalPlanQualFetchRowMarks(EPQState *epqstate)
                     Assert(bucketid != InvalidBktId);
                     fakeRelation = bucketGetRelation(erm->relation, NULL, bucketid);
                 }
-                if (!tableam_tuple_fetch(fakeRelation, SnapshotAny, &tuple, &buffer, true, NULL)) {
+
+                Snapshot snapshot = tableam_eval_planqual_fetch_snapshot(fakeRelation, epqstate);
+
+                if (!tableam_tuple_fetch(fakeRelation, snapshot, &tuple, &buffer, true, NULL)) {
                     Page page = BufferGetPage(buffer);
                     ItemPointer tid = &tuple.t_self;
                     OffsetNumber offnum = ItemPointerGetOffsetNumber(tid);

@@ -861,6 +861,11 @@ int archive_replication_cleanup(XLogRecPtr recptr, ArchiveConfig *archive_config
     size_t len = 0;
     XLogSegNo xlogSegno = 0;
     volatile WalRcvData *walrcv = t_thrd.walreceiverfuncs_cxt.WalRcv;
+    struct timeval start_time;
+    gettimeofday(&start_time, NULL);
+    struct timeval curr_time;
+    /* avoid taking too long to delete obs file, set timeout as 4h */
+    long timeout = 4 * 60 * 60;
 
     XLByteToSeg(recptr, xlogSegno);
     rc = snprintf_s(xlogfname, MAXFNAMELEN, MAXFNAMELEN - 1, "%08X%08X%08X_%02u", DEFAULT_TIMELINE_ID,
@@ -909,6 +914,18 @@ int archive_replication_cleanup(XLogRecPtr recptr, ArchiveConfig *archive_config
     }
 
     foreach (cell, object_list) {
+        /* check interrupts */
+        CHECK_FOR_INTERRUPTS();
+ 
+        gettimeofday(&curr_time, NULL);
+        if (curr_time.tv_sec - start_time.tv_sec > timeout) {
+            /* release result list */
+            list_free_deep(object_list);
+            object_list = NIL;
+            pfree(fileNamePrefix);
+            ereport(ERROR, (errmsg("archive_replication_cleanup failed, timeout %ld s, current delete file is %s",
+                timeout, (char *)lfirst(cell))));
+        }
         key = path_skip_prefix((char *)lfirst(cell));
         if (key == NULL) {
             ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
