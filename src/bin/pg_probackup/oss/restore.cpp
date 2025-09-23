@@ -372,6 +372,7 @@ void restoreConfigDir()
             fio_mkdir(dir_path, DIR_PERMISSION, location);
             pg_free(dir_name);
         }
+        pg_free(dir_name);
     }
     parray_free(obj_list);
 }
