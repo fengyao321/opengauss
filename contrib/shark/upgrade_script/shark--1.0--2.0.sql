@@ -6854,3 +6854,5 @@ RETURNS INTEGER
 language c
 immutable strict NOT FENCED NOT SHIPPABLE
 AS '$libdir/shark', $function$varbinary_length$function$;
+
+CREATE OR REPLACE FUNCTION sys.newid() RETURNS uuid LANGUAGE C VOLATILE as '$libdir/shark', 'uuid_generate';

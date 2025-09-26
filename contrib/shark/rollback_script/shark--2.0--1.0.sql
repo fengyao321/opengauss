@@ -367,3 +367,5 @@ drop function if exists sys.datename(cstring,time without time zone);
 drop function if exists sys.datename(cstring,time with time zone);
 drop function if exists sys.len(TEXT);
 drop function if exists sys.len(sys.VARBINARY);
+
+drop function if exists sys.newid();
