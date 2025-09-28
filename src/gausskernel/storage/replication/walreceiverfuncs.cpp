@@ -203,7 +203,6 @@ static void SetWalRcvConninfo(ReplConnTarget conn_target)
 
     if (prev_index > 0 && (GetConnectErrorCont(prev_index) < MAX_CONNECT_ERROR_COUNT) &&
         IS_CN_DISASTER_RECOVER_MODE || AM_HADR_WAL_RECEIVER) {
-        t_thrd.walreceiverfuncs_cxt.WalReplIndex = prev_index;
         ereport(LOG, (errmsg("walecvconninfo reuse connection %d.", prev_index)));
         pg_usleep(200000L);
     }
@@ -229,6 +228,18 @@ static void SetWalRcvConninfo(ReplConnTarget conn_target)
             useIndex = t_thrd.walreceiverfuncs_cxt.WalReplIndex;
             t_thrd.walreceiverfuncs_cxt.WalReplIndex++;
             ereport(DEBUG2, (errmsg("current useIndex is: %d", useIndex)));
+            break;
+        }
+
+        ereport(DEBUG2, (errmsg("cross region: %d, main standby: %d, cascade standby: %d",
+        t_thrd.postmaster_cxt.HaShmData->is_cross_region, t_thrd.postmaster_cxt.HaShmData->is_hadr_main_standby,
+        t_thrd.postmaster_cxt.HaShmData->is_cascade_standby)));
+        if (connNode.conn_mode == SPECIFY_CONNECTION && conninfo != NULL &&
+            t_thrd.postmaster_cxt.HaShmData->is_cross_region &&
+            t_thrd.postmaster_cxt.HaShmData->is_hadr_main_standby &&
+            t_thrd.postmaster_cxt.HaShmData->is_cascade_standby == false) {
+            useIndex = t_thrd.walreceiverfuncs_cxt.WalReplIndex;
+            t_thrd.walreceiverfuncs_cxt.WalReplIndex++;
             break;
         }
 
