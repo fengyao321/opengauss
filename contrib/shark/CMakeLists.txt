@@ -105,6 +105,7 @@ set(TGT_shark_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/varlena.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sqlvariant.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/datefuncs.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/uuidfuncs.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/${BEPARSERDIR}/gram-backend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/${BEPARSERDIR}/keywords.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/${BEPARSERDIR}/varbinary.cpp
