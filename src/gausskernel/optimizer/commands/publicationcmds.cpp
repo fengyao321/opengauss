@@ -122,7 +122,7 @@ static void parse_publication_options(List *options,
                     ereport(ERROR,
                         (errcode(ERRCODE_SYNTAX_ERROR), errmsg("unrecognized \"publish\" value: \"%s\"", publish_opt)));
             }
-        } else if (pubddl && strcmp(defel->defname, "ddl") == 0) {
+        } else if (strcmp(defel->defname, "ddl") == 0) {
             char *ddl_types;
             List *ddl_type_list;
             ListCell *lc2;

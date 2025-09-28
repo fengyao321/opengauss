@@ -193,8 +193,7 @@ int ReadAttributesFixedWith(CopyState cstate)
             char *cvt = pg_any_to_server(cstate->raw_fields[attnum - 1],
                                          inputSize,
                                          cstate->file_encoding);
-            if (cvt != cstate->raw_fields[attnum - 1]) {
-
+            if (cvt != NULL && cvt != cstate->raw_fields[attnum - 1]) {
                 /* transfer converted data back to raw_field */
                 appendBinaryStringInfo(&cstate->fieldBuf, cvt, strlen(cvt));
                 cstate->raw_fields[attnum - 1] = fieldPtr;

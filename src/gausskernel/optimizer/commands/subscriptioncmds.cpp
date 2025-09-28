@@ -418,6 +418,9 @@ static bool ConnectPublisher(char* conninfo, char* slotname)
     walrcv->conn_target = REPCONNTARGET_PUBLICATION;
     SpinLockRelease(&walrcv->mutex);
     char* decryptConninfo = EncryptOrDecryptConninfo(conninfo, 'D');
+    if (decryptConninfo == NULL) {
+        elog(ERROR, "decryptConninfo is NULL");
+    }
     bool connectSuccess = (WalReceiverFuncTable[GET_FUNC_IDX]).walrcv_connect(decryptConninfo, NULL, slotname, -1);
     int rc = memset_s(decryptConninfo, strlen(decryptConninfo), 0, strlen(decryptConninfo));
     securec_check(rc, "", "");
