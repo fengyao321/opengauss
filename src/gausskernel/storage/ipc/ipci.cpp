@@ -163,7 +163,9 @@ Size ComputeTotalSizeOfShmem()
         size = add_size(size, ShareInputShmemSize());
 #endif
         size = add_size(size, CheckpointerShmemSize());
-        size = add_size(size, PageWriterShmemSize());
+        if (ENABLE_INCRE_CKPT) {
+            size = add_size(size, PageWriterShmemSize());
+        }
         size = add_size(size, AutoVacuumShmemSize());
         size = add_size(size, WalSndShmemSize());
         size = add_size(size, WalRcvShmemSize());
@@ -182,8 +184,10 @@ Size ComputeTotalSizeOfShmem()
         size = add_size(size, AsyncRollbackHashShmemSize());
         size = add_size(size, UndoWorkerShmemSize());
         size = add_size(size, OgaiWorkerShmemSize());
+#ifndef ENABLE_LITE_MODE
         size = add_size(size, TxnSnapCapShmemSize());
         size = add_size(size, RbCleanerShmemSize());
+#endif
 
 #ifdef PGXC
         size = add_size(size, NodeTablesShmemSize());
@@ -383,9 +387,13 @@ void CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
         CheckpointerShmemInit();
         CBMShmemInit();
         AutoVacuumShmemInit();
+#ifndef ENABLE_LITE_MODE
         TxnSnapCapShmemInit();
+#endif
         CfsShrinkerShmemInit();
+#ifndef ENABLE_LITE_MODE
         RbCleanerShmemInit();
+#endif
     }
     ReplicationSlotsShmemInit();
 #ifndef ENABLE_MULTIPLE_NODES
