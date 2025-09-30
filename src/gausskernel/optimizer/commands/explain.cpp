@@ -653,7 +653,7 @@ static void ExplainOneQuery(
     u_sess->exec_cxt.remotequery_list = NIL;
     /* planner will not cope with utility statements */
     if (query->commandType == CMD_UTILITY) {
-        if (IsA(query->utilityStmt, CreateTableAsStmt)) {
+        if (query->utilityStmt && IsA(query->utilityStmt, CreateTableAsStmt)) {
             CreateTableAsStmt* ctas = (CreateTableAsStmt*)query->utilityStmt;
             List* rewritten = NIL;
 
@@ -676,7 +676,7 @@ static void ExplainOneQuery(
 
             return;
         }
-        else if (IsA(query->utilityStmt, CreateModelStmt)) {
+        else if (query->utilityStmt && IsA(query->utilityStmt, CreateModelStmt)) {
             CreateModelStmt* cm = (CreateModelStmt*) query->utilityStmt;
 
             /*
@@ -4660,6 +4660,9 @@ static void show_datanode_hash_info(ExplainState *es, int nbatch, int nbuckets_o
  */
 static void show_llvm_info(const PlanState* planstate, ExplainState* es)
 {
+    if (es == NULL) {
+        elog(ERROR, "es is NULL");
+    }
     if (!es->detail)
         return;
 
@@ -5039,9 +5042,9 @@ static void show_hashAgg_info(AggState* hashaggstate, ExplainState* es)
                         planstate->instrument->sorthashinfo.hashtable_expand_times,
                         es->str);
                 } else {
-                    if (es->planinfo->m_runtimeinfo != NULL)
+                    if (es->planinfo && es->planinfo->m_runtimeinfo != NULL)
                         es->planinfo->m_runtimeinfo->put(-1, -1, HASH_FILENUM, filenum);
-                    if (es->planinfo->m_staticInfo != NULL) {
+                    if (es->planinfo && es->planinfo->m_staticInfo != NULL) {
                         es->planinfo->m_staticInfo->set_plan_name<true, true>();
 
                         show_datanode_filenum_info(es,
