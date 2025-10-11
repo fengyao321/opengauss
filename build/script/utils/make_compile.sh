@@ -342,7 +342,6 @@ function spq_build() {
     fi
 
     if [ ! -d "${SPQ_ROOT}" ]; then
-        echo "ERROR: Invalid SPQ_ROOT path '${SPQ_ROOT}'"
         return
     fi
 
