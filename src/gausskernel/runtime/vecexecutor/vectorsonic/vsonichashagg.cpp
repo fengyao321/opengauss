@@ -1331,7 +1331,7 @@ void SonicHashAgg::Profile(char* stats, bool* can_wlm_warning_statistics)
  * @in cmpIdx		: The location of hash table.
  * @return		: Return true is matched.
  */
-template <bool simpleType, typename cmpType = uint64>
+template <bool simpleType, typename cmpType>
 bool SonicHashAgg::matchValue(ScalarVector* pVector, uint16 keyIdx, int16 pVectorIdx, uint32 cmpIdx)
 {
     Datum val;
@@ -1364,7 +1364,7 @@ bool SonicHashAgg::matchValue(ScalarVector* pVector, uint16 keyIdx, int16 pVecto
  * @in keyIdx		: The serial number of the hash key.
  * @in cmpRows	: The number of rows we need to consider.
  */
-template <bool simpleType, typename cmpType = uint64>
+template <bool simpleType, typename cmpType>
 void SonicHashAgg::matchArray(ScalarVector* pVector, uint16 keyIdx, uint16 cmpRows)
 {
     Datum val;
