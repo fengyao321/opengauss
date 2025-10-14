@@ -992,4 +992,4 @@
 ./include/pqcomm.h
 ./include/pqexpbuffer.h
 [version]
-7.0.0-RC2
+7.0.0-RC3
