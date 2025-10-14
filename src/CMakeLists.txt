@@ -25,7 +25,7 @@ execute_process(COMMAND find src/gausskernel -name *.cpp COMMAND sort
 file(APPEND ${EREPORT_FILE} ${ereport})
 
 execute_process(
-    COMMAND ln -fs ${PROJECT_SRC_DIR}/include/port/linux.h ${PROJECT_SRC_DIR}/include/pg_config_os.h
+    COMMAND cp ${PROJECT_SRC_DIR}/include/port/linux.h ${PROJECT_SRC_DIR}/include/pg_config_os.h
 )
 
 INCLUDE_DIRECTORIES(${CJSON_INCLUDE_PATH} ${BOOST_INCLUDE_PATH} ${ZSTD_INCLUDE_PATH})

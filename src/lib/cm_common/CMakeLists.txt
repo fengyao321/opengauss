@@ -5,7 +5,7 @@ execute_process(
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     OUTPUT_FILE cm_errcodes.h
 )
-execute_process(COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/cm_errcodes.h ${PROJECT_SRC_DIR}/include/cm/cm_errcodes.h)
+execute_process(COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/cm_errcodes.h ${PROJECT_SRC_DIR}/include/cm/cm_errcodes.h)
 
 AUX_SOURCE_DIRECTORY(${CMAKE_CURRENT_SOURCE_DIR} TGT_cmcommon_SRC)
 

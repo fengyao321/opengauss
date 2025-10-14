@@ -39,8 +39,8 @@ set(parser_cmd_src
 add_cmd_gen_when_configure(flex_target parser_cmd_src)
 
 execute_process(
-    COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/gram.hpp  ${PROJECT_SRC_DIR}/include/parser/gram.hpp
-    COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/hint_gram.hpp  ${PROJECT_SRC_DIR}/include/parser/hint_gram.hpp
+    COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/gram.hpp  ${PROJECT_SRC_DIR}/include/parser/gram.hpp
+    COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/hint_gram.hpp  ${PROJECT_SRC_DIR}/include/parser/hint_gram.hpp
 )
 
 set(TGT_parser_SRC
