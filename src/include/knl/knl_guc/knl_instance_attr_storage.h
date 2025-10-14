@@ -266,7 +266,7 @@ typedef struct knl_instance_attr_storage {
     bool enable_mmap;
     int num_slru_buffers[SLRU_BUFFER_KIND];
     char* num_slru_buffers_str;
-    char* lmemfabric_client_path;
+    char* ubs_mem_path;
 
     int parallel_recovery_dispatch_algorithm;
     bool enable_tpc_fragment_chunks;

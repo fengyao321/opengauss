@@ -30,7 +30,7 @@
 #include "access/xlog_internal.h"
 #include "access/xlogproc.h"
 #include "storage/buf/buf_internals.h"
-#include "storage/rack_mem.h"
+#include "storage/ubs_mem.h"
 
 #define ENABLE_SMB_CKPT (g_instance.smb_cxt.use_smb && !RecoveryInProgress() && !g_instance.smb_cxt.shutdownSMBWriter)
 #define ENABLE_SMB_PULL_PAGE \
@@ -38,7 +38,8 @@
 #define SIZE_K(n) (uint32)((n) * 1024)
 #define SHARED_MEM_NAME "smb_shared_meta"
 #define MAX_SHM_CHUNK_NAME_LENGTH 64
-#define BLOCKS_PER_CHUNK (MAX_RACK_ALLOC_SIZE/(8 * 1024))
+#define SMB_ALLOC_SIZE_PER_CHUNK ((size_t)(1024 * 1024 * 1024 * 4))
+#define BLOCKS_PER_CHUNK (SMB_ALLOC_SIZE_PER_CHUNK/(8 * 1024))
 #define SMB_INVALID_ID (-1)
 #define SMB_WRITER_MAX_ITEM_SIZE (g_instance.smb_cxt.NSMBBuffers * sizeof(smb_recovery::SMBBufItem))
 #define SMB_WRITER_MAX_BUCKET_PER_FILE SIZE_K(200)
@@ -49,7 +50,7 @@
 #define SMB_BUF_META_SIZE \
 	(SMB_WRITER_ITEM_SIZE_PERMETA + SMB_WRITER_BUCKET_SIZE_PERMETA + 2 * sizeof(int) + 2 * sizeof(XLogRecPtr))
 #define SMB_WRITER_ITEM_PER_MGR (g_instance.smb_cxt.NSMBBuffers / smb_recovery::SMB_BUF_MGR_NUM)
-
+#define SMB_TOTAL_META_SIZE TYPEALIGN(FOUR_MB, SMB_BUF_META_SIZE * smb_recovery::SMB_BUF_MGR_NUM)
 
 namespace smb_recovery {
 
@@ -58,6 +59,11 @@ constexpr int SMB_PAGE_REDOING = 1;
 constexpr int SMB_PAGE_REDO_DONE = 2;
 constexpr int SMB_BUF_MGR_NUM = 8;
 constexpr int SMB_WRITER_MAX_FILE = 10;
+
+enum class SMBState {
+    SMB_AVAILABLE = 0,
+    SMB_UNAVAILABLE = 1,
+};
 
 struct SMBAnalyzer {
     ServerMode initialServerMode;

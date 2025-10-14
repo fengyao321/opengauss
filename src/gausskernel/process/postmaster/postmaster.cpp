@@ -2852,7 +2852,7 @@ int PostmasterMain(int argc, char* argv[])
     InitDolpinProtoIfNeeded();
 
 #ifdef __aarch64__
-    MatrixMemFuncInit(g_instance.attr.attr_storage.lmemfabric_client_path);
+    MatrixMemFuncInit(g_instance.attr.attr_storage.ubs_mem_path);
 #endif
 
     /*
@@ -6256,6 +6256,10 @@ static void SIGHUP_handler(SIGNAL_ARGS)
                 }
             }
         }
+        
+        if (g_instance.pid_cxt.rackMemCleanerPID != 0) {
+            signal_child(g_instance.pid_cxt.rackMemCleanerPID, SIGHUP);
+        }
 
         if (g_instance.pid_cxt.SqlLimitPID != 0) {
             signal_child(g_instance.pid_cxt.SqlLimitPID, SIGHUP);
@@ -8052,7 +8056,7 @@ static void reaper(SIGNAL_ARGS)
             if (!EXIT_STATUS_0(exitstatus))
                 LogChildExit(LOG, _("rack mem cleaner process"), pid, exitstatus);
 
-            if (g_instance.pid_cxt.rackMemCleanerPID == 0 && pmState == PM_RUN &&
+            if (g_instance.pid_cxt.rackMemCleanerPID == 0 && (pmState == PM_RUN || pmState == PM_HOT_STANDBY) &&
                 g_instance.attr.attr_memory.enable_rack_memory_cleaner && g_matrixMemFunc.matrix_mem_inited) {
                 g_instance.pid_cxt.rackMemCleanerPID = initialize_util_thread(RACK_MEM_FREE_THREAD);
             }

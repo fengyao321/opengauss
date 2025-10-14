@@ -28,7 +28,7 @@
 #include "pgstat.h"
 #include "storage/ipc.h"
 #include "storage/buf/buf_internals.h"
-#include "storage/rack_mem_shm.h"
+#include "storage/ubs_mem.h"
 #include "storage/matrix_mem.h"
 
 namespace smb_recovery {
@@ -666,6 +666,7 @@ static void MountFailedCallBack()
 /* mount hash and lru */
 static void SMBWriterMemMount()
 {
+    int ret = 0;
     ereport(LOG, (errmsg("SMB start init Mem.")));
 
     if (!g_matrixMemFunc.matrix_mem_inited) {
@@ -675,9 +676,9 @@ static void SMBWriterMemMount()
 
     g_instance.smb_cxt.mount_end_flag = false;
     /* meta data */
-    g_instance.smb_cxt.SMBBufMem[0] = RackMemShmMmap(nullptr, MAX_RACK_ALLOC_SIZE,
-                                                     PROT_READ | PROT_WRITE, MAP_SHARED, SHARED_MEM_NAME, 0);
-    if (g_instance.smb_cxt.SMBBufMem[0] == NULL) {
+    ret = ubsmem_shmem_map(g_instance.smb_cxt.SMBBufMem[0], SMB_TOTAL_META_SIZE, PROT_READ | PROT_WRITE,
+                           MAP_SHARED, SHARED_MEM_NAME, 0, &g_instance.smb_cxt.SMBBufMem[0]);
+    if (ret != 0 || g_instance.smb_cxt.SMBBufMem[0] == NULL) {
         MountFailedCallBack();
         return;
     }
@@ -685,9 +686,9 @@ static void SMBWriterMemMount()
     char shmChunkName[MAX_SHM_CHUNK_NAME_LENGTH] = "";
     for (size_t i = 0; i < g_instance.smb_cxt.chunkNum - 1; i++) {
         GetSmbShmChunkName(shmChunkName, i);
-        g_instance.smb_cxt.SMBBufMem[i + 1] = RackMemShmMmap(nullptr, MAX_RACK_ALLOC_SIZE,
-                                                             PROT_READ | PROT_WRITE, MAP_SHARED, shmChunkName, 0);
-        if (g_instance.smb_cxt.SMBBufMem[i + 1] == NULL) {
+        ret = ubsmem_shmem_map(g_instance.smb_cxt.SMBBufMem[i + 1], SMB_ALLOC_SIZE_PER_CHUNK, PROT_READ | PROT_WRITE,
+                               MAP_SHARED, shmChunkName, 0, &g_instance.smb_cxt.SMBBufMem[i + 1]);
+        if (ret != 0 || g_instance.smb_cxt.SMBBufMem[i + 1] == NULL) {
             MountFailedCallBack();
             return;
         }
@@ -725,7 +726,7 @@ static void SMBWriterMemUnmmap()
 {
     int ret = 0;
     for (size_t i = 0; i < g_instance.smb_cxt.chunkNum; i++) {
-        ret = RackMemShmUnmmap(g_instance.smb_cxt.SMBBufMem[i], MAX_RACK_ALLOC_SIZE);
+        ret = ubsmem_shmem_unmap(g_instance.smb_cxt.SMBBufMem[i], SMB_ALLOC_SIZE_PER_CHUNK);
         if (ret != 0) {
             ereport(LOG, (errmsg("SMB unmmap rackmem failed.")));
         }

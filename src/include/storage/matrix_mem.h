@@ -26,8 +26,7 @@
 #define MATRIX_MEM_H
 
 #include <string>
-#include "storage/rack_mem.h"
-#include "storage/rack_mem_shm.h"
+#include "storage/ubs_mem.h"
 
 #ifdef __aarch64__
 #define ENABLE_RACK_MEM (g_matrixMemFunc.matrix_mem_inited)
@@ -38,24 +37,32 @@
 constexpr auto MATRIX_MEM_SUCCESS = 0;
 constexpr auto MATRIX_MEM_ERROR = -1;
 
+struct MmapParams {
+    void *start = nullptr;
+    size_t length = 0;
+    int prot = 0;
+    int flags = 0;
+    const char *name = nullptr;
+    off_t offset = 0;
+};
+
 typedef struct {
     int errorCode;
-    const char *logHint;
     bool shouldRetry;
 } ErrorInfo;
 
 static const ErrorInfo ERROR_INFOS[] = {
-    {E_CODE_MEMLIB, "Please check Rackmanager mem_lib log", false},
-    {E_CODE_AGENT, "Please check Rackmanager mem_agent log", false},
-    {E_CODE_MANAGER, "Please check Rackmanager mem_manager log", false},
-    {E_CODE_MEM_NOT_READY, "Plase check Rackmanager log", true},
-    {E_CODE_STRATEGY_ERROR, "Please check Rackmanager log", true},
-    {E_CODE_OBMM_OP_ERROR, "Please check Rackmanager log", true},
-    {E_CODE_SMAP_OP_ERROR, "Please check Rackmanager log", true},
-    {E_CODE_SCBUS_DAEMON, "Please check Rackmanager log", false},
-    {E_CODE_NULLPTR, "Please check Rackmanager log", true},
-    {E_CODE_SERIALIZE_DESERIALIZE_ERROR, "Please check Rackmanager log", true},
-    {E_CODE_CRC_CHECK_ERROR, "Please check Rackmanager log", true},
+    {UBSM_ERR_PARAM_INVALID, false},
+    {UBSM_ERR_NOPERM, false},
+    {UBSM_ERR_MEMORY, false},
+    {UBSM_ERR_UNIMPL, false},
+    {UBSM_CHECK_RESOURCE_ERROR, false},
+    {UBSM_ERR_NOT_FOUND, false},
+    {UBSM_ERR_ALREADY_EXIST, false},
+    {UBSM_ERR_MALLOC_FAIL, false},
+    {UBSM_ERR_TIMEOUT, false},
+    {UBSM_ERR_UBSE, false},
+    {UBSM_ERR_BUFF, false},
 };
 
 typedef struct SymbolInfo {
@@ -66,26 +73,43 @@ typedef struct SymbolInfo {
 typedef struct MatrixMemFunc {
     bool matrix_mem_inited;
     void *handle;
-    void* (*rackMemMalloc)(size_t size, PerfLevel perfLevel, intptr_t attr);
-    int (*rackMemMallocAsync)(size_t size, PerfLevel perfLevel, intptr_t attr, AsyncFreeCallBack func, intptr_t ctx);
-    void (*rackMemFree)(void *ptr);
-    int (*rackMemFreeAsync)(void *ptr, AsyncFreeCallBack func, intptr_t ctx);
-    int (*rackMemShmLookupShareRegions)(const char *baseNid, ShmRegionType type, SHMRegions *regions);
-    int (*rackMemShmLookupRegionInfo)(SHMRegionDesc *region, SHMRegionInfo *info);
-    int (*rackMemShmCreate)(char *name, uint64_t size, const char *baseNid, SHMRegionDesc *shmRegion);
-    void* (*rackMemShmMmap)(void *start, size_t length, int prot, int flags, const char *name, off_t offset);
-    int (*rackMemShmCacheOpt)(void *start, size_t length, ShmCacheOpt type);
-    int (*rackMemShmUnmmap)(void *start, size_t length);
-    int (*rackMemShmDelete)(char *name);
-    int (*rackMemLookupClusterStatistic)(ClusterInfo *cluster);
-    const char* (*errCodeToStr)(int errNum);
+    int (*ubsmem_init_attributes)(ubsmem_options_t *ubsm_shmem_opts);
+    int (*ubsmem_initialize)(const ubsmem_options_t *ubsm_shmem_opts);
+    int (*ubsmem_finalize)(void);
+    int (*ubsmem_set_logger_level)(int level);
+    int (*ubsmem_set_extern_logger)(void (*func)(int level, const char *msg));
+    int (*ubsmem_lookup_regions)(ubsmem_regions_t* regions);
+    int (*ubsmem_create_region)(const char *region_name, size_t size, const ubsmem_region_attributes_t *reg_attr);
+    int (*ubsmem_lookup_region)(const char *region_name, ubsmem_region_desc_t *region_desc);
+    int (*ubsmem_destroy_region)(const char *region_name);
+    int (*ubsmem_shmem_allocate)(const char *region_name, const char *name, size_t size, mode_t mode, uint64_t flags);
+    int (*ubsmem_shmem_deallocate)(const char *name);
+    int (*ubsmem_shmem_map)(void *addr, size_t length, int prot, int flags, const char *name, off_t offset,
+                            void **local_ptr);
+    int (*ubsmem_shmem_unmap)(void *local_ptr, size_t length);
+    int (*ubsmem_shmem_set_ownership)(const char *name, void *start, size_t length, int prot);
+    int (*ubsmem_shmem_write_lock)(const char *name);
+    int (*ubsmem_shmem_read_lock)(const char *name);
+    int (*ubsmem_shmem_unlock)(const char *name);
+    int (*ubsmem_shmem_list_lookup)(const char *prefix, ubsmem_shmem_desc_t *shm_list, uint32_t *shm_cnt);
+    int (*ubsmem_shmem_lookup)(const char *name, ubsmem_shmem_info_t *shm_info);
+    int (*ubsmem_shmem_attach)(const char *name);
+    int (*ubsmem_shmem_detach)(const char *name);
+    int (*ubsmem_lease_malloc)(const char *region_name, size_t size, ubsmem_distance_t mem_distance, bool is_numa,
+                               void **local_ptr);
+    int (*ubsmem_lease_free)(void *local_ptr);
+    int (*ubsmem_lookup_cluster_statistic)(ubsmem_cluster_info_t* info);
+    int (*ubsmem_shmem_faults_register)(shmem_faults_func registerFunc);
+    int (*ubsmem_local_nid_query)(uint32_t* nid);
 } MatrixMemFunc;
 
 extern MatrixMemFunc g_matrixMemFunc;
 
-extern void MatrixMemFuncInit(char* lmemfabricClientPath);
+extern void MatrixMemFuncInit(char* ubsMemPath);
 
 extern void MatrixMemFuncUnInit();
 
 extern int RackMemAvailable(int *availBorrowMemSize);
+
+extern void *RackMemShmMmapCheck(MmapParams *params, bool isCheck);
 #endif // MATRIX_MEM_H

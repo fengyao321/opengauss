@@ -84,7 +84,7 @@ typedef struct knl_instance_attr_network {
     bool enable_gazelle_performance_mode;
     int comm_sctp_type;
     int comm_link_num;
-    char* hcom_link_path;
+    char* hcom4db_link_path;
 } knl_instance_attr_network;
 
 #endif /* SRC_INCLUDE_KNL_KNL_INSTANCE_ATTR_NETWORK_H_ */

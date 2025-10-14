@@ -1464,7 +1464,6 @@ int32 SSLoadIMCStoreVacuum(char *data, uint32 len)
     }
 
     imcsDesc->shareMemPool->ShmChunkMmapAll(info->chunkNum);
-    imcsDesc->shareMemPool->FlushShmChunkAll(ShmCacheOpt::RACK_INVALID);
 
     if (!info->actived) {
         IMCStoreSyncVacuumPushWork(info->rid, info->rgid, info->xid, 0, nullptr, nullptr);

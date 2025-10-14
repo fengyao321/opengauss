@@ -28,13 +28,14 @@
 #include "miscadmin.h"
 #include "utils/ps_status.h"
 #include "storage/ipc.h"
-#include "storage/rack_mem.h"
+#include "storage/ubs_mem.h"
 #include "utils/memutils.h"
+#include "utils/guc.h"
 #include "postmaster/rack_mem_cleaner.h"
 
 static void RackMemShutdownHandler(SIGNAL_ARGS);
 static bool RackMemServiceEnabled();
-static bool CustomFree(void *ptr);
+static bool CustomFree(RackMemControlBlock pBlock);
 static void RackMemCleanSigSetup();
 static void RackMemCleanerShutdown();
 static void AppendFreeeBlocks(RackMemControlBlock *pending, size_t processed);
@@ -61,11 +62,12 @@ static bool RackMemServiceEnabled(int *availBorrowMemSize)
         }
         return false;
     }
+
     *availBorrowMemSize = availableMem;
     return true;
 }
 
-void RegisterFailedFreeMemory(void *ptr)
+void RegisterFailedFreeMemory(void *ptr, Size size)
 {
     if (!ptr) {
         return;
@@ -83,6 +85,7 @@ void RegisterFailedFreeMemory(void *ptr)
     pblock->ptr = ptr;
     pblock->tryCount = 0;
     pblock->next = nullptr;
+    pblock->size = size;
 
     uint64_t queueSizePrint = 0;
     pthread_mutex_lock(&g_instance.rackMemCleanerCxt.mutex);
@@ -101,15 +104,13 @@ void RegisterFailedFreeMemory(void *ptr)
     ereport(LOG, (errmsg("add rack mem to free_queue, current free queue size: %lu", queueSizePrint)));
 }
 
-static bool CustomFree(void *ptr)
+static bool CustomFree(RackMemControlBlock pBlock)
 {
-    RackPrefix* prefix = (RackPrefix*)(ptr - sizeof(RackPrefix));
-    Size size = prefix->size;
-    int ret = RackMemFree((void *)prefix);
+    int ret = ubsmem_lease_free(pBlock.ptr);
     if (ret != 0) {
         return false;
     }
-    pg_atomic_sub_fetch_u64(&rackUsedSize, size);
+    pg_atomic_sub_fetch_u64(&rackUsedSize, pBlock.size);
     return true;
 }
 
@@ -118,6 +119,7 @@ void RackMemCleanerMain()
     ereport(LOG, (errmsg("rack mem cleaner thread started")));
 
     int availableMem;
+    int originMaxBorrowMemory = g_instance.attr.attr_memory.max_borrow_memory;
     uint64 totalUsed = pg_atomic_read_u64(&rackUsedSize);
     uint64 availableMem_uint64;
     t_thrd.proc_cxt.MyProgName = "rackMemCleaner";
@@ -131,11 +133,27 @@ void RackMemCleanerMain()
         AllocSetContextCreate(t_thrd.top_mem_cxt, "RackMemCleaner", ALLOCSET_DEFAULT_INITSIZE,
                               ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE);
     (void)MemoryContextSwitchTo(g_instance.rackMemCleanerCxt.memoryContext);
-    g_instance.rackMemCleanerCxt.cleanupActive = true;
+    g_instance.rackMemCleanerCxt.cleanupActive = g_instance.attr.attr_memory.enable_rack_memory_cleaner;
 
     RackMemCleanSigSetup();
     while (g_instance.rackMemCleanerCxt.cleanupActive || g_instance.rackMemCleanerCxt.queueSize > 0) {
+        if (!g_instance.attr.attr_memory.enable_rack_memory_cleaner) {
+            pg_atomic_write_u32(&g_instance.rackMemCleanerCxt.rack_available, 1);
+            g_instance.attr.attr_memory.max_borrow_memory = originMaxBorrowMemory;
+            break;
+        }
+
+        if (t_thrd.rackMemCleanerCxt.gotSighup) {
+            t_thrd.rackMemCleanerCxt.gotSighup = false;
+            ProcessConfigFile(PGC_SIGHUP);
+        }
+
         if (!RackMemServiceEnabled(&availableMem)) {
+            if (pg_atomic_read_u32(&g_instance.rackMemCleanerCxt.rack_available) == 1) {
+                ereport(WARNING, (errmsg("RackManager is not available, you may fix it or set "
+                                         "enable_rack_memory_cleaner to false, availableMem [%d]",
+                                         availableMem)));
+            }
             pg_atomic_write_u32(&g_instance.rackMemCleanerCxt.rack_available, 0);
             pg_usleep(1000000L);
             continue;
@@ -160,8 +178,8 @@ void RackMemCleanerMain()
                 static_cast<uint64>(g_instance.attr.attr_memory.max_borrow_memory)) {
                 g_instance.attr.attr_memory.max_borrow_memory = static_cast<int>(
                     totalUsed / kilobytes + availableMem_uint64 * HIGH_PROCMEM_MARK * kilobytes / 100 + preOccupy);
-                elog(WARNING, "rack available memory is %d MB, adjust max_borrow_memory to %d kB", availableMem,
-                     g_instance.attr.attr_memory.max_borrow_memory);
+                elog(WARNING, "rack available memory is %d MB, adjust max_borrow_memory to %d MB", availableMem,
+                     g_instance.attr.attr_memory.max_borrow_memory / kilobytes);
             }
         }
 
@@ -175,7 +193,7 @@ void RackMemCleanerMain()
             }
 
             RackMemControlBlock *next = current->next;
-            if (CustomFree(current->ptr)) {
+            if (CustomFree(*current)) {
                 pfree(current);
                 g_instance.rackMemCleanerCxt.freeCount++;
                 g_instance.rackMemCleanerCxt.countToProcess--;
@@ -185,6 +203,10 @@ void RackMemCleanerMain()
                 break;
             }
             current = next;
+
+            if (!current && (unlikely(u_sess->attr.attr_common.log_min_messages <= DEBUG1))) {
+                ereport(LOG, (errmsg("rack mem cleaner free queue is empty now.")));
+            }
         }
         
         if (pending) {
@@ -239,9 +261,23 @@ static void RackMemCleanerShutdown()
     proc_exit(0);
 }
 
+static void RackMemCleanSigHupHandler(SIGNAL_ARGS)
+{
+    int saveErrno = errno;
+
+    t_thrd.rackMemCleanerCxt.gotSighup = true;
+
+    if (t_thrd.proc) {
+        SetLatch(&t_thrd.proc->procLatch);
+    }
+
+    errno = saveErrno;
+}
+
 static void RackMemCleanSigSetup()
 {
     (void)gspqsignal(SIGHUP, SIG_IGN);
+    (void)gspqsignal(SIGHUP, RackMemCleanSigHupHandler);
     (void)gspqsignal(SIGINT, RackMemShutdownHandler);
     (void)gspqsignal(SIGTERM, RackMemShutdownHandler);
     (void)gspqsignal(SIGQUIT, SIG_IGN);

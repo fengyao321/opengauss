@@ -67,7 +67,7 @@ bool hcom_init_dll(const char* dir)
     g_hcom_adapt.hcom_get_client = (LibOckRpcGetClient)dlsym(g_hcom_dll, "OckRpcGetClient");
     g_hcom_adapt.hcom_set_ctx = (LibOckRpcSetUpCtx)dlsym(g_hcom_dll, "OckRpcSetUpCtx");
     g_hcom_adapt.hcom_get_ctx = (LibOckRpcGetUpCtx)dlsym(g_hcom_dll, "OckRpcGetUpCtx");
-    g_hcom_adapt.hcom_set_log = (LibHcom4dbSetLogFunc)dlsym(g_hcom_dll, "Hcom4dbSetLogFunc");
+    g_hcom_adapt.hcom_set_log = (LibOckRpcSetExternalLogger)dlsym(g_hcom_dll, "OckRpcSetExternalLogger");
     if (g_hcom_adapt.hcom_server_reply == nullptr || g_hcom_adapt.hcom_server_clean == nullptr ||
         g_hcom_adapt.hcom_server_create == nullptr || g_hcom_adapt.hcom_server_start == nullptr ||
         g_hcom_adapt.hcom_server_add == nullptr || g_hcom_adapt.hcom_client_con == nullptr ||
