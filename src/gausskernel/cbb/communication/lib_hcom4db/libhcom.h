@@ -71,7 +71,7 @@ using LibOckRpcGetUpCtx = int (*)(OckRpcClient client, uint64_t *ctx);
 using LibOckRpcServerReply = OckRpcStatus (*)(OckRpcServerContext ctx, uint16_t msgId, OckRpcMessage *reply,
                                              OckRpcCallDone *done);
 using LibOckRpcServerCleanupCtx = void (*)(OckRpcServerContext ctx);
-using LibHcom4dbSetLogFunc = void (*)(OckRpcLogHandler func);
+using LibOckRpcSetExternalLogger = void (*)(OckRpcLogHandler func);
 using LibOckRpcServerCreateWithCfg = OckRpcStatus (*)(
     const char *ip, uint16_t port, OckRpcServer *server, OckRpcCreateConfig *configs);
 using LibOckRpcServerStart = OckRpcStatus (*)(OckRpcServer server);
@@ -97,7 +97,7 @@ struct LibHcomAdapt {
     LibOckRpcGetClient hcom_get_client;
     LibOckRpcSetUpCtx hcom_set_ctx;
     LibOckRpcGetUpCtx hcom_get_ctx;
-    LibHcom4dbSetLogFunc hcom_set_log;
+    LibOckRpcSetExternalLogger hcom_set_log;
 };
 
 // load dll
@@ -105,7 +105,7 @@ bool hcom_init_dll(const char *dir);
 bool get_dll_status();
 
 // hcom server
-int hcom_server_listener_init(const char *host, int port, const char *type = "HCCS");
+int hcom_server_listener_init(const char *host, int port, const char *type = "UBC");
 // end hcom server
 
 // hcom client

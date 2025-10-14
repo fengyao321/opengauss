@@ -1386,7 +1386,6 @@ void PopulateImcsOnSSReadNode(Oid relOid, StringInfo inputMsg)
         IMCS_HASH_TABLE->CreateImcsDesc(rel, populateParams.imcsAttsNum, populateParams.imcsNatts, true);
         IMCSDesc* imcsDesc = IMCS_HASH_TABLE->GetImcsDesc(relOid);
         imcsDesc->shareMemPool->ShmChunkMmapAll(populateParams.shmChunksNum);
-        imcsDesc->shareMemPool->FlushShmChunkAll(RACK_INVALID);
         if (populateParams.shmChunksNum == 0) {
             IMCS_HASH_TABLE->UpdateImcsStatus(relOid, IMCS_POPULATE_COMPLETE);
         }
@@ -1786,7 +1785,6 @@ void SqlExecImcstoredWithShm(Relation rel, List* colList)
 
         IMCSDesc* imcsDesc = IMCS_HASH_TABLE->GetImcsDesc(relOid);
         Assert(imcsDesc->imcsStatus == IMCS_POPULATE_COMPLETE);
-        imcsDesc->shareMemPool->FlushShmChunkAll(RACK_FLUSH);
 
         populateParams.shmChunksNum = imcsDesc->shareMemPool->m_shmChunkNum;
         SendImcstoredRequest(connections, connCount, populateParams);

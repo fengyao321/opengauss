@@ -197,7 +197,7 @@ static void InitNetworkConfigureNamesEnum();
 static const struct config_enum_entry comm_sctp_type_options[] = {
     {"ORIGIN", 0, false},
     {"TCP", 1, false},
-    {"HCCS", 2, false},
+    {"UBC", 2, false},
     {NULL, 0, false}
 };
 
@@ -1141,14 +1141,14 @@ static void InitNetworkConfigureNamesString()
             NULL,
             NULL},
 
-        {{"hcom_link_path",
+        {{"hcom4db_link_path",
             PGC_POSTMASTER,
             NODE_ALL,
             CONN_AUTH_SETTINGS,
             gettext_noop("Sets the dir/path for libhcom4db.so."),
             NULL,
             GUC_LIST_INPUT},
-            &g_instance.attr.attr_network.hcom_link_path,
+            &g_instance.attr.attr_network.hcom4db_link_path,
             "",
             NULL,
             NULL,

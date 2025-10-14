@@ -34,24 +34,22 @@
 constexpr int kilobytes = 1024;
 constexpr uint64 MAX_RACK_MEMORY_LIMIT = 32 * 1024 * 1024;
 
-// 内存块信息结构
+// memory block structure
 using RackMemControlBlock = struct RackMemControlBlock {
-    void *ptr; // 内存地址
-    int tryCount; // 尝试释放次数
+    void *ptr;
+    int tryCount;
     struct RackMemControlBlock *next;
+    Size size;
 };
 
-// ==========内存管理器全局状态==========
 using knl_g_rack_mem_cleaner_context = struct KnlGRackMemCleanerContext {
-    // 同步原语
     pthread_mutex_t mutex;
     pthread_cond_t cond;
 
-    // 内存队列状态
+    // memory queue status
     RackMemControlBlock *queueHead;
     size_t queueSize;
 
-    // 原子计数器
     uint64_t total;
     uint64_t freeCount;
     volatile uint64_t countToProcess;
@@ -59,11 +57,11 @@ using knl_g_rack_mem_cleaner_context = struct KnlGRackMemCleanerContext {
     // mem
     MemoryContext memoryContext;
 
-    // 控制标志
+    // control flag
     volatile int cleanupActive;
     volatile uint32_t rack_available;
 };
 
 extern void RackMemCleanerMain(void);
-extern void RegisterFailedFreeMemory(void *ptr);
+extern void RegisterFailedFreeMemory(void *ptr, Size size);
 #endif  // OPENGAUSS_RACK_MEM_CLEANER_H

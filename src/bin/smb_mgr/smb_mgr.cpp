@@ -25,7 +25,7 @@ static constexpr auto PARAM_NAME = "max_smb_memory";
 static constexpr auto ENV_PGDATA = "PGDATA";
 
 static char confPath[MAXPGPATH];
-static char* g_matrixMemLibPath;
+static char* g_ubsMemPath;
 static uint64 ParseSize(const char *str);
 static const char* PROGNAME;
 
@@ -34,6 +34,7 @@ static const char* PROGNAME;
 #define SMB_BUFMETA_SIZE \
     (SMB_ITEM_SIZE_PERMETA + SMB_WRITER_BUCKET_SIZE_PERMETA + 2 * sizeof(int) + 2 * sizeof(XLogRecPtr))
 #define SMB_MAX_BUCKET_SIZE (10 * SIZE_KB * 200 * sizeof(int))
+#define SMB_TOT_META_SIZE TYPEALIGN(FOUR_MB, SMB_BUFMETA_SIZE * smb_recovery::SMB_BUF_MGR_NUM)
 
 static void CheckInputForSecurity(char* inputEnvValue)
 {
@@ -71,7 +72,7 @@ static int GetSMBItemEachMgr(int bufNums)
     return ((bufNums) / smb_recovery::SMB_BUF_MGR_NUM);
 }
 
-static smb_recovery::SMBBufItem *SMBIdGetItem(int id, int bufNums, char *mgr)
+static smb_recovery::SMBBufItem *SMBIdGetItem(int id, int bufNums, void *mgr)
 {
     smb_recovery::SMBBufItem *item;
     int mgrId = id / GetSMBItemEachMgr(bufNums);
@@ -83,7 +84,7 @@ static smb_recovery::SMBBufItem *SMBIdGetItem(int id, int bufNums, char *mgr)
     return (item + id % GetSMBItemEachMgr(bufNums));
 }
 
-static void GetUsedBufNums(int bufNums, int &usedBufs, int curId, char *mgr)
+static void GetUsedBufNums(int bufNums, int &usedBufs, int curId, void *mgr)
 {
     smb_recovery::SMBBufItem *cur;
     while (curId != SMB_INVALID_ID) {
@@ -114,7 +115,7 @@ static bool GetShmChunkNum(int &bufNums, int &shmChunkNum, const char *paramName
 
         cacheSize = ParseSize(strchr(line, '=') + 1);
         bufNums = cacheSize / BLCKSZ;
-        shmChunkNum = TYPEALIGN(MAX_RACK_ALLOC_SIZE, cacheSize) / MAX_RACK_ALLOC_SIZE;
+        shmChunkNum = TYPEALIGN(SMB_ALLOC_SIZE_PER_CHUNK, cacheSize) / (SMB_ALLOC_SIZE_PER_CHUNK);
     }
 
     fclose(file);
@@ -128,14 +129,14 @@ static bool GetShmChunkNum(int &bufNums, int &shmChunkNum, const char *paramName
 static bool DeleteAllShmChunks(int shmChunkNum, char* shmChunkName)
 {
     bool isDeleted = true;
-    int ret = RackMemShmDelete(SHARED_MEM_NAME);
+    int ret = ubsmem_shmem_deallocate(SHARED_MEM_NAME);
     if (ret != 0) {
         isDeleted = false;
         pg_log(PG_ERROR, _("SMB: failed to delete share memory %s, code is [%d].\n"), SHARED_MEM_NAME, ret);
     }
     for (int i = 0; i < shmChunkNum; i++) {
         smb_recovery::GetSmbShmChunkName(shmChunkName, i);
-        ret = RackMemShmDelete(shmChunkName);
+        ret = ubsmem_shmem_deallocate(shmChunkName);
         if (ret != 0) {
             isDeleted = false;
             pg_log(PG_ERROR, _("SMB: failed to delete share memory %s, code is [%d].\n"), shmChunkName, ret);
@@ -144,13 +145,13 @@ static bool DeleteAllShmChunks(int shmChunkNum, char* shmChunkName)
     return isDeleted;
 }
 
-static bool CreateShmChunk(int deleteChunkNum, char* name, SHMRegions* regions)
+static bool CreateShmChunk(int deleteChunkNum, char* name, size_t size)
 {
     int ret = 0;
-    void* data = RackMemShmMmap(nullptr, MAX_RACK_ALLOC_SIZE, PROT_READ | PROT_WRITE,
-                                MAP_SHARED, name, 0);
-    if (data == nullptr) {
-        ret = RackMemShmCreate(name, MAX_RACK_ALLOC_SIZE, BASE_NID, &regions->region[0]);
+    void *data = nullptr;
+    ret = ubsmem_shmem_map(data, size, PROT_READ | PROT_WRITE, MAP_SHARED, name, 0, &data);
+    if (ret != 0) {
+        ret = ubsmem_shmem_allocate("default", name, size, 0600, 0);
         if (ret != 0) {
             pg_log(PG_ERROR, _("SMB: create share memory %s failed, code is [%d].\n"), name, ret);
             DeleteAllShmChunks(deleteChunkNum, name);
@@ -158,7 +159,7 @@ static bool CreateShmChunk(int deleteChunkNum, char* name, SHMRegions* regions)
         }
     } else {
         pg_log(PG_PRINT, _("SMB: %s already exists, it will not be create again.\n"), name);
-        RackMemShmUnmmap(data, MAX_RACK_ALLOC_SIZE);
+        ubsmem_shmem_unmap(data, size);
     }
     return true;
 }
@@ -174,23 +175,15 @@ bool SMBWriterMemCreate()
         return false;
     }
 
-    SHMRegions regions = SHMRegions();
-    ret = RackMemShmLookupShareRegions(BASE_NID, ShmRegionType::INCLUDE_ALL_TYPE, &regions);
-    if (ret != 0 || regions.region[0].num <= 0) {
-        pg_log(PG_ERROR,
-            _("SMB: lookup share memory regions failed, code is [%d], node num: [%d].\n"), ret, regions.region[0].num);
-        return false;
-    }
-
     /* meta data */
-    if (!CreateShmChunk(0, SHARED_MEM_NAME, &regions)) {
+    if (!CreateShmChunk(0, SHARED_MEM_NAME, SMB_TOT_META_SIZE)) {
         return false;
     }
 
     /* buf data */
     for (int i = 0; i < shmChunkNum; i++) {
         smb_recovery::GetSmbShmChunkName(shmChunkName, i);
-        if (!CreateShmChunk(i + 1, shmChunkName, &regions)) {
+        if (!CreateShmChunk(i + 1, shmChunkName, SMB_ALLOC_SIZE_PER_CHUNK)) {
             return false;
         }
     }
@@ -213,7 +206,7 @@ void SMBWriterMemDelete()
     }
 }
 
-static void PrintSMBUsedInfos(char *mgr, int bufNums)
+static void PrintSMBUsedInfos(void *mgr, int bufNums)
 {
     int usedBufs = 0;
     float bufUseRate = 0.0f;
@@ -262,26 +255,22 @@ void QuerySMBShmState()
     int ret = 0;
     int shmChunkNum;
     int bufNums;
+    void* mgr = nullptr;
 
-    char* mgr = static_cast<char*>(RackMemShmMmap(nullptr, MAX_RACK_ALLOC_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED,
-        SHARED_MEM_NAME, 0));
-
-    if (mgr == nullptr) {
-        pg_log(PG_ERROR,  _("SMB: failed to mmap share memory %s.\n"), SHARED_MEM_NAME);
-        RackMemShmUnmmap(mgr, MAX_RACK_ALLOC_SIZE);
+    if (!GetShmChunkNum(bufNums, shmChunkNum, PARAM_NAME)) {
         return;
     }
 
-    if (!GetShmChunkNum(bufNums, shmChunkNum, PARAM_NAME)) {
-        ret = RackMemShmUnmmap(mgr, MAX_RACK_ALLOC_SIZE);
-        if (ret != 0) {
-            pg_log(PG_ERROR, _("SMB: failed to unmap share memory %s, code is [%d].\n"), SHARED_MEM_NAME, ret);
-        }
+    ret = ubsmem_shmem_map(mgr, SMB_TOT_META_SIZE, PROT_READ | PROT_WRITE,
+        MAP_SHARED, SHARED_MEM_NAME, 0, &mgr);
+    if (ret != 0 || mgr == nullptr) {
+        pg_log(PG_ERROR,  _("SMB: failed to mmap share memory %s.\n"), SHARED_MEM_NAME);
+        ubsmem_shmem_unmap(mgr, SMB_TOT_META_SIZE);
         return;
     }
 
     PrintSMBUsedInfos(mgr, bufNums);
-    ret = RackMemShmUnmmap(mgr, MAX_RACK_ALLOC_SIZE);
+    ret = ubsmem_shmem_unmap(mgr, SMB_TOT_META_SIZE);
     if (ret != 0) {
         pg_log(PG_ERROR, _("SMB: failed to unmap share memory %s, code is [%d].\n"), SHARED_MEM_NAME, ret);
     }
@@ -336,7 +325,7 @@ static int GetOpts(int argc, char *argv[])
             }
             case 'L':
                 CheckInputForSecurity(optarg);
-                g_matrixMemLibPath = Xstrdup(optarg);
+                g_ubsMemPath = Xstrdup(optarg);
                 break;
             default:
                 pg_log(PG_ERROR, _("Try \"%s --help\" for more information.\n"), PROGNAME);
@@ -350,7 +339,7 @@ int main (int argc, char* argv[])
 {
     int nRet = 0;
     char *pgData = nullptr;
-    g_matrixMemLibPath = "libmemfabric_client.so";
+    g_ubsMemPath = "libubsm_sdk.so";
 
     PROGNAME = get_progname(argv[0]);
     if (argc < VALID_PARA_NUM || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
@@ -367,10 +356,11 @@ int main (int argc, char* argv[])
     nRet = snprintf_s(confPath, MAXPGPATH, MAXPGPATH - 1, "%s/postgresql.conf", pgData);
     securec_check_ss_c(nRet, "\0", "\0");
 
-    MatrixMemFuncInit(g_matrixMemLibPath);
+    MatrixMemFuncInit(g_ubsMemPath);
     if (strcmp(argv[optind], "start") == 0) {
         if (!SMBWriterMemCreate()) {
             pg_log(PG_ERROR, _("SMB create share memory failed.\n"));
+            MatrixMemFuncUnInit();
             exit(1);
         }
         pg_log(PG_PRINT, _("SMB create share memory success.\n"));
@@ -380,8 +370,10 @@ int main (int argc, char* argv[])
         QuerySMBShmState();
     } else {
         pg_log(PG_ERROR, _("error command, use start, stop or state.\n"));
+        MatrixMemFuncUnInit();
         exit(1);
     }
 
+    MatrixMemFuncUnInit();
     return 0;
 }

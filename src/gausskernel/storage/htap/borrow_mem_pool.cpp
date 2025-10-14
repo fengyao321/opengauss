@@ -20,7 +20,7 @@
  * ---------------------------------------------------------------------------------------
  */
 
-#include "storage/rack_mem.h"
+#include "storage/ubs_mem.h"
 #include "access/htap/borrow_mem_pool.h"
 
 BorrowMemPool::BorrowMemPool(Oid relOid)
@@ -37,8 +37,9 @@ BorrowMemPool::~BorrowMemPool()
 bool BorrowMemPool::AllocateNewBlock()
 {
     BMPBlock *prevBlock = m_currBlock;
-    void *rackPtr =  RackMemMalloc(BLOCK_SIZE, L0, 0);
-    if (rackPtr != NULL) {
+    void *rackPtr = nullptr;
+    int ret = ubsmem_lease_malloc("default", BLOCK_SIZE, DISTANCE_DIRECT_NODE, true, &rackPtr);
+    if (ret == 0 && rackPtr != NULL) {
         m_currBlock = (BMPBlock*)palloc0(sizeof(BMPBlock));
         m_currBlock->ptr = rackPtr;
         m_currBlock->refCnt = 0;
@@ -109,7 +110,7 @@ void BorrowMemPool::DeAllocate(void *ptr)
     BMPBlock *blk = ((BMPChunkHeader*)((char*)ptr - BMP_CHUNK_HDSZ))->bmpBlock;
     Assert(blk != NULL);
     if (blk != NULL && --blk->refCnt <= 0 && blk->ptr != NULL) {
-        RackMemFree(blk->ptr);
+        ubsmem_lease_free(blk->ptr);
         DeAllocateBlock(blk);
         ereport(LOG, (errmsg("HTAP BorrowMemPool DeAllocate: return a block, size(%u), oid(%u), %u block left",
             BLOCK_SIZE, m_relOid, --m_block_num)));
@@ -133,7 +134,7 @@ void BorrowMemPool::Destroy()
 
     while (blk != NULL) {
         if (blk->ptr != NULL) {
-            RackMemFree(blk->ptr);
+            ubsmem_lease_free(blk->ptr);
             blk->ptr = NULL;
             ereport(LOG, (errmsg("HTAP BorrowMemPool Destroy: return a block, size(%u), oid(%u), %u block left",
                 BLOCK_SIZE, m_relOid, --m_block_num)));

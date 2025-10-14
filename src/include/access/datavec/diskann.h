@@ -33,6 +33,8 @@
 #include "access/datavec/utils.h"
 #include "access/amapi.h"
 
+#include <cstring>
+
 #define DISKANN_FUNC_NUM 4
 
 #define DISKANN_VERSION 1

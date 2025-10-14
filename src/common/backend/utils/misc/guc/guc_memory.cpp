@@ -811,7 +811,7 @@ static bool check_syscache_threshold_gpc(int* newval, void** extra, GucSource so
 
 static bool check_max_borrow_memory(int* newval, void** extra, GucSource source)
 {
-    constexpr int minRackAllocSizeKb = MIN_RACK_ALLOC_SIZE / 1024;
+    constexpr int minRackAllocSizeKb = 1024 * 128;
     if (*newval % minRackAllocSizeKb == 0) {
         return true;
     }

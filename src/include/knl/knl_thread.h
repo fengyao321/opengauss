@@ -3527,6 +3527,11 @@ typedef struct KnlTSmbWriterContext {
     int smbWriterAuxIdx;
 } KnlTSmbWriterContext;
 
+typedef struct KnlTRackMemCleanerContext {
+    volatile sig_atomic_t gotSighup;
+    volatile sig_atomic_t shutdownRequested;
+} KnlTRackMemCleanerContext;
+
 /* thread context. */
 typedef struct knl_thrd_context {
     knl_thread_role role;
@@ -3690,6 +3695,7 @@ typedef struct knl_thrd_context {
     knl_t_sql_limit_context sql_limit_cxt;
     XLogRecPtr repairLsn;
     KnlTSmbWriterContext smbWriterCxt;
+    KnlTRackMemCleanerContext rackMemCleanerCxt;
 } knl_thrd_context;
 
 #ifdef ENABLE_MOT
