@@ -73,7 +73,7 @@ function exec_dump_db() {
 }
 
 function wait_for_subscription_sync(){
-	max_attempts=20
+	max_attempts=100
 	attempt=0
 	query="SELECT count(1) = 0 FROM pg_subscription_rel WHERE srsubstate NOT IN ('r', 's');";
 	while (($attempt < $max_attempts))
@@ -95,7 +95,7 @@ function wait_for_subscription_sync(){
 function wait_for_catchup(){
 	$(exec_sql $1 $2 "checkpoint")
 	target_lsn=$(exec_sql $1 $2 "SELECT pg_current_xlog_location()")
-	max_attempts=20
+	max_attempts=100
 	attempt=0
 	query="SELECT '$target_lsn' <= confirmed_flush FROM pg_replication_slots WHERE slot_name = '$3'";
 	while (($attempt < $max_attempts))
