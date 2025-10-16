@@ -1242,7 +1242,6 @@ static void *CBDrcMemAlloc(size_t size)
     } else {
         ptr = palloc_huge(DMSDrcContext, size);
     }
-    ptr = palloc_huge(DMSDrcContext, size);
     if (ptr == NULL) {
         ereport(FATAL, (errmsg("Failed to allocate memory for DMSDemContext.")));
     }
