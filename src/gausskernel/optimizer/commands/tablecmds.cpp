@@ -2961,7 +2961,19 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
         !IsCStoreNamespace(namespaceId) && (pg_strcasecmp(storeChar, ORIENTATION_ROW) == 0) &&
         (stmt->relation->relpersistence == RELPERSISTENCE_PERMANENT) && !u_sess->attr.attr_storage.enable_recyclebin) {
         bool isSegmentType = (storage_type == SEGMENT_PAGE);
-        if (!isSegmentType && (u_sess->attr.attr_storage.enable_segment || bucketinfo != NULL)) {
+        bool hasSegmentOption = false;
+        // 检查 reloptions 中是否已经包含 segment=on
+        if (stmt->options) {
+            foreach (cell, stmt->options) {
+                DefElem *def = (DefElem *)lfirst(cell);
+                if (pg_strcasecmp(def->defname, "segment") == 0 && pg_strcasecmp(defGetString(def), "on") == 0) {
+                    hasSegmentOption = true;
+                    break;
+                }
+            }
+        }
+
+        if (!isSegmentType && (u_sess->attr.attr_storage.enable_segment || bucketinfo != NULL) && !hasSegmentOption) {
             storage_type = SEGMENT_PAGE;
             DefElem *storage_def = makeDefElem("segment", (Node *)makeString("on"));
             stmt->options = lappend(stmt->options, storage_def);
