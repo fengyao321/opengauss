@@ -3864,11 +3864,9 @@ void merge_cu_relation(void* _info, VacuumStmt* stmt)
                          InvalidMultiXactId);
 
         /* close relation */
-        if (delta_rel != NULL)
-            relation_close(delta_rel, NoLock);
+        relation_close(delta_rel, NoLock);
 
-        if (rel != NULL)
-            relation_close(rel, NoLock);
+        relation_close(rel, NoLock);
         /*
          * Complete the transaction and free all temporary memory used.
          */

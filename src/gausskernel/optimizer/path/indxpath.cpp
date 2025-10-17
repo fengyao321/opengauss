@@ -240,7 +240,7 @@ void create_index_paths(PlannerInfo* root, RelOptInfo* rel)
      * Ignore index scan path when time capsule is enabled in base rel for correctess issue
      */
     rte = planner_rt_fetch(rel->relid, root);
-    if (rel->is_ustore && rte->timecapsule != NULL) {
+    if (rel->is_ustore && rte && rte->timecapsule != NULL) {
         ereport(DEBUG2, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg("Unsupported IndexScan timecapsule-enabled base rel, relName:%s relOid:%u",
                 rte->relname, rte->relid)));
@@ -2442,7 +2442,7 @@ static bool match_clause_to_indexcol(IndexOptInfo* index, int indexcol, Restrict
         isMatchPrefixKey = scalar_array_can_match_prefixkey(rightop);
     } else if (clause && IsA(clause, RowCompareExpr)) {
         return match_rowcompare_to_indexcol(index, indexcol, opfamily, idxcollation, (RowCompareExpr*)clause);
-    } else if (index->amsearchnulls && IsA(clause, NullTest)) {
+    } else if (index->amsearchnulls && clause && IsA(clause, NullTest)) {
         NullTest* nt = (NullTest*)clause;
 
         if (!nt->argisrow && match_index_to_operand((Node*)nt->arg, indexcol, index, true))
@@ -3179,7 +3179,7 @@ bool match_index_to_operand(Node* operand, int indexcol, IndexOptInfo* index, bo
     /*
      * if FuncExpr, check whether there are risks caused by type conversion.
      */
-    if (IsA(operand, FuncExpr))
+    if (operand && IsA(operand, FuncExpr))
         check_report_cause_type((FuncExpr*)operand, indkey);
 
     return false;

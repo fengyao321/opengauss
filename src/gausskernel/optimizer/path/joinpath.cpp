@@ -1685,8 +1685,7 @@ static void sort_inner_and_outer(PlannerInfo* root, RelOptInfo* joinrel, RelOptI
         }
         i++;
     }
-    if (join_used != NULL)
-        pfree_ext(join_used);
+    pfree_ext(join_used);
 }
 
 /*
@@ -2138,8 +2137,7 @@ static void match_unsorted_outer(PlannerInfo* root, RelOptInfo* joinrel, RelOptI
         }
         i++;
     }
-    if (join_used != NULL)
-        pfree_ext(join_used);
+    pfree_ext(join_used);
 }
 
 /*
@@ -2382,8 +2380,7 @@ static void hash_inner_and_outer(PlannerInfo* root, RelOptInfo* joinrel, RelOptI
             }
             i++;
         }
-        if (join_used != NULL)
-            pfree_ext(join_used);
+        pfree_ext(join_used);
     }
 }
 
@@ -3030,13 +3027,18 @@ static void getBoundaryFromPartSeq(
 
 static Path* buildPartitionWiseJoinPath(Path* jpath, Path* outter_path, Path* inner_path)
 {
+    if (!PointerIsValid(jpath) || !PointerIsValid(outter_path) || !PointerIsValid(inner_path)) {
+        ereport(ERROR,
+            (errmodule(MOD_OPT),
+                errcode(ERRCODE_UNRECOGNIZED_NODE_TYPE),
+                errmsg("Null params error for building partitionwise join")));
+    }
     PartIteratorPath* pwjpath = NULL;
     PartIteratorPath* outer = getPartIteratorPathForPWJ(outter_path);
     PartIteratorPath* inner = getPartIteratorPathForPWJ(inner_path);
     double factor = 1.0;
 
-    if (!PointerIsValid(jpath) || !PointerIsValid(outter_path) || !PointerIsValid(inner_path) ||
-        !PointerIsValid(outer) || !PointerIsValid(inner)) {
+    if (!PointerIsValid(outer) || !PointerIsValid(inner)) {
         ereport(ERROR,
             (errmodule(MOD_OPT),
                 errcode(ERRCODE_UNRECOGNIZED_NODE_TYPE),
@@ -3568,7 +3570,6 @@ static void asof_inner_and_outer(PlannerInfo *root, RelOptInfo *joinrel, RelOptI
         }
         outerIdx++;
     }
-    if (join_used != NULL)
-        pfree_ext(join_used);
+    pfree_ext(join_used);
 }
 

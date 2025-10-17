@@ -448,7 +448,9 @@ PMGR_ExplorePlan(CachedPlanSource *plansource,
     /* explore the query plan by planner. */
     plan = BuildCachedPlan(plansource, *qlist, boundParams, false);
 
-    boundParams->params_lazy_bind = false;
+    if (boundParams) {
+        boundParams->params_lazy_bind = false;
+    }
     u_sess->pcache_cxt.is_plan_exploration = false;
 
     plan->cost = cached_plan_cost(plan);

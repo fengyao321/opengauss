@@ -3982,6 +3982,10 @@ static int FindBaseRteForInsertOrUpdate(List* parse_targetlist, List* view_targe
             continue;
 
         TargetEntry* view_tle = get_tle_by_resno(view_targetlist, tle->resno);
+        if (!view_tle) {
+            ereport(ERROR, (errmsg("attribute number %d not found in view targetlist", tle->resno)));
+            return baseRtIndex; /* suppresses static check warnings */
+        }
         Var* var = NULL;
         var = (Var*)(view_tle->expr);
 
