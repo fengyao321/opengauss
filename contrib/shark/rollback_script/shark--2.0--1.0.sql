@@ -362,8 +362,6 @@ drop function if exists sys.datename(cstring,time with time zone);
 drop function if exists sys.len(TEXT);
 drop function if exists sys.len(sys.VARBINARY);
 
-drop function if exists sys.newid();
-
 drop type if exists sys.varbinary cascade;
 drop function if exists sys.varbinarytypmodin(cstring[]);
 drop function if exists sys.varbinarytypmodout(integer);

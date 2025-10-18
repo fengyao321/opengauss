@@ -1092,7 +1092,7 @@ select tgname from pg_trigger;
 (1 row)
 
 drop trigger animals_trigger1_1;
-ERROR:  drop trigger without table name only support in B-format database
+ERROR:  drop trigger without table name only support in B-format or D-format database
 drop trigger animals_trigger1_1 on animals;
 select tgname from pg_trigger;
  tgname 
@@ -1117,7 +1117,7 @@ select tgname from pg_trigger;
 (1 row)
 
 drop trigger animals_trigger2_1;
-ERROR:  drop trigger without table name only support in B-format database
+ERROR:  drop trigger without table name only support in B-format or D-format database
 drop trigger animals_trigger2_1 on testscm.animals_scm;
 select tgname from pg_trigger;
  tgname 

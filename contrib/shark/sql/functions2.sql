@@ -109,7 +109,7 @@ CREATE VIEW atn2_1 AS (
         ATN2(CAST('2.5' AS CHAR), CAST('3.5' AS CHAR)) AS res9,
         ATN2(CAST('2.5' AS VARCHAR), CAST('3.5' AS VARCHAR)) AS res10,
         ATN2(CAST('2.5' AS BPCHAR), CAST('3.5' AS BPCHAR)) AS res11,
-        ATN2(CAST('2.5' AS NVARCHAR2), CAST('3.5' AS NVARCHAR2)) AS res12
+        ATN2(CAST('2.5' AS NVARCHAR2(3)), CAST('3.5' AS NVARCHAR2(3))) AS res12
     );
 select * from atn2_1;
 drop view atn2_1;

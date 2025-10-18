@@ -554,9 +554,9 @@ set enable_nestloop=on;
 set enable_hashjoin=on;
 \c regression
 drop trigger animal_trigger1;
-ERROR:  drop trigger without table name only support in B-format database
+ERROR:  drop trigger without table name only support in B-format or D-format database
 drop trigger if exists animal_trigger1;
-ERROR:  drop trigger without table name only support in B-format database
+ERROR:  drop trigger without table name only support in B-format or D-format database
 drop database db_mysql;
 drop database db_td;
 -- test declare condition in other compatibility

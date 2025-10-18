@@ -834,6 +834,7 @@ unreserved_keyword:
 			| TSQL_DY
 			| TSQL_HH
 			| TSQL_M
+			| TSQL_MAX
 			| TSQL_MCS
 			| TSQL_MI
 			| TSQL_MICROSECOND
@@ -2038,6 +2039,7 @@ direct_label_keyword: ABORT_P
             | MATCH
             | MATCHED
             | MATERIALIZED
+			| TSQL_MAX
             | MAXEXTENTS
             | MAXSIZE
             | MAXTRANS
@@ -3302,3 +3304,17 @@ datediff_arg:
 			| TSQL_NS                               { $$ = "nanosecond"; }
 			| Sconst								{ $$ = $1; }
 		;
+
+CharacterWithLength:
+                        character_national '(' TSQL_MAX ')'
+                        {
+                            if (strcmp($1, "nvarchar2") == 0) {
+                                $$ = SystemTypeName($1);
+                                $$->typmods = NIL;
+                                $$->location = @1;
+                            } else {
+                                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                                    errmsg("max is only supported in nvarchar2 or varbinary type")));
+                            }
+                        }
+                ;

@@ -565,8 +565,11 @@ static char* format_type_internal(
         case NVARCHAR2OID:
             if (with_typemod)
                 buf = printTypmod("nvarchar2", typemod, typeform->typmodout);
-            else
+            else if (DB_IS_CMPT(D_FORMAT) && typemod_given && typemod == -1) {
+                buf = pstrdup("nvarchar2(max)");
+            } else {
                 buf = pstrdup("nvarchar2");
+            }
             break;
         case TEXTOID:
             buf = pstrdup("text");

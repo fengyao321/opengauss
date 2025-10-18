@@ -20,3 +20,5 @@ test: table_filegroup_index_option
 test: use_database
 test: procedure
 test: test_ddl_and_function
+test: test_ddl
+test: gs_dump_d_nvarchar2_max
