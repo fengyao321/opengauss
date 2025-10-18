@@ -1,0 +1,30 @@
+create database dump_d_max_database with dbcompatibility 'D';
+create database restore_d_max_database with dbcompatibility 'D';
+\c dump_d_max_database
+create extension shark;
+\c restore_d_max_database
+create extension shark;
+
+\c dump_d_max_database
+create table test1(col1 nvarchar, col2 nvarchar(1), col3 nvarchar(50), col4 nvarchar(max));
+create table test2(col1 nvarchar2, col2 nvarchar2(1), col3 nvarchar2(50), col4 nvarchar2(max));
+create view view1 as select 'asdf'::nvarchar2(max);
+create view view2 as select 'asdf'::nvarchar2(max)::nvarchar;
+create view view3 as select 'asdf'::nvarchar2(max)::nvarchar(1);
+
+\! @abs_bindir@/gs_dump dump_d_max_database -p @portstring@ -f @abs_bindir@/dump_d_max.tar -F t >/dev/null 2>&1; echo $?
+\! @abs_bindir@/gs_restore -d restore_d_max_database -p @portstring@ @abs_bindir@/dump_d_max.tar >/dev/null 2>&1; echo $?
+
+\c restore_d_max_database
+\d+ test1
+\d+ test2
+\d+ view1
+\d+ view2
+\d+ view3
+select * from view1;
+select * from view2;
+select * from view3;
+
+\c contrib_regression
+drop database dump_d_max_database;
+drop database restore_d_max_database;

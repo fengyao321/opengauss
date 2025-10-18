@@ -1298,7 +1298,7 @@ static ObjectAddress get_object_address_relobject(ObjectType objtype, List* objn
          * treatment.
          */
          /*mysql drop trigger syntax*/
-        if (objtype == OBJECT_TRIGGER && u_sess->attr.attr_sql.sql_compatibility == B_FORMAT)
+        if (objtype == OBJECT_TRIGGER && DB_IS_CMPT_BD)
         {
             address.classId = TriggerRelationId;
             address.objectId = get_trigger_oid_b(depname, &reloid, missing_ok);
@@ -1316,7 +1316,7 @@ static ObjectAddress get_object_address_relobject(ObjectType objtype, List* objn
          */
         if (OidIsValid(address.objectId)) {
             relation = heap_open(reloid, AccessShareLock);
-            if (objtype == OBJECT_TRIGGER && u_sess->attr.attr_sql.sql_compatibility == B_FORMAT && schemaname != NULL) {
+            if (objtype == OBJECT_TRIGGER && DB_IS_CMPT_BD && schemaname != NULL) {
                 Oid relNamespaceId = RelationGetNamespace(relation);
                 if (relNamespaceId != get_namespace_oid(schemaname, missing_ok)) {
                     if(!missing_ok) {

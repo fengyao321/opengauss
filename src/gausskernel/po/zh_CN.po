@@ -48820,8 +48820,8 @@ msgstr "分布式数据库暂不支持删除触发器名称。"
 #
 #: gram.y:12311 gram.y:12334
 #, c-format
-msgid "drop trigger without table name only support in B-format database"
-msgstr "不带表名的删除触发器仅在b模式数据库下支持"
+msgid "drop trigger without table name only support in B-format or D-format database"
+msgstr "不带表名的删除触发器仅在b模式或d模式数据库下支持"
 
 #
 #: gram.y:12329

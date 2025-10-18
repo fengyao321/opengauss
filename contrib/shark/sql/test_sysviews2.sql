@@ -20,11 +20,18 @@ create table test1(id int);
 create view v1 as select 1;
 
 select * from test1;
+
+drop view v1;
+drop table test1;
+
 set search_path to information_schema_tsql;
 create table test1(id int);
 create view v1 as select 1;
 
 select * from test1;
+
+drop view v1;
+drop table test1;
 
 reset search_path;
 
