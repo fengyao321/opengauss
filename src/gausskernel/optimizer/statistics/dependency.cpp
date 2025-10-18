@@ -1062,9 +1062,7 @@ static Selectivity clauselist_apply_dependencies(PlannerInfo *root, const List *
 
     CLAMP_PROBABILITY(s1);
 
-    if (attr_sel) {
-        pfree_ext(attr_sel);
-    }
+    pfree_ext(attr_sel);
     bms_free(attnums);
 
     return s1;
