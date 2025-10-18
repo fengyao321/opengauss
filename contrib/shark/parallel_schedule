@@ -11,6 +11,7 @@ test: functions transaction
 test: functions2
 test: test_dbcc test_dbcc_case_sen
 test: test_sysviews test_sysviews2
+test: test_sysviews3
 test: gs_dump_d_format rotate_part2_dump
 test: varbinary
 test: test_sqlvariant
