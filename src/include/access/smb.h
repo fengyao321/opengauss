@@ -38,7 +38,7 @@
 #define SIZE_K(n) (uint32)((n) * 1024)
 #define SHARED_MEM_NAME "smb_shared_meta"
 #define MAX_SHM_CHUNK_NAME_LENGTH 64
-#define SMB_ALLOC_SIZE_PER_CHUNK ((size_t)(1024 * 1024 * 1024 * 4))
+#define SMB_ALLOC_SIZE_PER_CHUNK ((size_t)1024 * 1024 * 1024 * 4)
 #define BLOCKS_PER_CHUNK (SMB_ALLOC_SIZE_PER_CHUNK/(8 * 1024))
 #define SMB_INVALID_ID (-1)
 #define SMB_WRITER_MAX_ITEM_SIZE (g_instance.smb_cxt.NSMBBuffers * sizeof(smb_recovery::SMBBufItem))
