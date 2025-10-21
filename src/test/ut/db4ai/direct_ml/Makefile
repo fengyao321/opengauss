@@ -11,7 +11,7 @@ top_builddir = ../../..
 
 include $(top_builddir)/src/Makefile.global
 
-PLATFORM_ARCH = $(shell uname -p)
+PLATFORM_ARCH = $(shell uname -m)
 ifeq ($(PLATFORM_ARCH),x86_64)
         override CPPFLAGS += -mavx
 endif

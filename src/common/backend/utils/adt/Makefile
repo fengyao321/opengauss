@@ -45,7 +45,7 @@ OBJS = acl.o arrayfuncs.o array_selfuncs.o array_typanalyze.o \
 VECTOR_OPT = -march=native
 
 ifeq ($(shell uname -s), Darwin)
-       ifeq ($(shell uname -p), arm)
+       ifeq ($(shell uname -m), arm)
                VECTOR_OPT =
        endif
 endif

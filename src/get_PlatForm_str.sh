@@ -46,7 +46,7 @@ then
 fi
 
 # get cpu bit
-cpu_bit=$(uname -p)
+cpu_bit=$(uname -m)
 
 # the result info
 plat_form_str=""

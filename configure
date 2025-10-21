@@ -1833,7 +1833,7 @@ uname -r = `(uname -r) 2>/dev/null || echo unknown`
 uname -s = `(uname -s) 2>/dev/null || echo unknown`
 uname -v = `(uname -v) 2>/dev/null || echo unknown`
 
-/usr/bin/uname -p = `(/usr/bin/uname -p) 2>/dev/null || echo unknown`
+/usr/bin/uname -m = `(/usr/bin/uname -m) 2>/dev/null || echo unknown`
 /bin/uname -X     = `(/bin/uname -X) 2>/dev/null     || echo unknown`
 
 /bin/arch              = `(/bin/arch) 2>/dev/null              || echo unknown`
@@ -2479,7 +2479,7 @@ fi
 # Add non-standard directories to the library search path
 #
 
-PLATFORM_ARCH=$(uname -p)
+PLATFORM_ARCH=$(uname -m)
 if [ "$PLATFORM_ARCH"X == "unknown"X ]; then
   PLATFORM_ARCH=$(uname -m)
 fi
@@ -29143,7 +29143,7 @@ fi
 
 fi
 
-PLATFORM_ARCH=$(uname -p)
+PLATFORM_ARCH=$(uname -m)
 if [ "$PLATFORM_ARCH"X == "aarch64"X ] ; then
   if [[ $CFLAGS == *"__ARM_LSE"* ]];then
     CFLAGS="-march=armv8-a+crc+lse $CFLAGS"
