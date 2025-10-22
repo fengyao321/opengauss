@@ -13,10 +13,12 @@ set(CMAKE_MODULE_PATH
 )
 
 if(NOT "${ENABLE_LITE_MODE}" STREQUAL "ON")
-    list(APPEND CMAKE_MODULE_PATH
-        ${CMAKE_CURRENT_SOURCE_DIR}/codegen
-    )
-    add_subdirectory(codegen)
+    if(${ENABLE_LLVM_COMPILE} STREQUAL "ON")
+        list(APPEND CMAKE_MODULE_PATH
+            ${CMAKE_CURRENT_SOURCE_DIR}/codegen
+        )
+        add_subdirectory(codegen)
+    endif()
 endif()
 
 add_subdirectory(executor)
