@@ -81,6 +81,8 @@ function test_1() {
     exec_sql $case_db $pub_node1_port "CREATE PUBLICATION tap_pub3 FOR TABLE tab_updateApply"
     exec_sql $case_db $sub_node1_port "CREATE SUBSCRIPTION tap_sub3 CONNECTION '$publisher_connstr' PUBLICATION tap_pub3"
 
+    wait_for_subscription_sync $case_db $sub_node1_port
+
     exec_sql $case_db $pub_node1_port "INSERT INTO tab_updateApply VALUES(1, 'a')"
 
     # Wait for catchup 
@@ -109,6 +111,8 @@ function test_1() {
 
     exec_sql $case_db $pub_node1_port "CREATE PUBLICATION tap_pub4 FOR TABLE tab_unique"
     exec_sql $case_db $sub_node1_port "CREATE SUBSCRIPTION tap_sub4 CONNECTION '$publisher_connstr' PUBLICATION tap_pub4"
+
+    wait_for_subscription_sync $case_db $sub_node1_port
 
     exec_sql $case_db $sub_node1_port "INSERT INTO tab_unique VALUES (1, 'a', 1), (2, 'c', 2), (3, 'c', 3)"
 
