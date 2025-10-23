@@ -175,3 +175,30 @@ static bool IsTsqlTranStmt(const char *haystack, int haystackLen)
      */
     return foundNonBlankChar ? false : true;
 }
+
+/*
+ * When "enable_sbr_identifier" is set, seems square bracket wrapped types can not
+ * be parsed as usual, and the input type string will be regard as a type to be searched
+ * in LookupTypeNameExtended and the function will fail to acquire the correct type.
+ * e.g.
+ * create table t1(id [int]);
+ * Rule for parsing "int" from gram.y does not work here:
+ * Numeric:	INT_P
+ * {
+ *      $$ = SystemTypeName("int4");
+ *      $$->location = @1;
+ * }
+ * So "int" will be carried by typname rather than "int4"
+ * then cause a type does not exist error.
+ * Therefore, Here we map the input to the corresponding types to
+ * fix the "wrong types" in typname
+ */
+int ReviseIdent(char* strIdent)
+{
+    for (int i = 0; i < ALIAS_LIST_LEN; i++) {
+        if (pg_strcasecmp(strIdent, alias_list[i].alias) == 0) {
+            return alias_list[i].typeNum;
+        }
+    }
+    return IDENT;
+}

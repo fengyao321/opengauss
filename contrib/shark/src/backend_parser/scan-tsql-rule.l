@@ -61,7 +61,7 @@
 						yyextra->ident_quoted = false;
 						yyextra->is_hint_str = false;
 
-						return IDENT;
+						return ReviseIdent(yylval->str);
 					}
 
 {set_identifier}	{
