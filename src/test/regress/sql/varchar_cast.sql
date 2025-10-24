@@ -47,6 +47,13 @@ select val::int1 from test_varchar_cast where id = 21;
 insert into test_varchar_cast values(22, '22'::char(10 char));
 select val::char(10 char) from test_varchar_cast where id = 22;
 
-
-
+CREATE TABLE data_lob
+(
+ID NUMBER(20) not null,
+blob_1 blob, 
+clob_2 clob
+);
+INSERT INTO data_lob(id,blob_1) values(1,to_char(ascii(rpad('0x',2000,'76543211'))));
+select * from data_lob;
+drop table data_lob;
 

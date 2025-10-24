@@ -156,3 +156,17 @@ select val::char(10 char) from test_varchar_cast where id = 22;
  22        
 (1 row)
 
+CREATE TABLE data_lob
+(
+ID NUMBER(20) not null,
+blob_1 blob, 
+clob_2 clob
+);
+INSERT INTO data_lob(id,blob_1) values(1,to_char(ascii(rpad('0x',2000,'76543211'))));
+select * from data_lob;
+ id | blob_1 | clob_2 
+----+--------+--------
+  1 | 48     | 
+(1 row)
+
+drop table data_lob;
