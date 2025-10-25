@@ -268,6 +268,7 @@ typedef struct knl_session_attr_common {
     bool enable_nonowner_remote_ddl;
     bool enable_sql_limit;
     bool connection_from_coordinator;
+    bool enableInternalErrorCode;
 } knl_session_attr_common;
 
 #endif /* SRC_INCLUDE_KNL_KNL_SESSION_ATTR_COMMON_H_ */
