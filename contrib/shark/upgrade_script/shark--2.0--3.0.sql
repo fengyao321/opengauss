@@ -148,3 +148,51 @@ and c.relkind in ('r', 'v', 'm', 'f')
 and has_column_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), a.attname, 'SELECT')
 and s.nspname not in ('information_schema', 'pg_catalog', 'dbe_pldeveloper', 'coverage', 'dbe_perf', 'cstore', 'db4ai')
 and is_identity = 1::bit;
+
+CREATE OR REPLACE VIEW sys.server_principals
+AS SELECT
+CAST(Role.rolname AS NAME) AS name,
+CAST(Role.oid AS INT) AS principal_id,
+CAST(CAST(Role.oid as INT) AS sys.varbinary(85)) AS sid,
+CAST(
+   CASE
+    WHEN 
+      Role.rolauditadmin = true OR 
+      Role.rolsystemadmin = true OR 
+      Role.rolmonitoradmin = true OR 
+      Role.roloperatoradmin = true OR 
+      Role.rolpolicyadmin = true THEN 'R'
+    WHEN
+      Role.rolcanlogin = true THEN 'S'
+    ELSE
+      NULL
+   END
+   AS CHAR(1)) AS type,
+CAST(
+    CASE
+      WHEN 
+        Role.rolauditadmin = true OR 
+        Role.rolsystemadmin = true OR 
+        Role.rolmonitoradmin = true OR 
+        Role.roloperatoradmin = true OR 
+        Role.rolpolicyadmin = true THEN 'SERVER_ROLE'
+      WHEN
+        Role.rolcanlogin = true THEN 'SQL_LOGIN'
+      ELSE
+        NULL
+   END
+    AS NVARCHAR2(60)) AS type_desc,
+CAST(
+    CASE
+      WHEN Role.rolcanlogin = true THEN 0
+      ELSE 1
+    END
+    AS INT) AS is_disbaled,
+CAST(NULL AS TIMESTAMP) AS create_date,
+CAST(NULL AS TIMESTAMP) AS modify_date,
+CAST(NULL AS NAME) AS default_database_name,
+CAST('english' AS NAME) AS default_language_name,
+CAST(-1 AS INT) AS creadential_id,
+CAST(-1 AS INT) AS owning_principal_id,
+CAST(-1 AS INT) AS is_fixed_role
+FROM pg_catalog.pg_roles AS Role;

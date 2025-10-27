@@ -3318,3 +3318,29 @@ CharacterWithLength:
                             }
                         }
                 ;
+
+alter_table_cmd:
+			/* ALTER TABLE <name> ADD [CONSTRAINT <conname>] DEFAULT <expr> FOR <colname> */
+			ADD_P tsql_opt_constraint_name DEFAULT a_expr FOR ColId
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					ereport(NOTICE,
+							(errmsg("DEFAULT added. The added DEFAULT can not be dropped by name")));
+
+					n->subtype = AT_ColumnDefault;
+					n->name = $6;
+					n->def = $4;
+					$$ = (Node *)n;
+				}
+
+tsql_opt_constraint_name:
+			CONSTRAINT name
+			| /* EMPTY */
+		;
+
+Numeric: TSQL_DOUBLE_PRECISION
+				{
+					$$ = SystemTypeName("float8");
+					$$->location = @1;
+				}
+		;
