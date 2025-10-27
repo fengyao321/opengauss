@@ -2649,6 +2649,7 @@ char* get_cfgnamespace(Oid id)
 
 char* get_namespace_name(Oid id)
 {
+    ereport(WARNING, (errmsg("2.return null, namespaceId: %d", id)));
     return nullptr;
 }
 
