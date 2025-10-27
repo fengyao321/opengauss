@@ -5711,7 +5711,7 @@ char* GetInsertIntoStmt(CreateTableAsStmt* stmt, bool hasNewColumn)
 
     /* if has new column and have data to insert */
     if ((u_sess->attr.attr_sql.sql_compatibility == B_FORMAT && hasNewColumn && !stmt->into->skipData) ||
-        DB_IS_CMPT(D_FORMAT)) {
+        (DB_IS_CMPT(D_FORMAT) && stmt->is_select_into)) {
         appendStringInfoString(cquery, " (");
         ListCell* lc = NULL;
         const char* delimiter = "";
