@@ -2128,7 +2128,7 @@ static bool IsInformationSchema(Oid namespaceId)
 {
     char* namespace_name = get_namespace_name(namespaceId);
     ereport(WARNING, (errmsg("1.IsInformationSchema, namespaceId: %d, spacename: %s", namespaceId, namespace_name)));
-    return namespace_name == INFORMATION_SCHEMA;
+    return strcmp(namespace_name, INFORMATION_SCHEMA) == 0;
 }
 
 /* ----------------------------------------------------------------
