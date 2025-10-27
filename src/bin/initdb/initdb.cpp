@@ -1860,7 +1860,7 @@ static void bootstrap_template1(void)
     (void)unsetenv("PGCLIENTENCODING");
 
     nRet = snprintf_s(
-        cmd, sizeof(cmd), sizeof(cmd) - 1, "\"%s\" --boot -x1 %s  %s 2>&/home/jyn/111.log", backend_exec, boot_options, talkargs);
+        cmd, sizeof(cmd), sizeof(cmd) - 1, "\"%s\" --boot -x1 %s  %s 2>&1", backend_exec, boot_options, talkargs);
     securec_check_ss_c(nRet, "\0", "\0");
 
     PG_CMD_OPEN;

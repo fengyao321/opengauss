@@ -5241,7 +5241,6 @@ char* get_namespace_name(Oid nspid)
 
         result = pstrdup(NameStr(nsptup->nspname));
         ReleaseSysCache(tp);
-        ereport(WARNING, (errmsg("1.get, namespaceId: %d, spacename: %s", nspid, result)));
         return result;
     } else
         return NULL;

@@ -2126,9 +2126,7 @@ void CheckSegmentIsInLimitTablespace(char* tableSpaceName, char* relName)
 
 static bool IsInformationSchema(Oid namespaceId)
 {
-    char* namespace_name = get_namespace_name(namespaceId);
-    ereport(WARNING, (errmsg("1.IsInformationSchema, namespaceId: %d, spacename: %s, istrue: %d", namespaceId, namespace_name, strcmp(namespace_name, INFORMATION_SCHEMA) == 0)));
-    return strcmp(namespace_name, INFORMATION_SCHEMA) == 0;
+    return strcmp(get_namespace_name(namespaceId), INFORMATION_SCHEMA) == 0;
 }
 
 /* ----------------------------------------------------------------
@@ -2966,12 +2964,10 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
         }
     }
 
-    ereport(WARNING, (errmsg("0.definerelation, namespaceId: %d, relname: %s", namespaceId, stmt->relation->relname)));
     if (!IsInitdb && (relkind == RELKIND_RELATION) && !IsSystemNamespace(namespaceId) &&
         !IsCStoreNamespace(namespaceId) && (pg_strcasecmp(storeChar, ORIENTATION_ROW) == 0) &&
         (stmt->relation->relpersistence == RELPERSISTENCE_PERMANENT) && !u_sess->attr.attr_storage.enable_recyclebin &&
         !(IsInformationSchema(namespaceId) && u_sess->attr.attr_common.IsInplaceUpgrade && ENABLE_DMS)) {
-        ereport(WARNING, (errmsg("2.definerelation, namespaceId: %d, relname: %s", namespaceId, stmt->relation->relname)));
         bool isSegmentType = (storage_type == SEGMENT_PAGE);
         if (!isSegmentType && (u_sess->attr.attr_storage.enable_segment || bucketinfo != NULL)) {
             storage_type = SEGMENT_PAGE;
