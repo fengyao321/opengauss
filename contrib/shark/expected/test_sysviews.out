@@ -1217,6 +1217,24 @@ from sys.databases where database_id = 1;
  template1 |           1 |                    |        10 |             |                     | UTF8           | 0           | MULTI_USER       | 0             | 0                | 0                 | 0     | ONLINE     | 0             | 0                   | 0                               | 1                        | ON                            | 1                             | 1              | FULL                | 0                  |                         | 1                       | 0                                   | 0                       | 0                             | 1                       | 1                | 0                  | 0                   | 1                | 1                             | 0                        | 1                       | 0                        | 0                            | 0                       | 0                   | 0                 | 0                 | 0                          | 0                                 | 0                 | 0            | 0             | 0                  | 0              | 0                   |                     | 0                 | 0              | NOTHING             | 0                      | 0              | 0            | 0                           |            |                   |                  |                       |                       |                                |                                |                       |                             |                       | 0           | NONE             |                               0 |                  0 |                         | 0                                          | 0                    | 0                              | 0                           | 0                                     | 0                      | Not Applicable              |                        | 0                        | 0                                   | 0                               | 0                          | 0                           | 0            | 0                      | 0
 (1 row)
 
+\d sys.server_principals
+                  View "sys.server_principals"
+        Column         |            Type             | Modifiers 
+-----------------------+-----------------------------+-----------
+ name                  | name                        | 
+ principal_id          | integer                     | 
+ sid                   | varbinary(85)               | 
+ type                  | character(1)                | 
+ type_desc             | nvarchar2(60)               | 
+ is_disbaled           | integer                     | 
+ create_date           | timestamp without time zone | 
+ modify_date           | timestamp without time zone | 
+ default_database_name | name                        | 
+ default_language_name | name                        | 
+ creadential_id        | integer                     | 
+ owning_principal_id   | integer                     | 
+ is_fixed_role         | integer                     | 
+
 drop table employees;
 drop view high_salary_employees;
 reset search_path;
