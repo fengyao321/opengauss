@@ -8,7 +8,7 @@ set reloptions = (CASE WHEN array_length(array_remove(reloptions, 'segment=on'),
                      else array_remove(reloptions, 'segment=on')
                      END
                 )
-WHERE relkind = 'v';
+WHERE relkind = 'v' and relkind = 'c';
 END IF;
 END;
 
