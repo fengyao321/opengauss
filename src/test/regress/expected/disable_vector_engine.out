@@ -560,9 +560,9 @@ SELECT COUNT(8)
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Group
-         Group By Key: customer.c_birth_day, customer.c_birth_month, (lpad(lower((customer.c_customer_id)::text), 20, '-'::text))
+         Group By Key: customer.c_birth_day, customer.c_birth_month, (lpad(lower((customer.c_customer_id)::text), 20::bigint, '-'::text))
          ->  Sort
-               Sort Key: customer.c_birth_day, customer.c_birth_month, (lpad(lower((customer.c_customer_id)::text), 20, '-'::text)) DESC
+               Sort Key: customer.c_birth_day, customer.c_birth_month, (lpad(lower((customer.c_customer_id)::text), 20::bigint, '-'::text)) DESC
                ->  Nested Loop Semi Join
                      Join Filter: (ROW('Sat Mar 13 00:00:00 1999'::timestamp without time zone, customer.c_birth_day, customer.c_customer_sk, 5::numeric, COALESCE(customer.c_birth_month, 9)) <= ROW("ANY_subquery".s_rec_end_date, "ANY_subquery".s_market_id, "ANY_subquery".s_closed_date_sk, "ANY_subquery".trunc, "ANY_subquery".lead))
                      ->  Row Adapter

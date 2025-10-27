@@ -240,7 +240,7 @@ Datum nls_lower_fmt_byte(PG_FUNCTION_ARGS)
  *
  * Syntax:
  *
- *	 text lpad(text string1, int4 len, text string2)
+ *	 text lpad(text string1, int8 len, text string2)
  *
  * Purpose:
  *
@@ -253,7 +253,10 @@ Datum nls_lower_fmt_byte(PG_FUNCTION_ARGS)
 Datum lpad(PG_FUNCTION_ARGS)
 {
     text* string1 = PG_GETARG_TEXT_PP(0);
-    int32 len = PG_GETARG_INT32(1);
+    int64 len = PG_GETARG_INT64(1);
+    if (len > INT32_MAX || len < 0) {
+        ereport(ERROR, (errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE), errmsg("length parameter out of integer range")));
+    }
     text* string2 = PG_GETARG_TEXT_PP(2);
     text* ret = NULL;
     char *ptr1 = NULL, *ptr2 = NULL, *ptr2start = NULL, *ptr2end = NULL, *ptr_ret = NULL;
@@ -339,7 +342,7 @@ Datum lpad(PG_FUNCTION_ARGS)
  *
  * Syntax:
  *
- *	 text rpad(text string1, int4 len, text string2)
+ *	 text rpad(text string1, int8 len, text string2)
  *
  * Purpose:
  *
@@ -352,7 +355,10 @@ Datum lpad(PG_FUNCTION_ARGS)
 Datum rpad(PG_FUNCTION_ARGS)
 {
     text* string1 = PG_GETARG_TEXT_PP(0);
-    int32 len = PG_GETARG_INT32(1);
+    int64 len = PG_GETARG_INT64(1);
+    if (len > INT32_MAX || len < 0) {
+        ereport(ERROR, (errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE), errmsg("length parameter out of integer range")));
+    }
     text* string2 = PG_GETARG_TEXT_PP(2);
     text* ret = NULL;
     char *ptr1 = NULL, *ptr2 = NULL, *ptr2start = NULL, *ptr2end = NULL, *ptr_ret = NULL;
