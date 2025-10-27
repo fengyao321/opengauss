@@ -2127,7 +2127,7 @@ void CheckSegmentIsInLimitTablespace(char* tableSpaceName, char* relName)
 static bool IsInformationSchema(Oid namespaceId)
 {
     char* namespace_name = get_namespace_name(namespaceId);
-    ereport(WARNING, (errmsg("1.IsInformationSchema, namespaceId: %d, spacename: %s", namespaceId, namespace_name)));
+    ereport(WARNING, (errmsg("1.IsInformationSchema, namespaceId: %d, spacename: %s, istrue: %d", namespaceId, namespace_name, strcmp(namespace_name, INFORMATION_SCHEMA) == 0)));
     return strcmp(namespace_name, INFORMATION_SCHEMA) == 0;
 }
 
