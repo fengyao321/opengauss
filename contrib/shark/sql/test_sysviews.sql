@@ -377,6 +377,8 @@ from sys.sysusers where uid >1000 and uid < 10000;
 select *
 from sys.databases where database_id = 1;
 
+\d sys.server_principals
+
 drop table employees;
 drop view high_salary_employees;
 

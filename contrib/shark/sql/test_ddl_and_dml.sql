@@ -756,6 +756,161 @@ SELECT 1 YEAR_MONTH;
 SELECT 1 YES;
 SELECT 1 ZONE;
 
+drop table if exists CONSTRAINT_ASC;
+create table CONSTRAINT_ASC(id int not null, v1 varchar(30), constraint PK_CONSTRAINT_ASC primary key(id ASC));
+\d+ CONSTRAINT_ASC
+drop table CONSTRAINT_ASC;
+
+drop table if exists CONSTRAINT_DESC;
+create table CONSTRAINT_DESC(id int not null, v1 varchar(30), constraint PK_CONSTRAINT_DESC primary key(id DESC));
+\d+ CONSTRAINT_DESC
+drop table CONSTRAINT_DESC;
+
+CREATE TABLE UNIQUE_CONSTRAINT_TEST(v1 int, v2 int, v3 varchar(255), constraint UNIQ_V2 UNIQUE(v2 desc));
+\d+ UNIQUE_CONSTRAINT_TEST
+drop table UNIQUE_CONSTRAINT_TEST;
+
+drop table if exists ADD_DEFAULT;
+create table ADD_DEFAULT(id int, v1 varchar(20), v2 float);
+\d+ ADD_DEFAULT
+
+alter table ADD_DEFAULT add default (mod(4, 3)) for id;
+\d+ ADD_DEFAULT
+
+insert into ADD_DEFAULT(v1, v2) values('bac', 3.1);
+select * from ADD_DEFAULT;
+alter table ADD_DEFAULT add default (2.45) for v2;
+\d+ ADD_DEFAULT
+
+insert into ADD_DEFAULT(v1) VALUES('def');
+select * from ADD_DEFAULT;
+ALTER TABLE ADD_DEFAULT ALTER COLUMN id DROP DEFAULT;
+\d+ ADD_DEFAULT
+
+ALTER TABLE ADD_DEFAULT ALTER COLUMN v2 DROP DEFAULT;
+\d+ ADD_DEFAULT
+
+drop table if exists ADD_DEFAULT;
+drop table if exists ADD_CONSTRAINT_DEFAULT;
+
+create table ADD_CONSTRAINT_DEFAULT(id int, v1 varchar(20), v2 timestamptz);
+\d+ ADD_CONSTRAINT_DEFAULT
+
+alter table ADD_CONSTRAINT_DEFAULT add constraint ADD_SYSTEIME_DEFAULT default (pg_systimestamp()) for v2;
+\d+ ADD_CONSTRAINT_DEFAULT
+
+insert into ADD_CONSTRAINT_DEFAULT(id, v1) values(1, 'abc');
+alter table ADD_CONSTRAINT_DEFAULT add constraint ADD_INT_DEFAULT default ((9)) for id;
+\d+ ADD_CONSTRAINT_DEFAULT
+
+insert into ADD_CONSTRAINT_DEFAULT(v1) values('abc');
+select * from ADD_CONSTRAINT_DEFAULT;
+
+drop table if exists ADD_CONSTRAINT_DEFAULT;
+
+set d_format_behavior_compat_options = 'enable_sbr_identifier';
+CREATE TABLE t1(v0 [int], v1 [int2], v2 [int4], v3 [int8], v4 [tinyint], v5 [smallint], v6 [bigint], v7 [float],
+v8 [float4], v9 [real], v10 [float8], v11 [double precision], v12 [binary_integer], v13 [binary_double], v14 [numeric], v15 [decimal],
+v16 [dec], v17 [bpchar], v18 [char], v19 [char](30), v20 [varchar], v21 [varchar](30), v22 [nvarchar2], v23 [nvarchar2](30), v24 [nvarchar],
+v25 [nvarchar](30), v26 [abstime], v27 [reltime], v28 [date], v29 [time], v30 [timestamptz], v31 [timestamp], v32 [timetz], v33 [bit], v34 [interval],
+v35 [uuid], v36 [bool], v37 [json], v38 [unknown], v39 [jsonb], v40 [clob], v41 [blob], v42 [money], v43 [name], v44 [oid], v45 [bytea],
+v46 [varbinary], v47 [sql_variant]);
+\d+ t1
+drop table t1;
+
+CREATE OR REPLACE FUNCTION show_value(input [double precision])
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE NOTICE '%', input;
+END;
+$$;
+
+select show_value(1.2);
+drop function if exists show_value([double precision]);
+
+CREATE OR REPLACE FUNCTION show_value(input [smallint])
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE NOTICE '%', input;
+END;
+$$;
+
+select show_value(25);
+drop function if exists show_value([smallint]);
+
+create or replace function show_value(input [int4])
+returns void
+language plpgsql
+as $$
+begin
+    RAISE NOTICE '%', input;
+end;
+$$;
+
+select show_value(10);
+drop function if exists show_value([int4]);
+
+create or replace function show_value(input [char])
+returns void
+language plpgsql
+as $$
+begin
+    RAISE NOTICE '%', input;
+end;
+$$;
+
+select show_value('o');
+drop function if exists show_value([char]);
+
+create or replace function show_value(input [char](30))
+returns void
+language plpgsql
+as $$
+begin
+    RAISE NOTICE '%', input;
+end;
+$$;
+
+select show_value('oiiaeooiiai');
+drop function if exists show_value([char](30));
+
+select '1'::[int] AS result;
+select '1'::[smallint] AS result;
+select '1'::[binary_integer] AS result;
+select '1'::[float] AS result;
+select '1'::[double precision] AS result;
+select '1'::[binary_double] AS result;
+select 1::[char] AS result;
+select 1::[char](30) AS result;
+select 1::[nvarchar] AS result;
+select 1::[nvarchar](30) AS result;
+
+select CAST('1' AS [int]) as result;
+select CAST('1' AS [smallint]) as result;
+select CAST('1' AS [binary_integer]) as result;
+select CAST('1' AS [float]) as result;
+select CAST('1' AS [double precision]) as result;
+select CAST('1' AS [binary_double]) as result;
+select CAST(1 AS [char]) as result;
+select CAST(1 AS [char](30)) as result;
+select CAST(1 AS [nvarchar]) as result;
+select CAST(1 AS [nvarchar](30)) as result;
+
+create type person AS (name [text], age [int]);
+drop type person;
+create type [person] AS (name [text], age [int]);
+drop type person;
+
+create table t1(id [int], v1 [varchar]);
+alter table t1 modify v1 [char];
+\d+ t1
+drop table t1;
+set d_format_behavior_compat_options = '';
+
 reset current_schema;
 drop schema if exists test_ddl_and_dml cascade;
 

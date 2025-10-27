@@ -4202,6 +4202,462 @@ SELECT 1 ZONE;
     1
 (1 row)
 
+drop table if exists CONSTRAINT_ASC;
+NOTICE:  table "constraint_asc" does not exist, skipping
+create table CONSTRAINT_ASC(id int not null, v1 varchar(30), constraint PK_CONSTRAINT_ASC primary key(id ASC));
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pk_constraint_asc" for table "constraint_asc"
+\d+ CONSTRAINT_ASC
+                      Table "test_ddl_and_dml.constraint_asc"
+ Column |         Type          | Modifiers | Storage  | Stats target | Description 
+--------+-----------------------+-----------+----------+--------------+-------------
+ id     | integer               | not null  | plain    |              | 
+ v1     | character varying(30) |           | extended |              | 
+Indexes:
+    "pk_constraint_asc" PRIMARY KEY, btree (id) TABLESPACE pg_default
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table CONSTRAINT_ASC;
+drop table if exists CONSTRAINT_DESC;
+NOTICE:  table "constraint_desc" does not exist, skipping
+create table CONSTRAINT_DESC(id int not null, v1 varchar(30), constraint PK_CONSTRAINT_DESC primary key(id DESC));
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pk_constraint_desc" for table "constraint_desc"
+\d+ CONSTRAINT_DESC
+                      Table "test_ddl_and_dml.constraint_desc"
+ Column |         Type          | Modifiers | Storage  | Stats target | Description 
+--------+-----------------------+-----------+----------+--------------+-------------
+ id     | integer               | not null  | plain    |              | 
+ v1     | character varying(30) |           | extended |              | 
+Indexes:
+    "pk_constraint_desc" PRIMARY KEY, btree (id DESC) TABLESPACE pg_default
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table CONSTRAINT_DESC;
+CREATE TABLE UNIQUE_CONSTRAINT_TEST(v1 int, v2 int, v3 varchar(255), constraint UNIQ_V2 UNIQUE(v2 desc));
+NOTICE:  CREATE TABLE / UNIQUE will create implicit index "uniq_v2" for table "unique_constraint_test"
+\d+ UNIQUE_CONSTRAINT_TEST
+                   Table "test_ddl_and_dml.unique_constraint_test"
+ Column |          Type          | Modifiers | Storage  | Stats target | Description 
+--------+------------------------+-----------+----------+--------------+-------------
+ v1     | integer                |           | plain    |              | 
+ v2     | integer                |           | plain    |              | 
+ v3     | character varying(255) |           | extended |              | 
+Indexes:
+    "uniq_v2" UNIQUE CONSTRAINT, btree (v2 DESC) TABLESPACE pg_default
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table UNIQUE_CONSTRAINT_TEST;
+drop table if exists ADD_DEFAULT;
+NOTICE:  table "add_default" does not exist, skipping
+create table ADD_DEFAULT(id int, v1 varchar(20), v2 float);
+\d+ ADD_DEFAULT
+                        Table "test_ddl_and_dml.add_default"
+ Column |         Type          | Modifiers | Storage  | Stats target | Description 
+--------+-----------------------+-----------+----------+--------------+-------------
+ id     | integer               |           | plain    |              | 
+ v1     | character varying(20) |           | extended |              | 
+ v2     | double precision      |           | plain    |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+alter table ADD_DEFAULT add default (mod(4, 3)) for id;
+NOTICE:  DEFAULT added. The added DEFAULT can not be dropped by name
+\d+ ADD_DEFAULT
+                            Table "test_ddl_and_dml.add_default"
+ Column |         Type          |     Modifiers     | Storage  | Stats target | Description 
+--------+-----------------------+-------------------+----------+--------------+-------------
+ id     | integer               | default mod(4, 3) | plain    |              | 
+ v1     | character varying(20) |                   | extended |              | 
+ v2     | double precision      |                   | plain    |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+insert into ADD_DEFAULT(v1, v2) values('bac', 3.1);
+select * from ADD_DEFAULT;
+ id | v1  | v2  
+----+-----+-----
+  1 | bac | 3.1
+(1 row)
+
+alter table ADD_DEFAULT add default (2.45) for v2;
+NOTICE:  DEFAULT added. The added DEFAULT can not be dropped by name
+\d+ ADD_DEFAULT
+                            Table "test_ddl_and_dml.add_default"
+ Column |         Type          |     Modifiers     | Storage  | Stats target | Description 
+--------+-----------------------+-------------------+----------+--------------+-------------
+ id     | integer               | default mod(4, 3) | plain    |              | 
+ v1     | character varying(20) |                   | extended |              | 
+ v2     | double precision      | default 2.45      | plain    |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+insert into ADD_DEFAULT(v1) VALUES('def');
+select * from ADD_DEFAULT;
+ id | v1  |  v2  
+----+-----+------
+  1 | bac |  3.1
+  1 | def | 2.45
+(2 rows)
+
+ALTER TABLE ADD_DEFAULT ALTER COLUMN id DROP DEFAULT;
+\d+ ADD_DEFAULT
+                         Table "test_ddl_and_dml.add_default"
+ Column |         Type          |  Modifiers   | Storage  | Stats target | Description 
+--------+-----------------------+--------------+----------+--------------+-------------
+ id     | integer               |              | plain    |              | 
+ v1     | character varying(20) |              | extended |              | 
+ v2     | double precision      | default 2.45 | plain    |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+ALTER TABLE ADD_DEFAULT ALTER COLUMN v2 DROP DEFAULT;
+\d+ ADD_DEFAULT
+                        Table "test_ddl_and_dml.add_default"
+ Column |         Type          | Modifiers | Storage  | Stats target | Description 
+--------+-----------------------+-----------+----------+--------------+-------------
+ id     | integer               |           | plain    |              | 
+ v1     | character varying(20) |           | extended |              | 
+ v2     | double precision      |           | plain    |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table if exists ADD_DEFAULT;
+drop table if exists ADD_CONSTRAINT_DEFAULT;
+NOTICE:  table "add_constraint_default" does not exist, skipping
+create table ADD_CONSTRAINT_DEFAULT(id int, v1 varchar(20), v2 timestamptz);
+\d+ ADD_CONSTRAINT_DEFAULT
+                    Table "test_ddl_and_dml.add_constraint_default"
+ Column |           Type           | Modifiers | Storage  | Stats target | Description 
+--------+--------------------------+-----------+----------+--------------+-------------
+ id     | integer                  |           | plain    |              | 
+ v1     | character varying(20)    |           | extended |              | 
+ v2     | timestamp with time zone |           | plain    |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+alter table ADD_CONSTRAINT_DEFAULT add constraint ADD_SYSTEIME_DEFAULT default (pg_systimestamp()) for v2;
+NOTICE:  DEFAULT added. The added DEFAULT can not be dropped by name
+\d+ ADD_CONSTRAINT_DEFAULT
+                            Table "test_ddl_and_dml.add_constraint_default"
+ Column |           Type           |         Modifiers         | Storage  | Stats target | Description 
+--------+--------------------------+---------------------------+----------+--------------+-------------
+ id     | integer                  |                           | plain    |              | 
+ v1     | character varying(20)    |                           | extended |              | 
+ v2     | timestamp with time zone | default pg_systimestamp() | plain    |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+insert into ADD_CONSTRAINT_DEFAULT(id, v1) values(1, 'abc');
+alter table ADD_CONSTRAINT_DEFAULT add constraint ADD_INT_DEFAULT default ((9)) for id;
+NOTICE:  DEFAULT added. The added DEFAULT can not be dropped by name
+\d+ ADD_CONSTRAINT_DEFAULT
+                            Table "test_ddl_and_dml.add_constraint_default"
+ Column |           Type           |         Modifiers         | Storage  | Stats target | Description 
+--------+--------------------------+---------------------------+----------+--------------+-------------
+ id     | integer                  | default 9                 | plain    |              | 
+ v1     | character varying(20)    |                           | extended |              | 
+ v2     | timestamp with time zone | default pg_systimestamp() | plain    |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+insert into ADD_CONSTRAINT_DEFAULT(v1) values('abc');
+select * from ADD_CONSTRAINT_DEFAULT;
+ id | v1  |                 v2                  
+----+-----+-------------------------------------
+--?  1 | abc | .*
+--?  9 | abc | .*
+(2 rows)
+
+drop table if exists ADD_CONSTRAINT_DEFAULT;
+set d_format_behavior_compat_options = 'enable_sbr_identifier';
+CREATE TABLE t1(v0 [int], v1 [int2], v2 [int4], v3 [int8], v4 [tinyint], v5 [smallint], v6 [bigint], v7 [float],
+v8 [float4], v9 [real], v10 [float8], v11 [double precision], v12 [binary_integer], v13 [binary_double], v14 [numeric], v15 [decimal],
+v16 [dec], v17 [bpchar], v18 [char], v19 [char](30), v20 [varchar], v21 [varchar](30), v22 [nvarchar2], v23 [nvarchar2](30), v24 [nvarchar],
+v25 [nvarchar](30), v26 [abstime], v27 [reltime], v28 [date], v29 [time], v30 [timestamptz], v31 [timestamp], v32 [timetz], v33 [bit], v34 [interval],
+v35 [uuid], v36 [bool], v37 [json], v38 [unknown], v39 [jsonb], v40 [clob], v41 [blob], v42 [money], v43 [name], v44 [oid], v45 [bytea],
+v46 [varbinary], v47 [sql_variant]);
+WARNING:  column "v38" has type "unknown"
+DETAIL:  Proceeding with relation creation anyway.
+\d+ t1
+                               Table "test_ddl_and_dml.t1"
+ Column |            Type             | Modifiers | Storage  | Stats target | Description 
+--------+-----------------------------+-----------+----------+--------------+-------------
+ v0     | integer                     |           | plain    |              | 
+ v1     | smallint                    |           | plain    |              | 
+ v2     | integer                     |           | plain    |              | 
+ v3     | bigint                      |           | plain    |              | 
+ v4     | tinyint                     |           | plain    |              | 
+ v5     | smallint                    |           | plain    |              | 
+ v6     | bigint                      |           | plain    |              | 
+ v7     | double precision            |           | plain    |              | 
+ v8     | real                        |           | plain    |              | 
+ v9     | real                        |           | plain    |              | 
+ v10    | double precision            |           | plain    |              | 
+ v11    | double precision            |           | plain    |              | 
+ v12    | integer                     |           | plain    |              | 
+ v13    | double precision            |           | plain    |              | 
+ v14    | numeric                     |           | main     |              | 
+ v15    | numeric                     |           | main     |              | 
+ v16    | numeric                     |           | main     |              | 
+ v17    | bpchar                      |           | extended |              | 
+ v18    | character(1)                |           | extended |              | 
+ v19    | character(30)               |           | extended |              | 
+ v20    | character varying           |           | extended |              | 
+ v21    | character varying(30)       |           | extended |              | 
+ v22    | nvarchar2(1)                |           | extended |              | 
+ v23    | nvarchar2(30)               |           | extended |              | 
+ v24    | nvarchar2(1)                |           | extended |              | 
+ v25    | nvarchar2(30)               |           | extended |              | 
+ v26    | abstime                     |           | plain    |              | 
+ v27    | reltime                     |           | plain    |              | 
+ v28    | date                        |           | plain    |              | 
+ v29    | time without time zone      |           | plain    |              | 
+ v30    | timestamp with time zone    |           | plain    |              | 
+ v31    | timestamp without time zone |           | plain    |              | 
+ v32    | time with time zone         |           | plain    |              | 
+ v33    | "bit"                       |           | extended |              | 
+ v34    | interval                    |           | plain    |              | 
+ v35    | uuid                        |           | plain    |              | 
+ v36    | boolean                     |           | plain    |              | 
+ v37    | json                        |           | extended |              | 
+ v38    | unknown                     |           | plain    |              | 
+ v39    | jsonb                       |           | extended |              | 
+ v40    | clob                        |           | extended |              | 
+ v41    | blob                        |           | extended |              | 
+ v42    | money                       |           | plain    |              | 
+ v43    | name                        |           | plain    |              | 
+ v44    | oid                         |           | plain    |              | 
+ v45    | bytea                       |           | extended |              | 
+ v46    | varbinary(1)                |           | extended |              | 
+ v47    | sql_variant                 |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE OR REPLACE FUNCTION show_value(input [double precision])
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE NOTICE '%', input;
+END;
+$$;
+select show_value(1.2);
+NOTICE:  1.2
+CONTEXT:  referenced column: show_value
+ show_value 
+------------
+ 
+(1 row)
+
+drop function if exists show_value([double precision]);
+CREATE OR REPLACE FUNCTION show_value(input [smallint])
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE NOTICE '%', input;
+END;
+$$;
+select show_value(25);
+NOTICE:  25
+CONTEXT:  referenced column: show_value
+ show_value 
+------------
+ 
+(1 row)
+
+drop function if exists show_value([smallint]);
+create or replace function show_value(input [int4])
+returns void
+language plpgsql
+as $$
+begin
+    RAISE NOTICE '%', input;
+end;
+$$;
+select show_value(10);
+NOTICE:  10
+CONTEXT:  referenced column: show_value
+ show_value 
+------------
+ 
+(1 row)
+
+drop function if exists show_value([int4]);
+create or replace function show_value(input [char])
+returns void
+language plpgsql
+as $$
+begin
+    RAISE NOTICE '%', input;
+end;
+$$;
+select show_value('o');
+NOTICE:  o
+CONTEXT:  referenced column: show_value
+ show_value 
+------------
+ 
+(1 row)
+
+drop function if exists show_value([char]);
+create or replace function show_value(input [char](30))
+returns void
+language plpgsql
+as $$
+begin
+    RAISE NOTICE '%', input;
+end;
+$$;
+select show_value('oiiaeooiiai');
+NOTICE:  oiiaeooiiai
+CONTEXT:  referenced column: show_value
+ show_value 
+------------
+ 
+(1 row)
+
+drop function if exists show_value([char](30));
+select '1'::[int] AS result;
+ result 
+--------
+      1
+(1 row)
+
+select '1'::[smallint] AS result;
+ result 
+--------
+      1
+(1 row)
+
+select '1'::[binary_integer] AS result;
+ result 
+--------
+      1
+(1 row)
+
+select '1'::[float] AS result;
+ result 
+--------
+      1
+(1 row)
+
+select '1'::[double precision] AS result;
+ result 
+--------
+      1
+(1 row)
+
+select '1'::[binary_double] AS result;
+ result 
+--------
+      1
+(1 row)
+
+select 1::[char] AS result;
+ result 
+--------
+ 1
+(1 row)
+
+select 1::[char](30) AS result;
+             result             
+--------------------------------
+ 1                             
+(1 row)
+
+select 1::[nvarchar] AS result;
+ result 
+--------
+ 1
+(1 row)
+
+select 1::[nvarchar](30) AS result;
+ result 
+--------
+ 1
+(1 row)
+
+select CAST('1' AS [int]) as result;
+ result 
+--------
+      1
+(1 row)
+
+select CAST('1' AS [smallint]) as result;
+ result 
+--------
+      1
+(1 row)
+
+select CAST('1' AS [binary_integer]) as result;
+ result 
+--------
+      1
+(1 row)
+
+select CAST('1' AS [float]) as result;
+ result 
+--------
+      1
+(1 row)
+
+select CAST('1' AS [double precision]) as result;
+ result 
+--------
+      1
+(1 row)
+
+select CAST('1' AS [binary_double]) as result;
+ result 
+--------
+      1
+(1 row)
+
+select CAST(1 AS [char]) as result;
+             result             
+--------------------------------
+ 1                             
+(1 row)
+
+select CAST(1 AS [char](30)) as result;
+             result             
+--------------------------------
+ 1                             
+(1 row)
+
+select CAST(1 AS [nvarchar]) as result;
+ result 
+--------
+ 1
+(1 row)
+
+select CAST(1 AS [nvarchar](30)) as result;
+ result 
+--------
+ 1
+(1 row)
+
+create type person AS (name [text], age [int]);
+drop type person;
+create type [person] AS (name [text], age [int]);
+drop type person;
+create table t1(id [int], v1 [varchar]);
+alter table t1 modify v1 [char];
+\d+ t1
+                        Table "test_ddl_and_dml.t1"
+ Column |     Type     | Modifiers | Storage  | Stats target | Description 
+--------+--------------+-----------+----------+--------------+-------------
+ id     | integer      |           | plain    |              | 
+ v1     | character(1) |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+set d_format_behavior_compat_options = '';
 reset current_schema;
 drop schema if exists test_ddl_and_dml cascade;
 -- test for issue #6942
