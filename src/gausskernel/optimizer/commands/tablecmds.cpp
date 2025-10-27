@@ -221,7 +221,7 @@
 #include "access/htap/imcs_ctlg.h"
 #endif
 
-#define INFORMATION_SCHEMA 14876
+#define INFORMATION_SCHEMA information_schema
 
 extern void vacuum_set_xid_limits(Relation rel, int64 freeze_min_age, int64 freeze_table_age, TransactionId* oldestXmin,
     TransactionId* freezeLimit, TransactionId* freezeTableLimit, MultiXactId* multiXactFrzLimit);
@@ -2126,7 +2126,7 @@ void CheckSegmentIsInLimitTablespace(char* tableSpaceName, char* relName)
 
 static bool IsInformationSchema(Oid namespaceId)
 {
-    return namespaceId == INFORMATION_SCHEMA;
+    return get_namespace_name(namespaceId) == INFORMATION_SCHEMA;
 }
 
 /* ----------------------------------------------------------------
