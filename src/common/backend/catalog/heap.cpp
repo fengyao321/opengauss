@@ -2716,6 +2716,7 @@ Oid heap_create_with_catalog(const char *relname, Oid relnamespace, Oid reltable
     ObjectAddress new_type_addr;
     bool relhasuids = false;
 
+    ereport(WARNING, (errmsg("3.with_catalog, relnamespace: %d, relname: %s", relnamespace, relname)));
     if ((IsInitdb && EnableInitDBSegment) || (u_sess->attr.attr_common.IsInplaceUpgrade && ENABLE_DMS)) {
         if (relpersistence == RELPERSISTENCE_UNLOGGED) {
             relpersistence = RELPERSISTENCE_PERMANENT;
@@ -2726,6 +2727,7 @@ Oid heap_create_with_catalog(const char *relname, Oid relnamespace, Oid reltable
         if (relpersistence == RELPERSISTENCE_PERMANENT && (relkind == RELKIND_RELATION ||
             relkind == RELKIND_INDEX || relkind == RELKIND_GLOBAL_INDEX)) {
             storage_type = SEGMENT_PAGE;
+            ereport(WARNING, (errmsg("4.with_catalog, relnamespace: %d, relname: %s", relnamespace, relname)));
             reloptions = AddSegmentOption(reloptions);
         }
     }

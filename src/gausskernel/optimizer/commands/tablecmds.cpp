@@ -2966,6 +2966,7 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
         }
     }
 
+    ereport(WARNING, (errmsg("0.definerelation, namespaceId: %d, relname: %s", namespaceId, stmt->relation->relname)));
     if (!IsInitdb && (relkind == RELKIND_RELATION) && !IsSystemNamespace(namespaceId) &&
         !IsCStoreNamespace(namespaceId) && (pg_strcasecmp(storeChar, ORIENTATION_ROW) == 0) &&
         (stmt->relation->relpersistence == RELPERSISTENCE_PERMANENT) && !u_sess->attr.attr_storage.enable_recyclebin &&
