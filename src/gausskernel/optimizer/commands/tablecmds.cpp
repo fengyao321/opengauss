@@ -221,7 +221,7 @@
 #include "access/htap/imcs_ctlg.h"
 #endif
 
-#define INFORMATION_SCHEMA information_schema
+#define INFORMATION_SCHEMA "information_schema"
 
 extern void vacuum_set_xid_limits(Relation rel, int64 freeze_min_age, int64 freeze_table_age, TransactionId* oldestXmin,
     TransactionId* freezeLimit, TransactionId* freezeTableLimit, MultiXactId* multiXactFrzLimit);
