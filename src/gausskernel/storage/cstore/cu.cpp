@@ -1910,7 +1910,13 @@ void IMCSDesc::Init(Relation rel, int2vector* imcstoreAttsNum, int imcstoreNatts
             borrowMemPool = New(CurrentMemoryContext) BorrowMemPool(relOid);
         }
         uint32 totalBlks = RelationGetNumberOfBlocks(rel);
-        shareMemPool = populateInShareMem ? New(CurrentMemoryContext) ShareMemoryPool(relOid) : NULL;
+        if (populateInShareMem) {
+            shareMemPool = New(CurrentMemoryContext) ShareMemoryPool();
+            shareMemPool->Init(relOid);
+        } else {
+            shareMemPool = NULL;
+        }
+
         uint32 rowGroupNums = ImcsCeil(totalBlks, MAX_IMCS_PAGES_ONE_CU);
         imcuDescContext = AllocSetContextCreate(CurrentMemoryContext,
             "imcu desc context",
@@ -2272,22 +2278,22 @@ void RowGroup::VacuumLocalShm(Relation fakeRelation, IMCSDesc* imcsDesc, CUDesc*
     UnlockRowGroup();
 }
 
-void RowGroup::VacuumFromRemote(Relation fakeRelation, IMCSDesc* imcsDesc, CUDesc** newCUDescs,
+void RowGroup::VacuumFromRemote(Relation rel, IMCSDesc* imcsDesc, CUDesc** newCUDescs,
     CU** newCUs, TransactionId xid, uint32 newCuSize)
 {
     WRLockRowGroup();
-    RelFileNodeOld* relNodeOid = (RelFileNodeOld*)&fakeRelation->rd_node;
-    DropCUDescs(&fakeRelation->rd_node, fakeRelation->rd_att->natts - 1);
+    RelFileNodeOld* relNodeOid = (RelFileNodeOld*)&rel->rd_node;
+    DropCUDescs(&rel->rd_node, rel->rd_att->natts);
 
     if (newCUDescs && newCUs && newCUDescs[0]->row_count > 0) {
         m_actived = true;
     } else {
         m_actived = false;
     }
-    for (int col = 0; col < fakeRelation->rd_att->natts; ++col) {
+    for (int col = 0; col < rel->rd_att->natts + 1; ++col) {
         if (m_actived) {
             newCUDescs[col]->isSSImcstore = imcsDesc->populateInShareMem;
-            SS_IMCU_CACHE->SaveSSRemoteCU(fakeRelation, col, newCUs[col], newCUDescs[col], imcsDesc);
+            SS_IMCU_CACHE->SaveSSRemoteCU(rel, col, newCUs[col], newCUDescs[col], imcsDesc);
             m_cuDescs[col] = newCUDescs[col];
         } else {
             m_cuDescs[col] = NULL;
