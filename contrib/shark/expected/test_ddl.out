@@ -304,6 +304,491 @@ select * from view3;
  a
 (1 row)
 
+set d_format_behavior_compat_options = 'enable_sbr_identifier';
+drop table if exists t1;
+NOTICE:  table "t1" does not exist, skipping
+CREATE TABLE t1(id [int]);
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id     | integer |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [int2]);
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |   Type   | Modifiers | Storage | Stats target | Description 
+--------+----------+-----------+---------+--------------+-------------
+ id     | smallint |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [int4]);
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id     | integer |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [int8]);
+\d+ t1
+                       Table "test_d_ddl.t1"
+ Column |  Type  | Modifiers | Storage | Stats target | Description 
+--------+--------+-----------+---------+--------------+-------------
+ id     | bigint |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [tinyint]);
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id     | tinyint |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [smallint]);
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |   Type   | Modifiers | Storage | Stats target | Description 
+--------+----------+-----------+---------+--------------+-------------
+ id     | smallint |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [bigint]);
+\d+ t1
+                       Table "test_d_ddl.t1"
+ Column |  Type  | Modifiers | Storage | Stats target | Description 
+--------+--------+-----------+---------+--------------+-------------
+ id     | bigint |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [binary_integer]);
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id     | integer |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [float]);
+\d+ t1
+                            Table "test_d_ddl.t1"
+ Column |       Type       | Modifiers | Storage | Stats target | Description 
+--------+------------------+-----------+---------+--------------+-------------
+ id     | double precision |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [float4]);
+\d+ t1
+                      Table "test_d_ddl.t1"
+ Column | Type | Modifiers | Storage | Stats target | Description 
+--------+------+-----------+---------+--------------+-------------
+ id     | real |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [real]);
+\d+ t1
+                      Table "test_d_ddl.t1"
+ Column | Type | Modifiers | Storage | Stats target | Description 
+--------+------+-----------+---------+--------------+-------------
+ id     | real |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [float8]);
+\d+ t1
+                            Table "test_d_ddl.t1"
+ Column |       Type       | Modifiers | Storage | Stats target | Description 
+--------+------------------+-----------+---------+--------------+-------------
+ id     | double precision |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [double precision]);
+\d+ t1
+                            Table "test_d_ddl.t1"
+ Column |       Type       | Modifiers | Storage | Stats target | Description 
+--------+------------------+-----------+---------+--------------+-------------
+ id     | double precision |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [binary_double]);
+\d+ t1
+                            Table "test_d_ddl.t1"
+ Column |       Type       | Modifiers | Storage | Stats target | Description 
+--------+------------------+-----------+---------+--------------+-------------
+ id     | double precision |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [numeric]);
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id     | numeric |           | main    |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [decimal]);
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id     | numeric |           | main    |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [dec]);
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id     | numeric |           | main    |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [bpchar]);
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |  Type  | Modifiers | Storage  | Stats target | Description 
+--------+--------+-----------+----------+--------------+-------------
+ id     | bpchar |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [char]);
+\d+ t1
+                           Table "test_d_ddl.t1"
+ Column |     Type     | Modifiers | Storage  | Stats target | Description 
+--------+--------------+-----------+----------+--------------+-------------
+ id     | character(1) |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [char](30));
+\d+ t1
+                           Table "test_d_ddl.t1"
+ Column |     Type      | Modifiers | Storage  | Stats target | Description 
+--------+---------------+-----------+----------+--------------+-------------
+ id     | character(30) |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [varchar]);
+\d+ t1
+                             Table "test_d_ddl.t1"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | character varying |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [varchar](30));
+\d+ t1
+                               Table "test_d_ddl.t1"
+ Column |         Type          | Modifiers | Storage  | Stats target | Description 
+--------+-----------------------+-----------+----------+--------------+-------------
+ id     | character varying(30) |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [nvarchar2]);
+\d+ t1
+                           Table "test_d_ddl.t1"
+ Column |     Type     | Modifiers | Storage  | Stats target | Description 
+--------+--------------+-----------+----------+--------------+-------------
+ id     | nvarchar2(1) |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [nvarchar2](30));
+\d+ t1
+                           Table "test_d_ddl.t1"
+ Column |     Type      | Modifiers | Storage  | Stats target | Description 
+--------+---------------+-----------+----------+--------------+-------------
+ id     | nvarchar2(30) |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [nvarchar]);
+\d+ t1
+                           Table "test_d_ddl.t1"
+ Column |     Type     | Modifiers | Storage  | Stats target | Description 
+--------+--------------+-----------+----------+--------------+-------------
+ id     | nvarchar2(1) |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [nvarchar](30));
+\d+ t1
+                           Table "test_d_ddl.t1"
+ Column |     Type      | Modifiers | Storage  | Stats target | Description 
+--------+---------------+-----------+----------+--------------+-------------
+ id     | nvarchar2(30) |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [abstime]);
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id     | abstime |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [reltime]);
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id     | reltime |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [date]);
+\d+ t1
+                      Table "test_d_ddl.t1"
+ Column | Type | Modifiers | Storage | Stats target | Description 
+--------+------+-----------+---------+--------------+-------------
+ id     | date |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [time]);
+\d+ t1
+                               Table "test_d_ddl.t1"
+ Column |          Type          | Modifiers | Storage | Stats target | Description 
+--------+------------------------+-----------+---------+--------------+-------------
+ id     | time without time zone |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [timestamptz]);
+\d+ t1
+                                Table "test_d_ddl.t1"
+ Column |           Type           | Modifiers | Storage | Stats target | Description 
+--------+--------------------------+-----------+---------+--------------+-------------
+ id     | timestamp with time zone |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [timestamp]);
+\d+ t1
+                                  Table "test_d_ddl.t1"
+ Column |            Type             | Modifiers | Storage | Stats target | Description 
+--------+-----------------------------+-----------+---------+--------------+-------------
+ id     | timestamp without time zone |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [timetz]);
+\d+ t1
+                              Table "test_d_ddl.t1"
+ Column |        Type         | Modifiers | Storage | Stats target | Description 
+--------+---------------------+-----------+---------+--------------+-------------
+ id     | time with time zone |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [bit]);
+\d+ t1
+                       Table "test_d_ddl.t1"
+ Column | Type  | Modifiers | Storage  | Stats target | Description 
+--------+-------+-----------+----------+--------------+-------------
+ id     | "bit" |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [interval]);
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |   Type   | Modifiers | Storage | Stats target | Description 
+--------+----------+-----------+---------+--------------+-------------
+ id     | interval |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [uuid]);
+\d+ t1
+                      Table "test_d_ddl.t1"
+ Column | Type | Modifiers | Storage | Stats target | Description 
+--------+------+-----------+---------+--------------+-------------
+ id     | uuid |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [bool]);
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id     | boolean |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [json]);
+\d+ t1
+                       Table "test_d_ddl.t1"
+ Column | Type | Modifiers | Storage  | Stats target | Description 
+--------+------+-----------+----------+--------------+-------------
+ id     | json |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [unknown]);
+WARNING:  column "id" has type "unknown"
+DETAIL:  Proceeding with relation creation anyway.
+\d+ t1
+                        Table "test_d_ddl.t1"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id     | unknown |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [jsonb]);
+\d+ t1
+                       Table "test_d_ddl.t1"
+ Column | Type  | Modifiers | Storage  | Stats target | Description 
+--------+-------+-----------+----------+--------------+-------------
+ id     | jsonb |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [clob]);
+\d+ t1
+                       Table "test_d_ddl.t1"
+ Column | Type | Modifiers | Storage  | Stats target | Description 
+--------+------+-----------+----------+--------------+-------------
+ id     | clob |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [blob]);
+\d+ t1
+                       Table "test_d_ddl.t1"
+ Column | Type | Modifiers | Storage  | Stats target | Description 
+--------+------+-----------+----------+--------------+-------------
+ id     | blob |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [money]);
+\d+ t1
+                       Table "test_d_ddl.t1"
+ Column | Type  | Modifiers | Storage | Stats target | Description 
+--------+-------+-----------+---------+--------------+-------------
+ id     | money |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [name]);
+\d+ t1
+                      Table "test_d_ddl.t1"
+ Column | Type | Modifiers | Storage | Stats target | Description 
+--------+------+-----------+---------+--------------+-------------
+ id     | name |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [oid]);
+\d+ t1
+                      Table "test_d_ddl.t1"
+ Column | Type | Modifiers | Storage | Stats target | Description 
+--------+------+-----------+---------+--------------+-------------
+ id     | oid  |           | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [bytea]);
+\d+ t1
+                       Table "test_d_ddl.t1"
+ Column | Type  | Modifiers | Storage  | Stats target | Description 
+--------+-------+-----------+----------+--------------+-------------
+ id     | bytea |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [varbinary]);
+\d+ t1
+                           Table "test_d_ddl.t1"
+ Column |     Type     | Modifiers | Storage  | Stats target | Description 
+--------+--------------+-----------+----------+--------------+-------------
+ id     | varbinary(1) |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
+CREATE TABLE t1(id [sql_variant]);
+\d+ t1
+                          Table "test_d_ddl.t1"
+ Column |    Type     | Modifiers | Storage  | Stats target | Description 
+--------+-------------+-----------+----------+--------------+-------------
+ id     | sql_variant |           | extended |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+drop table t1;
 drop schema test_d_ddl cascade;
 NOTICE:  drop cascades to 11 other objects
 DETAIL:  drop cascades to table animals
