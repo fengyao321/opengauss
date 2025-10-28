@@ -45,7 +45,7 @@
 #include "storage/matrix_mem.h"
 #include "postmaster/rack_mem_cleaner.h"
 
-#define MAX_RACK_MEMORY_CHUNK_SIZE MIN_RACK_ALLOC_SIZE
+#define MAX_RACK_MEMORY_CHUNK_SIZE ((size_t)(1024 * 1024 * 128))
 #define MAX_RACK_MEMORY_ALLOC_SIZE (MAX_RACK_MEMORY_CHUNK_SIZE - sizeof(RackPrefix))
 
 /* Define this to detail debug alloc information .  HAVE_ALLOCINFO */
@@ -203,19 +203,24 @@ static inline void* RackMallocConverter(Size size)
     pg_atomic_add_fetch_u64(&rackUsedSize, size);
 
     RackPrefix* ptr;
+    void* rackPtr;
+    int ret = 0;
     if (u_sess->attr.attr_common.log_min_messages <= DEBUG1) {
         clock_t start;
         clock_t finish;
         start = clock();
-        ptr = (RackPrefix*)RackMemMalloc(size, RackMemPerfLevel::L0, 0);
+        ret = ubsmem_lease_malloc("default", size, DISTANCE_DIRECT_NODE, true, &rackPtr);
+        ptr = (RackPrefix*)rackPtr;
         finish = clock();
         double timeused = static_cast<double>(finish - start) / CLOCKS_PER_SEC;
-        ereport(LOG, (errmsg("RackMallocConverter: RackMemMalloc used %fs to alloc memory from remote", timeused)));
+        ereport(LOG, (errmsg("RackMallocConverter: ubsmem_lease_malloc used %fs to alloc memory from remote",
+                timeused)));
     } else {
-        ptr = (RackPrefix*)RackMemMalloc(size, RackMemPerfLevel::L0, 0);
+        ret = ubsmem_lease_malloc("default", size, DISTANCE_DIRECT_NODE, true, &rackPtr);
+        ptr = (RackPrefix*)rackPtr;
     }
 
-    if (!ptr) {
+    if (ret != 0 || !ptr) {
         pg_atomic_sub_fetch_u64(&rackUsedSize, size);
         ereport(LOG, (errmsg("RackMallocConverter: try alloc from rack failed")));
         return nullptr;
@@ -227,17 +232,17 @@ static inline void* RackMallocConverter(Size size)
 static inline void RackFreeConverter(void* ptr)
 {
     Assert(ptr);
+    RackPrefix* prefix = (RackPrefix*)(ptr - sizeof(RackPrefix));
+    Size size = prefix->size;
     if (u_sess->enable_rack_memory_free_test) {
-        RegisterFailedFreeMemory(ptr);
+        RegisterFailedFreeMemory(prefix, size);
         return;
     }
 
-    RackPrefix* prefix = (RackPrefix*)(ptr - sizeof(RackPrefix));
-    Size size = prefix->size;
-    int ret = RackMemFree((void *)prefix);
+    int ret = ubsmem_lease_free((void *)prefix);
     if (ret != 0) {
-        RegisterFailedFreeMemory(ptr);
-        ereport(LOG, (errmsg("RackMemFree failed")));
+        RegisterFailedFreeMemory(prefix, size);
+        ereport(LOG, (errmsg("ubsmem_lease_free failed")));
     } else {
         pg_atomic_sub_fetch_u64(&rackUsedSize, size);
     }

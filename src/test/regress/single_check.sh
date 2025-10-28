@@ -304,7 +304,7 @@ MAX_CONNECTIONS=""
 keep_last_data=false
 hdfshostname='10.185.178.239:25000,10.185.178.241'
 PARALLEL_INITDB=""
-CPU_ARCH=$(uname -p)
+CPU_ARCH=$(uname -m)
 
 function check_enum()
 {

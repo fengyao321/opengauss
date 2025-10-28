@@ -418,7 +418,7 @@ function check_pkg() {
   log "kernel: ${kernel}"
 
   #detect platform information.
-  platform_arch=$(uname -p)
+  platform_arch=$(uname -m)
   bin_name="openGauss-3.0.1-CentOS-64bit.tar.bz2"
   binfile="openGauss-3.0.1-CentOS-64bit.tar.bz2"
   shafile="openGauss-3.0.1-CentOS-64bit.sha256"

@@ -104,7 +104,9 @@
 ./share/postgresql/extension/gms_match.control
 ./share/postgresql/extension/gms_assert--1.0.sql
 ./share/postgresql/extension/gms_assert.control
-./share/postgresql/extension/shark--2.0.sql
+./share/postgresql/extension/shark--3.0.sql
+./share/postgresql/extension/shark--2.0--3.0.sql
+./share/postgresql/extension/shark--3.0--2.0.sql
 ./share/postgresql/extension/shark--1.0--2.0.sql
 ./share/postgresql/extension/shark--2.0--1.0.sql
 ./share/postgresql/extension/shark.control
@@ -991,4 +993,4 @@
 ./include/pqcomm.h
 ./include/pqexpbuffer.h
 [version]
-7.0.0-RC2
+7.0.0-RC3

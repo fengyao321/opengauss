@@ -50,14 +50,14 @@ void ShareMemoryPool::Destroy()
     for (int i = 0; i < m_shmChunkNum; i++) {
         GetShmChunkName(name, m_relOid, i);
         void* shmChunkPtr = m_shmChunks[i];
-        ret = RackMemShmUnmmap(shmChunkPtr, SHM_CHUNK_SIZE);
+        ret = ubsmem_shmem_unmap(shmChunkPtr, SHM_CHUNK_SIZE);
         if (ret != 0) {
             ereport(ERROR,
                     (errmsg("Failed to unmap share memory chunk, chunk name: [%s], code: [%d].", name, ret)));
         }
         shmChunkPtr = nullptr;
         if (SS_PRIMARY_MODE) {
-            ret = RackMemShmDelete(name);
+            ret = ubsmem_shmem_deallocate(name);
             if (ret != 0) {
                 ereport(ERROR,
                         (errmsg("Failed to delete share memory chunk, chunk name: [%s], code: [%d].", name, ret)));
@@ -78,20 +78,11 @@ int ShareMemoryPool::CreateNewShmChunk()
     int ret = 0;
     int newShmChunkId = m_shmChunkNum;
     void *shmChunkPtr = nullptr;
-    SHMRegions regions = SHMRegions();
     char name[MAX_SHM_CHUNK_NAME_LENGTH];
 
-    ret = RackMemShmLookupShareRegions(BASE_NID, ShmRegionType::INCLUDE_ALL_TYPE, &regions);
-    // todo, 此处可能返回多个共享域，当前先默认是0
-    if (ret != 0 || regions.region[0].num <= 0) {
-        ereport(WARNING,
-                (errmsg(
-                    "Failed to lookup share memory regions, code: [%d], node num: [%d].", ret, regions.region[0].num)));
-        return INVALID_SHM_CHUNK_NUMBER;
-    }
     GetShmChunkName(name, m_relOid, newShmChunkId);
-    ret = RackMemShmCreate(name, SHM_CHUNK_SIZE, BASE_NID, &regions.region[0]);
-    if (ret == E_CODE_RESOURCE_EXIST) {
+    ret = ubsmem_shmem_allocate("default", name, SHM_CHUNK_SIZE, 0600, 0);
+    if (ret == UBSM_ERR_ALREADY_EXIST) {
         ereport(WARNING, (errmsg("Reuse share memory chunk, name: [%s], code: [%d]", name, ret)));
     } else if (ret != 0) {
         ereport(WARNING, (errmsg("Failed to create share memory chunk, name: [%s], code: [%d]", name, ret)));
@@ -138,13 +129,13 @@ int ShareMemoryPool::DestoryShmChunk()
     for (int i = 0; i < m_shmChunkNum; i++) {
         GetShmChunkName(name, m_relOid, i);
         void* shmChunkPtr = m_shmChunks[i];
-        ret = RackMemShmUnmmap(shmChunkPtr, SHM_CHUNK_SIZE);
+        ret = ubsmem_shmem_unmap(shmChunkPtr, SHM_CHUNK_SIZE);
         if (ret != 0) {
             ereport(WARNING, (errmsg("Failed to unmap share memory chunk, chunk name: [%s], code: [%d].", name, ret)));
             return UNMAP_SHAREMEM_ERROR;
         }
         shmChunkPtr = nullptr;
-        ret = RackMemShmDelete(name);
+        ret = ubsmem_shmem_deallocate(name);
         if (ret != 0) {
             ereport(WARNING, (errmsg("Failed to delete share memory chunk, chunk name: [%s], code: [%d].", name, ret)));
             return DELETE_SHAREMEM_ERROR;
@@ -251,23 +242,9 @@ void ShareMemoryPool::ShmChunkMmapAll(int shmChunksNum)
 
 void* ShareMemoryPool::ShmChunkMmap(char *name)
 {
-    return static_cast<char*>(RackMemShmMmap(nullptr, SHM_CHUNK_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, name, 0));
-}
-
-void ShareMemoryPool::FlushShmChunkAll(ShmCacheOpt shmCacheOpt)
-{
-    void *shmChunkPtr = nullptr;
-
-    pthread_rwlock_wrlock(&m_shm_mutex);
-    for (int i = 0; i < m_shmChunkNum; i++) {
-        shmChunkPtr = m_shmChunks[i];
-        int ret = RackMemShmCacheOpt(shmChunkPtr, SHM_CHUNK_SIZE, shmCacheOpt);
-        if (ret != 0) {
-            pthread_rwlock_unlock(&m_shm_mutex);
-            ereport(ERROR, (errmsg("HTAP: dss imcstore flush share memory failed, chunk number: [%d].", i)));
-        }
-    }
-    pthread_rwlock_unlock(&m_shm_mutex);
+    void *addr = nullptr;
+    ubsmem_shmem_map(addr, SHM_CHUNK_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, name, 0, &addr);
+    return static_cast<char*>(addr);
 }
 
 int ShareMemoryPool::GetChunkNum()

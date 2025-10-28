@@ -77,12 +77,13 @@ bool will_shutdown = false;
  *
  ********************************************/
 
-const uint32 GRAND_VERSION_NUM = 93068;
+const uint32 GRAND_VERSION_NUM = 93071;
 
 /********************************************
  * 2.VERSION NUM FOR EACH FEATURE
  *   Please write indescending order.
  ********************************************/
+const uint32 UPGRADE_SHARK_3_0_VERSION_NUM = 93070;
 const uint32 PGSTAT_LAST_SCAN_VERSION_NUM = 93065;
 const uint32 INLINEVIEW_DML_VERSION_NUM = 93063;
 const uint32 HALFVEC_VERSION_NUM = 93060;

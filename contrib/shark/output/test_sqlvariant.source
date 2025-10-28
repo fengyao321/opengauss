@@ -346,7 +346,7 @@ select '111' = '111'::char(3)::sql_variant;
  t
 (1 row)
 
-select '111' = '111'::nvarchar::sql_variant;
+select '111' = '111'::nvarchar(3)::sql_variant;
  ?column? 
 ----------
  t
@@ -370,7 +370,7 @@ select '1111' = '111'::char(3)::sql_variant;
  f
 (1 row)
 
-select '1111' = '111'::nvarchar::sql_variant;
+select '1111' = '111'::nvarchar(3)::sql_variant;
  ?column? 
 ----------
  f
@@ -394,7 +394,7 @@ select '1111' > '111'::char(3)::sql_variant;
  t
 (1 row)
 
-select '1111' > '111'::nvarchar::sql_variant;
+select '1111' > '111'::nvarchar(3)::sql_variant;
  ?column? 
 ----------
  t
@@ -418,7 +418,7 @@ select '1111' < '111'::char(3)::sql_variant;
  f
 (1 row)
 
-select '1111' < '111'::nvarchar::sql_variant;
+select '1111' < '111'::nvarchar(3)::sql_variant;
  ?column? 
 ----------
  f
@@ -442,7 +442,7 @@ select '111'::varchar::sql_variant = '111'::char(3)::sql_variant;
  t
 (1 row)
 
-select '111'::varchar::sql_variant = '111'::nvarchar::sql_variant;
+select '111'::varchar::sql_variant = '111'::nvarchar(3)::sql_variant;
  ?column? 
 ----------
  t
@@ -466,7 +466,7 @@ select '111'::char(3)::sql_variant = '111'::char(3)::sql_variant;
  t
 (1 row)
 
-select '111'::char(3)::sql_variant = '111'::nvarchar::sql_variant;
+select '111'::char(3)::sql_variant = '111'::nvarchar(3)::sql_variant;
  ?column? 
 ----------
  t
@@ -490,7 +490,7 @@ select '111'::char(4)::sql_variant = '111'::char(3)::sql_variant;
  t
 (1 row)
 
-select '111'::char(4)::sql_variant = '111'::nvarchar::sql_variant;
+select '111'::char(4)::sql_variant = '111'::nvarchar(3)::sql_variant;
  ?column? 
 ----------
  t
@@ -502,25 +502,25 @@ select '111'::char(4)::sql_variant = '111'::nchar(3)::sql_variant;
  t
 (1 row)
 
-select '111'::nvarchar::sql_variant = '111'::varchar::sql_variant;
+select '111'::nvarchar(3)::sql_variant = '111'::varchar::sql_variant;
  ?column? 
 ----------
  t
 (1 row)
 
-select '111'::nvarchar::sql_variant = '111'::char(3)::sql_variant;
+select '111'::nvarchar(3)::sql_variant = '111'::char(3)::sql_variant;
  ?column? 
 ----------
  t
 (1 row)
 
-select '111'::nvarchar::sql_variant = '111'::nvarchar::sql_variant;
+select '111'::nvarchar(3)::sql_variant = '111'::nvarchar(3)::sql_variant;
  ?column? 
 ----------
  t
 (1 row)
 
-select '111'::nvarchar::sql_variant = '111'::nchar(3)::sql_variant;
+select '111'::nvarchar(3)::sql_variant = '111'::nchar(3)::sql_variant;
  ?column? 
 ----------
  t
@@ -538,7 +538,7 @@ select '111'::nchar(3)::sql_variant = '111'::char(3)::sql_variant;
  t
 (1 row)
 
-select '111'::nchar(3)::sql_variant = '111'::nvarchar::sql_variant;
+select '111'::nchar(3)::sql_variant = '111'::nvarchar(3)::sql_variant;
  ?column? 
 ----------
  t
@@ -562,7 +562,7 @@ select '111'::nchar(8)::sql_variant = '111'::char(3)::sql_variant;
  t
 (1 row)
 
-select '111'::nchar(8)::sql_variant = '111'::nvarchar::sql_variant;
+select '111'::nchar(8)::sql_variant = '111'::nvarchar(3)::sql_variant;
  ?column? 
 ----------
  t
@@ -586,7 +586,7 @@ select '111  '::char(6)::sql_variant = '111'::varchar::sql_variant;
  t
 (1 row)
 
-select '111  '::nvarchar::sql_variant = '111'::varchar::sql_variant;
+select '111  '::nvarchar(6)::sql_variant = '111'::varchar::sql_variant;
  ?column? 
 ----------
  f

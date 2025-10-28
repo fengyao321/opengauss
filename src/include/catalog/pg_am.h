@@ -156,11 +156,11 @@ DATA(insert OID = 4439 (  ubtree		5 3 t f t t t t t t f t t 0 ubtinsert ubtbegin
 DESCR("ustore b-tree index access method");
 #define UBTREE_AM_OID 4439
 
-DATA(insert OID = 8300 (  hnsw		0 4 f t f f f t f f f f f 0 hnswinsert hnswbeginscan hnswgettuple - hnswrescan hnswendscan - - - hnswbuild hnswbuildempty hnswbulkdelete hnswvacuumcleanup - hnswcostestimate hnswoptions - hnswdelete));
+DATA(insert OID = 8300 (  hnsw		0 4 f t f f f t f f f f f 0 hnswinsert hnswbeginscan hnswgettuple - hnswrescan hnswendscan - - - hnswbuild hnswbuildempty hnswbulkdelete hnswvacuumcleanup - hnswcostestimate hnswoptions hnswhandler hnswdelete));
 DESCR("hnsw index access method");
 #define HNSW_AM_OID 8300
 
-DATA(insert OID = 8301 (  ivfflat		0 5 f t f f f t f f f f f 0 ivfflatinsert ivfflatbeginscan ivfflatgettuple - ivfflatrescan ivfflatendscan - - - ivfflatbuild ivfflatbuildempty ivfflatbulkdelete ivfflatvacuumcleanup - ivfflatcostestimate ivfflatoptions - -));
+DATA(insert OID = 8301 (  ivfflat		0 5 f t f f f t f f f f f 0 ivfflatinsert ivfflatbeginscan ivfflatgettuple - ivfflatrescan ivfflatendscan - - - ivfflatbuild ivfflatbuildempty ivfflatbulkdelete ivfflatvacuumcleanup - ivfflatcostestimate ivfflatoptions ivfflathandler -));
 DESCR("ivfflat index access method");
 #define IVFFLAT_AM_OID 8301
 
@@ -168,7 +168,7 @@ DATA(insert OID = 8302 (  bm25		0 2 f t f f f t f f f f f 0 bm25insert bm25begin
 DESCR("bm25 index access method");
 #define BM25_AM_OID 8302
 
-DATA(insert OID = 8303 (  diskann		0 4 f t f f f t f f f f f 0 diskanninsert diskannbeginscan diskanngettuple - diskannrescan diskannendscan - - - diskannbuild diskannbuildempty diskannbulkdelete diskannvacuumcleanup - diskanncostestimate diskannoptions - -));
+DATA(insert OID = 8303 (  diskann		0 4 f t f f f t f f f f f 0 diskanninsert diskannbeginscan diskanngettuple - diskannrescan diskannendscan - - - diskannbuild diskannbuildempty diskannbulkdelete diskannvacuumcleanup - diskanncostestimate diskannoptions diskannhandler -));
 DESCR("diskann index access method");
 #define DISKANN_AM_OID 8303
 

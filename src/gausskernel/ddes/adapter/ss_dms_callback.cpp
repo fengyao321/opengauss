@@ -1969,6 +1969,7 @@ static void FailoverCleanBackends()
         return;
     }
     long maxWaitTime = 1200000000L; /* print failover timeout 1200s */
+    int ignoreMaxWaitTime = 60000000L; /* print failover ignore check timeout 60s */
     if (ENABLE_ONDEMAND_REALTIME_BUILD && SS_STANDBY_MODE) {
         OnDemandWaitRealtimeBuildShutDownInPartnerFailover();
     }
@@ -2002,6 +2003,13 @@ static void FailoverCleanBackends()
             return;
         }
 
+        if (backendNum == 0 && wait_time > ignoreMaxWaitTime && g_instance.pid_cxt.StatementPID == 0) {
+            ereport(LOG, (errmodule(MOD_DMS), errmsg("[SS reform][SS failover] backends successes to exit")));
+            g_instance.dms_cxt.SSRecoveryInfo.no_backend_left = true;
+            g_instance.dms_cxt.SSRecoveryInfo.failover_to_job = true;
+            break;
+        }
+
         if (wait_time > maxWaitTime) {
             ereport(WARNING, (errmodule(MOD_DMS),
                 errmsg("[SS reform] [SS failover] failover failed, backends can not exit")));
@@ -2009,7 +2017,7 @@ static void FailoverCleanBackends()
             SSCountAndPrintChildren(BACKEND_TYPE_NORMAL | BACKEND_TYPE_AUTOVAC);
 #ifdef DEBUG
             ereport(PANIC, (errmodule(MOD_DMS),
-                errmsg("[SS reform][SS switchover] primary demote fail, need core in debug mode!")));
+                errmsg("[SS reform][SS failover] failover fail, need core in debug mode!")));
 #endif
             print_all_stack();
         }

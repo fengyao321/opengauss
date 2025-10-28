@@ -1,0 +1,497 @@
+create schema sys_view_test3;
+set search_path to sys_view_test3;
+\d sys.identity_columns
+                   View "sys.identity_columns"
+               Column                |     Type      | Modifiers 
+-------------------------------------+---------------+-----------
+ object_id                           | oid           | 
+ name                                | name          | 
+ column_id                           | integer       | 
+ system_type_id                      | oid           | 
+ user_type_id                        | oid           | 
+ max_length                          | smallint      | 
+ precision                           | smallint      | 
+ scale                               | smallint      | 
+ collation_name                      | name          | 
+ is_nullable                         | bit(1)        | 
+ is_ansi_padded                      | bit(1)        | 
+ is_rowguidcol                       | bit(1)        | 
+ is_identity                         | bit(1)        | 
+ is_computed                         | bit(1)        | 
+ is_filestream                       | bit(1)        | 
+ is_replicated                       | "bit"         | 
+ is_non_sql_subscribed               | bit(1)        | 
+ is_merge_published                  | bit(1)        | 
+ is_dts_replicated                   | bit(1)        | 
+ is_xml_document                     | bit(1)        | 
+ xml_collection_id                   | oid           | 
+ default_object_id                   | oid           | 
+ rule_object_id                      | integer       | 
+ is_sparse                           | bit(1)        | 
+ is_column_set                       | bit(1)        | 
+ generated_always_type               | tinyint       | 
+ generated_always_type_desc          | nvarchar2(60) | 
+ encryption_type                     | integer       | 
+ encryption_type_desc                | nvarchar2(64) | 
+ encryption_algorithm_name           | name          | 
+ column_encryption_key_id            | oid           | 
+ column_encryption_key_database_name | name          | 
+ is_hidden                           | bit(1)        | 
+ is_masked                           | bit(1)        | 
+ graph_type                          | integer       | 
+ graph_type_desc                     | nvarchar2(60) | 
+ seed_value                          | sql_variant   | 
+ increment_value                     | sql_variant   | 
+ last_value                          | sql_variant   | 
+ is_not_for_replication              | bit(1)        | 
+
+CREATE TABLE products(
+num int identity(1, 1),
+QtyAvailable smallint,
+UnitPrice money,
+InventoryValue AS (QtyAvailable * UnitPrice)
+);
+NOTICE:  The virtual computed columns (non-persisted) are currently ignored and behave the same as persisted columns.
+NOTICE:  CREATE TABLE will create implicit sequence "products_num_seq_identity" for serial column "products.num"
+select c.name, c.is_identity, c.is_computed from sys.columns c inner join pg_class t on t.oid = c.object_id
+where t.relname = 'products' order by name;
+      name      | is_identity | is_computed 
+----------------+-------------+-------------
+ inventoryvalue | 0           | 1
+ num            | 1           | 0
+ qtyavailable   | 0           | 0
+ unitprice      | 0           | 0
+(4 rows)
+
+select c.name, c.is_identity, c.is_computed from sys.identity_columns c inner join pg_class t on t.oid = c.object_id
+where t.relname = 'products' order by name;
+ name | is_identity | is_computed 
+------+-------------+-------------
+ num  | 1           | 0
+(1 row)
+
+drop table if exists test_identity;
+NOTICE:  table "test_identity" does not exist, skipping
+create table test_identity(col1 int identity(100,3), col2 serial, col3 varchar(50));
+NOTICE:  CREATE TABLE will create implicit sequence "test_identity_col1_seq_identity" for serial column "test_identity.col1"
+NOTICE:  CREATE TABLE will create implicit sequence "test_identity_col2_seq" for serial column "test_identity.col2"
+select i.name, i.column_id, i.system_type_id, i.user_type_id, i.max_length, i.precision, i.scale, i.collation_name, i.is_nullable, 
+i.is_ansi_padded, i.is_rowguidcol, i.is_identity, i.is_computed, i.is_filestream, i.is_replicated, i.is_non_sql_subscribed, i.is_merge_published, 
+i.is_dts_replicated, i.is_xml_document, i.xml_collection_id, i.rule_object_id, i.is_sparse, i.is_column_set, i.generated_always_type,
+i.generated_always_type_desc, i.encryption_type, i.encryption_type_desc, i.encryption_algorithm_name, i.column_encryption_key_id, 
+i.column_encryption_key_database_name, i.is_hidden, i.is_masked, i.graph_type, i.graph_type_desc, i.seed_value, i.increment_value, 
+i.last_value, i.is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id
+where c.relname = 'test_identity' order by name;
+ name | column_id | system_type_id | user_type_id | max_length | precision | scale | collation_name | is_nullable | is_ansi_padded | is_rowguidcol | is_identity | is_computed | is_filestream | is_replicated | is_non_sql_subscribed | is_merge_published | is_dts_replicated | is_xml_document | xml_collection_id | rule_object_id | is_sparse | is_column_set | generated_always_type | generated_always_type_desc | encryption_type | encryption_type_desc | encryption_algorithm_name | column_encryption_key_id | column_encryption_key_database_name | is_hidden | is_masked | graph_type | graph_type_desc | seed_value | increment_value | last_value | is_not_for_replication 
+------+-----------+----------------+--------------+------------+-----------+-------+----------------+-------------+----------------+---------------+-------------+-------------+---------------+---------------+-----------------------+--------------------+-------------------+-----------------+-------------------+----------------+-----------+---------------+-----------------------+----------------------------+-----------------+----------------------+---------------------------+--------------------------+-------------------------------------+-----------+-----------+------------+-----------------+------------+-----------------+------------+------------------------
+ col1 |         1 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 1           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            |                 | 100        | 3               |            | 0
+(1 row)
+
+select i.name, i.column_id, i.system_type_id, i.user_type_id, i.max_length, i.precision, i.scale, i.collation_name, i.is_nullable, 
+i.is_ansi_padded, i.is_rowguidcol, i.is_identity, i.is_computed, i.is_filestream, i.is_replicated, i.is_non_sql_subscribed, i.is_merge_published, 
+i.is_dts_replicated, i.is_xml_document, i.xml_collection_id, i.rule_object_id, i.is_sparse, i.is_column_set, i.generated_always_type,
+i.generated_always_type_desc, i.encryption_type, i.encryption_type_desc, i.encryption_algorithm_name, i.column_encryption_key_id, 
+i.column_encryption_key_database_name, i.is_hidden, i.is_masked, i.graph_type, i.graph_type_desc from sys.columns i inner join pg_class c
+on c.oid = i.object_id where c.relname = 'test_identity' order by name;
+ name | column_id | system_type_id | user_type_id | max_length | precision | scale | collation_name | is_nullable | is_ansi_padded | is_rowguidcol | is_identity | is_computed | is_filestream | is_replicated | is_non_sql_subscribed | is_merge_published | is_dts_replicated | is_xml_document | xml_collection_id | rule_object_id | is_sparse | is_column_set | generated_always_type | generated_always_type_desc | encryption_type | encryption_type_desc | encryption_algorithm_name | column_encryption_key_id | column_encryption_key_database_name | is_hidden | is_masked | graph_type | graph_type_desc 
+------+-----------+----------------+--------------+------------+-----------+-------+----------------+-------------+----------------+---------------+-------------+-------------+---------------+---------------+-----------------------+--------------------+-------------------+-----------------+-------------------+----------------+-----------+---------------+-----------------------+----------------------------+-----------------+----------------------+---------------------------+--------------------------+-------------------------------------+-----------+-----------+------------+-----------------
+ col1 |         1 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 1           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+ col2 |         2 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 0           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+ col3 |         3 |           1043 |         1043 |         54 |         0 |     0 | default        | 1           | 0              | 0             | 0           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+(3 rows)
+
+insert into test_identity(col3) values('test1');
+select i.name, i.column_id, i.system_type_id, i.user_type_id, i.max_length, i.precision, i.scale, i.collation_name, i.is_nullable, 
+i.is_ansi_padded, i.is_rowguidcol, i.is_identity, i.is_computed, i.is_filestream, i.is_replicated, i.is_non_sql_subscribed, i.is_merge_published, 
+i.is_dts_replicated, i.is_xml_document, i.xml_collection_id, i.rule_object_id, i.is_sparse, i.is_column_set, i.generated_always_type,
+i.generated_always_type_desc, i.encryption_type, i.encryption_type_desc, i.encryption_algorithm_name, i.column_encryption_key_id, 
+i.column_encryption_key_database_name, i.is_hidden, i.is_masked, i.graph_type, i.graph_type_desc, i.seed_value, i.increment_value, 
+i.last_value, i.is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id
+where c.relname = 'test_identity' order by name;
+ name | column_id | system_type_id | user_type_id | max_length | precision | scale | collation_name | is_nullable | is_ansi_padded | is_rowguidcol | is_identity | is_computed | is_filestream | is_replicated | is_non_sql_subscribed | is_merge_published | is_dts_replicated | is_xml_document | xml_collection_id | rule_object_id | is_sparse | is_column_set | generated_always_type | generated_always_type_desc | encryption_type | encryption_type_desc | encryption_algorithm_name | column_encryption_key_id | column_encryption_key_database_name | is_hidden | is_masked | graph_type | graph_type_desc | seed_value | increment_value | last_value | is_not_for_replication 
+------+-----------+----------------+--------------+------------+-----------+-------+----------------+-------------+----------------+---------------+-------------+-------------+---------------+---------------+-----------------------+--------------------+-------------------+-----------------+-------------------+----------------+-----------+---------------+-----------------------+----------------------------+-----------------+----------------------+---------------------------+--------------------------+-------------------------------------+-----------+-----------+------------+-----------------+------------+-----------------+------------+------------------------
+ col1 |         1 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 1           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            |                 | 100        | 3               | 100        | 0
+(1 row)
+
+insert into test_identity(col3) values('test2');
+select i.name, i.column_id, i.system_type_id, i.user_type_id, i.max_length, i.precision, i.scale, i.collation_name, i.is_nullable, 
+i.is_ansi_padded, i.is_rowguidcol, i.is_identity, i.is_computed, i.is_filestream, i.is_replicated, i.is_non_sql_subscribed, i.is_merge_published, 
+i.is_dts_replicated, i.is_xml_document, i.xml_collection_id, i.rule_object_id, i.is_sparse, i.is_column_set, i.generated_always_type,
+i.generated_always_type_desc, i.encryption_type, i.encryption_type_desc, i.encryption_algorithm_name, i.column_encryption_key_id, 
+i.column_encryption_key_database_name, i.is_hidden, i.is_masked, i.graph_type, i.graph_type_desc, i.seed_value, i.increment_value, 
+i.last_value, i.is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id
+where c.relname = 'test_identity' order by name;
+ name | column_id | system_type_id | user_type_id | max_length | precision | scale | collation_name | is_nullable | is_ansi_padded | is_rowguidcol | is_identity | is_computed | is_filestream | is_replicated | is_non_sql_subscribed | is_merge_published | is_dts_replicated | is_xml_document | xml_collection_id | rule_object_id | is_sparse | is_column_set | generated_always_type | generated_always_type_desc | encryption_type | encryption_type_desc | encryption_algorithm_name | column_encryption_key_id | column_encryption_key_database_name | is_hidden | is_masked | graph_type | graph_type_desc | seed_value | increment_value | last_value | is_not_for_replication 
+------+-----------+----------------+--------------+------------+-----------+-------+----------------+-------------+----------------+---------------+-------------+-------------+---------------+---------------+-----------------------+--------------------+-------------------+-----------------+-------------------+----------------+-----------+---------------+-----------------------+----------------------------+-----------------+----------------------+---------------------------+--------------------------+-------------------------------------+-----------+-----------+------------+-----------------+------------+-----------------+------------+------------------------
+ col1 |         1 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 1           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            |                 | 100        | 3               | 103        | 0
+(1 row)
+
+delete from test_identity;
+select i.name, i.column_id, i.system_type_id, i.user_type_id, i.max_length, i.precision, i.scale, i.collation_name, i.is_nullable, 
+i.is_ansi_padded, i.is_rowguidcol, i.is_identity, i.is_computed, i.is_filestream, i.is_replicated, i.is_non_sql_subscribed, i.is_merge_published, 
+i.is_dts_replicated, i.is_xml_document, i.xml_collection_id, i.rule_object_id, i.is_sparse, i.is_column_set, i.generated_always_type,
+i.generated_always_type_desc, i.encryption_type, i.encryption_type_desc, i.encryption_algorithm_name, i.column_encryption_key_id, 
+i.column_encryption_key_database_name, i.is_hidden, i.is_masked, i.graph_type, i.graph_type_desc, i.seed_value, i.increment_value, 
+i.last_value, i.is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id
+where c.relname = 'test_identity' order by name;
+ name | column_id | system_type_id | user_type_id | max_length | precision | scale | collation_name | is_nullable | is_ansi_padded | is_rowguidcol | is_identity | is_computed | is_filestream | is_replicated | is_non_sql_subscribed | is_merge_published | is_dts_replicated | is_xml_document | xml_collection_id | rule_object_id | is_sparse | is_column_set | generated_always_type | generated_always_type_desc | encryption_type | encryption_type_desc | encryption_algorithm_name | column_encryption_key_id | column_encryption_key_database_name | is_hidden | is_masked | graph_type | graph_type_desc | seed_value | increment_value | last_value | is_not_for_replication 
+------+-----------+----------------+--------------+------------+-----------+-------+----------------+-------------+----------------+---------------+-------------+-------------+---------------+---------------+-----------------------+--------------------+-------------------+-----------------+-------------------+----------------+-----------+---------------+-----------------------+----------------------------+-----------------+----------------------+---------------------------+--------------------------+-------------------------------------+-----------+-----------+------------+-----------------+------------+-----------------+------------+------------------------
+ col1 |         1 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 1           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            |                 | 100        | 3               | 103        | 0
+(1 row)
+
+insert into test_identity(col3) values('test1');
+select i.name, i.column_id, i.system_type_id, i.user_type_id, i.max_length, i.precision, i.scale, i.collation_name, i.is_nullable, 
+i.is_ansi_padded, i.is_rowguidcol, i.is_identity, i.is_computed, i.is_filestream, i.is_replicated, i.is_non_sql_subscribed, i.is_merge_published, 
+i.is_dts_replicated, i.is_xml_document, i.xml_collection_id, i.rule_object_id, i.is_sparse, i.is_column_set, i.generated_always_type,
+i.generated_always_type_desc, i.encryption_type, i.encryption_type_desc, i.encryption_algorithm_name, i.column_encryption_key_id, 
+i.column_encryption_key_database_name, i.is_hidden, i.is_masked, i.graph_type, i.graph_type_desc, i.seed_value, i.increment_value, 
+i.last_value, i.is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id
+where c.relname = 'test_identity' order by name;
+ name | column_id | system_type_id | user_type_id | max_length | precision | scale | collation_name | is_nullable | is_ansi_padded | is_rowguidcol | is_identity | is_computed | is_filestream | is_replicated | is_non_sql_subscribed | is_merge_published | is_dts_replicated | is_xml_document | xml_collection_id | rule_object_id | is_sparse | is_column_set | generated_always_type | generated_always_type_desc | encryption_type | encryption_type_desc | encryption_algorithm_name | column_encryption_key_id | column_encryption_key_database_name | is_hidden | is_masked | graph_type | graph_type_desc | seed_value | increment_value | last_value | is_not_for_replication 
+------+-----------+----------------+--------------+------------+-----------+-------+----------------+-------------+----------------+---------------+-------------+-------------+---------------+---------------+-----------------------+--------------------+-------------------+-----------------+-------------------+----------------+-----------+---------------+-----------------------+----------------------------+-----------------+----------------------+---------------------------+--------------------------+-------------------------------------+-----------+-----------+------------+-----------------+------------+-----------------+------------+------------------------
+ col1 |         1 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 1           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            |                 | 100        | 3               | 106        | 0
+(1 row)
+
+truncate table test_identity;
+select i.name, i.column_id, i.system_type_id, i.user_type_id, i.max_length, i.precision, i.scale, i.collation_name, i.is_nullable, 
+i.is_ansi_padded, i.is_rowguidcol, i.is_identity, i.is_computed, i.is_filestream, i.is_replicated, i.is_non_sql_subscribed, i.is_merge_published, 
+i.is_dts_replicated, i.is_xml_document, i.xml_collection_id, i.rule_object_id, i.is_sparse, i.is_column_set, i.generated_always_type,
+i.generated_always_type_desc, i.encryption_type, i.encryption_type_desc, i.encryption_algorithm_name, i.column_encryption_key_id, 
+i.column_encryption_key_database_name, i.is_hidden, i.is_masked, i.graph_type, i.graph_type_desc, i.seed_value, i.increment_value, 
+i.last_value, i.is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id
+where c.relname = 'test_identity' order by name;
+ name | column_id | system_type_id | user_type_id | max_length | precision | scale | collation_name | is_nullable | is_ansi_padded | is_rowguidcol | is_identity | is_computed | is_filestream | is_replicated | is_non_sql_subscribed | is_merge_published | is_dts_replicated | is_xml_document | xml_collection_id | rule_object_id | is_sparse | is_column_set | generated_always_type | generated_always_type_desc | encryption_type | encryption_type_desc | encryption_algorithm_name | column_encryption_key_id | column_encryption_key_database_name | is_hidden | is_masked | graph_type | graph_type_desc | seed_value | increment_value | last_value | is_not_for_replication 
+------+-----------+----------------+--------------+------------+-----------+-------+----------------+-------------+----------------+---------------+-------------+-------------+---------------+---------------+-----------------------+--------------------+-------------------+-----------------+-------------------+----------------+-----------+---------------+-----------------------+----------------------------+-----------------+----------------------+---------------------------+--------------------------+-------------------------------------+-----------+-----------+------------+-----------------+------------+-----------------+------------+------------------------
+ col1 |         1 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 1           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            |                 | 100        | 3               |            | 0
+(1 row)
+
+insert into test_identity(col3) values('test1');
+select i.name, i.column_id, i.system_type_id, i.user_type_id, i.max_length, i.precision, i.scale, i.collation_name, i.is_nullable, 
+i.is_ansi_padded, i.is_rowguidcol, i.is_identity, i.is_computed, i.is_filestream, i.is_replicated, i.is_non_sql_subscribed, i.is_merge_published, 
+i.is_dts_replicated, i.is_xml_document, i.xml_collection_id, i.rule_object_id, i.is_sparse, i.is_column_set, i.generated_always_type,
+i.generated_always_type_desc, i.encryption_type, i.encryption_type_desc, i.encryption_algorithm_name, i.column_encryption_key_id, 
+i.column_encryption_key_database_name, i.is_hidden, i.is_masked, i.graph_type, i.graph_type_desc, i.seed_value, i.increment_value, 
+i.last_value, i.is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id
+where c.relname = 'test_identity' order by name;
+ name | column_id | system_type_id | user_type_id | max_length | precision | scale | collation_name | is_nullable | is_ansi_padded | is_rowguidcol | is_identity | is_computed | is_filestream | is_replicated | is_non_sql_subscribed | is_merge_published | is_dts_replicated | is_xml_document | xml_collection_id | rule_object_id | is_sparse | is_column_set | generated_always_type | generated_always_type_desc | encryption_type | encryption_type_desc | encryption_algorithm_name | column_encryption_key_id | column_encryption_key_database_name | is_hidden | is_masked | graph_type | graph_type_desc | seed_value | increment_value | last_value | is_not_for_replication 
+------+-----------+----------------+--------------+------------+-----------+-------+----------------+-------------+----------------+---------------+-------------+-------------+---------------+---------------+-----------------------+--------------------+-------------------+-----------------+-------------------+----------------+-----------+---------------+-----------------------+----------------------------+-----------------+----------------------+---------------------------+--------------------------+-------------------------------------+-----------+-----------+------------+-----------------+------------+-----------------+------------+------------------------
+ col1 |         1 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 1           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            |                 | 100        | 3               | 100        | 0
+(1 row)
+
+select i.name, i.column_id, i.system_type_id, i.user_type_id, i.max_length, i.precision, i.scale, i.collation_name, i.is_nullable, 
+i.is_ansi_padded, i.is_rowguidcol, i.is_identity, i.is_computed, i.is_filestream, i.is_replicated, i.is_non_sql_subscribed, i.is_merge_published, 
+i.is_dts_replicated, i.is_xml_document, i.xml_collection_id, i.rule_object_id, i.is_sparse, i.is_column_set, i.generated_always_type,
+i.generated_always_type_desc, i.encryption_type, i.encryption_type_desc, i.encryption_algorithm_name, i.column_encryption_key_id, 
+i.column_encryption_key_database_name, i.is_hidden, i.is_masked, i.graph_type, i.graph_type_desc from sys.columns i inner join pg_class c
+on c.oid = i.object_id where c.relname = 'test_identity' order by name;
+ name | column_id | system_type_id | user_type_id | max_length | precision | scale | collation_name | is_nullable | is_ansi_padded | is_rowguidcol | is_identity | is_computed | is_filestream | is_replicated | is_non_sql_subscribed | is_merge_published | is_dts_replicated | is_xml_document | xml_collection_id | rule_object_id | is_sparse | is_column_set | generated_always_type | generated_always_type_desc | encryption_type | encryption_type_desc | encryption_algorithm_name | column_encryption_key_id | column_encryption_key_database_name | is_hidden | is_masked | graph_type | graph_type_desc 
+------+-----------+----------------+--------------+------------+-----------+-------+----------------+-------------+----------------+---------------+-------------+-------------+---------------+---------------+-----------------------+--------------------+-------------------+-----------------+-------------------+----------------+-----------+---------------+-----------------------+----------------------------+-----------------+----------------------+---------------------------+--------------------------+-------------------------------------+-----------+-----------+------------+-----------------
+ col1 |         1 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 1           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+ col2 |         2 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 0           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+ col3 |         3 |           1043 |         1043 |         54 |         0 |     0 | default        | 1           | 0              | 0             | 0           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+(3 rows)
+
+create view view1 as select * from test_identity;
+select i.name, i.column_id, i.system_type_id, i.user_type_id, i.max_length, i.precision, i.scale, i.collation_name, i.is_nullable, 
+i.is_ansi_padded, i.is_rowguidcol, i.is_identity, i.is_computed, i.is_filestream, i.is_replicated, i.is_non_sql_subscribed, i.is_merge_published, 
+i.is_dts_replicated, i.is_xml_document, i.xml_collection_id, i.rule_object_id, i.is_sparse, i.is_column_set, i.generated_always_type,
+i.generated_always_type_desc, i.encryption_type, i.encryption_type_desc, i.encryption_algorithm_name, i.column_encryption_key_id, 
+i.column_encryption_key_database_name, i.is_hidden, i.is_masked, i.graph_type, i.graph_type_desc, i.seed_value, i.increment_value, 
+i.last_value, i.is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id
+where c.relname = 'view1' order by name;
+ name | column_id | system_type_id | user_type_id | max_length | precision | scale | collation_name | is_nullable | is_ansi_padded | is_rowguidcol | is_identity | is_computed | is_filestream | is_replicated | is_non_sql_subscribed | is_merge_published | is_dts_replicated | is_xml_document | xml_collection_id | rule_object_id | is_sparse | is_column_set | generated_always_type | generated_always_type_desc | encryption_type | encryption_type_desc | encryption_algorithm_name | column_encryption_key_id | column_encryption_key_database_name | is_hidden | is_masked | graph_type | graph_type_desc | seed_value | increment_value | last_value | is_not_for_replication 
+------+-----------+----------------+--------------+------------+-----------+-------+----------------+-------------+----------------+---------------+-------------+-------------+---------------+---------------+-----------------------+--------------------+-------------------+-----------------+-------------------+----------------+-----------+---------------+-----------------------+----------------------------+-----------------+----------------------+---------------------------+--------------------------+-------------------------------------+-----------+-----------+------------+-----------------+------------+-----------------+------------+------------------------
+(0 rows)
+
+create view view2 as select col3 from test_identity;
+select i.name, i.column_id, i.system_type_id, i.user_type_id, i.max_length, i.precision, i.scale, i.collation_name, i.is_nullable, 
+i.is_ansi_padded, i.is_rowguidcol, i.is_identity, i.is_computed, i.is_filestream, i.is_replicated, i.is_non_sql_subscribed, i.is_merge_published, 
+i.is_dts_replicated, i.is_xml_document, i.xml_collection_id, i.rule_object_id, i.is_sparse, i.is_column_set, i.generated_always_type,
+i.generated_always_type_desc, i.encryption_type, i.encryption_type_desc, i.encryption_algorithm_name, i.column_encryption_key_id, 
+i.column_encryption_key_database_name, i.is_hidden, i.is_masked, i.graph_type, i.graph_type_desc, i.seed_value, i.increment_value, 
+i.last_value, i.is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id
+where c.relname = 'view2' order by name;
+ name | column_id | system_type_id | user_type_id | max_length | precision | scale | collation_name | is_nullable | is_ansi_padded | is_rowguidcol | is_identity | is_computed | is_filestream | is_replicated | is_non_sql_subscribed | is_merge_published | is_dts_replicated | is_xml_document | xml_collection_id | rule_object_id | is_sparse | is_column_set | generated_always_type | generated_always_type_desc | encryption_type | encryption_type_desc | encryption_algorithm_name | column_encryption_key_id | column_encryption_key_database_name | is_hidden | is_masked | graph_type | graph_type_desc | seed_value | increment_value | last_value | is_not_for_replication 
+------+-----------+----------------+--------------+------------+-----------+-------+----------------+-------------+----------------+---------------+-------------+-------------+---------------+---------------+-----------------------+--------------------+-------------------+-----------------+-------------------+----------------+-----------+---------------+-----------------------+----------------------------+-----------------+----------------------+---------------------------+--------------------------+-------------------------------------+-----------+-----------+------------+-----------------+------------+-----------------+------------+------------------------
+(0 rows)
+
+select c.name, c.column_id, c.system_type_id, c.user_type_id, c.max_length, c.precision, c.scale, c.collation_name, c.is_nullable, 
+c.is_ansi_padded, c.is_rowguidcol, c.is_identity, c.is_computed, c.is_filestream, c.is_replicated, c.is_non_sql_subscribed, c.is_merge_published, 
+c.is_dts_replicated, c.is_xml_document, c.xml_collection_id, c.rule_object_id, c.is_sparse, c.is_column_set, c.generated_always_type,
+c.generated_always_type_desc, c.encryption_type, c.encryption_type_desc, c.encryption_algorithm_name, c.column_encryption_key_id, 
+c.column_encryption_key_database_name, c.is_hidden, c.is_masked, c.graph_type, c.graph_type_desc from sys.columns c
+inner join pg_class t on c.object_id = t.oid
+inner join pg_namespace s on t.relnamespace = s.oid
+where s.nspname = 'sys_view_test3'
+order by object_id, column_id;
+      name      | column_id | system_type_id | user_type_id | max_length | precision | scale | collation_name | is_nullable | is_ansi_padded | is_rowguidcol | is_identity | is_computed | is_filestream | is_replicated | is_non_sql_subscribed | is_merge_published | is_dts_replicated | is_xml_document | xml_collection_id | rule_object_id | is_sparse | is_column_set | generated_always_type | generated_always_type_desc | encryption_type | encryption_type_desc | encryption_algorithm_name | column_encryption_key_id | column_encryption_key_database_name | is_hidden | is_masked | graph_type | graph_type_desc 
+----------------+-----------+----------------+--------------+------------+-----------+-------+----------------+-------------+----------------+---------------+-------------+-------------+---------------+---------------+-----------------------+--------------------+-------------------+-----------------+-------------------+----------------+-----------+---------------+-----------------------+----------------------------+-----------------+----------------------+---------------------------+--------------------------+-------------------------------------+-----------+-----------+------------+-----------------
+ num            |         1 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 1           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+ qtyavailable   |         2 |             21 |           21 |          2 |         0 |     0 |                | 1           | 0              | 0             | 0           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+ unitprice      |         3 |            790 |          790 |          8 |         0 |     0 |                | 1           | 0              | 0             | 0           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+ inventoryvalue |         4 |            790 |          790 |          8 |         0 |     0 | default        | 1           | 0              | 0             | 0           | 1           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+ col1           |         1 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 1           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+ col2           |         2 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 0           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+ col3           |         3 |           1043 |         1043 |         54 |         0 |     0 | default        | 1           | 0              | 0             | 0           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+ col1           |         1 |             23 |           23 |          4 |         0 |     0 |                | 1           | 0              | 0             | 0           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+ col2           |         2 |             23 |           23 |          4 |         0 |     0 |                | 1           | 0              | 0             | 0           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+ col3           |         3 |           1043 |         1043 |         54 |         0 |     0 | default        | 1           | 0              | 0             | 0           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+ col3           |         1 |           1043 |         1043 |         54 |         0 |     0 | default        | 1           | 0              | 0             | 0           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            | 
+(11 rows)
+
+select c.name, c.column_id, c.system_type_id, c.user_type_id, c.max_length, c.precision, c.scale, c.collation_name, c.is_nullable, 
+c.is_ansi_padded, c.is_rowguidcol, c.is_identity, c.is_computed, c.is_filestream, c.is_replicated, c.is_non_sql_subscribed, c.is_merge_published, 
+c.is_dts_replicated, c.is_xml_document, c.xml_collection_id, c.rule_object_id, c.is_sparse, c.is_column_set, c.generated_always_type,
+c.generated_always_type_desc, c.encryption_type, c.encryption_type_desc, c.encryption_algorithm_name, c.column_encryption_key_id, 
+c.column_encryption_key_database_name, c.is_hidden, c.is_masked, c.graph_type, c.graph_type_desc, c.seed_value, c.increment_value, 
+c.last_value, c.is_not_for_replication from sys.identity_columns c
+inner join pg_class t on c.object_id = t.oid
+inner join pg_namespace s on t.relnamespace = s.oid
+where s.nspname = 'sys_view_test3'
+order by object_id, column_id;
+ name | column_id | system_type_id | user_type_id | max_length | precision | scale | collation_name | is_nullable | is_ansi_padded | is_rowguidcol | is_identity | is_computed | is_filestream | is_replicated | is_non_sql_subscribed | is_merge_published | is_dts_replicated | is_xml_document | xml_collection_id | rule_object_id | is_sparse | is_column_set | generated_always_type | generated_always_type_desc | encryption_type | encryption_type_desc | encryption_algorithm_name | column_encryption_key_id | column_encryption_key_database_name | is_hidden | is_masked | graph_type | graph_type_desc | seed_value | increment_value | last_value | is_not_for_replication 
+------+-----------+----------------+--------------+------------+-----------+-------+----------------+-------------+----------------+---------------+-------------+-------------+---------------+---------------+-----------------------+--------------------+-------------------+-----------------+-------------------+----------------+-----------+---------------+-----------------------+----------------------------+-----------------+----------------------+---------------------------+--------------------------+-------------------------------------+-----------+-----------+------------+-----------------+------------+-----------------+------------+------------------------
+ num  |         1 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 1           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            |                 | 1          | 1               |            | 0
+ col1 |         1 |             23 |           23 |          4 |         0 |     0 |                | 0           | 0              | 0             | 1           | 0           | 0             | 0             | 0                     | 0                  | 0                 | 0               |                 0 |              0 | 0         | 0             | 0                     | NOT_APPLICABLE             |               2 | DETERMINISTIC        |                           |                          |                                     | 0         | 0         |            |                 | 100        | 3               | 100        | 0
+(2 rows)
+
+drop table if exists test_identity;
+create table test_identity(col1 int identity(100,3), col2 serial, col3 varchar(50));
+NOTICE:  CREATE TABLE will create implicit sequence "test_identity_col1_seq_identity" for serial column "test_identity.col1"
+NOTICE:  CREATE TABLE will create implicit sequence "test_identity_col2_seq" for serial column "test_identity.col2"
+select seed_value, increment_value, last_value, is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id where c.relname = 'test_identity' order by name;
+ seed_value | increment_value | last_value | is_not_for_replication 
+------------+-----------------+------------+------------------------
+ 100        | 3               |            | 0
+(1 row)
+
+insert into test_identity(col3) values('test1');
+select seed_value, increment_value, last_value, is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id where c.relname = 'test_identity' order by name;
+ seed_value | increment_value | last_value | is_not_for_replication 
+------------+-----------------+------------+------------------------
+ 100        | 3               | 100        | 0
+(1 row)
+
+insert into test_identity(col3) values('test2');
+select seed_value, increment_value, last_value, is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id where c.relname = 'test_identity' order by name;
+ seed_value | increment_value | last_value | is_not_for_replication 
+------------+-----------------+------------+------------------------
+ 100        | 3               | 103        | 0
+(1 row)
+
+delete from test_identity;
+select seed_value, increment_value, last_value, is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id where c.relname = 'test_identity' order by name;
+ seed_value | increment_value | last_value | is_not_for_replication 
+------------+-----------------+------------+------------------------
+ 100        | 3               | 103        | 0
+(1 row)
+
+insert into test_identity(col3) values('test1');
+select seed_value, increment_value, last_value, is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id where c.relname = 'test_identity' order by name;
+ seed_value | increment_value | last_value | is_not_for_replication 
+------------+-----------------+------------+------------------------
+ 100        | 3               | 106        | 0
+(1 row)
+
+truncate table test_identity;
+select seed_value, increment_value, last_value, is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id where c.relname = 'test_identity' order by name;
+ seed_value | increment_value | last_value | is_not_for_replication 
+------------+-----------------+------------+------------------------
+ 100        | 3               |            | 0
+(1 row)
+
+insert into test_identity(col3) values('test1');
+select seed_value, increment_value, last_value, is_not_for_replication from sys.identity_columns i inner join pg_class c on c.oid = i.object_id where c.relname = 'test_identity' order by name;
+ seed_value | increment_value | last_value | is_not_for_replication 
+------------+-----------------+------------+------------------------
+ 100        | 3               | 100        | 0
+(1 row)
+
+create table test_identity2(col1 int identity(100,3), col2 varchar(50));
+NOTICE:  CREATE TABLE will create implicit sequence "test_identity2_col1_seq_identity" for serial column "test_identity2.col1"
+create view view3 as select * from test_identity2;
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('view3');
+ seed_value | increment_value | last_value 
+------------+-----------------+------------
+(0 rows)
+
+create view view4 as select col2 from test_identity2;
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('view4');
+ seed_value | increment_value | last_value 
+------------+-----------------+------------
+(0 rows)
+
+create table test_identity3(col1 int identity(100,3), col2 serial, col3 varchar(50));
+NOTICE:  CREATE TABLE will create implicit sequence "test_identity3_col1_seq_identity" for serial column "test_identity3.col1"
+NOTICE:  CREATE TABLE will create implicit sequence "test_identity3_col2_seq" for serial column "test_identity3.col2"
+select * from pg_get_serial_sequence('test_identity3', 'col1');
+             pg_get_serial_sequence              
+-------------------------------------------------
+ sys_view_test3.test_identity3_col1_seq_identity
+(1 row)
+
+select * from pg_get_serial_sequence('test_identity3', 'col2');
+         pg_get_serial_sequence         
+----------------------------------------
+ sys_view_test3.test_identity3_col2_seq
+(1 row)
+
+select * from get_sequence_start_value('test_identity3_col1_seq_identity');
+ get_sequence_start_value 
+--------------------------
+                      100
+(1 row)
+
+select * from get_sequence_increment_value('test_identity3_col1_seq_identity');
+ get_sequence_increment_value 
+------------------------------
+                            3
+(1 row)
+
+select * from get_sequence_last_value('test_identity3_col1_seq_identity');
+ get_sequence_last_value 
+-------------------------
+                        
+(1 row)
+
+select * from get_sequence_start_value('test_identity3_col2_seq');
+ get_sequence_start_value 
+--------------------------
+                        1
+(1 row)
+
+select * from get_sequence_increment_value('test_identity3_col2_seq');
+ get_sequence_increment_value 
+------------------------------
+                            1
+(1 row)
+
+select * from get_sequence_last_value('test_identity3_col2_seq');
+ get_sequence_last_value 
+-------------------------
+                        
+(1 row)
+
+insert into test_identity3(col3) values('test');
+select * from get_sequence_last_value('test_identity3_col1_seq_identity');
+ get_sequence_last_value 
+-------------------------
+                     100
+(1 row)
+
+select * from get_sequence_last_value('test_identity3_col2_seq');
+ get_sequence_last_value 
+-------------------------
+                       1
+(1 row)
+
+drop table if exists test_identity;
+create table test_identity(col1 int identity(100,3), col2 varchar(50));
+NOTICE:  CREATE TABLE will create implicit sequence "test_identity_col1_seq_identity" for serial column "test_identity.col1"
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity');
+ seed_value | increment_value | last_value 
+------------+-----------------+------------
+ 100        | 3               | 
+(1 row)
+
+insert into test_identity(col2) values('test1');
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity');
+ seed_value | increment_value | last_value 
+------------+-----------------+------------
+ 100        | 3               | 100
+(1 row)
+
+insert into test_identity(col2) values('test2');
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity');
+ seed_value | increment_value | last_value 
+------------+-----------------+------------
+ 100        | 3               | 103
+(1 row)
+
+delete from test_identity;
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity');
+ seed_value | increment_value | last_value 
+------------+-----------------+------------
+ 100        | 3               | 103
+(1 row)
+
+insert into test_identity(col2) values('test1');
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity');
+ seed_value | increment_value | last_value 
+------------+-----------------+------------
+ 100        | 3               | 106
+(1 row)
+
+truncate table test_identity;
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity');
+ seed_value | increment_value | last_value 
+------------+-----------------+------------
+ 100        | 3               | 
+(1 row)
+
+insert into test_identity(col2) values('test1');
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity');
+ seed_value | increment_value | last_value 
+------------+-----------------+------------
+ 100        | 3               | 100
+(1 row)
+
+create table test_identity_large_sequence1(col1 bigint identity(-9223372036854775808, 3), col2 varchar(50));
+NOTICE:  CREATE TABLE will create implicit sequence "test_identity_large_sequence1_col1_seq_identity" for serial column "test_identity_large_sequence1.col1"
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity_large_sequence1');
+      seed_value      | increment_value | last_value 
+----------------------+-----------------+------------
+ -9223372036854775808 | 3               | 
+(1 row)
+
+insert into test_identity_large_sequence1(col2) values('test1');
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity_large_sequence1');
+      seed_value      | increment_value |      last_value      
+----------------------+-----------------+----------------------
+ -9223372036854775808 | 3               | -9223372036854775808
+(1 row)
+
+create table test_identity_large_sequence2(col1 bigint identity(9223372036854775806, 1), col2 varchar(50));
+NOTICE:  CREATE TABLE will create implicit sequence "test_identity_large_sequence2_col1_seq_identity" for serial column "test_identity_large_sequence2.col1"
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity_large_sequence2');
+     seed_value      | increment_value | last_value 
+---------------------+-----------------+------------
+ 9223372036854775806 | 1               | 
+(1 row)
+
+insert into test_identity_large_sequence2(col2) values('test1');
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity_large_sequence2');
+     seed_value      | increment_value |     last_value      
+---------------------+-----------------+---------------------
+ 9223372036854775806 | 1               | 9223372036854775806
+(1 row)
+
+create table test_identity_large_sequence3(col1 bigint identity(1, 9223372036854775806), col2 varchar(50));
+NOTICE:  CREATE TABLE will create implicit sequence "test_identity_large_sequence3_col1_seq_identity" for serial column "test_identity_large_sequence3.col1"
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity_large_sequence3');
+ seed_value |   increment_value   | last_value 
+------------+---------------------+------------
+ 1          | 9223372036854775806 | 
+(1 row)
+
+insert into test_identity_large_sequence3(col2) values('test1');
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity_large_sequence3');
+ seed_value |   increment_value   | last_value 
+------------+---------------------+------------
+ 1          | 9223372036854775806 | 1
+(1 row)
+
+reset search_path;
+drop schema sys_view_test3 cascade;
+NOTICE:  drop cascades to 11 other objects
+DETAIL:  drop cascades to table sys_view_test3.products
+drop cascades to view sys_view_test3.view1
+drop cascades to view sys_view_test3.view2
+drop cascades to table sys_view_test3.test_identity2
+drop cascades to view sys_view_test3.view3
+drop cascades to view sys_view_test3.view4
+drop cascades to table sys_view_test3.test_identity3
+drop cascades to table sys_view_test3.test_identity
+drop cascades to table sys_view_test3.test_identity_large_sequence1
+drop cascades to table sys_view_test3.test_identity_large_sequence2
+drop cascades to table sys_view_test3.test_identity_large_sequence3

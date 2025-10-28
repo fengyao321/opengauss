@@ -398,7 +398,7 @@ function check_pkg() {
   log "kernel: ${kernel}"
 
   #detect platform information.
-  platform_arch=$(uname -p)
+  platform_arch=$(uname -m)
   binfile=$(ls | grep openGauss-Lite*.bin)
   shafile=${binfile%.*}.sha256
   if [[ ! -f "${binfile}" ]] || [[ ! -f "${shafile}" ]]; then

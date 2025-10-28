@@ -1833,7 +1833,7 @@ uname -r = `(uname -r) 2>/dev/null || echo unknown`
 uname -s = `(uname -s) 2>/dev/null || echo unknown`
 uname -v = `(uname -v) 2>/dev/null || echo unknown`
 
-/usr/bin/uname -p = `(/usr/bin/uname -p) 2>/dev/null || echo unknown`
+/usr/bin/uname -m = `(/usr/bin/uname -m) 2>/dev/null || echo unknown`
 /bin/uname -X     = `(/bin/uname -X) 2>/dev/null     || echo unknown`
 
 /bin/arch              = `(/bin/arch) 2>/dev/null              || echo unknown`
@@ -2219,7 +2219,7 @@ PACKAGE_VERSION='9.2.4'
 # Postgres-XC 1.1devel is based on PostgreSQL 9.2.4
 PACKAGE_XC_VERSION='1.1'
 # openGauss is based on PostgreSQL 9.2.4 and it will be the Kernel of GaussDB database
-OPENGAUSS_VERSION='7.0.0-RC2'
+OPENGAUSS_VERSION='7.0.0-RC3'
 
 cat >>confdefs.h <<_ACEOF
 #define PG_VERSION "$PACKAGE_VERSION"
@@ -2479,7 +2479,7 @@ fi
 # Add non-standard directories to the library search path
 #
 
-PLATFORM_ARCH=$(uname -p)
+PLATFORM_ARCH=$(uname -m)
 if [ "$PLATFORM_ARCH"X == "unknown"X ]; then
   PLATFORM_ARCH=$(uname -m)
 fi
@@ -29143,7 +29143,7 @@ fi
 
 fi
 
-PLATFORM_ARCH=$(uname -p)
+PLATFORM_ARCH=$(uname -m)
 if [ "$PLATFORM_ARCH"X == "aarch64"X ] ; then
   if [[ $CFLAGS == *"__ARM_LSE"* ]];then
     CFLAGS="-march=armv8-a+crc+lse $CFLAGS"

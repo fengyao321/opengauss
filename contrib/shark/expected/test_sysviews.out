@@ -362,7 +362,7 @@ drop table student;
  schema_id           | oid                         | 
  parent_object_id    | oid                         | 
  type                | bpchar                      | 
- type_desc           | nvarchar2                   | 
+ type_desc           | nvarchar2(max)              | 
  create_date         | timestamp without time zone | 
  modify_date         | timestamp without time zone | 
  is_ms_shipped       | "bit"                       | 
@@ -379,7 +379,7 @@ drop table student;
  schema_id           | oid                         | 
  parent_object_id    | oid                         | 
  type                | bpchar                      | 
- type_desc           | nvarchar2                   | 
+ type_desc           | nvarchar2(max)              | 
  create_date         | timestamp without time zone | 
  modify_date         | timestamp without time zone | 
  is_ms_shipped       | "bit"                       | 
@@ -396,7 +396,7 @@ drop table student;
  schema_id                          | oid                         | 
  parent_object_id                   | oid                         | 
  type                               | bpchar                      | 
- type_desc                          | nvarchar2                   | 
+ type_desc                          | nvarchar2(max)              | 
  create_date                        | timestamp without time zone | 
  modify_date                        | timestamp without time zone | 
  is_ms_shipped                      | "bit"                       | 
@@ -563,7 +563,7 @@ drop table student;
  schema_id                 | oid                         | 
  parent_object_id          | oid                         | 
  type                      | bpchar                      | 
- type_desc                 | nvarchar2                   | 
+ type_desc                 | nvarchar2(max)              | 
  create_date               | timestamp without time zone | 
  modify_date               | timestamp without time zone | 
  is_ms_shipped             | "bit"                       | 

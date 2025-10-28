@@ -12759,10 +12759,10 @@ DropTrigStmt:
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							errmsg("drop trigger name is not yet supported in distributed database.")));
 #endif
-					if (u_sess->attr.attr_sql.sql_compatibility != B_FORMAT) {
+					if (!DB_IS_CMPT_BD) {
 						ereport(errstate, 
 								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-								errmsg("drop trigger without table name only support in B-format database")));
+								errmsg("drop trigger without table name only support in B-format or D-format database")));
 					}
 					DropStmt *n = makeNode(DropStmt);
 					n->removeType = OBJECT_TRIGGER;
@@ -12782,10 +12782,10 @@ DropTrigStmt:
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							errmsg("drop trigger if exists name is not yet supported in distributed database.")));
 #endif
-					if (u_sess->attr.attr_sql.sql_compatibility != B_FORMAT) {
+					if (!DB_IS_CMPT_BD) {
 						ereport(errstate, 
 								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-								errmsg("drop trigger without table name only support in B-format database")));
+								errmsg("drop trigger without table name only support in B-format or D-format database")));
 					}
 					DropStmt *n = makeNode(DropStmt);
 					n->removeType = OBJECT_TRIGGER;
@@ -27829,6 +27829,11 @@ CharacterWithoutLength:	 character
                     {
                         $$->typmods = list_make1(makeIntConst(1, -1));
                     }
+
+                    /* nvarchar2 defaults to nvarchar2(1) in D-format database */
+                    if (DB_IS_CMPT(D_FORMAT) && strcmp($1, "nvarchar2") == 0) {
+						$$->typmods = list_make1(makeIntConst(1, -1));
+					}
 				}
 		;
 
@@ -28335,6 +28340,16 @@ a_expr:		c_expr									{ $$ = $1; }
 				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "<", $1, $3, @2); }
 			| a_expr '>' a_expr
 				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, ">", $1, $3, @2); }
+			| a_expr '<' '>' a_expr
+				{
+					if (DB_IS_CMPT(D_FORMAT)) {
+                        $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "<>", $1, $4, @2);
+					} else {
+						ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								errmsg("< > is supported only in D FORMAT database.")));
+					}
+				}
 			| a_expr '=' a_expr
 				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "=", $1, $3, @2); }
                         | a_expr '@' a_expr
@@ -28858,6 +28873,16 @@ b_expr:		c_expr
 				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "<", $1, $3, @2); }
 			| b_expr '>' b_expr
 				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, ">", $1, $3, @2); }
+			| b_expr '<' '>' b_expr
+				{
+					if (DB_IS_CMPT(D_FORMAT)) {
+                        $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "<>", $1, $4, @2);
+					} else {
+						ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								errmsg("< > is supported only in D FORMAT database.")));
+					}
+				}
 			| b_expr '=' b_expr
 				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "=", $1, $3, @2); }
                         | b_expr '@' b_expr

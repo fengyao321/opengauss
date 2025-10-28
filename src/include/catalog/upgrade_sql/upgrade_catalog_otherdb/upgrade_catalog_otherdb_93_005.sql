@@ -16,6 +16,16 @@ SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 98
      objectextensions text[]                                                           
  )WITH(oids=true) TABLESPACE pg_default;
 
+BEGIN
+UPDATE pg_class
+set reloptions = (CASE WHEN array_length(array_remove(reloptions, 'segment=on'), 1) = 0
+                     then NULL
+                     else array_remove(reloptions, 'segment=on')
+                     END
+                )
+WHERE oid = 9815;
+END;
+
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0, 0, 0, 2990;
 CREATE UNIQUE INDEX pg_catalog.pg_object_type_index ON pg_object_type USING btree (typoid) TABLESPACE pg_default;
 

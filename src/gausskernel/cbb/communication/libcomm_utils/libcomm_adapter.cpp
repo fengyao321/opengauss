@@ -90,8 +90,10 @@ int gs_s_build_tcp_ctrl_connection(libcommaddrinfo* libcomm_addrinfo, int node_i
 static int libcomm_tcp_listen()
 {
     if (g_instance.attr.attr_network.comm_sctp_type != 0) {
-        const char* type = g_instance.attr.attr_network.comm_sctp_type == 1 ? "TCP" : "HCCS";
-        if (hcom_init_dll(g_instance.attr.attr_network.hcom_link_path)) {
+        static const char* const types[] = {"TCP", "UBC"};
+        int typeVal = g_instance.attr.attr_network.comm_sctp_type;
+        const char* type = types[typeVal - 1];
+        if (hcom_init_dll(g_instance.attr.attr_network.hcom4db_link_path)) {
             g_libcomm_adapt.connect = hcom_build_connection;
             g_libcomm_adapt.send_data = hcom_client_sendbuf;
             g_libcomm_adapt.recv_data = NULL;

@@ -451,6 +451,7 @@ BlockNumber SeekBlocknoForForwardToken(Relation index, uint32 forwardIdx, BlockN
 
 void BM25BatchInsertRecord(Relation index)
 {
+    MemoryContext oldCtx = NULL;
     Oid indexOid = RelationGetRelid(index);
     knl_u_bm25_context* bm25_ctx = &u_sess->bm25_ctx;
 
@@ -464,14 +465,18 @@ void BM25BatchInsertRecord(Relation index)
         bm25_ctx->insertXid = GetCurrentTransactionIdIfAny();
         bm25_ctx->indexOidForCount = indexOid;
         bm25_ctx->insertTupleNum += 1;
+        oldCtx = MemoryContextSwitchTo(u_sess->top_transaction_mem_cxt);
         bm25_ctx->indexOids = lappend_oid(bm25_ctx->indexOids, indexOid);
+        (void)MemoryContextSwitchTo(oldCtx);
         return;
     }
 
     if (likely(bm25_ctx->indexOidForCount == indexOid)) {
         bm25_ctx->insertTupleNum += 1;
     } else if (bm25_ctx->isFirstTuple) {
+        oldCtx = MemoryContextSwitchTo(u_sess->top_transaction_mem_cxt);
         bm25_ctx->indexOids = lappend_oid(bm25_ctx->indexOids, indexOid);
+        (void)MemoryContextSwitchTo(oldCtx);
     }
 }
 
@@ -505,8 +510,10 @@ void BM25BatchInsertAbort()
         LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
         BM25GetPage(index, &page, buf, &state, false);
         metapBuf = BM25PageGetMeta(page);
-        if (unlikely(metapBuf->magicNumber != BM25_MAGIC_NUMBER))
+        if (unlikely(metapBuf->magicNumber != BM25_MAGIC_NUMBER)) {
+            index_close(index, NoLock);
             elog(ERROR, "bm25 index is not valid");
+        }
         metapBuf->lastBacthInsertFailed = true;
         BM25CommitBuf(buf, &state, false);
         index_close(index, NoLock);

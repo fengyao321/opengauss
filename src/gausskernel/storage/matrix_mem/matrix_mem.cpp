@@ -37,8 +37,6 @@
 MatrixMemFunc g_matrixMemFunc = {0};
 constexpr auto MAX_RETRY_TIMES = 5;
 static constexpr auto BASE_NID = "";
-static char *g_nodeId = nullptr;
-static char *g_hostName = nullptr;
 
 int MaxtrixMemLoadSymbol(char *symbol, void **symLibHandle)
 {
@@ -70,35 +68,45 @@ int MaxtrixMemOpenDl(void **libHandle, char *symbol)
     return MATRIX_MEM_SUCCESS;
 }
 
-void MatrixMemFuncInit(char* lmemfabricClientPath)
+void MatrixMemFuncInit(char* ubsMemPath)
 {
     SymbolInfo symbols[] = {
-        {"RackMemMalloc", (void **)&g_matrixMemFunc.rackMemMalloc},
-        {"RackMemMallocAsync", (void **)&g_matrixMemFunc.rackMemMallocAsync},
-        {"RackMemFree", (void **)&g_matrixMemFunc.rackMemFree},
-        {"RackMemFreeAsync", (void **)&g_matrixMemFunc.rackMemFreeAsync},
-        {"RackMemShmLookupShareRegions", (void **)&g_matrixMemFunc.rackMemShmLookupShareRegions},
-        {"RackMemShmLookupRegionInfo", (void **)&g_matrixMemFunc.rackMemShmLookupRegionInfo},
-        {"RackMemShmCreate", (void **)&g_matrixMemFunc.rackMemShmCreate},
-        {"RackMemShmMmap", (void **)&g_matrixMemFunc.rackMemShmMmap},
-        {"RackMemShmCacheOpt", (void **)&g_matrixMemFunc.rackMemShmCacheOpt},
-        {"RackMemShmUnmmap", (void **)&g_matrixMemFunc.rackMemShmUnmmap},
-        {"RackMemShmDelete", (void **)&g_matrixMemFunc.rackMemShmDelete},
-        {"RackMemLookupClusterStatistic",
-            (void**)&g_matrixMemFunc.rackMemLookupClusterStatistic},
-        {"ErrCodeToStr", (void**)&g_matrixMemFunc.errCodeToStr}};
+        {"ubsmem_init_attributes", (void **)&g_matrixMemFunc.ubsmem_init_attributes},
+        {"ubsmem_initialize", (void **)&g_matrixMemFunc.ubsmem_initialize},
+        {"ubsmem_finalize", (void **)&g_matrixMemFunc.ubsmem_finalize},
+        {"ubsmem_set_logger_level", (void **)&g_matrixMemFunc.ubsmem_set_logger_level},
+        {"ubsmem_set_extern_logger", (void **)&g_matrixMemFunc.ubsmem_set_extern_logger},
+        {"ubsmem_lookup_regions", (void **)&g_matrixMemFunc.ubsmem_lookup_regions},
+        {"ubsmem_create_region", (void **)&g_matrixMemFunc.ubsmem_create_region},
+        {"ubsmem_lookup_region", (void **)&g_matrixMemFunc.ubsmem_lookup_region},
+        {"ubsmem_destroy_region", (void **)&g_matrixMemFunc.ubsmem_destroy_region},
+        {"ubsmem_shmem_allocate", (void **)&g_matrixMemFunc.ubsmem_shmem_allocate},
+        {"ubsmem_shmem_deallocate", (void **)&g_matrixMemFunc.ubsmem_shmem_deallocate},
+        {"ubsmem_shmem_map", (void**)&g_matrixMemFunc.ubsmem_shmem_map},
+        {"ubsmem_shmem_unmap", (void**)&g_matrixMemFunc.ubsmem_shmem_unmap},
+        {"ubsmem_shmem_set_ownership", (void**)&g_matrixMemFunc.ubsmem_shmem_set_ownership},
+        {"ubsmem_shmem_write_lock", (void**)&g_matrixMemFunc.ubsmem_shmem_write_lock},
+        {"ubsmem_shmem_read_lock", (void**)&g_matrixMemFunc.ubsmem_shmem_read_lock},
+        {"ubsmem_shmem_unlock", (void**)&g_matrixMemFunc.ubsmem_shmem_unlock},
+        {"ubsmem_shmem_list_lookup", (void**)&g_matrixMemFunc.ubsmem_shmem_list_lookup},
+        {"ubsmem_shmem_lookup", (void**)&g_matrixMemFunc.ubsmem_shmem_lookup},
+        {"ubsmem_shmem_attach", (void**)&g_matrixMemFunc.ubsmem_shmem_attach},
+        {"ubsmem_shmem_detach", (void**)&g_matrixMemFunc.ubsmem_shmem_detach},
+        {"ubsmem_lease_malloc", (void**)&g_matrixMemFunc.ubsmem_lease_malloc},
+        {"ubsmem_lease_free", (void**)&g_matrixMemFunc.ubsmem_lease_free},
+        {"ubsmem_lookup_cluster_statistic", (void**)&g_matrixMemFunc.ubsmem_lookup_cluster_statistic}};
 
     struct stat st;
-    if (lstat((const char*)lmemfabricClientPath, &st) == -1) {
+    if (lstat((const char*)ubsMemPath, &st) == -1) {
 #ifdef FRONTEND
-        fprintf(stderr, _("load matrix mem dynamic lib error: %s, lib not exists"), lmemfabricClientPath);
+        fprintf(stderr, _("load matrix mem dynamic lib error: %s, lib not exists"), ubsMemPath);
 #else
-        ereport(WARNING, (errmsg("load matrix mem dynamic lib error: %s, lib not exists", lmemfabricClientPath)));
+        ereport(WARNING, (errmsg("load matrix mem dynamic lib error: %s, lib not exists", ubsMemPath)));
 #endif
         return;
     }
 
-    if (SECUREC_UNLIKELY(MaxtrixMemOpenDl(&g_matrixMemFunc.handle, lmemfabricClientPath) != MATRIX_MEM_SUCCESS)) {
+    if (SECUREC_UNLIKELY(MaxtrixMemOpenDl(&g_matrixMemFunc.handle, ubsMemPath) != MATRIX_MEM_SUCCESS)) {
         return;
     }
 
@@ -109,6 +117,16 @@ void MatrixMemFuncInit(char* lmemfabricClientPath)
         }
     }
 
+    ubsmem_options_t ubsm_opts;
+    int ret = ubsmem_init_attributes(&ubsm_opts);
+    if (ret != 0) {
+        return;
+    }
+    ret = ubsmem_initialize(&ubsm_opts);
+    if (ret != 0) {
+        ubsmem_finalize();
+        return;
+    }
     /* succeeded to load */
     g_matrixMemFunc.matrix_mem_inited = true;
 }
@@ -116,15 +134,11 @@ void MatrixMemFuncInit(char* lmemfabricClientPath)
 void MatrixMemFuncUnInit()
 {
     if (g_matrixMemFunc.matrix_mem_inited) {
+        ubsmem_finalize();
         (void)dlclose(g_matrixMemFunc.handle);
         g_matrixMemFunc.handle = NULL;
         g_matrixMemFunc.matrix_mem_inited = false;
     }
-}
-
-const char *ErrCodeToStr(int errCode)
-{
-    return g_matrixMemFunc.errCodeToStr(errCode);
 }
 
 static const ErrorInfo *GetErrorInfo(int errCode)
@@ -139,29 +153,26 @@ static const ErrorInfo *GetErrorInfo(int errCode)
 
 static void PrintError(const char *funcName, int lastErrno, int retry, bool isLastRetry)
 {
-    const char *errorMsg = ErrCodeToStr(lastErrno);
     const ErrorInfo *info = GetErrorInfo(lastErrno);
-    const char *logHint = "Please check Rackmanager log";
     bool shouldRetry = false;
 
     if (info) {
-        logHint = info->logHint;
         shouldRetry = info->shouldRetry;
     }
 
     if (isLastRetry || !shouldRetry) {
 #ifdef FRONTEND
-        fprintf(stderr, _("%s failed, code:[%d], error: %s, %s\n"), funcName, lastErrno, errorMsg, logHint);
+        fprintf(stderr, _("%s failed, code:[%d]\n"), funcName, lastErrno);
 #else
-        ereport(WARNING, (errmsg("%s failed, code:[%d], error: %s, %s", funcName, lastErrno, errorMsg, logHint)));
+        ereport(WARNING, (errmsg("%s failed, code:[%d]", funcName, lastErrno)));
 #endif
     } else {
 #ifdef FRONTEND
-        fprintf(stdout, _("%s failed for [%d] time, code:[%d], error: %s, will retry after 1s. %s\n"), funcName,
-                retry + 1, lastErrno, errorMsg, logHint);
+        fprintf(stdout, _("%s failed for [%d] time, code:[%d], will retry after 1s.\n"), funcName,
+                retry + 1, lastErrno);
 #else
-        ereport(WARNING, (errmsg("%s failed for [%d] time, code:[%d], error: %s, will retry after 1s. %s", funcName,
-                                 retry + 1, lastErrno, errorMsg, logHint)));
+        ereport(WARNING, (errmsg("%s failed for [%d] time, code:[%d], will retry after 1s.", funcName,
+                                 retry + 1, lastErrno)));
 #endif
     }
 }
@@ -195,175 +206,204 @@ static int Retry(Func func, const char *funcName)
     return errorCode;
 }
 
-void *RackMemMalloc(size_t size, PerfLevel perfLevel, intptr_t attr)
-{
-    void *result = nullptr;
-    std::function<int()> func = [&]() -> int {
-        result = g_matrixMemFunc.rackMemMalloc(size, perfLevel, attr);
-        if (SECUREC_LIKELY(result != nullptr)) {
-            return MATRIX_MEM_SUCCESS;
-        } else {
-            return errno;
-        };
-    };
-    int ret = Retry(func, "RackMemMalloc");
-    if (SECUREC_LIKELY(ret == MATRIX_MEM_SUCCESS)) {
-        return result;
-    }
-    return nullptr;
-}
-
-int RackMemMallocAsync(size_t size, PerfLevel perfLevel, intptr_t attr, AsyncFreeCallBack func, intptr_t ctx)
+int ubsmem_init_attributes(ubsmem_options_t *ubsm_shmem_opts)
 {
     std::function<int()> funcin = [&]() -> int {
-        return g_matrixMemFunc.rackMemMallocAsync(size, perfLevel, attr, func, ctx);
+        return g_matrixMemFunc.ubsmem_init_attributes(ubsm_shmem_opts);
     };
-    return Retry(funcin, "RackMemMallocAsync");
+    return Retry(funcin, "ubsmem_init_attributes");
 }
 
-int RackMemFree(void *ptr)
-{
-    std::function<int()> func = [&]() -> int {
-        g_matrixMemFunc.rackMemFree(ptr);
-        return errno;
-    };
-    return Retry(func, "RackMemFree");
-}
-
-int RackMemFreeAsync(void *ptr, AsyncFreeCallBack func, intptr_t ctx)
+int ubsmem_initialize(const ubsmem_options_t *ubsm_shmem_opts)
 {
     std::function<int()> funcin = [&]() -> int {
-        return g_matrixMemFunc.rackMemFreeAsync(ptr, func, ctx);
+        return g_matrixMemFunc.ubsmem_initialize(ubsm_shmem_opts);
     };
-    return Retry(funcin, "RackMemFreeAsync");
+    return Retry(funcin, "ubsmem_initialize");
 }
 
-int RackMemShmLookupShareRegions(const char *baseNid, ShmRegionType type, SHMRegions *regions)
+int ubsmem_finalize(void)
 {
-    std::function<int()> func = [&]() -> int {
-        return g_matrixMemFunc.rackMemShmLookupShareRegions(baseNid, type, regions);
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_finalize();
     };
-    return Retry(func, "RackMemShmLookupShareRegions");
+    return Retry(funcin, "ubsmem_finalize");
 }
 
-int RackMemShmLookupRegionInfo(SHMRegionDesc *region, SHMRegionInfo *info)
+int ubsmem_set_logger_level(int level)
 {
-    std::function<int()> func = [&]() -> int {
-        return g_matrixMemFunc.rackMemShmLookupRegionInfo(region, info);
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_set_logger_level(level);
     };
-    return Retry(func, "RackMemShmLookupRegionInfo");
+    return Retry(funcin, "ubsmem_set_logger_level");
 }
 
-int RackMemShmCreate(char *name, uint64_t size, const char *baseNid, SHMRegionDesc *shmRegion)
+int ubsmem_set_extern_logger(void (*func)(int level, const char *msg))
 {
-    std::function<int()> func = [&]() -> int {
-        return g_matrixMemFunc.rackMemShmCreate(name, size, baseNid, shmRegion);
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_set_extern_logger(func);
     };
-    return Retry(func, "RackMemShmCreate");
+    return Retry(funcin, "ubsmem_set_extern_logger");
 }
 
-void *RackMemShmMmap(void *start, size_t length, int prot, int flags, const char *name, off_t offset)
+int ubsmem_lease_malloc(const char *region_name, size_t size, ubsmem_distance_t mem_distance, bool is_numa,
+                        void **local_ptr)
 {
-    void *result = nullptr;
-    std::function<int()> func = [&]() -> int {
-        result = g_matrixMemFunc.rackMemShmMmap(start, length, prot, flags, name, offset);
-        if (SECUREC_LIKELY(result != nullptr)) {
-            return MATRIX_MEM_SUCCESS;
-        } else {
-            return errno;
-        };
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_lease_malloc(region_name, size, mem_distance, is_numa, local_ptr);
     };
-    int ret = Retry(func, "RackMemShmMmap");
-    if (SECUREC_LIKELY(ret == MATRIX_MEM_SUCCESS)) {
-        return result;
-    }
-    return nullptr;
+    return Retry(funcin, "ubsmem_lease_malloc");
 }
 
-int RackMemShmCacheOpt(void *start, size_t length, ShmCacheOpt type)
+int ubsmem_lease_free(void *local_ptr)
 {
-    std::function<int()> func = [&]() -> int {
-        return g_matrixMemFunc.rackMemShmCacheOpt(start, length, type);
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_lease_free(local_ptr);
     };
-    return Retry(func, "RackMemShmCacheOpt");
+    return Retry(funcin, "ubsmem_lease_free");
 }
 
-int RackMemShmUnmmap(void *start, size_t length)
+int ubsmem_lookup_regions(ubsmem_regions_t* regions)
 {
-    std::function<int()> func = [&]() -> int {
-        return g_matrixMemFunc.rackMemShmUnmmap(start, length);
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_lookup_regions(regions);
     };
-    return Retry(func, "RackMemShmUnmmap");
+    return Retry(funcin, "ubsmem_lookup_regions");
 }
 
-int RackMemShmDelete(char *name)
+int ubsmem_create_region(const char *region_name, size_t size, const ubsmem_region_attributes_t *reg_attr)
 {
-    std::function<int()> func = [&]() -> int {
-        return g_matrixMemFunc.rackMemShmDelete(name);
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_create_region(region_name, size, reg_attr);
     };
-    int ret = Retry(func, "RackMemShmDelete");
-    if (ret == HOK || ret == E_CODE_RESOURCE_NOT_CREATE) {
-        return MATRIX_MEM_SUCCESS;
-    } else {
-        return ret;
-    }
+    return Retry(funcin, "ubsmem_create_region");
 }
 
-int RackMemLookupClusterStatistic(ClusterInfo *cluster)
+int ubsmem_lookup_region(const char *region_name, ubsmem_region_desc_t *region_desc)
 {
-    std::function<int()> func = [&]() -> int {
-        return g_matrixMemFunc.rackMemLookupClusterStatistic(cluster);
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_lookup_region(region_name, region_desc);
     };
-    return Retry(func, "RackMemLookupClusterStatistic");
+    return Retry(funcin, "ubsmem_lookup_region");
 }
 
-static void RackMemGetNodeInfo()
+int ubsmem_destroy_region(const char *region_name)
 {
-    int ret;
-    SHMRegions regions = SHMRegions();
-    ret = RackMemShmLookupShareRegions(BASE_NID, ShmRegionType::INCLUDE_ALL_TYPE, &regions);
-    if (ret != 0 || regions.region[0].num <= 0) {
-#ifdef FRONTEND
-        fprintf(stderr, _("lookup rack share regions failed, code: [%d], node num: [%d]\n"), ret,
-                regions.region[0].num);
-#else
-        ereport(WARNING,
-                (errcode(ERRCODE_INVALID_OPERATION),
-                 errmsg("lookup rack share regions failed, code: [%d], node num: [%d]\n", ret, regions.region[0].num)));
-#endif
-        return;
-    }
-    for (int i = 0; i < regions.num; i++) {
-        for (int j = 0; j < regions.region[i].num; j++) {
-            if (strcmp(g_hostName, regions.region[i].hostName[j]) == 0) {
-#ifdef FRONTEND
-                fprintf(stdout, _("The share regions [%d] host name: [%s], node id: [%s].\n"), i,
-                        regions.region[i].hostName[j], regions.region[i].nodeId[j]);
-#else
-                ereport(DEBUG1, (errmsg("The share regions [%d] host name: [%s], node id: [%s].\n", i,
-                                        regions.region[i].hostName[j], regions.region[i].nodeId[j])));
-#endif
-                g_nodeId = static_cast<char*>(malloc(strlen(regions.region[i].nodeId[j]) + 1));
-                errno_t rc = strcpy_s(g_nodeId, strlen(regions.region[i].nodeId[j]) + 1, regions.region[i].nodeId[j]);
-                securec_check(rc, "\0", "\0");
-                break;
-            }
-        }
-    }
-    return;
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_destroy_region(region_name);
+    };
+    return Retry(funcin, "ubsmem_destroy_region");
 }
 
-static void GetHostName()
+int ubsmem_shmem_allocate(const char *region_name, const char *name, size_t size, mode_t mode, uint64_t flags)
 {
-    if (g_hostName != nullptr) {
-#ifdef FRONTEND
-        fprintf(stdout, _("The RackManager host name [%s] has been initialized.\n"), g_hostName);
-#else
-        ereport(DEBUG1, (errmsg("The RackManager host name [%s] has been initialized.\n", g_hostName)));
-#endif
-        return;
-    }
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_shmem_allocate(region_name, name, size, mode, flags);
+    };
+    return Retry(funcin, "ubsmem_shmem_allocate");
+}
 
+int ubsmem_shmem_deallocate(const char *name)
+{
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_shmem_deallocate(name);
+    };
+    return Retry(funcin, "ubsmem_shmem_deallocate");
+}
+
+int ubsmem_shmem_map(void *addr, size_t length, int prot, int flags, const char *name, off_t offset,
+                     void **local_ptr)
+{
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_shmem_map(addr, length, prot, flags, name, offset, local_ptr);
+    };
+    return Retry(funcin, "ubsmem_shmem_map");
+}
+
+int ubsmem_shmem_unmap(void *local_ptr, size_t length)
+{
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_shmem_unmap(local_ptr, length);
+    };
+    return Retry(funcin, "ubsmem_shmem_unmap");
+}
+
+int ubsmem_shmem_set_ownership(const char *name, void *start, size_t length, int prot)
+{
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_shmem_set_ownership(name, start, length, prot);
+    };
+    return Retry(funcin, "ubsmem_shmem_set_ownership");
+}
+
+int ubsmem_shmem_write_lock(const char *name)
+{
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_shmem_write_lock(name);
+    };
+    return Retry(funcin, "ubsmem_shmem_write_lock");
+}
+
+int ubsmem_shmem_read_lock(const char *name)
+{
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_shmem_read_lock(name);
+    };
+    return Retry(funcin, "ubsmem_shmem_read_lock");
+}
+
+int ubsmem_shmem_unlock(const char *name)
+{
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_shmem_unlock(name);
+    };
+    return Retry(funcin, "ubsmem_shmem_unlock");
+}
+
+int ubsmem_shmem_list_lookup(const char *prefix, ubsmem_shmem_desc_t *shm_list, uint32_t *shm_cnt)
+{
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_shmem_list_lookup(prefix, shm_list, shm_cnt);
+    };
+    return Retry(funcin, "ubsmem_shmem_list_lookup");
+}
+
+int ubsmem_shmem_lookup(const char *name, ubsmem_shmem_info_t *shm_info)
+{
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_shmem_lookup(name, shm_info);
+    };
+    return Retry(funcin, "ubsmem_shmem_lookup");
+}
+
+int ubsmem_shmem_attach(const char *name)
+{
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_shmem_attach(name);
+    };
+    return Retry(funcin, "ubsmem_shmem_attach");
+}
+
+int ubsmem_shmem_detach(const char *name)
+{
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_shmem_detach(name);
+    };
+    return Retry(funcin, "ubsmem_shmem_detach");
+}
+
+int ubsmem_lookup_cluster_statistic(ubsmem_cluster_info_t* info)
+{
+    std::function<int()> funcin = [&]() -> int {
+        return g_matrixMemFunc.ubsmem_lookup_cluster_statistic(info);
+    };
+    return Retry(funcin, "ubsmem_lookup_cluster_statistic");
+}
+
+
+static char* GetHostName()
+{
+    char* hostName = nullptr;
     const char *filePath = "/etc/hostname";
     std::ifstream file(filePath);
     if (!file.is_open()) {
@@ -372,22 +412,22 @@ static void GetHostName()
 #else
         ereport(WARNING, (errmsg("Failed to open /etc/hostname , error: %s\n", strerror(errno))));
 #endif
-        return;
+        return nullptr;
     }
 
-    char content[MAX_HOSTNAME_LENGTH];
-    if (file.getline(content, MAX_HOSTNAME_LENGTH)) {
-        if (strlen(content) >= MAX_HOSTNAME_LENGTH) {
+    char content[MAX_HOST_NAME_DESC_LENGTH];
+    if (file.getline(content, MAX_HOST_NAME_DESC_LENGTH)) {
+        if (strlen(content) >= MAX_HOST_NAME_DESC_LENGTH) {
 #ifdef FRONTEND
             fprintf(stderr, _("the hostname is too long."));
 #else
             ereport(WARNING, (errmsg("the hostname is too long.")));
 #endif
             file.close();
-            return;
+            return nullptr;
         }
-        g_hostName = static_cast<char*>(malloc(strlen(content) + 1));
-        errno_t rc = strcpy_s(g_hostName, strlen(content) + 1, content);
+        hostName = static_cast<char*>(malloc(strlen(content) + 1));
+        errno_t rc = strcpy_s(hostName, strlen(content) + 1, content);
         securec_check(rc, "\0", "\0");
     } else {
 #ifdef FRONTEND
@@ -399,104 +439,85 @@ static void GetHostName()
 
     file.close();
 #ifdef FRONTEND
-    fprintf(stdout, _("The RackManager host name is: [%s].\n"), g_hostName);
+    fprintf(stdout, _("The host name is: [%s].\n"), hostName);
 #else
-    ereport(DEBUG1, (errmsg("The RackManager host name is: [%s].\n", g_hostName)));
+    ereport(DEBUG1, (errmsg("The host name is: [%s].\n", hostName)));
 #endif
-    return;
-}
-
-static void GetNodeId()
-{
-    if (g_nodeId != nullptr) {
-#ifdef FRONTEND
-        fprintf(stdout, _("The RackManager node id [%s] has been initialized.\n"), g_nodeId);
-#else
-        ereport(DEBUG1, (errmsg("The RackManager node id [%s] has been initialized.\n", g_nodeId)));
-#endif
-        return;
-    }
-
-    GetHostName();
-    if (g_hostName == nullptr) {
-#ifdef FRONTEND
-        fprintf(stderr, _("Failed to get host name from /etc/hostname."));
-#else
-        ereport(WARNING, (errmsg("Failed to get host name from /etc/hostname.")));
-#endif
-        return;
-    }
-    RackMemGetNodeInfo();
-    if (g_nodeId == nullptr) {
-#ifdef FRONTEND
-        fprintf(stderr, _("Failed to get Rack nodeId, hostname: [%s]."), g_hostName);
-#else
-        ereport(WARNING, (errmsg("Failed to get Rack nodeId, hostname: [%s].", g_hostName)));
-#endif
-        return;
-    }
-#ifdef FRONTEND
-    fprintf(stdout, _("The RackManager node id is: [%s].\n"), g_nodeId);
-#else
-    ereport(DEBUG1, (errmsg("The RackManager node id is: [%s].\n", g_nodeId)));
-#endif
+    return hostName;
 }
 
 int RackMemAvailable(int *availBorrowMemSize)
 {
-    ClusterInfo cluserInfo;
-    SocketInfo socketInfo;
-    int borrowMemSize = 0;
-
-    GetNodeId();
-    if (g_nodeId == nullptr) {
-        return MATRIX_MEM_ERROR;
-    }
-    int ret = RackMemLookupClusterStatistic(&cluserInfo);
-    if (ret != 0 || cluserInfo.num <= 1) {
+    ubsmem_cluster_info_t cluster_info;
+    ubsmem_numa_mem_t numa_mem;
+    uint64_t borrow_mem_size = 0;
+    char* host_name = GetHostName();
+    if (!host_name) {
 #ifdef FRONTEND
-        fprintf(stderr, _("lookup rack cluster statistic failed, code: [%d], node num: [%d]\n"), ret, cluserInfo.num);
+        fprintf(stderr, _("get host name failed\n"));
 #else
         ereport(WARNING,
                 (errcode(ERRCODE_INVALID_OPERATION),
-                 errmsg("lookup rack cluster statistic failed, code: [%d], node num: [%d]\n", ret, cluserInfo.num)));
+                 errmsg("get host name failed\n")));
 #endif
         return MATRIX_MEM_ERROR;
     }
 
-    for (int i = 0; i < cluserInfo.num; i++) {
-        if (strcmp(cluserInfo.host[i].hostName, g_nodeId) != 0) {
-            for (int j = 0; j < cluserInfo.host[i].num; j++) {
-                socketInfo = cluserInfo.host[i].socket[j];
-                borrowMemSize += socketInfo.memTotal * MAX_RACK_MEMORY_PERCENT - socketInfo.memExport;
+    int ret = ubsmem_lookup_cluster_statistic(&cluster_info);
+    if (ret != 0 || cluster_info.host_num <= 1) {
+#ifdef FRONTEND
+        fprintf(stderr, _("lookup rack cluster statistic failed, code: [%d], node num: [%d]\n"),
+                ret, cluster_info.host_num);
+#else
+        ereport(WARNING,
+                (errcode(ERRCODE_INVALID_OPERATION),
+                 errmsg("lookup rack cluster statistic failed, code: [%d], node num: [%d]\n",
+                        ret, cluster_info.host_num)));
+#endif
+        return MATRIX_MEM_ERROR;
+    }
+
+    for (int i = 0; i < cluster_info.host_num; ++i) {
+        if (strcmp(cluster_info.host[i].host_name, host_name) != 0) {
+            for (int j = 0; j < cluster_info.host[i].numa_num; ++j) {
+                numa_mem = cluster_info.host[i].numa[j];
+                borrow_mem_size += (numa_mem.mem_total * numa_mem.mem_lend_ratio) / 100 - numa_mem.mem_lend;
 #ifdef FRONTEND
                 fprintf(stdout,
-                        _("The RackManager node [%s] socket[%d] memory info: memTotal: %d, memUsed: %d, memExport: %d, "
-                          "memImport: %d."),
-                        cluserInfo.host[i].hostName, j, socketInfo.memTotal, socketInfo.memUsed, socketInfo.memExport,
-                        socketInfo.memImport);
+                        _("The UBSE node[%s] socket[%d] memory info: mem_total: %d, mem_free: %d, mem_borrow: %d, "
+                          "mem_lend: %d."),
+                        cluster_info.host[i].host_name, numa_mem.socket_id, numa_mem.mem_total, numa_mem.mem_free,
+                        numa_mem.mem_borrow, numa_mem.mem_lend);
 #else
-                ereport(DEBUG1, (errmsg("The RackManager node [%s] socket[%d] memory info: "
-                                        "memTotal: %d, memUsed: %d, memExport: %d, memImport: %d.",
-                                        cluserInfo.host[i].hostName, j, socketInfo.memTotal, socketInfo.memUsed,
-                                        socketInfo.memExport, socketInfo.memImport)));
+                ereport(DEBUG1, (errmsg("The UBSE node[%s] socket[%d] memory info: "
+                                        "mem_total: %d, mem_free: %d, mem_borrow: %d, mem_lend: %d.",
+                                        cluster_info.host[i].host_name, numa_mem.socket_id, numa_mem.mem_total,
+                                        numa_mem.mem_free, numa_mem.mem_borrow, numa_mem.mem_lend)));
 #endif
             }
         }
     }
-    if (borrowMemSize < 0) {
+    if (borrow_mem_size < 0) {
 #ifdef FRONTEND
         fprintf(stdout,
-                _("The RackManager node [%s] borrow memory size is less than 0, "
-                  "please check the RackManager node memory info."),
-                g_nodeId);
+                _("The UBSE node[%s] borrow memory size is less than 0, "
+                  "please check the UBSE node memory info."),
+                host_name);
 #else
-        ereport(WARNING, (errmsg("The RackManager node [%s] borrow memory size is less than 0, "
-                                 "please check the RackManager node memory info.",
-                                 g_nodeId)));
+        ereport(WARNING, (errmsg("The UBSE node[%s] borrow memory size is less than 0, "
+                                 "please check the UBSE node memory info.",
+                                 host_name)));
 #endif
         return MATRIX_MEM_ERROR;
     }
-    *availBorrowMemSize = borrowMemSize;
+
+    *availBorrowMemSize = borrow_mem_size / (1024 * 1024);
+#ifdef FRONTEND
+        fprintf(stdout, _("The available memory size for UBSE node[%s] is %d MB."),
+                host_name, *availBorrowMemSize);
+#else
+        ereport(DEBUG1, (errmsg("The available memory size for UBSE node[%s] is %d MB.",
+                host_name, *availBorrowMemSize)));
+#endif
     return MATRIX_MEM_SUCCESS;
 }

@@ -88,7 +88,7 @@ static bool CheckIsMssqlHex(char *str)
 static Oid getVarbinaryOid()
 {
     SharkContext* cxt = GetSessionContext();
-    if (cxt->varbinaryOid == InvalidOid) {
+    if (cxt->varbinaryOid == InvalidOid && t_thrd.proc->workingVersionNum >= COMPUTED_COLUMNS_VERSION_NUMBER) {
         cxt->varbinaryOid = typenameTypeId(
             NULL, makeTypeNameFromNameList(list_make2(makeString("sys"), makeString("varbinary"))));
     }

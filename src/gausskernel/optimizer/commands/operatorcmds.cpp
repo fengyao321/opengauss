@@ -157,14 +157,16 @@ ObjectAddress DefineOperator(List* names, List* parameters)
 
         if (pg_strcasecmp(defel->defname, "leftarg") == 0) {
             typeName1 = defGetTypeName(defel);
-            if (typeName1->setof)
+            if (typeName1 && typeName1->setof) {
                 ereport(ERROR, (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
                         errmsg("SETOF type not allowed for operator argument")));
+            }
         } else if (pg_strcasecmp(defel->defname, "rightarg") == 0) {
             typeName2 = defGetTypeName(defel);
-            if (typeName2->setof)
+            if (typeName2 && typeName2->setof) {
                 ereport(ERROR, (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
                         errmsg("SETOF type not allowed for operator argument")));
+            }
         } else if (pg_strcasecmp(defel->defname, "procedure") == 0)
             functionName = defGetQualifiedName(defel);
         else if (pg_strcasecmp(defel->defname, "commutator") == 0)

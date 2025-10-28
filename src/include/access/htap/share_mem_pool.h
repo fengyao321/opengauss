@@ -29,7 +29,7 @@
 #include "postgres.h"
 #include "knl/knl_variable.h"
 #include "storage/cache_mgr.h"
-#include "storage/rack_mem_shm.h"
+#include "storage/ubs_mem.h"
 
 #define SHM_CHUNK_SIZE (128 * 1024 * 1024)  /* 128MB */
 #define INVALID_SHM_CHUNK_NUMBER (-1)
@@ -64,7 +64,6 @@ public:
     void FreeCUMem(int shmChunkNumber, uint32 shmCUOffset);
     void* GetCUBuf(int shmChunkNumber, uint32 shmCUOffset);
     void ShmChunkMmapAll(int shmChunksNum);
-    void FlushShmChunkAll(ShmCacheOpt shmCacheOpt);
     int GetChunkNum();
 
     Oid m_relOid;

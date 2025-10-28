@@ -901,7 +901,8 @@ bool contain_special_plan_node(Plan* plan, NodeTag planTag, ContainPlanNodeMode 
              * If Nestloop is set material all, right tree should be only executed once,
              * so skip the check of the right tree then.
              */
-            bool material_all = IsA(plan, NestLoop) && ((NestLoop*)plan)->materialAll && IsA(plan->righttree, Material);
+            bool material_all = IsA(plan, NestLoop) && ((NestLoop*)plan)->materialAll &&
+                                plan->righttree && IsA(plan->righttree, Material);
             if (!material_all && contain_special_plan_node(plan->righttree, planTag, mode))
                 return true;
         }
@@ -1855,8 +1856,9 @@ void finalize_node_id(Plan* result_plan, int* plan_node_id, int* parent_node_id,
                 if (GATHER == rq->position) {
                     rq->num_stream = *num_streams;
                     /* We adjusted exec_nodes for subplans in multi node group case, so also adjust max execnodes */
-                    if (IS_STREAM_PLAN && subplans != NIL)
+                    if (IS_STREAM_PLAN && subplans != NIL && result_plan->lefttree) {
                         rq->exec_nodes = get_plan_max_ExecNodes(result_plan->lefttree, subplans);
+                    }
                     (*num_streams) = 0;
                 }
                 if (!rq->is_simple) {
