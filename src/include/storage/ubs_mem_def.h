@@ -43,7 +43,7 @@ extern "C" {
 #define MAX_NUMA_NUM 32
 #define MAX_NUMA_RESV_LEN 16
 
-#define MAX_HOST_NAME_DESC_LENGTH 48
+#define MAX_HOST_NAME_DESC_LENGTH 64
 #define MAX_SHM_NAME_LENGTH 48
 #define MAX_REGION_NAME_DESC_LENGTH 48
 #define MAX_REGION_NODE_NUM 16
@@ -70,21 +70,25 @@ typedef enum {
     UBSM_ERR_MEMORY = 6012,  // memcpy or other mem func failed
     UBSM_ERR_UNIMPL = 6013,  // not implement
     UBSM_CHECK_RESOURCE_ERROR = 6014, // resource check failed.
+    UBSM_ERR_MEMLIB = 6015, // mem lib failed
 
     // resource error
     UBSM_ERR_NOT_FOUND = 6020,
     UBSM_ERR_ALREADY_EXIST = 6021,
     UBSM_ERR_MALLOC_FAIL = 6022,
+    UBSM_ERR_RECOED = 6023,
 
     // net error
-    UBSM_ERR_TIMEOUT = 6040,
+    UBSM_ERR_NET = 6040,
 
     // under api
     UBSM_ERR_UBSE = 6050,
+    UBSM_ERR_OBMM = 6051,
 
     // cc lock error
     UBSM_ERR_LOCK_NOT_SUPPORTED = 6060,
     UBSM_ERR_LOCK_ALREADY_LOCKED = 6061,
+    UBSM_ERR_DLOCK = 6062,
 
     UBSM_ERR_BUFF = 6099,
 } ubsmshmem_ret_t;
