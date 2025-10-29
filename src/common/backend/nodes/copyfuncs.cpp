@@ -737,6 +737,7 @@ static SeqScan* _copySeqScan(const SeqScan* from)
 static IndexScan* _copyIndexScan(const IndexScan* from)
 {
     IndexScan* newnode = makeNode(IndexScan);
+    int numOrderByOps = 0;
 
     /*
      * copy node superclass fields
@@ -751,6 +752,10 @@ static IndexScan* _copyIndexScan(const IndexScan* from)
     COPY_NODE_FIELD(indexqualorig);
     COPY_NODE_FIELD(indexorderby);
     COPY_NODE_FIELD(indexorderbyorig);
+    numOrderByOps = list_length(from->indexorderbyorig);
+    if (numOrderByOps > 0) {
+        COPY_POINTER_FIELD(indexorderbyops, numOrderByOps * sizeof(Oid));
+    }
     COPY_SCALAR_FIELD(indexorderdir);
     COPY_SCALAR_FIELD(is_ustore);
     COPY_SCALAR_FIELD(selectivity);
