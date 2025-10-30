@@ -35269,8 +35269,8 @@ msgstr "设置要连接到 ss 的 url。"
 #
 #
 #: ../common/backend/utils/misc/guc/guc_storage.cpp:4836
-msgid "Sets the type of connect to ss, range: TCP, RDMA."
-msgstr "设置连接类型为 ss, 范围为 TCP、RDMA。"
+msgid "Sets the type of connect to ss, range: TCP, RDMA, UBC."
+msgstr "设置连接类型为 ss, 范围为 TCP、RDMA、UBC。"
 
 #: ../common/backend/utils/misc/guc/guc_storage.cpp:4848
 msgid "Sets config with digit number: A B."

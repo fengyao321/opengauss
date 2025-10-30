@@ -535,6 +535,7 @@ typedef enum en_dms_lock_mode {
 typedef enum en_dms_conn_mode {
     DMS_CONN_MODE_TCP = 0,
     DMS_CONN_MODE_RDMA = 1,
+    DMS_CONN_MODE_UBC = 2,
 } dms_conn_mode_t;
 
 typedef enum en_dms_txn_wait_status {
@@ -1259,7 +1260,7 @@ typedef struct st_dms_profile {
     unsigned long long log_max_file_size;
     unsigned int log_backup_file_count;
 
-    dms_conn_mode_t pipe_type;    // Inter-instance communication mode. Currently, only TCP and RDMA are supported.
+    dms_conn_mode_t pipe_type;    // Inter-instance communication mode. Currently, only TCP、RDMA and UBC are supported.
     unsigned int inst_cnt;        // Number of cluster instances
     dms_instance_net_addr_t inst_net_addr[DMS_MAX_INSTANCES]; // Cluster instance ip and port
     // Indicates whether to connected to other instances during DMS initialization.
