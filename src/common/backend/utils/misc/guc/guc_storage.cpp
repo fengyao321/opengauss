@@ -5229,7 +5229,7 @@ static void InitStorageConfigureNamesString()
             PGC_POSTMASTER,
             NODE_SINGLENODE,
             SHARED_STORAGE_OPTIONS,
-            gettext_noop("Sets the type of connect to ss, range: TCP, RDMA."),
+            gettext_noop("Sets the type of connect to ss, range: TCP, RDMA, UBC."),
             NULL,
             GUC_SUPERUSER_ONLY},
             &g_instance.attr.attr_storage.dms_attr.interconnect_type,
@@ -6849,7 +6849,7 @@ static int GetLengthAndCheckReplConn(const char* ConnInfoList)
 
 static bool check_ss_interconnect_type(char **newval, void **extra, GucSource source)
 {
-    return (strcmp("TCP", *newval) == 0 || strcmp("RDMA", *newval) == 0);
+    return (strcmp("TCP", *newval) == 0 || strcmp("RDMA", *newval) == 0 || strcmp("UBC", *newval) == 0);
 }
 
 static bool check_ss_rdma_work_config(char** newval, void** extra, GucSource source)

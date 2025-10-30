@@ -117,8 +117,10 @@ static inline dms_conn_mode_t convertInterconnectType()
 {
     if (!strcasecmp(g_instance.attr.attr_storage.dms_attr.interconnect_type, "TCP")) {
         return DMS_CONN_MODE_TCP;
-    } else {
+    } else if (!strcasecmp(g_instance.attr.attr_storage.dms_attr.interconnect_type, "RDMA")) {
         return DMS_CONN_MODE_RDMA;
+    } else {
+        return DMS_CONN_MODE_UBC;
     }
 }
 
