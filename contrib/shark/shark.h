@@ -61,3 +61,28 @@ typedef enum {
     FETCH_STATUS_NOT_EXIST = -2, // The row fetched is missing.
     FETCH_STATUS_NOT_FETCH = -9  // The cursor is not performing a fetch operation.
 } CursorFetchStatus;
+
+typedef struct InnerSQLInfo {
+    char* sql;
+    int sql_length;    /* size of string */
+} InnerSQLInfo;
+
+#define INNER_SQL_NUMBER 12
+
+static InnerSQLInfo g_inner_sqls[INNER_SQL_NUMBER] = {
+        {"SET extra_float_digits = 3", 26},
+        {"set client_encoding = 'UTF8'", 28},
+        {"SET application_name = 'PostgreSQL JDBC Driver'", 47},
+        {"select version()", 16},
+        {"select datcompatibility from pg_database where datname=", 55},
+        {"set dolphin.b_compatibility_mode to on", 38},
+        {"SELECT t.oid, t.typname FROM pg_catalog.pg_type t  where t.typname = 'year' or t.typname = 'uint1' or"
+         " t.typname = 'uint2' or t.typname = 'uint4' or t.typname = 'uint8' or t.typname = '_uint1' or t.typname"
+         " = '_uint2' or t.typname = '_uint4' or t.typname = '_uint8'", 263},
+        {"select count(1) from pg_extension where extname = 'dolphin'", 50},
+        {"show dolphin.b_compatibility_mode", 59},
+        {"select name, setting from pg_settings where name in ('connection_info')", 71},
+        {"set connection_info = '{\"driver_name\":\"JDBC\",\"driver_version\":", 62},
+        {"select count(*) from pg_settings where name = 'support_batch_bind' and setting = 'on'", 85}
+    };
+

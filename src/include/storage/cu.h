@@ -227,7 +227,7 @@ public:
                      CU** newCUs, TransactionId xid);
     void VacuumLocalShm(Relation fakeRelation, IMCSDesc* imcsDesc, CUDesc** newCUDescs,
                         CU** newCUs, TransactionId xid, uint32 newCuSize);
-    void VacuumFromRemote(Relation fakeRelation, IMCSDesc* imcsDesc, CUDesc** newCUDescs,
+    void VacuumFromRemote(Relation rel, IMCSDesc* imcsDesc, CUDesc** newCUDescs,
                           CU** newCUs, TransactionId xid, uint32 newCuSize);
     void Insert(ItemPointer ctid, TransactionId xid, Oid relid, uint32 cuId);
     void WRLockRowGroup();
@@ -615,7 +615,7 @@ void CU::FreeMem()
         if (ENABLE_DSS && imcsDesc != NULL && imcsDesc->populateInShareMem) {
             /* only SS_PRIMARY_MODE can write share memory */
             if (SS_PRIMARY_MODE && imcsDesc->shareMemPool != NULL && IS_VALID_SHM_CHUNK_NUMBER(this->shmChunkNumber)) {
-                imcsDesc->shareMemPool->FreeCUMem(this->shmChunkNumber, this->shmCUOffset);
+                imcsDesc->shareMemPool->FreeCUMem(this->shmChunkNumber, this->shmCUOffset, this->m_srcBufSize);
             }
         } else if (!freeByCUCacheMgr) {
 #else

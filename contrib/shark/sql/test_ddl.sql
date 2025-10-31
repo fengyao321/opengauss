@@ -99,4 +99,198 @@ select * from view1;
 select * from view2;
 select * from view3;
 
+set d_format_behavior_compat_options = 'enable_sbr_identifier';
+drop table if exists t1;
+CREATE TABLE t1(id [int]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [int2]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [int4]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [int8]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [tinyint]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [smallint]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [bigint]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [binary_integer]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [float]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [float4]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [real]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [float8]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [double precision]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [binary_double]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [numeric]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [decimal]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [dec]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [bpchar]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [char]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [char](30));
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [varchar]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [varchar](30));
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [nvarchar2]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [nvarchar2](30));
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [nvarchar]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [nvarchar](30));
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [abstime]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [reltime]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [date]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [time]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [timestamptz]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [timestamp]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [timetz]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [bit]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [interval]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [uuid]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [bool]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [json]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [unknown]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [jsonb]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [clob]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [blob]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [money]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [name]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [oid]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [bytea]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [varbinary]);
+\d+ t1
+drop table t1;
+
+CREATE TABLE t1(id [sql_variant]);
+\d+ t1
+drop table t1;
+
 drop schema test_d_ddl cascade;

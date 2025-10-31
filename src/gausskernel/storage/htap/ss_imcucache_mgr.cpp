@@ -184,17 +184,16 @@ void SSIMCUDataCacheMgr::BaseCacheCU(CU* srcCU, CU* slotCU)
 
 bool SSIMCUDataCacheMgr::CacheShmCU(CU* srcCU, CU* slotCU, CUDesc* cuDescPtr, IMCSDesc* imcsDesc)
 {
+    int ret = 0;
     errno_t rc = EOK;
     IMCUDataCacheMgr::BaseCacheCU(srcCU, slotCU);
 
     if (srcCU->m_srcBufSize != 0) {
-        char *buf = (char *)(imcsDesc->shareMemPool->AllocateCUMem(
-            srcCU->m_srcBufSize, cuDescPtr->slot_id, &slotCU->shmCUOffset, &slotCU->shmChunkNumber));
+        char* buf = (char*)(imcsDesc->shareMemPool->CopyShareCUMem(
+            srcCU->m_srcBuf, srcCU->m_srcBufSize, &slotCU->shmCUOffset, &slotCU->shmChunkNumber));
         if (buf == nullptr) {
             return false;
         }
-        rc = memcpy_s(buf, srcCU->m_srcBufSize, srcCU->m_srcBuf, srcCU->m_srcBufSize);
-        securec_check(rc, "\0", "\0");
         slotCU->m_srcBuf = buf;
         slotCU->m_srcData = buf + srcCU->m_bpNullRawSize;
         if (srcCU->m_bpNullRawSize != 0) {
@@ -226,12 +225,18 @@ void SSIMCUDataCacheMgr::SaveCU(IMCSDesc* imcsDesc, RelFileNodeOld* rnode, int c
     cuDescPtr->slot_id = slotId;
     if (CacheShmCU(cuPtr, slotCU, cuDescPtr, imcsDesc)) {
         cuPtr->Destroy();
+        slotCU->imcsDesc = imcsDesc;
+        UnPinDataBlock(slotId);
+        DataBlockCompleteIO(slotId);
+        pg_atomic_add_fetch_u64(&imcsDesc->cuSizeInMem, (uint64)cuDescPtr->cu_size);
+        pg_atomic_add_fetch_u64(&imcsDesc->cuNumsInMem, 1);
+    } else {
+        cuPtr->Destroy();
+        UnPinDataBlock(slotId);
+        DataBlockCompleteIO(slotId);
+        ereport(ERROR, (errmsg("cache share cu error, relname: [%s], col: [%d], cuid: [%u], slot: [%d].",
+            imcsDesc->relname, colId, cuDescPtr->cu_id, slotId)));
     }
-    slotCU->imcsDesc = imcsDesc;
-    UnPinDataBlock(slotId);
-    DataBlockCompleteIO(slotId);
-    pg_atomic_add_fetch_u64(&imcsDesc->cuSizeInMem, (uint64)cuDescPtr->cu_size);
-    pg_atomic_add_fetch_u64(&imcsDesc->cuNumsInMem, 1);
 }
 
 /*
@@ -304,6 +309,15 @@ void SSIMCUDataCacheMgr::SaveSSRemoteCU(Relation rel, int imcsColId, CU *cuPtr, 
         return;
     }
 
+    // standby node load remote share cu buf from share memory.
+    char* buf = (char*)imcsDesc->shareMemPool->LoadCUBuf(cuPtr->shmChunkNumber, cuPtr->shmCUOffset,
+        cuPtr->m_srcBufSize);
+    if (buf == nullptr) {
+        cuPtr->Reset();
+        ereport(ERROR, (errmsg("load remote share cu error, relname: [%s], imcsColId: [%d], cuid: [%u].",
+            imcsDesc->relname, imcsColId, cuDescPtr->cu_id)));
+    }
+
     DataSlotTag slotTag = InitCUSlotTag(
         (RelFileNodeOld*)&rel->rd_node, imcsColId, cuDescPtr->cu_id, cuDescPtr->cu_pointer);
     bool hasFound = false;
@@ -313,8 +327,6 @@ void SSIMCUDataCacheMgr::SaveSSRemoteCU(Relation rel, int imcsColId, CU *cuPtr, 
     slotCU->shmChunkNumber = cuPtr->shmChunkNumber;
     slotCU->shmCUOffset = cuPtr->shmCUOffset;
     slotCU->imcsDesc = imcsDesc;
-
-    char* buf = (char*)imcsDesc->shareMemPool->GetCUBuf(cuPtr->shmChunkNumber, cuPtr->shmCUOffset);
     slotCU->m_srcBuf = buf;
     slotCU->m_srcData = buf + slotCU->m_bpNullRawSize;
     if (slotCU->m_bpNullRawSize != 0) {

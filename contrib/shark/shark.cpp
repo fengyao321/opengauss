@@ -194,8 +194,32 @@ void fetch_cursor_end_hook(int fetch_status)
     }
 }
 
+bool IsInnerSql()
+{
+    if (strcmp(u_sess->attr.attr_common.application_name, "PostgreSQL JDBC Driver") != 0) {
+        return false;
+    }
+
+    for (int i = 0; i < INNER_SQL_NUMBER; i++) {
+        if (strncmp(g_inner_sqls[i].sql, t_thrd.postgres_cxt.debug_query_string,
+            g_inner_sqls[i].sql_length) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void rowcount_hook(int64 rowcount)
 {
+    if (strcmp(u_sess->attr.attr_common.application_name, "PostgreSQL JDBC Driver") != 0 &&
+        strcmp(u_sess->attr.attr_common.application_name, "gsql") != 0) {
+        return;
+    }
+
+    if (IsInnerSql()) {
+        return;
+    }
+
     SharkContext *cxt = GetSessionContext();
     cxt->rowcount = rowcount;
 }

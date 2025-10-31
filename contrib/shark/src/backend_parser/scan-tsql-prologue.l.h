@@ -40,3 +40,28 @@ const uint16 pgtsql_ScanKeywordTokens[] = {
 
 extern bool IsTsqlAtatGlobalVar(const char *varname);
 static bool IsTsqlTranStmt(const char *haystack, int haystackLen);
+extern int ReviseIdent(char* strIdent);
+
+#define ALIAS_LIST_LEN 15
+typedef struct alias_names {
+    const char* alias;
+    int typeNum;
+} alias_names;
+
+const alias_names alias_list[ALIAS_LIST_LEN] = {
+    {"int", INT_P},
+    {"binary_integer", INT_P},
+    {"smallint", SMALLINT},
+    {"tinyint", TINYINT},
+    {"bigint", BIGINT},
+    {"float", FLOAT_P},
+    {"real", REAL},
+    {"double precision", TSQL_DOUBLE_PRECISION},
+    {"binary_double", TSQL_DOUBLE_PRECISION},
+    {"decimal", DECIMAL_P},
+    {"dec", DECIMAL_P},
+    {"number", DECIMAL_P},
+    {"nvarchar", NVARCHAR2},
+    {"nvarchar2", NVARCHAR2},
+    {"char", CHAR_P}
+};

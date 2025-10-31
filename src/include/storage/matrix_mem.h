@@ -60,9 +60,9 @@ static const ErrorInfo ERROR_INFOS[] = {
     {UBSM_ERR_NOT_FOUND, false},
     {UBSM_ERR_ALREADY_EXIST, false},
     {UBSM_ERR_MALLOC_FAIL, false},
-    {UBSM_ERR_TIMEOUT, false},
+    {UBSM_ERR_NET, false},
     {UBSM_ERR_UBSE, false},
-    {UBSM_ERR_BUFF, false},
+    {UBSM_ERR_BUFF, false}
 };
 
 typedef struct SymbolInfo {

@@ -1786,7 +1786,7 @@ void SqlExecImcstoredWithShm(Relation rel, List* colList)
         IMCSDesc* imcsDesc = IMCS_HASH_TABLE->GetImcsDesc(relOid);
         Assert(imcsDesc->imcsStatus == IMCS_POPULATE_COMPLETE);
 
-        populateParams.shmChunksNum = imcsDesc->shareMemPool->m_shmChunkNum;
+        populateParams.shmChunksNum = imcsDesc->shareMemPool->GetChunkNum();
         SendImcstoredRequest(connections, connCount, populateParams);
         SyncCUForSSImcstore(connections, connCount, relOid);
         CloseStandbyConnections(connections, connCount, nodeCons);

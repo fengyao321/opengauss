@@ -6738,8 +6738,6 @@ void XLOGShmemInit(void)
             ereport(LOG, (errmsg("[SS %s] Successfully reset xlblocks when thrd:%lu with role:%d started",
                 SS_PERFORMING_SWITCHOVER ? "switchover" : "failover", t_thrd.proc->pid, (int)t_thrd.role)));
         }
-        /* recovery_min_apply_delay is SIGHUP level, so init recoveryWakeupDelayLatch if extremeRto mode*/
-        RecoverDelayLatchOp(LATCH_INIT);
         return;
     }
     errorno = memset_s(t_thrd.shemem_ptr_cxt.XLogCtl, sizeof(XLogCtlData), 0, sizeof(XLogCtlData));
@@ -10179,7 +10177,7 @@ void StartupXLOG(void)
          * connections, so that read-only backends don't try to read whatever
          * garbage is left over from before.
          */
-        if (!RecoveryByPending && (!SS_STANDBY_FAILOVER && SSModifySharedLunAllowed())) {
+        if (!RecoveryByPending && (!SS_STANDBY_PROMOTING && SSModifySharedLunAllowed())) {
             ResetUnloggedRelations(UNLOGGED_RELATION_CLEANUP);
         }
 

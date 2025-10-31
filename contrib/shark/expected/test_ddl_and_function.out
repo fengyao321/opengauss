@@ -41,3 +41,19 @@ select pg_typeof(newid());
  uuid
 (1 row)
 
+CREATE TABLE tab_rep_next(a) AS SELECT generate_series(1,10);
+select * from tab_rep_next;
+ a  
+----
+  1
+  2
+  3
+  4
+  5
+  6
+  7
+  8
+  9
+ 10
+(10 rows)
+
