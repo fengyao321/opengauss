@@ -502,3 +502,78 @@ select * from clear_mlog_record;
 
 drop materialized view clear_v;
 drop table clear_t, clear_mlog_record;
+\dv pg_catalog.pg_matviews
+--?.*
+--?.*
+--?.*
+--? pg_catalog .* pg_matviews .* view .*
+(1 row)
+
+CREATE TABLE mvtest_foo(a, b, c) AS VALUES(1, 2, 3);
+CREATE MATERIALIZED VIEW mvtest_mv1 AS SELECT * FROM mvtest_foo;
+select * from pg_matviews where matviewname = 'mvtest_mv1';
+--?.*schemaname .* matviewname .* hasindexes .* isincremental .*
+--?.*
+--? public .* mvtest_mv1 .* f .* f .*
+(1 row)
+
+CREATE INCREMENTAL MATERIALIZED VIEW mvtest_mv2 AS SELECT * FROM mvtest_foo;
+select * from pg_matviews where matviewname = 'mvtest_mv2';
+--?.*schemaname .* matviewname .* hasindexes .* isincremental .*
+--?.*
+--? public .* mvtest_mv2 .* f .* t .*
+(1 row)
+
+drop materialized view mvtest_mv1;
+drop materialized view mvtest_mv2;
+create user us1 with password 'Gauss@123';
+create user us2 with password 'Gauss@123';
+grant select on table mvtest_foo to us1;
+grant select on table mvtest_foo to us2;
+set session authorization us1 password 'Gauss@123';
+CREATE MATERIALIZED VIEW mvtest_mv1 AS SELECT * FROM mvtest_foo;
+reset session authorization;
+set session authorization us2 password 'Gauss@123';
+CREATE MATERIALIZED VIEW mvtest_mv2 AS SELECT * FROM mvtest_foo;
+reset session authorization;
+set session authorization us1 password 'Gauss@123';
+select schemaname, matviewname, matviewowner, tablespace, hasindexes, isincremental, ispopulated from pg_matviews where matviewname = 'mvtest_mv1';
+ schemaname | matviewname | matviewowner | tablespace | hasindexes | isincremental | ispopulated 
+------------+-------------+--------------+------------+------------+---------------+-------------
+ us1        | mvtest_mv1  | us1          |            | f          | f             | 
+(1 row)
+
+select * from pg_matviews where matviewname = 'mvtest_mv2';
+ schemaname | matviewname | matviewowner | tablespace | hasindexes | isincremental | ispopulated | definition 
+------------+-------------+--------------+------------+------------+---------------+-------------+------------
+(0 rows)
+
+reset session authorization;
+set session authorization us2 password 'Gauss@123';
+select * from pg_matviews where matviewname = 'mvtest_mv1';
+ schemaname | matviewname | matviewowner | tablespace | hasindexes | isincremental | ispopulated | definition 
+------------+-------------+--------------+------------+------------+---------------+-------------+------------
+(0 rows)
+
+select schemaname, matviewname, matviewowner, tablespace, hasindexes, isincremental, ispopulated from pg_matviews where matviewname = 'mvtest_mv2';
+ schemaname | matviewname | matviewowner | tablespace | hasindexes | isincremental | ispopulated 
+------------+-------------+--------------+------------+------------+---------------+-------------
+ us2        | mvtest_mv2  | us2          |            | f          | f             | 
+(1 row)
+
+reset session authorization;
+select schemaname, matviewname, matviewowner, tablespace, hasindexes, isincremental, ispopulated from pg_matviews where matviewname = 'mvtest_mv1';
+ schemaname | matviewname | matviewowner | tablespace | hasindexes | isincremental | ispopulated 
+------------+-------------+--------------+------------+------------+---------------+-------------
+ us1        | mvtest_mv1  | us1          |            | f          | f             | 
+(1 row)
+
+select schemaname, matviewname, matviewowner, tablespace, hasindexes, isincremental, ispopulated from pg_matviews where matviewname = 'mvtest_mv2';
+ schemaname | matviewname | matviewowner | tablespace | hasindexes | isincremental | ispopulated 
+------------+-------------+--------------+------------+------------+---------------+-------------
+ us2        | mvtest_mv2  | us2          |            | f          | f             | 
+(1 row)
+
+drop table mvtest_foo;
+drop user us1 cascade;
+drop user us2 cascade;
