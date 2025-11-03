@@ -3109,6 +3109,8 @@ static void parse_ubtree_pcr_tdslot(const char *page)
     unsigned short tdCount;
     PageHeaderData *ubtreePCRPage = (PageHeaderData *)page;
     tdCount = UBTreePageGetTDSlotCount(ubtreePCRPage);
+    g_tdCount += tdCount;
+    g_tdMax = tdCount > g_tdMax ? tdCount : g_tdMax;
     fprintf(stdout, "\n\n\tUBtree PCR Page TD information, nTDSlots = %hu\n", tdCount);
     for (int i = 0; i < tdCount; i++) {
         UBTreeTD thisTrans = UBTreePCRGetTD(page, i + 1);
