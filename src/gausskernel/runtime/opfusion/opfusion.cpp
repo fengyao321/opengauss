@@ -105,6 +105,7 @@ OpFusion::OpFusion(MemoryContext context, CachedPlanSource *psrc, List *plantree
         InitGlobals(context, psrc, plantree_list);
         InitLocals(context);
     }
+    m_hasRelationLock = false;
 }
 
 void OpFusion::InitGlobals(MemoryContext context, CachedPlanSource *psrc, List *plantree_list)
@@ -447,6 +448,7 @@ bool OpFusion::executeEnd(const char *portal_name, bool *isQueryCompleted, long 
         report_qps_type(CMD_DML);
     }
 
+    m_hasRelationLock = false;
     return has_completed;
 }
 
