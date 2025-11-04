@@ -832,6 +832,10 @@ List* RevalidateCachedQuery(CachedPlanSource* plansource, bool has_lp)
     MemoryContext querytree_context;
     MemoryContext oldcxt;
     bool need_reset_singlenode = false;
+
+    if (plansource->opFusionObj) {
+        ((OpFusion*)plansource->opFusionObj)->m_hasRelationLock = false;
+    }
     /*
      * For one-shot plans, we do not support revalidation checking; it's
      * assumed the query is parsed, planned, and executed in one transaction,
@@ -943,6 +947,9 @@ List* RevalidateCachedQuery(CachedPlanSource* plansource, bool has_lp)
          */
         if (plansource->is_valid) {
             /* Successfully revalidated and locked the query. */
+            if (plansource->opFusionObj) {
+                ((OpFusion*)plansource->opFusionObj)->m_hasRelationLock = true;
+            }
             return NIL;
         }
 

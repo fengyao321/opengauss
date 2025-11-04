@@ -232,6 +232,7 @@ bool AggFusion::execute(long max_rows, char *completionTag)
     /* step 2: begin scan */
     m_local.m_scan->refreshParameter(m_local.m_outParams == NULL ? m_local.m_params : m_local.m_outParams);
 
+    m_local.m_scan->m_hasRelationLock = this->m_hasRelationLock;
     m_local.m_scan->Init(max_rows);
 
     setReceiver();
