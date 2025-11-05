@@ -390,7 +390,14 @@ CREATE VIEW character_sets AS
            CAST(pg_catalog.getdatabaseencoding() AS sql_identifier) AS form_of_use,
            CAST(pg_catalog.current_database() AS sql_identifier) AS default_collate_catalog,
            CAST(nc.nspname AS sql_identifier) AS default_collate_schema,
-           CAST(c.collname AS sql_identifier) AS default_collate_name
+           CAST(c.collname AS sql_identifier) AS default_collate_name,
+           CAST(CASE 
+               WHEN lower(character_set_name) IN ('utf16', 'utf16le', 'utf32', 'gb18030', 'utf8mb4') THEN 4
+               WHEN lower(character_set_name) IN ('ujis', 'utf8mb3', 'eucjpms') THEN 3
+               WHEN lower(character_set_name) IN ('big5', 'sjis', 'euckr', 'gb2312', 'gbk', 'ucs2', 'cp932') THEN 2
+               WHEN lower(character_set_name) IN ('LATIN1', 'ASCII') THEN 1
+               ELSE 1 END as int) AS maxlen,
+           CAST(null AS varchar(2048)) AS description
     FROM pg_database d
          LEFT JOIN (pg_collation c JOIN pg_namespace nc ON (c.collnamespace = nc.oid))
              ON (datcollate = collcollate AND datctype = collctype)
@@ -436,7 +443,8 @@ CREATE VIEW check_constraints AS
            CAST(rs.nspname AS sql_identifier) AS constraint_schema,
            CAST(con.conname AS sql_identifier) AS constraint_name,
            CAST(substring(pg_catalog.pg_get_constraintdef(con.oid) from 7) AS character_data)
-             AS check_clause
+             AS check_clause,
+           CAST(c.relname AS sql_identifier) AS table_name
     FROM pg_constraint con
            LEFT OUTER JOIN pg_namespace rs ON (rs.oid = con.connamespace)
            LEFT OUTER JOIN pg_class c ON (c.oid = con.conrelid)
@@ -451,7 +459,8 @@ CREATE VIEW check_constraints AS
            CAST(n.nspname AS sql_identifier) AS constraint_schema,
            CAST(CAST(n.oid AS text) || '_' || CAST(r.oid AS text) || '_' || CAST(a.attnum AS text) || '_not_null' AS sql_identifier) AS constraint_name, -- XXX
            CAST(a.attname || ' IS NOT NULL' AS character_data)
-             AS check_clause
+             AS check_clause,
+           CAST(r.relname AS sql_identifier) AS table_name
     FROM pg_namespace n, pg_class r, pg_attribute a
     WHERE n.oid = r.relnamespace
       AND r.oid = a.attrelid
@@ -473,7 +482,12 @@ CREATE VIEW collations AS
     SELECT CAST(pg_catalog.current_database() AS sql_identifier) AS collation_catalog,
            CAST(nc.nspname AS sql_identifier) AS collation_schema,
            CAST(c.collname AS sql_identifier) AS collation_name,
-           CAST('NO PAD' AS character_data) AS pad_attribute
+           CAST('NO PAD' AS character_data) AS pad_attribute,
+           CAST(pg_catalog.pg_encoding_to_char(collencoding) AS varchar(64)) AS character_set_name,
+           CAST(c.oid AS bigint) AS id,
+           CAST(CASE WHEN c.collisdef THEN 'YES' ELSE NULL END AS varchar(3)) AS is_default,
+           CAST('YES' AS varchar(3)) AS is_compiled,
+           NULL::INTEGER AS sortlen
     FROM pg_collation c, pg_namespace nc
     WHERE c.collnamespace = nc.oid
           AND collencoding IN (-1, (SELECT encoding FROM pg_database WHERE datname = pg_catalog.current_database()));
@@ -770,7 +784,15 @@ CREATE VIEW columns AS
                   END
                END 
                AS character_data)
-            AS EXTRA
+            AS EXTRA,
+            CAST(array_to_string(ARRAY[
+                CASE WHEN has_column_privilege(c.oid, a.attnum, 'SELECT') THEN 'select' END,
+                CASE WHEN has_column_privilege(c.oid, a.attnum, 'INSERT') THEN 'insert' END,
+                CASE WHEN has_column_privilege(c.oid, a.attnum, 'UPDATE') THEN 'update' END,
+                CASE WHEN has_column_privilege(c.oid, a.attnum, 'REFERENCES') THEN 'references' END
+                ], ',') AS varchar(154)) AS privileges,
+            CAST(pg_get_index_type(c.oid, a.attnum) AS varchar(3)) AS column_key,
+            CAST(null AS int) AS srs_id
 
     FROM (pg_attribute a LEFT JOIN pg_attrdef ad ON attrelid = adrelid AND attnum = adnum)
          JOIN (pg_class c JOIN pg_namespace nc ON (c.relnamespace = nc.oid)) ON a.attrelid = c.oid
@@ -1062,14 +1084,22 @@ CREATE VIEW key_column_usage AS
            CAST(conname AS sql_identifier) AS constraint_name,
            CAST(pg_catalog.current_database() AS sql_identifier) AS table_catalog,
            CAST(nr_nspname AS sql_identifier) AS table_schema,
-           CAST(relname AS sql_identifier) AS table_name,
+           CAST(ss.relname AS sql_identifier) AS table_name,
            CAST(a.attname AS sql_identifier) AS column_name,
            CAST((ss.x).n AS cardinal_number) AS ordinal_position,
            CAST(CASE WHEN contype = 'f' THEN
                        _pg_index_position(ss.conindid, ss.confkey[(ss.x).n])
                      ELSE NULL
                 END AS cardinal_number)
-             AS position_in_unique_constraint
+             AS position_in_unique_constraint,
+			 
+           CAST(CASE WHEN ss.contype = 'f' THEN ref_ns.nspname ELSE NULL END AS varchar(64))
+            AS referenced_table_schema,
+           CAST(CASE WHEN ss.contype = 'f' THEN ref_rel.relname ELSE NULL END AS varchar(64))
+            AS referenced_table_name,
+           CAST(CASE WHEN ss.contype = 'f' THEN ref_att.attname ELSE NULL END AS varchar(64))
+            AS referenced_column_name
+			 
     FROM pg_attribute a,
          (SELECT r.oid AS roid, r.relname, r.relowner,
                  nc.nspname AS nc_nspname, nr.nspname AS nr_nspname,
@@ -1084,10 +1114,18 @@ CREATE VIEW key_column_usage AS
                 AND c.contype IN ('p', 'u', 'f')
                 AND r.relkind = 'r'
                 AND (NOT pg_catalog.pg_is_other_temp_schema(nr.oid)) ) AS ss
+         LEFT JOIN pg_class ref_rel 
+            ON ss.contype = 'f' AND ss.confrelid = ref_rel.oid
+         LEFT JOIN pg_namespace ref_ns 
+            ON ss.contype = 'f' AND ref_rel.relnamespace = ref_ns.oid
+         LEFT JOIN pg_attribute ref_att 
+            ON ss.contype = 'f' 
+            AND ref_rel.oid = ref_att.attrelid 
+            AND ref_att.attnum = ss.confkey[(ss.x).n] 		
     WHERE ss.roid = a.attrelid
           AND a.attnum = (ss.x).x
           AND NOT a.attisdropped
-          AND (pg_catalog.pg_has_role(relowner, 'USAGE')
+          AND (pg_catalog.pg_has_role(ss.relowner, 'USAGE')
                OR pg_catalog.has_column_privilege(roid, a.attnum,
                                        'SELECT, INSERT, UPDATE, REFERENCES'));
 
@@ -1157,12 +1195,14 @@ CREATE VIEW parameters AS
            CAST(null AS sql_identifier) AS scope_schema,
            CAST(null AS sql_identifier) AS scope_name,
            CAST(null AS cardinal_number) AS maximum_cardinality,
-           CAST((ss.x).n AS sql_identifier) AS dtd_identifier
+           CAST((ss.x).n AS sql_identifier) AS dtd_identifier,
+           CAST(CASE WHEN ss.p_prokind = 'f' THEN 'FUNCTION' ELSE 'PROCEDURE' END AS varchar(64)) AS routine_type
 
     FROM pg_type t, pg_namespace nt,
          (SELECT n.nspname AS n_nspname, p.proname, p.oid AS p_oid,
                  p.proargnames, p.proargmodes,
-                 _pg_expandarray(coalesce(p.proallargtypes, p.proargtypes::oid[])) AS x
+                 _pg_expandarray(coalesce(p.proallargtypes, p.proargtypes::oid[])) AS x,
+                 p.prokind as p_prokind
           FROM pg_namespace n, pg_proc p
           WHERE n.oid = p.pronamespace
                 AND (pg_catalog.pg_has_role(p.proowner, 'USAGE') OR
@@ -1216,7 +1256,9 @@ CREATE VIEW referential_constraints AS
                                   WHEN 'd' THEN 'SET DEFAULT'
                                   WHEN 'r' THEN 'RESTRICT'
                                   WHEN 'a' THEN 'NO ACTION' END
-             AS character_data) AS delete_rule
+             AS character_data) AS delete_rule,
+           CAST(c.relname AS varchar(64)) AS table_name,
+           CAST(c2.relname AS varchar(64)) AS referenced_table_name
 
     FROM (pg_namespace ncon
           INNER JOIN pg_constraint con ON ncon.oid = con.connamespace
@@ -1233,6 +1275,7 @@ CREATE VIEW referential_constraints AS
             AND pkc.contype IN ('p', 'u')
             AND pkc.conrelid = con.confrelid
          LEFT JOIN pg_namespace npkc ON pkc.connamespace = npkc.oid
+         LEFT JOIN pg_class c2 on c2.oid = con.confrelid
 
     WHERE pg_catalog.pg_has_role(c.relowner, 'USAGE')
           -- SELECT privilege omitted, per SQL standard
@@ -1388,6 +1431,52 @@ GRANT SELECT ON role_routine_grants TO PUBLIC;
  * ROUTINES view
  */
 
+
+CREATE OR REPLACE FUNCTION pg_catalog.get_param_values(text)
+RETURNS TEXT AS $$
+DECLARE
+    sql_mode_value TEXT;
+BEGIN	
+	SELECT s.setting INTO sql_mode_value
+    FROM (SELECT 1) AS dummy
+    LEFT JOIN pg_settings s ON s.name = $1;
+    RETURN sql_mode_value;
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE OR REPLACE FUNCTION pg_catalog.get_table_option(
+   reloptions_info  text[],
+   option_key text
+) 
+RETURNS TEXT AS $$
+SELECT opt.option_value from pg_catalog.pg_options_to_table(reloptions_info) AS opt where opt.option_name = option_key;
+$$ LANGUAGE sql STABLE; 
+
+
+CREATE OR REPLACE FUNCTION pg_catalog.pg_extract_collate_name(oid) RETURNS text
+    LANGUAGE sql
+    IMMUTABLE
+    NOT FENCED
+    RETURNS NULL ON NULL INPUT
+    AS
+$$select collname::text from pg_collation where oid = $1 $$;
+
+
+CREATE OR REPLACE FUNCTION pg_catalog.pg_get_expr(text, oid) RETURNS text LANGUAGE INTERNAL IMMUTABLE STRICT as 'pg_get_expr';
+
+
+CREATE OR REPLACE FUNCTION pg_catalog.partstrategy_to_full_str(input "char") 
+RETURNS TEXT AS $$
+select CASE WHEN input = 'r' THEN 'RANGE'
+    WHEN input = 'i' THEN 'INTERVAL'
+    WHEN input = 'v' THEN 'VALUE'
+	WHEN input = 'l' THEN 'LIST'
+	WHEN input = 'h' THEN 'HASH'
+	ELSE NULL END
+$$ LANGUAGE sql STABLE; 
+
+
 CREATE VIEW routines AS
     SELECT CAST(pg_catalog.current_database() AS sql_identifier) AS specific_catalog,
            CAST(n.nspname AS sql_identifier) AS specific_schema,
@@ -1483,15 +1572,26 @@ CREATE VIEW routines AS
            CAST(null AS sql_identifier) AS result_cast_scope_schema,
            CAST(null AS sql_identifier) AS result_cast_scope_name,
            CAST(null AS cardinal_number) AS result_cast_maximum_cardinality,
-           CAST(null AS sql_identifier) AS result_cast_dtd_identifier
-
-    FROM pg_namespace n, pg_proc p, pg_language l,
-         pg_type t, pg_namespace nt
-
-    WHERE n.oid = p.pronamespace AND p.prolang = l.oid
-          AND p.prorettype = t.oid AND t.typnamespace = nt.oid
-          AND (pg_catalog.pg_has_role(p.proowner, 'USAGE')
-               OR pg_catalog.has_function_privilege(p.oid, 'EXECUTE'));
+           CAST(null AS sql_identifier) AS result_cast_dtd_identifier,
+           CAST(d.description AS text) AS routine_comment,
+           CAST(pg_catalog.get_param_values('dolphin.sql_mode'::text) AS text) AS sql_mode,
+           CAST(u.usename AS varchar(288)) AS definer,
+           CAST(pg_catalog.get_param_values('client_encoding'::text) AS varchar(64)) AS character_set_client,
+           CAST(db.datcollate AS varchar(64)) AS collation_connection,
+           CAST(db.datcollate AS varchar(64)) AS database_collation
+          
+          FROM pg_namespace n
+          INNER JOIN pg_proc p ON n.oid = p.pronamespace  
+          INNER JOIN pg_language l ON p.prolang = l.oid 
+          INNER JOIN pg_type t ON p.prorettype = t.oid 
+          INNER JOIN pg_namespace nt ON t.typnamespace = nt.oid
+          INNER JOIN pg_description d ON d.objoid = p.oid 
+          INNER JOIN pg_class c ON d.classoid = c.oid
+          LEFT JOIN pg_user u ON p.proowner = u.usesysid
+          LEFT JOIN pg_database db ON db.datname = current_database()
+           WHERE 
+             (pg_catalog.pg_has_role(p.proowner, 'USAGE')
+              OR pg_catalog.has_function_privilege(p.oid, 'EXECUTE'));
 
 GRANT SELECT ON routines TO PUBLIC;
 
@@ -1507,10 +1607,12 @@ CREATE VIEW schemata AS
            CAST(u.rolname AS sql_identifier) AS schema_owner,
            CAST(null AS sql_identifier) AS default_character_set_catalog,
            CAST(null AS sql_identifier) AS default_character_set_schema,
-           CAST(null AS sql_identifier) AS default_character_set_name,
-           CAST(null AS character_data) AS sql_path
-    FROM pg_namespace n, pg_authid u
-    WHERE n.nspowner = u.oid AND pg_catalog.pg_has_role(n.nspowner, 'USAGE');
+           CAST(pg_encoding_to_char(d.encoding) AS sql_identifier) AS default_character_set_name,
+           CAST(null AS character_data) AS sql_path,
+           CAST(d.datcollate AS varchar(64)) AS default_collation_name,
+           CAST('NO' AS varchar(3)) AS default_encryption
+    FROM pg_namespace n, pg_authid u, pg_catalog.pg_database d
+    WHERE n.nspowner = u.oid AND pg_catalog.pg_has_role(n.nspowner, 'USAGE') AND d.datname = current_database();
 
 GRANT SELECT ON schemata TO PUBLIC;
 
@@ -1757,7 +1859,8 @@ CREATE VIEW table_constraints AS
            CAST(CASE WHEN c.condeferrable THEN 'YES' ELSE 'NO' END AS yes_or_no)
              AS is_deferrable,
            CAST(CASE WHEN c.condeferred THEN 'YES' ELSE 'NO' END AS yes_or_no)
-             AS initially_deferred
+             AS initially_deferred,
+           CAST('YES' AS varchar(3)) AS enforced
 
     FROM pg_namespace nc,
          pg_namespace nr,
@@ -1786,7 +1889,8 @@ CREATE VIEW table_constraints AS
            CAST(r.relname AS sql_identifier) AS table_name,
            CAST('CHECK' AS character_data) AS constraint_type,
            CAST('NO' AS yes_or_no) AS is_deferrable,
-           CAST('NO' AS yes_or_no) AS initially_deferred
+           CAST('NO' AS yes_or_no) AS initially_deferred,
+           CAST('YES' AS yes_or_no) AS enforced
 
     FROM pg_namespace nr,
          pg_class r,
@@ -1882,6 +1986,7 @@ CREATE VIEW role_table_grants AS
 GRANT SELECT ON role_table_grants TO PUBLIC;
 
 
+
 /*
  * 5.61
  * TABLES view
@@ -1916,11 +2021,35 @@ CREATE VIEW tables AS
 
            CAST(CASE WHEN t.typname IS NOT NULL THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_typed,
            CAST(null AS character_data) AS commit_action,
-           CAST(d.description AS information_schema.character_data) AS TABLE_COMMENT
+           CAST(d.description AS information_schema.character_data) AS TABLE_COMMENT,
+           CAST(pg_catalog.pg_extract_collate_name(pg_catalog.get_table_option(c.reloptions, 'collate'::text)::oid) AS varchar(64)) AS table_collation,
+           CAST(null AS varchar(64)) AS engine,
+           CAST(10 AS INTEGER) AS version,
+           CAST(CASE WHEN c.relkind = 'r' THEN 
+                   CASE WHEN pg_catalog.get_table_option(c.reloptions, 'compression'::text) is not null and pg_catalog.get_table_option(c.reloptions, 'compression'::text) != 'no'
+                        THEN 'Compressed'
+                   ELSE 'Dynamic' END
+               ELSE NULL END AS varchar(64)) AS row_format,
+           CAST(CASE WHEN c.relkind = 'r' THEN c.reltuples::BIGINT ELSE NULL END AS bigint) AS table_rows,
+           CAST(CASE WHEN c.relkind = 'r' THEN pg_avg_row_length(c.oid, -1) 
+              ELSE NULL 
+              END AS bigint) AS avg_row_length,
+           CAST(CASE WHEN c.relkind = 'r' THEN pg_relation_size(c.oid) ELSE NULL END AS bigint) AS data_length,
+           CAST(NULL AS bigint) AS max_data_length,
+           CAST(CASE WHEN c.relkind = 'r' THEN pg_indexes_size(c.oid) ELSE NULL END AS bigint) AS index_length,
+           CAST(NULL AS bigint) AS data_free,
+           CAST(get_auto_increment_nextval(c.oid, true) AS int16) AS auto_increment,
+           CAST(po.ctime AS timestamptz) AS create_time,
+       	   CAST(po.mtime AS timestamp) AS update_time,
+           CAST(null AS timestamp) AS check_time,
+           CAST(null AS bigint) AS checksum,
+           CAST(c.reloptions AS varchar(256)) AS create_options
 
     FROM pg_namespace nc JOIN pg_class c ON (nc.oid = c.relnamespace)
            LEFT JOIN (pg_type t JOIN pg_namespace nt ON (t.typnamespace = nt.oid)) ON (c.reloftype = t.oid)
            LEFT JOIN pg_description d on d.objoid = c.oid and objsubid = 0
+      	   LEFT JOIN pg_object po on c.oid = po.object_oid and c.relkind = po.object_type
+           LEFT JOIN pg_tablespace ts ON c.reltablespace = ts.oid
 
     WHERE c.relkind IN ('r', 'm', 'v', 'f')
           AND (c.relname not like 'mlog\_%' AND c.relname not like 'matviewmap\_%')
@@ -2942,3 +3071,162 @@ CREATE TABLE PROFILING (
 ) WITH (orientation=row, compression=no);
 
 GRANT SELECT ON PROFILING TO PUBLIC;
+
+
+CREATE VIEW KEYWORDS AS
+    select t.word::varchar(128) as word,
+	CAST(
+        CASE WHEN t.catcode = 'U' THEN 0
+             WHEN t.catcode = 'C' THEN 0
+             WHEN t.catcode = 'T' THEN 1
+             WHEN t.catcode = 'R' THEN 1
+             ELSE 0 END
+        AS int) AS reserved
+	from pg_get_keywords() t;
+
+ GRANT SELECT ON KEYWORDS TO PUBLIC; 
+
+
+CREATE OR REPLACE VIEW statistics AS
+SELECT
+    CAST(CURRENT_CATALOG AS varchar(64)) AS table_catalog,
+    CAST(n.nspname AS varchar(64)) AS table_schema,
+    CAST(t.relname AS varchar(64)) AS table_name,	
+    CAST(CASE WHEN idx.indisunique THEN 0 ELSE 1 END as int) AS non_unique,
+    CAST(n.nspname AS varchar(64)) AS index_schema,
+    CAST(i.relname AS varchar(64)) AS index_name,
+    CAST(pos AS int) AS seq_in_index,
+    CAST(a.attname AS varchar(64)) AS column_name,
+    CAST(CASE 
+        WHEN idx.indoption[pos-1] & 1 = 0 THEN 'A' 
+        ELSE 'D'           
+        END AS varchar(1)) AS collation,	
+    CAST(CASE 
+        WHEN idx.indisunique THEN t.reltuples
+        ELSE ceil(i.reltuples * (1 - (1.0 / idx.indnatts)))
+        END AS bigint) AS cardinality,
+    CAST(NULL as bigint) AS sub_part, 
+    CAST(NULL as varchar(64)) AS packed,
+    CAST(CASE WHEN a.attnotnull THEN '' ELSE 'YES' END AS varchar(3)) AS nullable,
+    CAST(CASE am.amname 
+        WHEN 'ubtree' THEN 'UBTREE'
+        WHEN 'btree' THEN 'BTREE'
+        WHEN 'hash' THEN 'HASH'
+        WHEN 'gist' THEN 'GIST'
+        WHEN 'gin' THEN 'GIN'
+        ELSE am.amname::TEXT 
+        END AS varchar(11)) AS index_type,
+    CAST('' AS varchar(8)) AS comment,
+    CAST(d.description AS varchar(2048)) AS index_comment,
+    CAST(CASE 
+        WHEN idx.indisvalid = 't'::boolean THEN 'YES' 
+        ELSE 'NO'           
+        END AS varchar(3)) AS is_visible,
+    CAST(pg_get_expr(idx.indexprs, t.oid) AS TEXT) AS expression
+FROM
+    pg_class t
+    JOIN pg_namespace n ON t.relnamespace = n.oid
+    JOIN pg_index idx ON idx.indrelid = t.oid
+    JOIN pg_class i ON i.oid = idx.indexrelid
+    JOIN pg_am am ON i.relam = am.oid
+    JOIN generate_series(1, array_length(idx.indkey, 1)) AS pos ON true
+    JOIN pg_attribute a ON a.attrelid = t.oid AND (a.attnum = idx.indkey[pos - 1] or attnum_used_by_indexprs(idx.indexprs, a.attnum))
+    left JOIN pg_description d on d.objoid = idx.indexrelid and d.objsubid = 0	
+WHERE
+    t.relkind = 'r'
+    AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast');
+
+GRANT SELECT ON statistics TO PUBLIC; 
+
+
+CREATE OR REPLACE VIEW partitions AS
+    SELECT CAST(pg_catalog.current_database() AS varchar(64)) AS table_catalog,
+       CAST(nc.nspname AS varchar(64)) AS table_schema,
+       CAST(c.relname AS varchar(64)) AS table_name,
+       CAST(p.relname AS varchar(64)) AS partition_name,
+       CAST(NULL AS varchar(64)) AS subpartition_name,
+       CAST((pg_catalog.dense_rank() OVER(PARTITION BY TABLE_NAME ORDER BY PARTITION_NAME)) AS int) AS partition_ordinal_position,
+       CAST(NULL AS int) AS subpartition_ordinal_position,
+       CAST(pg_catalog.partstrategy_to_full_str(p.partstrategy) AS varchar(13)) AS partition_method,
+       CAST(NULL AS varchar(13)) AS subpartition_method,
+       CAST(pg_catalog.pg_get_partition_expression(p.parentid, -1, false) AS varchar(2048) ) AS partition_expression,
+	     CAST(NULL AS varchar(2048)) AS subpartition_expression,
+       CAST(CASE
+            WHEN p.partstrategy = 'r' OR p.partstrategy = 'i' THEN pg_catalog.array_to_string(p.boundaries, ',' , 'MAXVALUE')
+            WHEN p.partstrategy = 'l' THEN pg_catalog.array_to_string(p.boundaries, ',' , 'DEFAULT')
+            ELSE pg_catalog.array_to_string(p.boundaries, ',' , NULL)
+            END AS text) AS partition_description,
+       CAST(p.reltuples AS bigint) AS table_rows,
+       CAST(CASE WHEN c.relkind = 'r' THEN pg_avg_row_length(c.oid, p.oid) ELSE NULL END AS bigint) AS avg_row_length,
+       CAST(CASE WHEN c.relkind = 'r' THEN pg_partition_size(c.oid, p.oid) ELSE NULL END AS bigint) AS data_length,
+       CAST(NULL AS bigint) AS max_data_length,
+	     CAST(NULL AS bigint) AS index_length,
+	     CAST(NULL AS bigint) AS data_free,
+       CAST(po.ctime AS timestamptz) AS create_time,
+       CAST(po.mtime AS timestamp) AS update_time,
+       CAST(NULL AS timestamp) AS check_time,
+       CAST(NULL AS bigint) AS checksum,
+       CAST(NULL AS text) AS partition_comment,
+       CAST(NULL AS varchar(256)) AS nodegroup,
+       CAST(CASE
+            WHEN p.reltablespace = 0 THEN 'pg_default'::text
+            ELSE (SELECT spc.spcname FROM pg_catalog.pg_tablespace spc WHERE p.reltablespace = spc.oid)
+            END AS varchar(268)) AS tablespace_name
+	
+	FROM pg_catalog.pg_class c INNER JOIN pg_catalog.pg_partition p on p.parentid = c.oid
+	INNER JOIN pg_catalog.pg_authid a on c.relowner = a.oid
+	INNER JOIN pg_catalog.pg_namespace nc on c.relnamespace = nc.oid
+        LEFT JOIN pg_object po on c.oid = po.object_oid and c.relkind = po.object_type
+	where p.parttype = 'p' AND
+    (
+        pg_catalog.pg_has_role(c.relowner, 'usage')
+        OR pg_catalog.has_table_privilege(c.oid, 'select, insert, update, delete, truncate, references, trigger')
+        OR pg_catalog.has_any_column_privilege(c.oid, 'select, insert, update, references')
+    ) AND subpartitionno is null
+    UNION ALL
+    SELECT CAST(pg_catalog.current_database() AS varchar(64)) AS table_catalog,
+       CAST(nc.nspname AS varchar(64)) AS table_schema,
+       CAST(c.relname AS varchar(64)) AS table_name,
+       CAST(p.relname AS varchar(64)) AS partition_name,
+       CAST(sp.relname AS varchar(64)) AS subpartition_name,
+       CAST((pg_catalog.dense_rank() OVER(PARTITION BY TABLE_NAME ORDER BY PARTITION_NAME)) AS int) AS partition_ordinal_position,
+       CAST((pg_catalog.dense_rank() OVER(PARTITION BY TABLE_NAME, PARTITION_NAME ORDER BY SUBPARTITION_NAME)) AS int) AS subpartition_ordinal_position,
+       CAST(pg_catalog.partstrategy_to_full_str(p.partstrategy) AS varchar(13)) AS partition_method,
+       CAST(pg_catalog.partstrategy_to_full_str(sp.partstrategy) as varchar(13)) AS subpartition_method,
+       CAST(pg_catalog.pg_get_partition_expression(p.parentid, -1, false) AS varchar(2048)) AS partition_expression,
+       CAST(pg_catalog.pg_get_partition_expression(sp.parentid, -1, true) AS varchar(2048)) AS subpartition_expression,
+       CAST(CASE
+            WHEN sp.partstrategy = 'r' OR sp.partstrategy = 'i' THEN pg_catalog.array_to_string(sp.boundaries, ',' , 'MAXVALUE')
+            WHEN sp.partstrategy = 'l' THEN pg_catalog.array_to_string(sp.boundaries, ',' , 'DEFAULT')
+            ELSE pg_catalog.array_to_string(sp.boundaries, ',' , NULL)
+            END AS text) AS partition_description,
+       CAST(sp.reltuples as bigint) AS table_rows,
+       CAST(CASE WHEN c.relkind = 'r' THEN pg_avg_row_length(c.oid, p.oid) ELSE NULL END AS bigint) AS avg_row_length,
+       CAST(CASE WHEN c.relkind = 'r' THEN pg_partition_size(c.oid, p.oid) ELSE NULL END AS bigint) AS data_length,
+       CAST(NULL AS bigint) AS max_data_length,
+       CAST(NULL AS bigint) AS index_length,
+       CAST(NULL AS bigint) data_free,
+       CAST(po.ctime AS timestamptz) AS create_time,
+       CAST(po.mtime AS timestamp) AS update_time,
+       CAST(NULL AS timestamp) AS check_time,
+       CAST(NULL AS bigint) AS checksum,
+       CAST(NULL AS text) AS partition_comment,
+       CAST(NULL AS varchar(256)) AS nodegroup,
+       CAST(CASE
+            WHEN sp.reltablespace = 0 THEN 'pg_default'::text
+            ELSE (SELECT spc.spcname FROM pg_tablespace spc WHERE sp.reltablespace = spc.oid)
+            END AS varchar(268)) AS tablespace_name
+	FROM pg_catalog.pg_class c INNER JOIN pg_catalog.pg_partition p on p.parentid = c.oid
+	INNER JOIN pg_catalog.pg_partition sp on sp.parentid = p.oid
+	INNER JOIN pg_catalog.pg_authid a on c.relowner = a.oid
+	INNER JOIN pg_catalog.pg_namespace nc on c.relnamespace = nc.oid
+   LEFT JOIN pg_object po on c.oid = po.object_oid and c.relkind = po.object_type
+	where p.parttype = 'p' AND
+    sp.parttype = 's' AND
+    (
+        pg_catalog.pg_has_role(c.relowner, 'usage')
+        OR pg_catalog.has_table_privilege(c.oid, 'select, insert, update, delete, truncate, references, trigger')
+        OR pg_catalog.has_any_column_privilege(c.oid, 'select, insert, update, references')
+    );
+	
+  GRANT SELECT ON partitions TO PUBLIC; 
