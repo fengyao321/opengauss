@@ -82,6 +82,9 @@ EXTRA_OBJS = $(top_builddir)/src/gausskernel/cbb/utils/aes/aes.o
 
 FLEXFLAGS = -Cfe -b -p -p
 
+$(libpq_builddir)/libpq_ce.so: submake-libpq_ce
+$(libpq_builddir)/libpq.so: submake-libpq
+
 all: submake-aes gsql
 ifeq ($(enable_lite_mode), no)
 libpq_pgport:=$(subst -lpq,-lpq_ce,$(libpq_pgport))
@@ -95,10 +98,13 @@ endif
 $(top_builddir)/src/lib/elog/elog.a:
 	$(MAKE) -C $(top_builddir)/src/lib/elog elog.a
 ifeq ($(enable_lite_mode), no)
-gsql: submake-libpq_ce submake-libpgport $(OBJS)
+gsql: $(libpq_builddir)/libpq_ce.so submake-libpgport $(OBJS)
+	@echo "Linking with libpq_pgport: $(libpq_pgport)"
+	@echo "LDFLAGS: $(LDFLAGS)"
+	@echo "LIBS: $(LIBS)"
 	$(CC) $(CFLAGS) $(OBJS) $(EXTRA_OBJS) $(LIBS) $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) -lncurses -o $@$(X)
 else
-gsql: submake-libpq submake-libpgport $(OBJS)
+gsql: $(libpq_builddir)/libpq.so submake-libpgport $(OBJS)
 	$(CC) $(CFLAGS) $(OBJS) $(EXTRA_OBJS) $(LIBS) $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) -lncurses -o $@$(X)
 endif
 help.o: sql_help.h
