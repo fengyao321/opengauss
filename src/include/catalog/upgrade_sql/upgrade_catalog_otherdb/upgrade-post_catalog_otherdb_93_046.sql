@@ -115,7 +115,7 @@ CREATE OR REPLACE FUNCTION pg_catalog.realtime_build_queue_status(
     OUT hashmap_manager_queue_size4 oid
 )
 RETURNS SETOF record NOT FENCED NOT SHIPPABLE ROWS 1 STABLE
-LANGUAGE internal AS $function$get_realtime_build_queue_status$function$;;
+LANGUAGE internal AS $function$get_realtime_build_queue_status$function$;
 
 DROP FUNCTION IF EXISTS dbe_perf.get_statement_history(
     IN start_time_point timestamp with time zone,
