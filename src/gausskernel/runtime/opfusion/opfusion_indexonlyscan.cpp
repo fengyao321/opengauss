@@ -134,8 +134,13 @@ void IndexOnlyScanFusion::Init(long max_rows)
         Oid parentIndexOid = m_node->indexid;
         m_index = InitPartitionIndexInFusion(parentIndexOid, m_reloid, &m_partIndex, &m_parentIndex, m_rel);
     } else {
-        m_rel = heap_open(m_reloid, AccessShareLock);
-        m_index = index_open(m_node->indexid, AccessShareLock);
+        if (m_hasRelationLock) {
+            m_rel = heap_open(m_reloid, NoLock);
+            m_index = index_open(m_node->indexid, NoLock);
+        } else {
+            m_rel = heap_open(m_reloid, AccessShareLock);
+            m_index = index_open(m_node->indexid, AccessShareLock);
+        }
     }
 
     if (unlikely(!m_keyInit)) {
@@ -362,4 +367,6 @@ void IndexOnlyScanFusion::End(bool isCompleted)
         (void)ExecClearTuple(m_reslot);
         m_reslot = NULL;
     }
+
+    m_hasRelationLock = false;
 }

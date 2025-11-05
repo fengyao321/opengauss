@@ -268,6 +268,8 @@ public:
     };
 
     OpFusionLocaleVariable m_local;
+
+    bool m_hasRelationLock;
 private:
 #ifdef ENABLE_MOT
     static FusionType GetMotFusionType(PlannedStmt* plannedStmt);

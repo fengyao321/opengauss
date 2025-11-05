@@ -122,8 +122,13 @@ void IndexScanFusion::Init(long max_rows)
         Oid parentIndexOid = m_node->indexid;
         m_index = InitPartitionIndexInFusion(parentIndexOid, m_reloid, &m_partIndex, &m_parentIndex, m_rel);
     } else {
-        m_rel = heap_open(m_reloid, AccessShareLock);
-        m_index = index_open(m_node->indexid, AccessShareLock);
+        if (m_hasRelationLock) {
+            m_rel = heap_open(m_reloid, NoLock);
+            m_index = index_open(m_node->indexid, NoLock);
+        } else {
+            m_rel = heap_open(m_reloid, AccessShareLock);
+            m_index = index_open(m_node->indexid, AccessShareLock);
+        }
     }
 
     if (unlikely(!m_keyInit)) {
@@ -278,7 +283,11 @@ void IndexScanFusion::End(bool isCompleted)
             }
             index_close(m_parentIndex, NoLock);
         } else {
-            index_close(m_index, AccessShareLock);
+            if (m_hasRelationLock) {
+                index_close(m_index, NoLock);
+            } else {
+                index_close(m_index, AccessShareLock);
+            }
         }
         m_index = NULL;
     }
@@ -292,12 +301,18 @@ void IndexScanFusion::End(bool isCompleted)
             }
             heap_close(m_parentRel, NoLock);
         } else {
-            heap_close(m_rel, AccessShareLock);
+            if (m_hasRelationLock) {
+                heap_close(m_rel, NoLock);
+            } else {
+                heap_close(m_rel, AccessShareLock);
+            }
         }
         m_rel = NULL;
     }
 
+    m_hasRelationLock = false;
 }
+
 void IndexScanFusion::ResetIndexScanFusion(IndexScan* node, PlannedStmt* planstmt, ParamListInfo params)
 {
     m_node = node;

@@ -86,6 +86,8 @@ public:
 
     uint64 start_row = 0;
     uint64 get_rows = 0;
+
+    bool m_hasRelationLock;
 };
 
 #endif /* SRC_INCLUDE_OPFUSION_OPFUSION_SCAN_H_ */
