@@ -2031,7 +2031,7 @@ CREATE VIEW tables AS
                    ELSE 'Dynamic' END
                ELSE NULL END AS varchar(64)) AS row_format,
            CAST(CASE WHEN c.relkind = 'r' THEN c.reltuples::BIGINT ELSE NULL END AS bigint) AS table_rows,
-           CAST(CASE WHEN c.relkind = 'r' THEN pg_avg_row_length(c.oid, -1) 
+           CAST(CASE WHEN c.relkind = 'r' THEN pg_avg_row_length(c.oid, 0) 
               ELSE NULL 
               END AS bigint) AS avg_row_length,
            CAST(CASE WHEN c.relkind = 'r' THEN pg_relation_size(c.oid) ELSE NULL END AS bigint) AS data_length,
