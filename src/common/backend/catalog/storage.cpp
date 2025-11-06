@@ -467,6 +467,7 @@ void RelationDropStorage(Relation rel, bool isDfsTruncate)
 {
     ereport(WARNING, (errmsg("3. RelationDropStorage, relname: %s",
                         RelationGetForm(rel)->relname.data)));
+    
     if (RelationIsUstoreFormat(rel)) {
         PgStat_StartBlockTableKey tabkey;
         tabkey.dbid = u_sess->proc_cxt.MyDatabaseId;
@@ -482,6 +483,15 @@ void RelationDropStorage(Relation rel, bool isDfsTruncate)
             RelationOpenSmgr(rel);
         }
         if (!smgrexists(rel->rd_smgr, MAIN_FORKNUM)) {
+            return;
+        }
+    }
+
+    // 资源池化升级，共享表文件不存在，不删
+    if(u_sess->attr.attr_common.IsInplaceUpgrade && ENABLE_DMS) {
+        if (!smgrexists(rel->rd_smgr, MAIN_FORKNUM)) {
+            ereport(WARNING, (errmsg("3.1. !smgrexists, relname: %s",
+                        RelationGetForm(rel)->relname.data)));
             return;
         }
     }
