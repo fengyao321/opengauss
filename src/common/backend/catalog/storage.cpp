@@ -489,7 +489,7 @@ void RelationDropStorage(Relation rel, bool isDfsTruncate)
 
     // 资源池化升级，共享表文件不存在，不删
     // shared table files in otherdb not exist during resource pooling upgrade
-    if(u_sess->attr.attr_common.IsInplaceUpgrade && ENABLE_DMS) {
+    if(u_sess->attr.attr_common.IsInplaceUpgrade && ENABLE_DMS && IsSharedRelation(rel->rd_id)) {
         if (!smgrexists(rel->rd_smgr, MAIN_FORKNUM)) {
             ereport(WARNING, (errmsg("3.1. !smgrexists, relname: %s, rel_id: %d, shared: %d",
                         RelationGetForm(rel)->relname.data, rel->rd_id, IsSharedRelation(rel->rd_id))));
