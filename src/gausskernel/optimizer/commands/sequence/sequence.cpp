@@ -671,7 +671,7 @@ static int128 GetNextvalLocal(SeqTable elm, Relation seqrel)
 
 
 template<typename T_Int, typename T_Form, bool large>
-static T_Int GetLastAndIncrementValue(SeqTable elm, Relation seqrel, T_Int* increment_by)
+static T_Int GetLastAndIncrementValue(SeqTable elm, Relation seqrel, T_Int* increment_by, bool* is_called)
 {
     Buffer buf;
     Page page;
@@ -686,6 +686,7 @@ static T_Int GetLastAndIncrementValue(SeqTable elm, Relation seqrel, T_Int* incr
 
     AssignInt<T_Int, large>(&last_value, (int128)seq->last_value);
     AssignInt<T_Int, large>(increment_by, (int128)seq->increment_by);
+    *is_called = seq->is_called;
 
     UnlockReleaseBuffer(buf);
     
@@ -3361,7 +3362,6 @@ T_Int GetColumnMaxOrMinValue(char* column_name, char* full_table_name, bool is_m
     return current_max_value;
 }
 
-
 static inline void free_relation_resource(SysScanDesc adscan, Relation adrel, Relation rel)
 {
     systable_endscan(adscan);
@@ -3369,8 +3369,7 @@ static inline void free_relation_resource(SysScanDesc adscan, Relation adrel, Re
     relation_close(rel, AccessShareLock);
 }
 
-
-static inline void check_relation_valid(Relation rel, char* table_name)
+static void check_relation_valid(Relation rel, char* table_name, AclMode perm_required)
 {
     if (rel->rd_rel->relkind != RELKIND_RELATION) {
         relation_close(rel, AccessShareLock);
@@ -3382,15 +3381,28 @@ static inline void check_relation_valid(Relation rel, char* table_name)
         ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                 errmsg("cannot not found the serial column for relation \"%s\"", table_name)));
     }
+
+    if (pg_class_aclcheck(rel->rd_id, GetUserId(), perm_required, false) != ACLCHECK_OK) {
+        relation_close(rel, AccessShareLock);
+        ereport(ERROR,
+            (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+                errmsg("permission denied for sequence %s", RelationGetRelationName(rel))));
+    }
 }
 
-static Oid adbin_to_relid(char* adbin)
+static Oid adbin_to_relid(char* adbin, bool need_auto_increase)
 {
     Oid seqoid = InvalidOid;
     if (adbin == NULL || adbin[0] == '\0') {
         return InvalidOid;
     }
     Node* expr = (Node*)stringToNode(adbin);
+    if (need_auto_increase == true) {
+        if (!IsA(expr, AutoIncrement)) {
+            return InvalidOid ;
+        }
+        expr = ((AutoIncrement*)expr)->expr;
+    }
     if (!IsA(expr, FuncExpr)) {
         return InvalidOid ;
     }
@@ -3408,14 +3420,7 @@ char* get_serial_column_and_seq_table(List* range_var, char* table_name, Oid* se
     Oid seqoid = InvalidOid;
 
     rel = HeapOpenrvExtended(makeRangeVarFromNameList(range_var), AccessShareLock, false, true);
-    check_relation_valid(rel, table_name);
-
-    if (pg_class_aclcheck(rel->rd_id, GetUserId(), perm_required, false) != ACLCHECK_OK) {
-        relation_close(rel, AccessShareLock);
-        ereport(ERROR,
-            (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-                errmsg("permission denied for sequence %s", RelationGetRelationName(rel))));
-    }
+    check_relation_valid(rel, table_name, perm_required);
 
     ScanKeyInit(&skey, Anum_pg_attrdef_adrelid, BTEqualStrategyNumber, F_OIDEQ,
                 ObjectIdGetDatum(RelationGetRelid(rel)));
@@ -3433,7 +3438,7 @@ char* get_serial_column_and_seq_table(List* range_var, char* table_name, Oid* se
         }
         
         char* adbin_str = TextDatumGetCString(val);
-        Oid seqoid_temp = adbin_to_relid(adbin_str);
+        Oid seqoid_temp = adbin_to_relid(adbin_str, false);
         if (OidIsValid(seqoid_temp) && OidIsValid(seqoid)) {
             free_relation_resource(adscan, adrel, rel);
             ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -3477,6 +3482,7 @@ void get_last_value_and_max_value(text* txt, int128* last_value, int128* current
     char relkind;
     char* table_name = TextDatumGetCString(txt);
     List* range_var = textToQualifiedNameList(txt);
+    bool is_called = true;
 
     serial_column_name = get_serial_column_and_seq_table(range_var, table_name, &relid, ACL_SELECT);
 
@@ -3484,9 +3490,11 @@ void get_last_value_and_max_value(text* txt, int128* last_value, int128* current
     init_sequence(relid, &elm, &seqrel);
     relkind = RelationGetRelkind(seqrel);
     if (relkind == RELKIND_SEQUENCE) {
-        *last_value = GetLastAndIncrementValue<int128, Form_pg_sequence, true>(elm, seqrel, &increasement_by);
+        *last_value = GetLastAndIncrementValue<int128, Form_pg_sequence, true>(elm, seqrel, &increasement_by,
+            &is_called);
     } else {
-        *last_value = GetLastAndIncrementValue<int128, Form_pg_large_sequence, true>(elm, seqrel, &increasement_by);
+        *last_value = GetLastAndIncrementValue<int128, Form_pg_large_sequence, true>(elm, seqrel, &increasement_by,
+            &is_called);
     }
     relation_close(seqrel, NoLock);
 
@@ -3509,6 +3517,7 @@ int128 get_and_reset_last_value(text* txt, int128 new_value, bool need_reseed)
     Relation seqrel;
     char* serial_column_name = NULL;
     char relkind;
+    bool is_called = true;
 
     List* range_var = textToQualifiedNameList(txt);
     char* table_name = TextDatumGetCString(txt);
@@ -3519,9 +3528,11 @@ int128 get_and_reset_last_value(text* txt, int128 new_value, bool need_reseed)
     init_sequence(relid, &elm, &seqrel);
     relkind = RelationGetRelkind(seqrel);
     if (relkind == RELKIND_SEQUENCE) {
-        last_value = GetLastAndIncrementValue<int128, Form_pg_sequence, true>(elm, seqrel, &increasement_by);
+        last_value = GetLastAndIncrementValue<int128, Form_pg_sequence, true>(elm, seqrel, &increasement_by,
+            &is_called);
     } else {
-        last_value = GetLastAndIncrementValue<int128, Form_pg_large_sequence, true>(elm, seqrel, &increasement_by);
+        last_value = GetLastAndIncrementValue<int128, Form_pg_large_sequence, true>(elm, seqrel, &increasement_by,
+            &is_called);
     }
     relation_close(seqrel, NoLock);
 
@@ -3539,5 +3550,155 @@ int128 get_and_reset_last_value(text* txt, int128 new_value, bool need_reseed)
     list_free(range_var);
 
     return last_value;
+}
+
+
+Oid get_auto_increase_seq_table(Oid relid, AclMode perm_required, bool exclude_null_column)
+{
+    Relation rel = NULL;
+    ScanKeyData skey;
+    HeapTuple htup;
+    Oid seqoid = InvalidOid;
+
+    rel = heap_open(relid, AccessShareLock);
+    check_relation_valid(rel, NameStr(rel->rd_rel->relname), perm_required);
+
+    ScanKeyInit(&skey, Anum_pg_attrdef_adrelid, BTEqualStrategyNumber, F_OIDEQ,
+                ObjectIdGetDatum(RelationGetRelid(rel)));
+    Relation adrel = heap_open(AttrDefaultRelationId, AccessShareLock);
+    SysScanDesc adscan = systable_beginscan(adrel, AttrDefaultIndexId, true, NULL, 1, &skey);
+    
+    while (HeapTupleIsValid(htup = systable_getnext(adscan))) {
+        Datum val;
+        bool isnull = false;
+        Datum adnum;
+
+        val = fastgetattr(htup, Anum_pg_attrdef_adbin, adrel->rd_att, &isnull);
+        if (isnull) {
+            continue;
+        }
+        
+        char* adbin_str = TextDatumGetCString(val);
+        Oid seqoid_temp = adbin_to_relid(adbin_str, true);
+        if (OidIsValid(seqoid_temp) && OidIsValid(seqoid)) {
+            free_relation_resource(adscan, adrel, rel);
+            return InvalidOid;
+        }
+        if (!OidIsValid(seqoid_temp) && !OidIsValid(seqoid)) {
+            continue;
+        }
+        if (OidIsValid(seqoid_temp) && !OidIsValid(seqoid)) {
+            adnum = fastgetattr(htup, Anum_pg_attrdef_adnum, adrel->rd_att, &isnull);
+            int16 adnum_int16 = DatumGetInt16(adnum) - 1;
+            if (adnum_int16 < 0) {
+                free_relation_resource(adscan, adrel, rel);
+                return InvalidOid;
+            }
+            if (exclude_null_column && !rel->rd_att->attrs[adnum_int16].attnotnull) {
+                continue;
+            }
+            seqoid = seqoid_temp;
+        }
+    }
+
+    if (!OidIsValid(seqoid)) {
+        free_relation_resource(adscan, adrel, rel);
+        return InvalidOid;
+    }
+
+    free_relation_resource(adscan, adrel, rel);
+    return seqoid;
+}
+
+
+int128 get_auto_increment_nextval_internal(Oid relid, bool exclude_null_column)
+{
+    int128 last_value = 0;
+    Oid seqrelid = 0;
+    int128 increasement_by = 0;
+    SeqTable elm = NULL;
+    Relation seqrel;
+    bool is_called = false;
+    char relkind;
+    seqrelid = get_auto_increase_seq_table(relid, ACL_UPDATE, exclude_null_column);
+    if (!OidIsValid(seqrelid)) {
+        ereport(ERROR, (errcode(ERRCODE_UNDEFINED_TABLE),
+                errmsg("Failed to Get the next value of Auto Increament.")));
+    }
+    /* open and lock sequence */
+    init_sequence(seqrelid, &elm, &seqrel);
+    relkind = RelationGetRelkind(seqrel);
+    if (relkind == RELKIND_SEQUENCE) {
+        last_value = GetLastAndIncrementValue<int128, Form_pg_sequence, true>(elm, seqrel, &increasement_by,
+            &is_called);
+    } else {
+        last_value = GetLastAndIncrementValue<int128, Form_pg_large_sequence, true>(elm, seqrel, &increasement_by,
+            &is_called);
+    }
+    if (is_called) {
+        last_value = last_value + increasement_by;
+    }
+    relation_close(seqrel, NoLock);
+    return last_value;
+}
+
+
+Datum get_auto_increment_nextval(PG_FUNCTION_ARGS)
+{
+    // only b format support
+    if (!DB_IS_CMPT(B_FORMAT)) {
+        PG_RETURN_NULL();
+    }
+
+    Oid relid = PG_GETARG_OID(0);
+    bool exclude_null_column = PG_GETARG_BOOL(1);
+    int128 result = 0;
+    bool is_error = false;
+    PG_TRY();
+    {
+        result = get_auto_increment_nextval_internal(relid, exclude_null_column);
+    } 
+    PG_CATCH();
+    {
+        is_error = true;
+        FlushErrorState();
+    }
+    PG_END_TRY();
+    if (is_error) {
+        PG_RETURN_NULL();
+    } else {
+        PG_RETURN_INT128(result);
+    }
+}
+
+bool find_attnum_in_expr(Node* node, int16* target_att_no)
+{
+    if (node == NULL) {
+        return false;
+    }
+    if (node != NULL && IsA(node, Var) && ((Var*)node)->varattno == *target_att_no) {
+        return true;
+    }
+    return expression_tree_walker(node, (bool (*)())find_attnum_in_expr, (void*)target_att_no);
+}
+
+static bool attnum_used_by_expr(char* node_str, int16 target_att_no)
+{
+    if (node_str == NULL || node_str[0] == '\0') {
+        return false;
+    }
+    Node* expr = (Node*)stringToNode(node_str);
+    return find_attnum_in_expr(expr, &target_att_no);
+}
+
+Datum attnum_used_by_indexprs(PG_FUNCTION_ARGS)
+{
+    int16 attnum = PG_GETARG_INT16(1);
+    if (attnum <= 0) {
+        PG_RETURN_NULL();
+    }
+    char* node_str = TextDatumGetCString(PG_GETARG_TEXT_P(0));
+    bool result = attnum_used_by_expr(node_str, attnum);
+    PG_RETURN_BOOL(result);
 }
 

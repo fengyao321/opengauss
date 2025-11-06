@@ -96,6 +96,12 @@ static void AddRemoteToastBuf(bool isPartToast, Relation rel, char* funcname, ch
 static void AddRemoteMatviewBuf(Relation rel, char* funcname, char* extra_arg,
                                 MvRelationType matviewRelationType, StringInfo buf);
 #define DEFAULT_FORKNUM -1
+#define PRI 1
+#define UNI 2
+#define MUL 3
+
+
+extern int32 get_relation_data_width(Oid relid, Oid partitionid, int32* attr_widths, bool vectorized = false);
 
 /*
  * Below macro is important when the object size functions are called
@@ -1407,6 +1413,18 @@ Datum pg_relation_size(PG_FUNCTION_ARGS)
     relation_close(rel, AccessShareLock);
 
     PG_RETURN_INT64(size);
+}
+
+Datum pg_avg_row_length(PG_FUNCTION_ARGS)
+{
+    Oid relOid = PG_GETARG_OID(0);
+    Oid partitionOid = PG_GETARG_OID(1);
+    if (partitionOid <= 0) {
+        partitionOid = InvalidOid;
+    }
+    int size = get_relation_data_width(relOid, partitionOid, NULL);
+
+    PG_RETURN_INT32(size);
 }
 
 Datum pg_table_size(PG_FUNCTION_ARGS)
@@ -2768,6 +2786,131 @@ pg_relation_is_scannable(PG_FUNCTION_ARGS)
    RelationClose(relation);
 
    PG_RETURN_BOOL(result);
+}
+
+Datum pg_get_index_type(PG_FUNCTION_ARGS)
+{
+    int result = -1;
+    Relation indexRelation;
+    ScanKeyData skey;
+    HeapTuple indexTuple;
+    bool isnull = false;
+    int2vector* idxKeys = NULL;
+    int2 indexColumns = -1;
+    Datum idxKeysDatum;
+    Oid indexrelid = PG_GETARG_OID(0);
+    int16 attnum = PG_GETARG_INT16(1);
+    if (attnum <= 0)
+        PG_RETURN_NULL();
+
+    indexRelation = heap_open(IndexRelationId, AccessShareLock);
+    ScanKeyInit(&skey, Anum_pg_index_indrelid, BTEqualStrategyNumber, F_OIDEQ, ObjectIdGetDatum(indexrelid));
+    SysScanDesc scan = systable_beginscan(indexRelation, IndexIndrelidIndexId, true, NULL, 1, &skey);
+    while (HeapTupleIsValid(indexTuple = systable_getnext(scan))) {
+        Form_pg_index index = (Form_pg_index)GETSTRUCT(indexTuple);
+        indexColumns = index->indnatts;
+        idxKeysDatum = SysCacheGetAttr(INDEXRELID, indexTuple, Anum_pg_index_indkey, &isnull);
+        if (!isnull) {
+            idxKeys = (int2vector*)DatumGetPointer(idxKeysDatum);
+            for (int i = 0; i < indexColumns; i++) {
+                if (idxKeys->values[i] == attnum) {
+                    if (index->indisprimary) {
+                        result = PRI;
+                    } else if (index->indisunique && indexColumns == 1 && result != PRI) {
+                        result = UNI;
+                    } else if (result != PRI && result != UNI) {
+                        result = MUL;
+                    }
+                }
+            }
+        }
+    }
+
+    systable_endscan(scan);
+    heap_close(indexRelation, AccessShareLock);
+    if (result == PRI)
+        PG_RETURN_CSTRING("PRI");
+    if (result == UNI)
+        PG_RETURN_CSTRING("UNI");
+    if (result == MUL)
+        PG_RETURN_CSTRING("MUL");
+    PG_RETURN_NULL();
+}
+
+Datum get_partition_expression_from_tuple(HeapTuple partitionTuple)
+{
+    Datum result = NULL;
+    Datum datum = NULL;
+    bool is_null = false;
+
+    if (partitionTuple == NULL)
+        return NULL;
+
+    Datum parent_oid_datum = SysCacheGetAttr(PARTRELID, partitionTuple, Anum_pg_partition_parentid, &is_null);
+    if (is_null) {
+        return NULL;
+    }
+    Oid parent_oid = DatumGetObjectId(parent_oid_datum);
+
+    datum = SysCacheGetAttr(PARTRELID, partitionTuple, Anum_pg_partition_partkeyexpr, &is_null);
+    if (!is_null) {
+        result = DirectFunctionCall2(pg_get_expr, datum, parent_oid_datum);
+    } else {
+        datum = SysCacheGetAttr(PARTRELID, partitionTuple, Anum_pg_partition_partkey, &is_null);
+        if (!is_null) {
+            StringInfoData str;
+            initStringInfo(&str);
+            int2vector *partVec = (int2vector *)DatumGetPointer(datum);
+            if (!is_null) {
+                for (int i = 0; i < partVec->dim1; i++) {
+                    char* column_name = get_attname(parent_oid, partVec->values[i], false);
+                    if (column_name != NULL)
+                        appendStringInfoString(&str, column_name);
+                }
+            }
+            result = CStringGetTextDatum(str.data);
+            pfree_ext(str.data);
+        }
+    }
+    
+    return result;
+}
+
+Datum pg_get_partition_expression(PG_FUNCTION_ARGS)
+{
+    Oid reloid = PG_GETARG_OID(0);
+    int partitionno = PG_GETARG_INT32(1);
+    bool is_sub_partition = PG_GETARG_BOOL(2);
+    HeapTuple partitionTuple = NULL;
+    bool is_null;
+    Datum result = 0;
+    ScanKeyData key[2];
+    HeapTuple tuple = NULL;
+    if (is_sub_partition) {
+        partitionTuple = SearchSysCache1(PARTRELID, ObjectIdGetDatum(reloid));
+        if (partitionTuple != NULL) {
+            result = get_partition_expression_from_tuple(partitionTuple);
+            ReleaseSysCache(partitionTuple);
+        }
+    } else {
+        Relation relation = heap_open(PartitionRelationId, AccessShareLock);
+        ScanKeyInit(&key[0], Anum_pg_partition_parttype, BTEqualStrategyNumber, F_CHAREQ,
+            CharGetDatum(PART_OBJ_TYPE_PARTED_TABLE));
+        ScanKeyInit(&key[1], Anum_pg_partition_parentid, BTEqualStrategyNumber, F_OIDEQ, ObjectIdGetDatum(reloid));
+        SysScanDesc scan = systable_beginscan(relation, PartitionParentOidIndexId, true, NULL, 2, key);
+        while (HeapTupleIsValid(partitionTuple = systable_getnext(scan))) {
+            result = get_partition_expression_from_tuple(partitionTuple);
+            if (result != NULL)
+                break;
+        }
+        systable_endscan(scan);
+        heap_close(relation, AccessShareLock);
+    }
+
+    if (result == NULL)
+        PG_RETURN_NULL();
+ 
+    PG_RETURN_TEXT_P(result);
 }
 
 #endif /* PGXC */
