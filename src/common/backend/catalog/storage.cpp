@@ -465,8 +465,8 @@ void CStoreRelDropColumn(Relation rel, AttrNumber attrnum, Oid ownerid)
  */
 void RelationDropStorage(Relation rel, bool isDfsTruncate)
 {
-    ereport(WARNING, errmsg("3. RelationDropStorage, relname: %s",
-                        RelationGetForm(rel)->relname));
+    ereport(WARNING, (errmsg("3. RelationDropStorage, relname: %s",
+                        RelationGetForm(rel)->relname)));
     if (RelationIsUstoreFormat(rel)) {
         PgStat_StartBlockTableKey tabkey;
         tabkey.dbid = u_sess->proc_cxt.MyDatabaseId;
