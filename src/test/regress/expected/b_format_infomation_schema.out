@@ -742,3 +742,27 @@ drop table partition_table_test3;
 drop table partition_table_test4;
 DROP TABLE employees;
 DROP TABLE departments;
+create table test_event_log(id int);
+CREATE EVENT IF NOT EXISTS test_event ON SCHEDULE EVERY 1 MINUTE
+ STARTS CURRENT_TIMESTAMP
+ DO INSERT INTO test_event_log VALUES (1);
+select * from INFORMATION_SCHEMA.events;
+--?.*
+--?.*
+--?.*
+(1 row)
+
+select EVENT_CATALOG, EVENT_SCHEMA, EVENT_NAME, DEFINER, TIME_ZONE, EVENT_BODY, EVENT_DEFINITION, EVENT_TYPE, EXECUTE_AT, INTERVAL_VALUE, INTERVAL_FIELD, SQL_MODE, STARTS, ENDS, STATUS, ON_COMPLETION, CREATED, LAST_ALTERED, LAST_EXECUTED, EVENT_COMMENT, ORIGINATOR, CHARACTER_SET_CLIENT, COLLATION_CONNECTION, DATABASE_COLLATION from INFORMATION_SCHEMA.events;
+--?.*
+--?.*
+--?.*
+(1 row)
+
+select pg_typeof(EVENT_CATALOG), pg_typeof(EVENT_SCHEMA), pg_typeof(EVENT_NAME), pg_typeof(DEFINER), pg_typeof(TIME_ZONE), pg_typeof(EVENT_BODY), pg_typeof(EVENT_DEFINITION), pg_typeof(EVENT_TYPE), pg_typeof(EXECUTE_AT), pg_typeof(INTERVAL_VALUE), pg_typeof(INTERVAL_FIELD), pg_typeof(SQL_MODE), pg_typeof(STARTS), pg_typeof(ENDS), pg_typeof(STATUS), pg_typeof(ON_COMPLETION), pg_typeof(CREATED), pg_typeof(LAST_ALTERED), pg_typeof(LAST_EXECUTED), pg_typeof(EVENT_COMMENT), pg_typeof(ORIGINATOR), pg_typeof(CHARACTER_SET_CLIENT), pg_typeof(COLLATION_CONNECTION), pg_typeof(DATABASE_COLLATION) from INFORMATION_SCHEMA.events;
+     pg_typeof     |     pg_typeof     |     pg_typeof     |     pg_typeof     |     pg_typeof     |     pg_typeof     | pg_typeof |     pg_typeof     |          pg_typeof          |     pg_typeof     | pg_typeof | pg_typeof |          pg_typeof          |          pg_typeof          |     pg_typeof     |     pg_typeof     |          pg_typeof          |          pg_typeof          |          pg_typeof          |     pg_typeof     | pg_typeof |     pg_typeof     |     pg_typeof     |     pg_typeof     
+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+-----------+-------------------+-----------------------------+-------------------+-----------+-----------+-----------------------------+-----------------------------+-------------------+-------------------+-----------------------------+-----------------------------+-----------------------------+-------------------+-----------+-------------------+-------------------+-------------------
+ character varying | character varying | character varying | character varying | character varying | character varying | text      | character varying | timestamp without time zone | character varying | text      | text      | timestamp without time zone | timestamp without time zone | character varying | character varying | timestamp without time zone | timestamp without time zone | timestamp without time zone | character varying | integer   | character varying | character varying | character varying
+(1 row)
+
+drop EVENT IF  EXISTS test_event;
+drop table test_event_log;
