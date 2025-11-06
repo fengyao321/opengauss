@@ -716,11 +716,60 @@ bool UBTreeItupEquals(IndexTuple itup1, IndexTuple itup2)
     return memcmp(itup1, itup2, IndexTupleSize(itup1)) == 0;
 }
 
+bool UBTreeIncludeItupEquals(Relation rel, IndexTuple itup1, IndexTuple itup2)
+{
+    if (itup1 == NULL || itup2 == NULL) {
+        return false;
+    }
+    if (IndexTupleSize(itup1) == 0 || IndexTupleSize(itup2) == 0) {
+        return false;
+    }
+
+    /* Step2, check wheather ctids of itup1 and itup2 are equal. */
+    ItemPointer ctid1 = &itup1->t_tid;
+    ItemPointer ctid2 = &itup2->t_tid;
+    if (ItemPointerCompare(ctid1, ctid2) != 0) {
+        return false;
+    }
+
+    /* Step3, check wheather keys of itup1 and itup2 are equal. */
+    TupleDesc itupdesc = RelationGetDescr(rel);
+    BTScanInsert itupKey = UBTreeMakeScanKey(rel, itup1);
+    int keysz = itupKey->keysz;
+    ScanKey scankey = itupKey->scankeys;
+    for (int i = 1; i <= keysz; i++, scankey++) {
+        AttrNumber attno = scankey->sk_attno;
+        Assert(attno == i);
+        bool datumIsNull = false;
+        bool skeyIsNull = ((scankey->sk_flags & SK_ISNULL) ? true : false);
+        Datum datum = index_getattr(itup2, attno, itupdesc, &datumIsNull);
+
+        if (datumIsNull && skeyIsNull) {
+            continue; /* NULL equal NULL */
+        }
+        if (datumIsNull != skeyIsNull) {
+            return false; /* NOT_NULL not equal NULL */
+        }
+
+        if (DatumGetInt32(FunctionCall2Coll(&scankey->sk_func,
+                                            scankey->sk_collation, datum, scankey->sk_argument)) != 0) {
+            return false;
+        }
+    }
+
+    /* If we get here, the ctids and keys are equal. */
+    return true;
+}
+
 static bool UBTreeVisibilityCheckCid(IndexScanDesc scan, IndexTuple itup, bool *needRecheck)
 {
     BTScanOpaque so = (BTScanOpaque)scan->opaque;
 
-    if (UBTreeItupEquals((IndexTuple)so->lastSelfModifiedItup, itup)) {
+    Relation relation = scan->indexRelation;
+    bool isIncludeRelation =
+        IndexRelationGetNumberOfAttributes(relation) != IndexRelationGetNumberOfKeyAttributes(relation);
+    if ((!isIncludeRelation && UBTreeItupEquals((IndexTuple)so->lastSelfModifiedItup, itup)) ||
+        (isIncludeRelation && UBTreeIncludeItupEquals(relation, (IndexTuple)so->lastSelfModifiedItup, itup))) {
         *needRecheck = false;
         return false; /* tuples with same key and TID will only returned once */
     }

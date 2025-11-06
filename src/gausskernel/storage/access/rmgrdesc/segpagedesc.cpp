@@ -190,10 +190,14 @@ void segpage_smgr_desc(StringInfo buf, XLogReaderState *record)
         }
     } else if (info == XLOG_SEG_SEGMENT_EXTEND) {
         XLogDataSegmentExtend *data = (XLogDataSegmentExtend *)XLogRecGetBlockData(record, 0, NULL);
-        appendStringInfo(buf,
-            "[segpage] segment head extend: relfilenode/fork:<%u/%u>, nblocks[%u->%u], (phy loc %u/%u), reset_zero:%u",
-            data->main_fork_head, data->forknum, data->old_nblocks, data->new_nblocks, data->ext_size, data->blocknum,
-            data->reset_zero);
+        if (data == NULL) {
+            appendStringInfoString(buf, "WARNING: this xlog contains no data.");
+        } else {
+            appendStringInfo(buf,
+                "[segpage] segment head extend: relfilenode/fork:<%u/%u>, nblocks[%u->%u], (phy loc %u/%u),"
+                " reset_zero:%u", data->main_fork_head, data->forknum, data->old_nblocks, data->new_nblocks,
+                data->ext_size, data->blocknum, data->reset_zero);
+        }
     } else if (info == XLOG_SEG_CREATE_EXTENT_GROUP) {
         char *data = XLogRecGetData(record);
         RelFileNode *rnode = (RelFileNode *)data;

@@ -224,6 +224,10 @@ void heap2_desc(StringInfo buf, XLogReaderState *record)
             OffsetNumber *offsets_end = NULL;
 
             offsets = (OffsetNumber *)XLogRecGetBlockData(record, 0, &datalen);
+            if (offsets == NULL) {
+                appendStringInfoString(buf, "WARNING: this xlog contains no data.");
+                return;
+            }
 
             if (datalen > 0) {
                 offsets_end = (OffsetNumber *)((char *)offsets + datalen);
@@ -253,6 +257,10 @@ void heap2_desc(StringInfo buf, XLogReaderState *record)
             int i = 0;
 
             redirected = (OffsetNumber *)XLogRecGetBlockData(record, 0, &datalen);
+            if (redirected == NULL) {
+                appendStringInfoString(buf, "WARNING: this xlog contains no data.");
+                return;
+            }
 
             nredirected = xlrec->nredirected;
             ndead = xlrec->ndead;
@@ -373,6 +381,11 @@ void heap3_desc(StringInfo buf, XLogReaderState *record)
         if (!XLogRecHasBlockImage(record, 0)) {
             Size datalen;
             OffsetNumber *offsets = (OffsetNumber *)XLogRecGetBlockData(record, 0, &datalen);
+            if (offsets == NULL) {
+                appendStringInfoString(buf, "WARNING: this xlog contains no data.");
+                return;
+            }
+
             if (datalen > 0) {
                 OffsetNumber *offsets_end = (OffsetNumber *)((char *)offsets + datalen);
 

@@ -53,9 +53,9 @@ static void UndolauncherSighupHandler(SIGNAL_ARGS);
 static void UndolauncherSigusr2Handler(SIGNAL_ARGS);
 static void UndolauncherSigtermHandler(SIGNAL_ARGS);
 
-static bool UndoLauncherGetWork(UndoWorkInfo work, int *idx);
+static bool UndoLauncherGetWork(UndoWorkInfo work);
 static bool CanLaunchUndoWorker();
-static void StartUndoWorker(UndoWorkInfo work, int idx);
+static void StartUndoWorker(UndoWorkInfo work);
 
 /* SIGHUP: set flag to re-read config file at next convenient time */
 static void UndolauncherSighupHandler(SIGNAL_ARGS)
@@ -93,7 +93,7 @@ static void UndolauncherSigtermHandler(SIGNAL_ARGS)
     errno = saveErrno;
 }
 
-static bool UndoLauncherGetWork(UndoWorkInfo work, int *idx)
+static bool UndoLauncherGetWork(UndoWorkInfo work)
 {
     RollbackRequestsHashEntry *entry = GetNextRollbackRequest();
     int actualUndoWorkers = Min(g_instance.attr.attr_storage.max_undo_workers, MAX_UNDO_WORKERS);
@@ -102,11 +102,14 @@ static bool UndoLauncherGetWork(UndoWorkInfo work, int *idx)
         return false;
     }
 
+    bool changeFlag = false;
     for (int i = 0; i < actualUndoWorkers; i++) {
-        if (*idx == -1 && !TransactionIdIsValid(t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[i].xid)) {
-            *idx = i;
+        if (!changeFlag && !TransactionIdIsValid(t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[i].xid)) {
+            work->statusIdx = i;
+            changeFlag = true;
         }
-        if (t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[i].xid == entry->xid) {
+        if (t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[i].xid == entry->xid &&
+            t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[i].startUndoPtr == entry->startUndoPtr) {
             return false;
         }
     }
@@ -132,13 +135,14 @@ static bool CanLaunchUndoWorker()
 }
 
 
-static void StartUndoWorker(UndoWorkInfo work, int idx)
+static void StartUndoWorker(UndoWorkInfo work)
 {
     errno_t rc = memcpy_s(t_thrd.undolauncher_cxt.UndoWorkerShmem->rollback_request, sizeof(UndoWorkInfoData), work,
         sizeof(UndoWorkInfoData));
     securec_check(rc, "\0", "\0");
 
     int actualUndoWorkers = Min(g_instance.attr.attr_storage.max_undo_workers, MAX_UNDO_WORKERS);
+    int idx = work->statusIdx;
     const TimestampTz waitTime = 10 * 1000;
     const int maxRetryTimes = 1000;
     int retryTimes = 0;
@@ -307,10 +311,9 @@ NON_EXEC_STATIC void UndoLauncherMain()
 
     while (!t_thrd.undolauncher_cxt.got_SIGTERM) {
         UndoWorkInfoData work;
-        int idx = -1;
 
-        if (CanLaunchUndoWorker() && UndoLauncherGetWork(&work, &idx)) {
-            StartUndoWorker(&work, idx);
+        if (CanLaunchUndoWorker() && UndoLauncherGetWork(&work)) {
+            StartUndoWorker(&work);
             currSleepTime = defaultSleepTime;
         } else {
             /* Wait until sleep time expires or we get some type of signal */

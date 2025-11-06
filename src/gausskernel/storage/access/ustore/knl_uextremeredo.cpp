@@ -321,6 +321,22 @@ static XLogRecParseState *UHeap2XlogExtendTDSlotsParseBlock(XLogReaderState *rec
     return recordstatehead;
 }
 
+static XLogRecParseState *UHeap2XlogLockParseBlock(XLogReaderState *record, uint32 *blocknum)
+{
+    XLogRecParseState *recordstatehead = NULL;
+    *blocknum = 1;
+    XLogParseBufferAllocListFunc(record, &recordstatehead, NULL);
+
+    if (recordstatehead == NULL) {
+        return NULL;
+    }
+    if (!ExtremeRedoWorkerIsUndoSpaceWorker()) {
+        XLogRecSetBlockDataState(record, UHEAP2_ORIG_BLOCK_NUM, recordstatehead);
+    }
+
+    return recordstatehead;
+}
+
 XLogRecParseState *UHeap2RedoParseToBlock(XLogReaderState *record, uint32 *blocknum)
 {
     uint8 info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
@@ -341,6 +357,9 @@ XLogRecParseState *UHeap2RedoParseToBlock(XLogReaderState *record, uint32 *block
             break;
         case XLOG_UHEAP2_EXTEND_TD_SLOTS:
             recordblockstate = UHeap2XlogExtendTDSlotsParseBlock(record, blocknum);
+            break;
+        case XLOG_UHEAP2_LOCK:
+            recordblockstate = UHeap2XlogLockParseBlock(record, blocknum);
             break;
         default:
             ereport(PANIC, (errmsg("UHeap2RedoParseToBlock: unknown op code %u", info)));
@@ -1283,7 +1302,9 @@ void UHeapXlogCleanOperatorPage(RedoBufferInfo *buffer, void *recorddata, void *
      * don't bother to update the FSM in that case, it doesn't need to be
      * totally accurate anyway.
      */
-    XLogRecordPageWithFreeSpace(buffer->blockinfo.rnode, buffer->blockinfo.blkno, freespace);
+    if (t_thrd.role == PAGEREDO) {
+        XLogRecordPageWithFreeSpace(buffer->blockinfo.rnode, buffer->blockinfo.blkno, freespace);
+    }
 }
 
 static void UHeapXlogInsertBlock(XLogBlockHead *blockhead, XLogBlockDataParse *blockdatarec, RedoBufferInfo *bufferinfo)
@@ -1303,6 +1324,17 @@ static void UHeapXlogInsertBlock(XLogBlockHead *blockhead, XLogBlockDataParse *b
         Assert(blkdata != NULL);
         UHeapXlogInsertOperatorPage(bufferinfo, maindata, isinit, istoast, (void *)blkdata, blkdatalen, recordxid,
             NULL, hasCSN);
+
+        Size freespace = (bufferinfo->pageinfo.page) ? PageGetUHeapFreeSpace(bufferinfo->pageinfo.page) : 0;
+        if (freespace < BLCKSZ / FREESPACE_FRACTION && t_thrd.role == PAGEREDO) {
+            RelFileNode rnode;
+            rnode.spcNode = blockhead->spcNode;
+            rnode.dbNode = blockhead->dbNode;
+            rnode.relNode = blockhead->relNode;
+            rnode.bucketNode = blockhead->bucketNode;
+            rnode.opt = blockhead->opt;
+            XLogRecordPageWithFreeSpace(rnode, bufferinfo->blockinfo.blkno, freespace);
+        }
         MakeRedoBufferDirty(bufferinfo);
     }
 }
@@ -1319,6 +1351,17 @@ static void UHeapXlogDeleteBlock(XLogBlockHead *blockhead, XLogBlockDataParse *b
         char *maindata = XLogBlockDataGetMainData(datadecode, NULL);
         Size recordlen = datadecode->main_data_len;
         UHeapXlogDeleteOperatorPage(bufferinfo, (void *)maindata, recordlen, recordxid, hasCSN);
+        
+        Size freespace = (bufferinfo->pageinfo.page) ? PageGetUHeapFreeSpace(bufferinfo->pageinfo.page) : 0;
+        if (freespace < BLCKSZ / FREESPACE_FRACTION && t_thrd.role == PAGEREDO) {
+            RelFileNode rnode;
+            rnode.spcNode = blockhead->spcNode;
+            rnode.dbNode = blockhead->dbNode;
+            rnode.relNode = blockhead->relNode;
+            rnode.bucketNode = blockhead->bucketNode;
+            rnode.opt = blockhead->opt;
+            XLogRecordPageWithFreeSpace(rnode, bufferinfo->blockinfo.blkno, freespace);
+        }
         MakeRedoBufferDirty(bufferinfo);
     }
 }
@@ -1365,7 +1408,7 @@ static void UHeapXlogUpdateBlock(XLogBlockHead *blockhead, XLogBlockDataParse *b
                 blockInplaceUpdate, (void *)blkdata,  &oldtup, recordlen, dataLen, isinit,
                 istoast, sameBlock, recordxid, &affixLens, hasCSN);
             /* may should free space */
-            if (!inplaceUpdate && freespace < BLCKSZ / FREESPACE_FRACTION) {
+            if (!inplaceUpdate && freespace < BLCKSZ / FREESPACE_FRACTION && t_thrd.role == PAGEREDO) {
                 RelFileNode rnode;
                 rnode.spcNode = blockhead->spcNode;
                 rnode.dbNode = blockhead->dbNode;
@@ -1411,6 +1454,17 @@ static void UHeapXlogMultiInsertBlock(XLogBlockHead *blockhead, XLogBlockDataPar
         Assert(blkdata != NULL);
         UHeapXlogMultiInsertOperatorPage(bufferinfo, maindata, isinit, istoast, (void *)blkdata, blkdatalen, recordxid,
             NULL, hasCSN);
+
+        Size freespace = (bufferinfo->pageinfo.page) ? PageGetUHeapFreeSpace(bufferinfo->pageinfo.page) : 0;
+        if (freespace < BLCKSZ / FREESPACE_FRACTION && t_thrd.role == PAGEREDO) {
+            RelFileNode rnode;
+            rnode.spcNode = blockhead->spcNode;
+            rnode.dbNode = blockhead->dbNode;
+            rnode.relNode = blockhead->relNode;
+            rnode.bucketNode = blockhead->bucketNode;
+            rnode.opt = blockhead->opt;
+            XLogRecordPageWithFreeSpace(rnode, bufferinfo->blockinfo.blkno, freespace);
+        }
         MakeRedoBufferDirty(bufferinfo);
     }
 }
@@ -1631,6 +1685,19 @@ static void UHeap2XlogExtendTDSlotsBlock(XLogBlockHead *blockhead, XLogBlockData
     }
 }
 
+static void UHeap2XlogLockBlock(XLogBlockHead *blockhead, XLogBlockDataParse *blockdatarec,
+    RedoBufferInfo *bufferinfo)
+{
+    XLogBlockDataParse *datadecode = blockdatarec;
+    XLogRedoAction action;
+
+    action = XLogCheckBlockDataRedoAction(datadecode, bufferinfo);
+    if (action == BLK_NEEDS_REDO) {
+        PageSetLSN(bufferinfo->pageinfo.page, bufferinfo->lsn);
+        MakeRedoBufferDirty(bufferinfo);
+    }
+}
+
 void UHeap2RedoDataBlock(XLogBlockHead *blockhead, XLogBlockDataParse *blockdatarec, RedoBufferInfo *bufferinfo)
 {
     uint8 info = XLogBlockHeadGetInfo(blockhead) & ~XLR_INFO_MASK;
@@ -1644,6 +1711,9 @@ void UHeap2RedoDataBlock(XLogBlockHead *blockhead, XLogBlockDataParse *blockdata
             break;
         case XLOG_UHEAP2_EXTEND_TD_SLOTS:
             UHeap2XlogExtendTDSlotsBlock(blockhead, blockdatarec, bufferinfo);
+            break;
+        case XLOG_UHEAP2_LOCK:
+            UHeap2XlogLockBlock(blockhead, blockdatarec, bufferinfo);
             break;
         default:
             ereport(PANIC, (errmsg("UHeap2RedoDataBlock: unknown op code %u", info)));
@@ -1869,9 +1939,13 @@ static void RedoUndoUpdateBlock(XLogBlockHead *blockhead, XLogBlockUndoParse *bl
     record.decoded_record = &decodedRecord;
     record.EndRecPtr = lsn;
 
+    UndoRecordSize lastRecordSize = t_thrd.ustore_cxt.urecvec->LastRecordSize();
+    if (skipInsert) {
+        lastRecordSize = undometa.lastRecordSize;
+    }
     undo::RedoUndoMeta(&record, xlundometa, urecptr, t_thrd.ustore_cxt.urecvec->LastRecord(),
-        t_thrd.ustore_cxt.urecvec->LastRecordSize());
-    
+        lastRecordSize);
+
     URecVector *urecvec = t_thrd.ustore_cxt.urecvec;
     UndoRecord *undorec = (*urecvec)[0];
     if (inplaceUpdate) {
@@ -1954,7 +2028,12 @@ static void RedoUndoMultiInsertBlock(XLogBlockHead *blockhead, XLogBlockUndoPars
     record.decoded_record = &decodedRecord;
     record.EndRecPtr = lsn;
 
-    undo::RedoUndoMeta(&record, &undometa, xlundohdr->urecptr, urecvec->LastRecord(), urecvec->LastRecordSize());
+    UndoRecordSize lastRecordSize = urecvec->LastRecordSize();
+    if (skipUndo || skipInsert) {
+        lastRecordSize = undometa.lastRecordSize;
+    }
+
+    undo::RedoUndoMeta(&record, &undometa, xlundohdr->urecptr, urecvec->LastRecord(), lastRecordSize);
     UHeapResetPreparedUndo();
     DELETE_EX(urecvec);
     pfree(ufreeOffsetRanges);

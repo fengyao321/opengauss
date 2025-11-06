@@ -1585,6 +1585,31 @@ static void UHeapExecuteLockTuple(Relation relation, Buffer buffer, UHeapTuple u
     utuple->disk_tuple->xid = NormalTransactionIdToShort(xidbase, xid);
     MarkBufferDirty(buffer);
 
+    if (RelationNeedsWAL(relation) && t_thrd.proc->workingVersionNum >= UHEAP_LOCK_VERSION_NUM) {
+        XlUHeapLock xlrec = {0};
+        XLogRecPtr recptr;
+ 
+        xlrec.locking_xid = xid;
+        xlrec.offnum = ItemPointerGetOffsetNumber(&utuple->ctid);
+        xlrec.tuple_flag = utuple->disk_tuple->flag;
+        xlrec.xlog_flag = 0;
+        xlrec.version = 0;
+ 
+        if (mode == LockTupleShared) {
+            xlrec.xlog_flag |= XLOG_UHEAP_LOCK_SHARE;
+        }
+ 
+        if (multi) {
+            xlrec.xlog_flag |= XLOG_UHEAP_LOCK_MULTI;
+        }
+ 
+        XLogBeginInsert();
+        XLogRegisterData((char *)&xlrec, SIZE_OF_UHEAP_LOCK_TUPLE);
+        XLogRegisterBuffer(0, buffer, REGBUF_STANDARD);
+        recptr = XLogInsert(RM_UHEAP2_ID, XLOG_UHEAP2_LOCK);
+        PageSetLSN(page, recptr);
+    }
+
     END_CRIT_SECTION();
     Assert(UHEAP_XID_IS_LOCK(utuple->disk_tuple->flag));
 }

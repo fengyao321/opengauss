@@ -227,8 +227,7 @@ void UHeapDesc(StringInfo buf, XLogReaderState *record)
             Size datalen;
             XlUHeapHeader xlhdr;
             errno_t rc;
-            char *recdata = XLogRecGetBlockData(record, 0, &datalen);
-            char *recdataEnd = recdata + datalen;
+
             hasCSN = XLogRecHasCSN(record);
 
             XlUndoHeader *xlundohdr = NULL;
@@ -248,6 +247,12 @@ void UHeapDesc(StringInfo buf, XLogReaderState *record)
                 xlundohdr->urecptr, blkprev, prevUrp, xlundohdr->relOid, partitionOid, xlundohdr->flag, subXid,
                 toastLen);
 
+            char *recdata = XLogRecGetBlockData(record, 0, &datalen);
+            if (recdata == NULL) {
+                appendStringInfoString(buf, "WARNING: this xlog contains no data.");
+                break;
+            }
+            char *recdataEnd = recdata + datalen;
             if (xlrec->flags & XLZ_NON_INPLACE_UPDATE) {
                 appendStringInfo(buf, "NON_INPLACE_UPDATE. ");
                 appendStringInfo(buf, "UndoInfo(newpage): ");
@@ -369,6 +374,10 @@ void UHeapDesc(StringInfo buf, XLogReaderState *record)
                 int ndeleted = xlrec->ndeleted;
                 int ndead = xlrec->ndead;
                 OffsetNumber *deleted = (OffsetNumber *)XLogRecGetBlockData(record, 0, &datalen);
+                if (deleted == NULL) {
+                    appendStringInfoString(buf, "WARNING: this xlog contains no data.");
+                    break;
+                }
                 OffsetNumber *end = (OffsetNumber *)((char *)deleted + datalen);
                 OffsetNumber *nowdead = deleted + (ndeleted * 2);
                 OffsetNumber *nowunused = nowdead + ndead;
@@ -489,6 +498,9 @@ const char* uheap2_type_name(uint8 subtype)
         case XLOG_UHEAP2_EXTEND_TD_SLOTS:
             return "uheap2_extend_slot";
             break;
+        case XLOG_UHEAP2_LOCK:
+            return "uheap2_lock";
+            break;
         default:
             return "unknown_type";
             break;
@@ -511,6 +523,10 @@ void UHeap2Desc(StringInfo buf, XLogReaderState *record)
             Size blkDataLen;
             XlUHeapFreeze *xlrec = (XlUHeapFreeze *)XLogRecGetData(record);
             OffsetNumber *offsets = (OffsetNumber *)XLogRecGetBlockData(record, 0, &blkDataLen);
+            if (offsets == NULL) {
+                appendStringInfoString(buf, "WARNING: this xlog contains no data.");
+                break;
+            }
             appendStringInfo(buf, "XLOG_UHEAP2_FREEZE: curoff_xid: %lu", xlrec->cutoff_xid);
             if (blkDataLen > 0) {
                 appendStringInfo(buf, ", offsets info: ");
@@ -528,6 +544,24 @@ void UHeap2Desc(StringInfo buf, XLogReaderState *record)
             XlUHeapExtendTdSlots *xlrec = (XlUHeapExtendTdSlots *)XLogRecGetData(record);
             appendStringInfo(buf, "XLOG_UHEAP2_EXTEND_TD_SLOTS: nExtended: %u, nPrevSlot: %u xid: %lu. ",
                              xlrec->nExtended, xlrec->nPrevSlots, xid);
+            break;
+        }
+        case XLOG_UHEAP2_LOCK: {
+            XlUHeapLock *xlrec = (XlUHeapLock *)XLogRecGetData(record);
+            appendStringInfo(buf, "XLOG_UHEAP2_LOCK: ");
+            appendStringInfo(buf,
+                "xid %lu, tupoffset %u, tup_flag %u, xlog_flag %u, version %u. ",
+                xlrec->locking_xid, xlrec->offnum, xlrec->tuple_flag, xlrec->xlog_flag,
+                xlrec->version);
+
+            if (xlrec->xlog_flag & XLOG_UHEAP_LOCK_MULTI) {
+                appendStringInfo(buf, "XLOG_UHEAP_LOCK_MULTI.");
+            }
+ 
+            if (xlrec->xlog_flag & XLOG_UHEAP_LOCK_SHARE) {
+                appendStringInfo(buf, "XLOG_UHEAP_LOCK_SHARE.");
+            }
+
             break;
         }
         default:

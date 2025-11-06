@@ -1860,9 +1860,6 @@ void ckpt_pagewriter_main(void)
          */
 
         if (t_thrd.pagewriter_cxt.pagewriter_id == 0) {
-            if (!t_thrd.pagewriter_cxt.shutdown_requested) {
-                logSnapshotForLogicalDecoding();
-            }
             /* need generate new version single flush dw file */
             if (pg_atomic_read_u32(&g_instance.dw_single_cxt.dw_version) < DW_SUPPORT_NEW_SINGLE_FLUSH &&
                 t_thrd.proc->workingVersionNum >= DW_SUPPORT_NEW_SINGLE_FLUSH) {
@@ -1885,6 +1882,11 @@ void ckpt_pagewriter_main(void)
 
             ckpt_pagewriter_main_thread_loop();
         } else {
+            if (t_thrd.pagewriter_cxt.pagewriter_id == 1) {
+                if (!t_thrd.pagewriter_cxt.shutdown_requested) {
+                    logSnapshotForLogicalDecoding();
+                }
+            }
             ckpt_pagewriter_sub_thread_loop();
         }
     }

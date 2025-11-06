@@ -499,8 +499,6 @@ function install_gaussdb()
         die "make install failed."
     fi
 
-    spq_build
-
     ## check build specification
     spec="gaussdbkernel"
     if ( cat $SCRIPT_DIR/gauss.spec | grep 'PRODUCT' | grep 'GaussDB Kernel' >/dev/null 2>&1 ); then
@@ -537,35 +535,6 @@ function install_gaussdb()
     #insert the version mode to version.cfg
     echo "$version_mode" >> ${SCRIPT_DIR}/version.cfg
     echo "End insert version mode into version cfg" >> "$LOG_FILE" 2>&1
-}
-
-#######################################################################
-##build and install gaussdb spq extension
-#######################################################################
-function spq_build() {
-    if [ -z "${SPQ_ROOT}" ]; then
-        SPQ_ROOT="${ROOT_DIR}/contrib/spq_plugin_v2"
-        echo "INFO: Auto set SPQ_ROOT to ${SPQ_ROOT}"
-    fi
-
-    if [ ! -d "${SPQ_ROOT}" ]; then
-        return
-    fi
-
-    echo "Building in ${SPQ_ROOT}..."
-    (
-        cd "${SPQ_ROOT}" && \
-        rm -rf build && \
-        mkdir build && \
-        cd build
-        ../configure && \
-        make -sj && \
-        make install
-    ) || {
-        echo "WARNING: Build spq failed, continuing other building steps..."
-    }
-
-    cd -
 }
 
 #######################################################################

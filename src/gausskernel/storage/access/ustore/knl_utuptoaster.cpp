@@ -74,7 +74,7 @@ Oid UHeapGetNewOidWithIndex(Relation relation, Oid indexId, AttrNumber oidcolumn
         ScanKeyInit(&key, oidcolumn, BTEqualStrategyNumber, F_OIDEQ, ObjectIdGetDatum(newOid));
 
         /* see notes above about using SnapshotAny */
-        scan = systable_beginscan(relation, indexId, true, SnapshotAny, ATTR_FIRST, &key);
+        scan = systable_beginscan(relation, indexId, true, get_toast_snapshot(), ATTR_FIRST, &key);
         collides = UHeapSysIndexGetnextSlot(scan, ForwardScanDirection, slot);
         systable_endscan(scan);
     } while (collides);

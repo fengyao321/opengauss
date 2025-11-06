@@ -5349,6 +5349,8 @@ static void compute_scalar_stats(
     int values_cnt = 0;
     int* tupnoLink = NULL;
     ScalarMCVItem* track = NULL;
+    ResourceOwner tmpOwner = NULL;
+    ResourceOwner oldOwner = NULL;
     int track_cnt = 0;
     int num_mcv = Min(stats->attrs[0]->attstattarget, MAX_ATTR_MCV_STAT_TARGET);
     int num_bins = Min(stats->attrs[0]->attstattarget, MAX_ATTR_HIST_STAT_TARGET);
@@ -5378,6 +5380,8 @@ static void compute_scalar_stats(
     for (i = 0; i < samplerows; i++) {
         Datum value;
         bool isnull = false;
+        bool failflag = false;
+        bool toowideflag = false;
 
         vacuum_delay_point();
 
@@ -5389,31 +5393,68 @@ static void compute_scalar_stats(
             continue;
         }
         nonnull_cnt++;
-
+    
         /*
-         * If it's a variable-width field, add up widths for average width
-         * calculation.  Note that if the value is toasted, we use the toasted
-         * width.  We don't bother with this calculation if it's a fixed-width
-         * type.
-         */
-        if (is_varlena) {
-            total_width += VARSIZE_ANY(DatumGetPointer(value));
-
+        * Create a resource owner to keep track of resources
+        * in order to release resources when catch the exception.
+        */
+        tmpOwner = ResourceOwnerCreate(t_thrd.utils_cxt.CurrentResourceOwner, "detoast_value",
+            THREAD_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_OPTIMIZER));
+        oldOwner = t_thrd.utils_cxt.CurrentResourceOwner;
+        t_thrd.utils_cxt.CurrentResourceOwner = tmpOwner;
+        PG_TRY();
+        {
             /*
-             * If the value is toasted, we want to detoast it just once to
-             * avoid repeated detoastings and resultant excess memory usage
-             * during the comparisons.	Also, check to see if the value is
-             * excessively wide, and if so don't detoast at all --- just
-             * ignore the value.
-             */
-            if (toast_raw_datum_size(value) > WIDTH_THRESHOLD) {
-                toowide_cnt++;
-                continue;
+            * If it's a variable-width field, add up widths for average width
+            * calculation.  Note that if the value is toasted, we use the toasted
+            * width.  We don't bother with this calculation if it's a fixed-width
+            * type.
+            */
+            if (is_varlena) {
+                total_width += VARSIZE_ANY(DatumGetPointer(value));
+    
+                /*
+                * If the value is toasted, we want to detoast it just once to
+                * avoid repeated detoastings and resultant excess memory usage
+                * during the comparisons.	Also, check to see if the value is
+                * excessively wide, and if so don't detoast at all --- just
+                * ignore the value.
+                */
+                if (toast_raw_datum_size(value) > WIDTH_THRESHOLD) {
+                    toowide_cnt++;
+                    toowideflag = true;
+                    continue;
+                }
+                value = PointerGetDatum(PG_DETOAST_DATUM(value));
+            } else if (is_varwidth) {
+                /* must be cstring */
+                total_width += strlen(DatumGetCString(value)) + 1;
             }
-            value = PointerGetDatum(PG_DETOAST_DATUM(value));
-        } else if (is_varwidth) {
-            /* must be cstring */
-            total_width += strlen(DatumGetCString(value)) + 1;
+        }
+        PG_CATCH();
+        {
+            ErrorData *edata = CopyErrorData();
+            if (edata->sqlerrcode == ERRCODE_UNEXPECTED_CHUNK_VALUE) {
+                ereport(LOG, (errmsg("The toast value changed for relation %s, skip this value. Errmsg is %s",
+                    NameStr(rel->rd_rel->relname), edata->message)));
+                FlushErrorState();
+                FreeErrorData(edata);
+                failflag = true;
+            } else {
+                PG_RE_THROW();
+            }
+        }
+        PG_END_TRY();
+
+        /* Release everything */
+        ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_BEFORE_LOCKS, false, false);
+        ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_LOCKS, false, false);
+        ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_AFTER_LOCKS, false, false);
+        t_thrd.utils_cxt.CurrentResourceOwner = oldOwner;
+        ResourceOwnerDelete(tmpOwner);
+    
+        if (toowideflag || failflag) {
+            continue;
         }
 
         /* Add it to the list to be sorted */

@@ -474,7 +474,7 @@ void FreezeTd(Page page, bool* frozenTDMap, int tdCount)
         offNum = OffsetNumberNext(offNum)) {
         UBTreeItemId itemid = UBTreePCRGetRowPtr(page, offNum);
         uint8 tdId = itemid->lp_td_id;
-        if (tdId < tdCount && tdId != UBTreeFrozenTDSlotId && frozenTDMap[tdId - 1]) {
+        if (tdId <= tdCount && tdId != UBTreeFrozenTDSlotId && frozenTDMap[tdId - 1]) {
             UBTreePCRSetIndexTupleTDSlot(itemid, UBTreeFrozenTDSlotId);
         }
     }

@@ -127,8 +127,6 @@ static void SetReindexPending(List* indexes);
 static void RemoveReindexPending(Oid indexOid);
 static void ResetReindexPending(void);
 
-static void reindexPartIndex(Oid indexId, Oid partOid, bool flag);
-
 Oid psort_create(const char* indexRelationName, Relation indexRelation, Oid tablespaceId, Datum indexRelOptions);
 
 extern char* ChoosePSortIndexName(const char* tabname, Oid namespaceId, List* colnames);
@@ -6296,7 +6294,7 @@ Oid indexIdAndPartitionIdGetIndexPartitionId(Oid indexId, Oid partOid) {
 /*
  * reindexPartIndex - This routine is used to recreate a single index partition
  */
-static void reindexPartIndex(Oid indexId, Oid partOid, bool skip_constraint_checks)
+void reindexPartIndex(Oid indexId, Oid partOid, bool skip_constraint_checks)
 {
     Relation iRel, heapRelation, pg_index;
     Oid heapId;
