@@ -26,3 +26,719 @@ select * from INFORMATION_SCHEMA.PROFILING;
 ----------+-----+-------+----------+----------+------------+-------------------+---------------------+--------------+---------------+---------------+-------------------+-------------------+-------------------+-------+-----------------+-------------+-------------
 (0 rows)
 
+create database test_b1 with dbcompatibility 'B';
+\c test_b1
+CREATE TABLE departments (
+  dept_id INT PRIMARY KEY, 
+  dept_name VARCHAR(50) NOT NULL UNIQUE 
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "departments_pkey" for table "departments"
+NOTICE:  CREATE TABLE / UNIQUE will create implicit index "departments_dept_name_key" for table "departments"
+CREATE TABLE employees (
+  emp_id INT PRIMARY KEY,  
+  emp_name VARCHAR(50) NOT NULL,  
+  dept_id INT,  
+  hire_date DATE,
+  CONSTRAINT fk_emp_dept  
+  FOREIGN KEY (dept_id)
+  REFERENCES departments(dept_id)
+  ON DELETE SET NULL
+  ON UPDATE CASCADE
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "employees_pkey" for table "employees"
+CREATE TABLE partition_table_test(c1 int, c2 int, c3 int)
+PARTITION BY RANGE (c1) SUBPARTITION BY RANGE (c2)
+(
+    PARTITION P_RANGE1 VALUES LESS THAN (5) 
+    (
+        SUBPARTITION P_RANGE1_1 VALUES LESS THAN (5),
+        SUBPARTITION P_RANGE1_2 VALUES LESS THAN (10),
+        SUBPARTITION P_RANGE1_3 VALUES LESS THAN (15),
+        SUBPARTITION P_RANGE1_4 VALUES LESS THAN (20)
+    ),
+    PARTITION P_RANGE2 VALUES LESS THAN (10) 
+    (
+        SUBPARTITION P_RANGE2_1 VALUES LESS THAN (5),
+        SUBPARTITION P_RANGE2_2 VALUES LESS THAN (10),
+        SUBPARTITION P_RANGE2_3 VALUES LESS THAN (15),
+        SUBPARTITION P_RANGE2_4 VALUES LESS THAN (20)
+    ),
+    PARTITION P_RANGE3 VALUES LESS THAN (15)
+    (
+        SUBPARTITION P_RANGE3_1 VALUES LESS THAN (5),
+        SUBPARTITION P_RANGE3_2 VALUES LESS THAN (10),
+        SUBPARTITION P_RANGE3_3 VALUES LESS THAN (15),
+        SUBPARTITION P_RANGE3_4 VALUES LESS THAN (20)
+    ),
+    PARTITION P_RANGE4 VALUES LESS THAN (20)
+    (
+        SUBPARTITION P_RANGE4_1 VALUES LESS THAN (5),
+        SUBPARTITION P_RANGE4_2 VALUES LESS THAN (10),
+        SUBPARTITION P_RANGE4_3 VALUES LESS THAN (15),
+        SUBPARTITION P_RANGE4_4 VALUES LESS THAN (20)
+    ),
+    PARTITION P_RANGE5 VALUES LESS THAN (25),
+    PARTITION P_RANGE6 VALUES LESS THAN (30)
+);
+-- part1
+select CONSTRAINT_CATALOG,CONSTRAINT_SCHEMA,CONSTRAINT_NAME,TABLE_SCHEMA,TABLE_NAME,CONSTRAINT_TYPE,ENFORCED from information_schema.table_constraints order by 1,2,3,4 limit 1;
+ constraint_catalog | constraint_schema |    constraint_name    | table_schema |  table_name   | constraint_type | enforced 
+--------------------+-------------------+-----------------------+--------------+---------------+-----------------+----------
+ test_b1            | coverage          | 4994_13130_1_not_null | coverage     | proc_coverage | CHECK           | YES
+(1 row)
+
+select CHARACTER_SET_NAME,DEFAULT_COLLATE_NAME,DESCRIPTION,MAXLEN from INFORMATION_SCHEMA.CHARACTER_SETS order by 1,2,3,4 limit 1;
+ character_set_name | default_collate_name | description | maxlen 
+--------------------+----------------------+-------------+--------
+ UTF8               |                      |             |      1
+(1 row)
+
+select CONSTRAINT_CATALOG,CONSTRAINT_SCHEMA,CONSTRAINT_NAME,CHECK_CLAUSE FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS order by 1,2,3,4 limit 1;
+ constraint_catalog | constraint_schema |    constraint_name    |      check_clause       
+--------------------+-------------------+-----------------------+-------------------------
+ test_b1            | coverage          | 4994_13130_1_not_null | coverage_id IS NOT NULL
+(1 row)
+
+select COLLATION_NAME,CHARACTER_SET_NAME,ID,IS_DEFAULT,IS_COMPILED,SORTLEN,PAD_ATTRIBUTE from INFORMATION_SCHEMA.COLLATIONS order by 1,2,3,4 limit 1;
+ collation_name | character_set_name |  id   | is_default | is_compiled | sortlen | pad_attribute 
+----------------+--------------------+-------+------------+-------------+---------+---------------
+--?.*
+(1 row)
+
+select GRANTEE,TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME,PRIVILEGE_TYPE,IS_GRANTABLE FROM INFORMATION_SCHEMA.COLUMN_PRIVILEGES order by 1,2,3,4 limit 1;
+ grantee | table_catalog | table_schema |  table_name   |   column_name   | privilege_type | is_grantable 
+---------+---------------+--------------+---------------+-----------------+----------------+--------------
+ PUBLIC  | test_b1       | dbe_perf     | bgwriter_stat | checkpoints_req | SELECT         | NO
+(1 row)
+
+select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME,ORDINAL_POSITION,COLUMN_DEFAULT,IS_NULLABLE,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,CHARACTER_OCTET_LENGTH,NUMERIC_PRECISION,NUMERIC_SCALE,DATETIME_PRECISION,CHARACTER_SET_NAME,COLLATION_NAME,COLUMN_TYPE,COLUMN_KEY,EXTRA,PRIVILEGES,COLUMN_COMMENT,GENERATION_EXPRESSION,SRS_ID from INFORMATION_SCHEMA.COLUMNS order by 1,2,3,4 limit 1;
+ table_catalog | table_schema |  table_name   | column_name | ordinal_position | column_default | is_nullable | data_type | character_maximum_length | character_octet_length | numeric_precision | numeric_scale | datetime_precision | character_set_name | collation_name | column_type | column_key | extra |           privileges            | column_comment | generation_expression | srs_id 
+---------------+--------------+---------------+-------------+------------------+----------------+-------------+-----------+--------------------------+------------------------+-------------------+---------------+--------------------+--------------------+----------------+-------------+------------+-------+---------------------------------+----------------+-----------------------+--------
+ test_b1       | coverage     | proc_coverage | coverage    |                7 |                | NO          | ARRAY     |                          |                        |                   |               |                    |                    |                | ARRAY       |            |       | select,insert,update,references |                |                       |       
+(1 row)
+
+select CONSTRAINT_CATALOG,CONSTRAINT_SCHEMA,CONSTRAINT_NAME,TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME,ORDINAL_POSITION,POSITION_IN_UNIQUE_CONSTRAINT,REFERENCED_TABLE_SCHEMA,REFERENCED_TABLE_NAME,REFERENCED_COLUMN_NAME from information_schema.key_column_usage order by 1,2,3,4 limit 1;
+ constraint_catalog | constraint_schema | constraint_name | table_catalog | table_schema | table_name | column_name | ordinal_position | position_in_unique_constraint | referenced_table_schema | referenced_table_name | referenced_column_name 
+--------------------+-------------------+-----------------+---------------+--------------+------------+-------------+------------------+-------------------------------+-------------------------+-----------------------+------------------------
+ test_b1            | db4ai             | snapshot_id_key | test_b1       | db4ai        | snapshot   | id          |                1 |                               |                         |                       | 
+(1 row)
+
+select WORD,RESERVED from INFORMATION_SCHEMA.KEYWORDS order by 1,2 limit 1;
+ word  | reserved 
+-------+----------
+ abort |        0
+(1 row)
+
+select SPECIFIC_CATALOG,SPECIFIC_SCHEMA,SPECIFIC_NAME,ORDINAL_POSITION,PARAMETER_MODE,PARAMETER_NAME,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,CHARACTER_OCTET_LENGTH,NUMERIC_PRECISION,NUMERIC_SCALE,DATETIME_PRECISION,CHARACTER_SET_NAME,COLLATION_NAME,DTD_IDENTIFIER,ROUTINE_TYPE from INFORMATION_SCHEMA.PARAMETERS order by 1,2,3,4 limit 1;
+ specific_catalog | specific_schema |     specific_name      | ordinal_position | parameter_mode | parameter_name | data_type | character_maximum_length | character_octet_length | numeric_precision | numeric_scale | datetime_precision | character_set_name | collation_name | dtd_identifier | routine_type 
+------------------+-----------------+------------------------+------------------+----------------+----------------+-----------+--------------------------+------------------------+-------------------+---------------+--------------------+--------------------+----------------+----------------+--------------
+--?.*
+(1 row)
+
+select QUERY_ID,SEQ,STATE,DURATION,CPU_USER,CPU_SYSTEM,CONTEXT_VOLUNTARY,CONTEXT_INVOLUNTARY,BLOCK_OPS_IN,BLOCK_OPS_OUT,MESSAGES_SENT,MESSAGES_RECEIVED,PAGE_FAULTS_MAJOR,PAGE_FAULTS_MINOR,SWAPS,SOURCE_FUNCTION,SOURCE_FILE,SOURCE_LINE FROM information_schema.profiling order by 1,2,3,4 limit 1;
+ query_id | seq | state | duration | cpu_user | cpu_system | context_voluntary | context_involuntary | block_ops_in | block_ops_out | messages_sent | messages_received | page_faults_major | page_faults_minor | swaps | source_function | source_file | source_line 
+----------+-----+-------+----------+----------+------------+-------------------+---------------------+--------------+---------------+---------------+-------------------+-------------------+-------------------+-------+-----------------+-------------+-------------
+(0 rows)
+
+select CONSTRAINT_CATALOG,CONSTRAINT_SCHEMA,CONSTRAINT_NAME,UNIQUE_CONSTRAINT_CATALOG,UNIQUE_CONSTRAINT_SCHEMA,UNIQUE_CONSTRAINT_NAME,MATCH_OPTION,UPDATE_RULE,DELETE_RULE,TABLE_NAME,REFERENCED_TABLE_NAME from INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS order by 1,2,3,4 limit 1;
+ constraint_catalog | constraint_schema | constraint_name | unique_constraint_catalog | unique_constraint_schema | unique_constraint_name | match_option | update_rule | delete_rule | table_name | referenced_table_name 
+--------------------+-------------------+-----------------+---------------------------+--------------------------+------------------------+--------------+-------------+-------------+------------+-----------------------
+ test_b1            | public            | fk_emp_dept     | test_b1                   | public                   | departments_pkey       | NONE         | CASCADE     | SET NULL    | employees  | departments
+(1 row)
+
+select SPECIFIC_NAME, ROUTINE_CATALOG, ROUTINE_SCHEMA, ROUTINE_NAME, ROUTINE_TYPE, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, CHARACTER_OCTET_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, DATETIME_PRECISION, CHARACTER_SET_NAME, COLLATION_NAME, DTD_IDENTIFIER, ROUTINE_BODY, ROUTINE_DEFINITION, EXTERNAL_NAME, EXTERNAL_LANGUAGE, PARAMETER_STYLE, IS_DETERMINISTIC, SQL_DATA_ACCESS, SQL_PATH, SECURITY_TYPE, CREATED, LAST_ALTERED, SQL_MODE , ROUTINE_COMMENT, DEFINER, CHARACTER_SET_CLIENT, COLLATION_CONNECTION, DATABASE_COLLATION from information_schema.routines order by 1,2,3,4 limit 1;
+--?.*
+--?.*
+--?.*
+(1 row)
+
+select CATALOG_NAME,SCHEMA_NAME,DEFAULT_CHARACTER_SET_NAME,DEFAULT_COLLATION_NAME,SQL_PATH,DEFAULT_ENCRYPTION from information_schema.schemata order by 1,2,3,4 limit 1;
+ catalog_name | schema_name | default_character_set_name | default_collation_name | sql_path | default_encryption 
+--------------+-------------+----------------------------+------------------------+----------+--------------------
+ test_b1      | blockchain  | UTF8                       | en_US.UTF-8            |          | NO
+(1 row)
+
+select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,NON_UNIQUE,INDEX_SCHEMA,INDEX_NAME,SEQ_IN_INDEX,COLUMN_NAME,CARDINALITY,SUB_PART,PACKED,NULLABLE,INDEX_TYPE,COMMENT,INDEX_COMMENT,IS_VISIBLE,EXPRESSION from INFORMATION_SCHEMA.STATISTICS order by 1,2,3,4 limit 1;
+ table_catalog | table_schema | table_name | non_unique | index_schema |  index_name   | seq_in_index | column_name | cardinality | sub_part | packed | nullable | index_type | comment | index_comment | is_visible | expression 
+---------------+--------------+------------+------------+--------------+---------------+--------------+-------------+-------------+----------+--------+----------+------------+---------+---------------+------------+------------
+ test_b1       | db4ai        | snapshot   |          0 | db4ai        | snapshot_pkey |            1 | schema      |           0 |          |        |          | BTREE      |         |               | YES        | 
+(1 row)
+
+select GRANTEE,TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from INFORMATION_SCHEMA.TABLE_PRIVILEGES order by 1,2,3,4 limit 1;
+ grantee | table_catalog | table_schema |  table_name   | privilege_type | is_grantable 
+---------+---------------+--------------+---------------+----------------+--------------
+ PUBLIC  | test_b1       | dbe_perf     | bgwriter_stat | SELECT         | NO
+(1 row)
+
+select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,VERSION,ROW_FORMAT,TABLE_ROWS,AVG_ROW_LENGTH,DATA_LENGTH,MAX_DATA_LENGTH,INDEX_LENGTH,DATA_FREE,AUTO_INCREMENT,CREATE_TIME,UPDATE_TIME,CHECK_TIME,TABLE_COLLATION,CHECKSUM,CREATE_OPTIONS,TABLE_COMMENT from information_schema.tables order by 1,2,3,4 limit 1;
+ table_catalog | table_schema |  table_name   | table_type | engine | version | row_format | table_rows | avg_row_length | data_length | max_data_length | index_length | data_free | auto_increment | create_time | update_time | check_time | table_collation | checksum |          create_options          | table_comment 
+---------------+--------------+---------------+------------+--------+---------+------------+------------+----------------+-------------+-----------------+--------------+-----------+----------------+-------------+-------------+------------+-----------------+----------+----------------------------------+---------------
+ test_b1       | coverage     | proc_coverage | BASE TABLE |        |      10 | Dynamic    |          0 |            172 |           0 |                 |            0 |           |                |             |             |            |                 |          | {orientation=row,compression=no} | 
+(1 row)
+
+select TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, PARTITION_NAME, SUBPARTITION_NAME, PARTITION_ORDINAL_POSITION, SUBPARTITION_ORDINAL_POSITION, PARTITION_METHOD, SUBPARTITION_METHOD, PARTITION_EXPRESSION, SUBPARTITION_EXPRESSION, PARTITION_DESCRIPTION, TABLE_ROWS, AVG_ROW_LENGTH, DATA_LENGTH, MAX_DATA_LENGTH, INDEX_LENGTH, DATA_FREE, CHECK_TIME, CHECKSUM, PARTITION_COMMENT, NODEGROUP, TABLESPACE_NAME  from information_schema.partitions order by 1,2,3,4 limit 1;
+ table_catalog | table_schema |      table_name      | partition_name | subpartition_name | partition_ordinal_position | subpartition_ordinal_position | partition_method | subpartition_method | partition_expression | subpartition_expression | partition_description | table_rows | avg_row_length | data_length | max_data_length | index_length | data_free | check_time | checksum | partition_comment | nodegroup | tablespace_name 
+---------------+--------------+----------------------+----------------+-------------------+----------------------------+-------------------------------+------------------+---------------------+----------------------+-------------------------+-----------------------+------------+----------------+-------------+-----------------+--------------+-----------+------------+----------+-------------------+-----------+-----------------
+--?.*
+(1 row)
+
+-- part3:
+select pg_typeof(MAXLEN), pg_typeof(DESCRIPTION) from INFORMATION_SCHEMA.CHARACTER_SETS limit 1;
+ pg_typeof |     pg_typeof     
+-----------+-------------------
+ integer   | character varying
+(1 row)
+
+select pg_typeof(character_set_name), pg_typeof(ID), pg_typeof(IS_DEFAULT), pg_typeof(IS_COMPILED), pg_typeof(SORTLEN) from INFORMATION_SCHEMA.COLLATIONS limit 1;
+     pg_typeof     | pg_typeof |     pg_typeof     |     pg_typeof     | pg_typeof 
+-------------------+-----------+-------------------+-------------------+-----------
+ character varying | bigint    | character varying | character varying | integer
+(1 row)
+
+select pg_typeof(PRIVILEGES), pg_typeof(column_key), pg_typeof(SRS_ID) from INFORMATION_SCHEMA.COLUMNS limit 1;
+     pg_typeof     |     pg_typeof     | pg_typeof 
+-------------------+-------------------+-----------
+ character varying | character varying | integer
+(1 row)
+
+select pg_typeof(REFERENCED_TABLE_SCHEMA), pg_typeof(REFERENCED_TABLE_NAME), pg_typeof(REFERENCED_COLUMN_NAME) from INFORMATION_SCHEMA.KEY_COLUMN_USAGE limit 1;
+     pg_typeof     |     pg_typeof     |     pg_typeof     
+-------------------+-------------------+-------------------
+ character varying | character varying | character varying
+(1 row)
+
+select pg_typeof(ROUTINE_TYPE) from INFORMATION_SCHEMA.PARAMETERS limit 1;
+     pg_typeof     
+-------------------
+ character varying
+(1 row)
+
+select pg_typeof(table_name), pg_typeof(referenced_table_name) from INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS limit 1;
+     pg_typeof     |     pg_typeof     
+-------------------+-------------------
+ character varying | character varying
+(1 row)
+
+select pg_typeof(ROUTINE_COMMENT), pg_typeof(SQL_MODE), pg_typeof(DEFINER), pg_typeof(CHARACTER_SET_CLIENT), pg_typeof(COLLATION_CONNECTION),pg_typeof(DATABASE_COLLATION) from INFORMATION_SCHEMA.ROUTINES limit 1;
+ pg_typeof | pg_typeof |     pg_typeof     |     pg_typeof     |     pg_typeof     |     pg_typeof     
+-----------+-----------+-------------------+-------------------+-------------------+-------------------
+ text      | text      | character varying | character varying | character varying | character varying
+(1 row)
+
+select pg_typeof(DEFAULT_COLLATION_NAME), pg_typeof(DEFAULT_ENCRYPTION) from INFORMATION_SCHEMA.SCHEMATA limit 1;
+     pg_typeof     |     pg_typeof     
+-------------------+-------------------
+ character varying | character varying
+(1 row)
+
+select pg_typeof(ENFORCED) from INFORMATION_SCHEMA.TABLE_CONSTRAINTS limit 1;
+     pg_typeof     
+-------------------
+ character varying
+(1 row)
+
+select pg_typeof(table_collation), pg_typeof(engine), pg_typeof(VERSION), pg_typeof(ROW_FORMAT), pg_typeof(TABLE_ROWS), pg_typeof(AVG_ROW_LENGTH), pg_typeof(DATA_LENGTH), pg_typeof(MAX_DATA_LENGTH), pg_typeof(INDEX_LENGTH), pg_typeof(DATA_FREE), pg_typeof(AUTO_INCREMENT), pg_typeof(CREATE_TIME), pg_typeof(UPDATE_TIME), pg_typeof(CHECK_TIME), pg_typeof(CHECKSUM), pg_typeof(CREATE_OPTIONS) from INFORMATION_SCHEMA.TABLES limit 1;
+     pg_typeof     |     pg_typeof     | pg_typeof |     pg_typeof     | pg_typeof | pg_typeof | pg_typeof | pg_typeof | pg_typeof | pg_typeof | pg_typeof |        pg_typeof         |          pg_typeof          |          pg_typeof          | pg_typeof |     pg_typeof     
+-------------------+-------------------+-----------+-------------------+-----------+-----------+-----------+-----------+-----------+-----------+-----------+--------------------------+-----------------------------+-----------------------------+-----------+-------------------
+ character varying | character varying | integer   | character varying | bigint    | bigint    | bigint    | bigint    | bigint    | bigint    | int16     | timestamp with time zone | timestamp without time zone | timestamp without time zone | bigint    | character varying
+(1 row)
+
+select pg_typeof(WORD), pg_typeof(RESERVED) from INFORMATION_SCHEMA.KEYWORDS limit 1;
+     pg_typeof     | pg_typeof 
+-------------------+-----------
+ character varying | integer
+(1 row)
+
+select pg_typeof(TABLE_CATALOG), pg_typeof(TABLE_SCHEMA), pg_typeof(TABLE_NAME), pg_typeof(NON_UNIQUE), pg_typeof(INDEX_SCHEMA), pg_typeof(INDEX_NAME), pg_typeof(SEQ_IN_INDEX), pg_typeof(COLUMN_NAME), pg_typeof(cardinality), pg_typeof(SUB_PART), pg_typeof(PACKED), pg_typeof(NULLABLE), pg_typeof(INDEX_TYPE), pg_typeof(COMMENT), pg_typeof(INDEX_COMMENT), pg_typeof(IS_VISIBLE), pg_typeof(EXPRESSION) from INFORMATION_SCHEMA.STATISTICS limit 1;
+     pg_typeof     |     pg_typeof     |     pg_typeof     | pg_typeof |     pg_typeof     |     pg_typeof     | pg_typeof |     pg_typeof     | pg_typeof | pg_typeof |     pg_typeof     |     pg_typeof     |     pg_typeof     |     pg_typeof     |     pg_typeof     |     pg_typeof     | pg_typeof 
+-------------------+-------------------+-------------------+-----------+-------------------+-------------------+-----------+-------------------+-----------+-----------+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+-----------
+ character varying | character varying | character varying | integer   | character varying | character varying | integer   | character varying | bigint    | bigint    | character varying | character varying | character varying | character varying | character varying | character varying | text
+(1 row)
+
+select pg_typeof(table_catalog), pg_typeof(table_schema), pg_typeof(table_name), pg_typeof(PARTITION_NAME), pg_typeof(SUBPARTITION_NAME), pg_typeof(PARTITION_ORDINAL_POSITION), pg_typeof(SUBPARTITION_ORDINAL_POSITION), pg_typeof(PARTITION_METHOD), pg_typeof(SUBPARTITION_METHOD), pg_typeof(PARTITION_EXPRESSION), pg_typeof(SUBPARTITION_EXPRESSION), pg_typeof(PARTITION_DESCRIPTION), pg_typeof(TABLE_ROWS), pg_typeof(AVG_ROW_LENGTH), pg_typeof(DATA_LENGTH), pg_typeof(MAX_DATA_LENGTH), pg_typeof(INDEX_LENGTH), pg_typeof(DATA_FREE), pg_typeof(CREATE_TIME), pg_typeof(UPDATE_TIME), pg_typeof(CHECK_TIME), pg_typeof(CHECKSUM), pg_typeof(PARTITION_COMMENT), pg_typeof(NODEGROUP), pg_typeof(TABLESPACE_NAME) from INFORMATION_SCHEMA.PARTITIONS limit 1;
+     pg_typeof     |     pg_typeof     |     pg_typeof     |     pg_typeof     |     pg_typeof     | pg_typeof | pg_typeof |     pg_typeof     |     pg_typeof     |     pg_typeof     |     pg_typeof     | pg_typeof | pg_typeof | pg_typeof | pg_typeof | pg_typeof | pg_typeof | pg_typeof |        pg_typeof         |          pg_typeof          |          pg_typeof          | pg_typeof | pg_typeof |     pg_typeof     |     pg_typeof     
+-------------------+-------------------+-------------------+-------------------+-------------------+-----------+-----------+-------------------+-------------------+-------------------+-------------------+-----------+-----------+-----------+-----------+-----------+-----------+-----------+--------------------------+-----------------------------+-----------------------------+-----------+-----------+-------------------+-------------------
+ character varying | character varying | character varying | character varying | character varying | integer   | integer   | character varying | character varying | character varying | character varying | text      | bigint    | bigint    | bigint    | bigint    | bigint    | bigint    | timestamp with time zone | timestamp without time zone | timestamp without time zone | bigint    | text      | character varying | character varying
+(1 row)
+
+-- part4 function test
+-- information_schema COLUMNS
+CREATE TABLE test_index_table_1 (
+	student_id INT PRIMARY KEY,
+    course_id INT,
+    score INT
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "test_index_table_1_pkey" for table "test_index_table_1"
+CREATE TABLE test_index_table_2 (
+    student_id INT,
+    course_id INT,
+    score INT
+);
+CREATE TABLE test_index_table_3 (
+    student_id INT,
+    course_id INT,
+    score INT
+);
+CREATE TABLE test_index_table_4 (
+    student_id INT,
+    course_id INT,
+    score INT
+);
+CREATE UNIQUE INDEX test_index_2 ON test_index_table_2(student_id);
+CREATE INDEX test_index_3 ON test_index_table_2(course_id, student_id);
+CREATE INDEX test_index_4 ON test_index_table_2(student_id, course_id, score);
+select * from information_schema.columns where table_name = 'test_index_table_1' order by 1,2,3,4;
+ table_catalog | table_schema |     table_name     | column_name | ordinal_position | column_default | is_nullable | data_type | character_maximum_length | character_octet_length | numeric_precision | numeric_precision_radix | numeric_scale | datetime_precision | interval_type | interval_precision | character_set_catalog | character_set_schema | character_set_name | collation_catalog | collation_schema | collation_name | domain_catalog | domain_schema | domain_name | udt_catalog | udt_schema | udt_name | scope_catalog | scope_schema | scope_name | maximum_cardinality | dtd_identifier | is_self_referencing | is_identity | identity_generation | identity_start | identity_increment | identity_maximum | identity_minimum | identity_cycle | is_generated | generation_expression | is_updatable | column_type | column_comment | extra |           privileges            | column_key | srs_id 
+---------------+--------------+--------------------+-------------+------------------+----------------+-------------+-----------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+--------------------+-----------------------+----------------------+--------------------+-------------------+------------------+----------------+----------------+---------------+-------------+-------------+------------+----------+---------------+--------------+------------+---------------------+----------------+---------------------+-------------+---------------------+----------------+--------------------+------------------+------------------+----------------+--------------+-----------------------+--------------+-------------+----------------+-------+---------------------------------+------------+--------
+ test_b1       | public       | test_index_table_1 | course_id   |                2 |                | YES         | integer   |                          |                        |                32 |                       2 |             0 |                    |               |                    |                       |                      |                    |                   |                  |                |                |               |             | test_b1     | pg_catalog | int4     |               |              |            |                     | 2              | NO                  | NO          |                     |                |                    |                  |                  |                | NEVER        |                       | YES          | integer     |                |       | select,insert,update,references |            |       
+ test_b1       | public       | test_index_table_1 | score       |                3 |                | YES         | integer   |                          |                        |                32 |                       2 |             0 |                    |               |                    |                       |                      |                    |                   |                  |                |                |               |             | test_b1     | pg_catalog | int4     |               |              |            |                     | 3              | NO                  | NO          |                     |                |                    |                  |                  |                | NEVER        |                       | YES          | integer     |                |       | select,insert,update,references |            |       
+ test_b1       | public       | test_index_table_1 | student_id  |                1 |                | NO          | integer   |                          |                        |                32 |                       2 |             0 |                    |               |                    |                       |                      |                    |                   |                  |                |                |               |             | test_b1     | pg_catalog | int4     |               |              |            |                     | 1              | NO                  | NO          |                     |                |                    |                  |                  |                | NEVER        |                       | YES          | integer     |                |       | select,insert,update,references | PRI        |       
+(3 rows)
+
+select * from information_schema.columns where table_name = 'test_index_table_2' order by 1,2,3,4;
+ table_catalog | table_schema |     table_name     | column_name | ordinal_position | column_default | is_nullable | data_type | character_maximum_length | character_octet_length | numeric_precision | numeric_precision_radix | numeric_scale | datetime_precision | interval_type | interval_precision | character_set_catalog | character_set_schema | character_set_name | collation_catalog | collation_schema | collation_name | domain_catalog | domain_schema | domain_name | udt_catalog | udt_schema | udt_name | scope_catalog | scope_schema | scope_name | maximum_cardinality | dtd_identifier | is_self_referencing | is_identity | identity_generation | identity_start | identity_increment | identity_maximum | identity_minimum | identity_cycle | is_generated | generation_expression | is_updatable | column_type | column_comment | extra |           privileges            | column_key | srs_id 
+---------------+--------------+--------------------+-------------+------------------+----------------+-------------+-----------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+--------------------+-----------------------+----------------------+--------------------+-------------------+------------------+----------------+----------------+---------------+-------------+-------------+------------+----------+---------------+--------------+------------+---------------------+----------------+---------------------+-------------+---------------------+----------------+--------------------+------------------+------------------+----------------+--------------+-----------------------+--------------+-------------+----------------+-------+---------------------------------+------------+--------
+ test_b1       | public       | test_index_table_2 | course_id   |                2 |                | YES         | integer   |                          |                        |                32 |                       2 |             0 |                    |               |                    |                       |                      |                    |                   |                  |                |                |               |             | test_b1     | pg_catalog | int4     |               |              |            |                     | 2              | NO                  | NO          |                     |                |                    |                  |                  |                | NEVER        |                       | YES          | integer     |                |       | select,insert,update,references | MUL        |       
+ test_b1       | public       | test_index_table_2 | score       |                3 |                | YES         | integer   |                          |                        |                32 |                       2 |             0 |                    |               |                    |                       |                      |                    |                   |                  |                |                |               |             | test_b1     | pg_catalog | int4     |               |              |            |                     | 3              | NO                  | NO          |                     |                |                    |                  |                  |                | NEVER        |                       | YES          | integer     |                |       | select,insert,update,references | MUL        |       
+ test_b1       | public       | test_index_table_2 | student_id  |                1 |                | YES         | integer   |                          |                        |                32 |                       2 |             0 |                    |               |                    |                       |                      |                    |                   |                  |                |                |               |             | test_b1     | pg_catalog | int4     |               |              |            |                     | 1              | NO                  | NO          |                     |                |                    |                  |                  |                | NEVER        |                       | YES          | integer     |                |       | select,insert,update,references | UNI        |       
+(3 rows)
+
+select * from information_schema.columns where table_name = 'test_index_table_3' order by 1,2,3,4;
+ table_catalog | table_schema |     table_name     | column_name | ordinal_position | column_default | is_nullable | data_type | character_maximum_length | character_octet_length | numeric_precision | numeric_precision_radix | numeric_scale | datetime_precision | interval_type | interval_precision | character_set_catalog | character_set_schema | character_set_name | collation_catalog | collation_schema | collation_name | domain_catalog | domain_schema | domain_name | udt_catalog | udt_schema | udt_name | scope_catalog | scope_schema | scope_name | maximum_cardinality | dtd_identifier | is_self_referencing | is_identity | identity_generation | identity_start | identity_increment | identity_maximum | identity_minimum | identity_cycle | is_generated | generation_expression | is_updatable | column_type | column_comment | extra |           privileges            | column_key | srs_id 
+---------------+--------------+--------------------+-------------+------------------+----------------+-------------+-----------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+--------------------+-----------------------+----------------------+--------------------+-------------------+------------------+----------------+----------------+---------------+-------------+-------------+------------+----------+---------------+--------------+------------+---------------------+----------------+---------------------+-------------+---------------------+----------------+--------------------+------------------+------------------+----------------+--------------+-----------------------+--------------+-------------+----------------+-------+---------------------------------+------------+--------
+ test_b1       | public       | test_index_table_3 | course_id   |                2 |                | YES         | integer   |                          |                        |                32 |                       2 |             0 |                    |               |                    |                       |                      |                    |                   |                  |                |                |               |             | test_b1     | pg_catalog | int4     |               |              |            |                     | 2              | NO                  | NO          |                     |                |                    |                  |                  |                | NEVER        |                       | YES          | integer     |                |       | select,insert,update,references |            |       
+ test_b1       | public       | test_index_table_3 | score       |                3 |                | YES         | integer   |                          |                        |                32 |                       2 |             0 |                    |               |                    |                       |                      |                    |                   |                  |                |                |               |             | test_b1     | pg_catalog | int4     |               |              |            |                     | 3              | NO                  | NO          |                     |                |                    |                  |                  |                | NEVER        |                       | YES          | integer     |                |       | select,insert,update,references |            |       
+ test_b1       | public       | test_index_table_3 | student_id  |                1 |                | YES         | integer   |                          |                        |                32 |                       2 |             0 |                    |               |                    |                       |                      |                    |                   |                  |                |                |               |             | test_b1     | pg_catalog | int4     |               |              |            |                     | 1              | NO                  | NO          |                     |                |                    |                  |                  |                | NEVER        |                       | YES          | integer     |                |       | select,insert,update,references |            |       
+(3 rows)
+
+select * from information_schema.columns where table_name = 'test_index_table_4' order by 1,2,3,4;
+ table_catalog | table_schema |     table_name     | column_name | ordinal_position | column_default | is_nullable | data_type | character_maximum_length | character_octet_length | numeric_precision | numeric_precision_radix | numeric_scale | datetime_precision | interval_type | interval_precision | character_set_catalog | character_set_schema | character_set_name | collation_catalog | collation_schema | collation_name | domain_catalog | domain_schema | domain_name | udt_catalog | udt_schema | udt_name | scope_catalog | scope_schema | scope_name | maximum_cardinality | dtd_identifier | is_self_referencing | is_identity | identity_generation | identity_start | identity_increment | identity_maximum | identity_minimum | identity_cycle | is_generated | generation_expression | is_updatable | column_type | column_comment | extra |           privileges            | column_key | srs_id 
+---------------+--------------+--------------------+-------------+------------------+----------------+-------------+-----------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+--------------------+-----------------------+----------------------+--------------------+-------------------+------------------+----------------+----------------+---------------+-------------+-------------+------------+----------+---------------+--------------+------------+---------------------+----------------+---------------------+-------------+---------------------+----------------+--------------------+------------------+------------------+----------------+--------------+-----------------------+--------------+-------------+----------------+-------+---------------------------------+------------+--------
+ test_b1       | public       | test_index_table_4 | course_id   |                2 |                | YES         | integer   |                          |                        |                32 |                       2 |             0 |                    |               |                    |                       |                      |                    |                   |                  |                |                |               |             | test_b1     | pg_catalog | int4     |               |              |            |                     | 2              | NO                  | NO          |                     |                |                    |                  |                  |                | NEVER        |                       | YES          | integer     |                |       | select,insert,update,references |            |       
+ test_b1       | public       | test_index_table_4 | score       |                3 |                | YES         | integer   |                          |                        |                32 |                       2 |             0 |                    |               |                    |                       |                      |                    |                   |                  |                |                |               |             | test_b1     | pg_catalog | int4     |               |              |            |                     | 3              | NO                  | NO          |                     |                |                    |                  |                  |                | NEVER        |                       | YES          | integer     |                |       | select,insert,update,references |            |       
+ test_b1       | public       | test_index_table_4 | student_id  |                1 |                | YES         | integer   |                          |                        |                32 |                       2 |             0 |                    |               |                    |                       |                      |                    |                   |                  |                |                |               |             | test_b1     | pg_catalog | int4     |               |              |            |                     | 1              | NO                  | NO          |                     |                |                    |                  |                  |                | NEVER        |                       | YES          | integer     |                |       | select,insert,update,references |            |       
+(3 rows)
+
+drop table test_index_table_1;
+drop table test_index_table_2;
+drop table test_index_table_3;
+drop table test_index_table_4;
+-- INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+CREATE TABLE departments_test1 (
+    id int PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "departments_test1_pkey" for table "departments_test1"
+NOTICE:  CREATE TABLE / UNIQUE will create implicit index "departments_test1_name_key" for table "departments_test1"
+CREATE TABLE employees_test1 (
+    id int PRIMARY KEY,
+    employee_name VARCHAR(100) NOT NULL,
+    department_id INTEGER,
+    department_name VARCHAR(100),
+	hire_date VARCHAR(50),
+    CONSTRAINT fk_emp_dept_id FOREIGN KEY (department_id) REFERENCES departments_test1(id) ON DELETE SET NULL  ON UPDATE CASCADE,
+    CONSTRAINT fk_emp_dept_name FOREIGN KEY (department_name) REFERENCES departments_test1(name) ON DELETE SET NULL ON UPDATE CASCADE
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "employees_test1_pkey" for table "employees_test1"
+select * from INFORMATION_SCHEMA.KEY_COLUMN_USAGE where constraint_name = 'fk_emp_dept_id' order by 1,2,3,4;
+ constraint_catalog | constraint_schema | constraint_name | table_catalog | table_schema |   table_name    |  column_name  | ordinal_position | position_in_unique_constraint | referenced_table_schema | referenced_table_name | referenced_column_name 
+--------------------+-------------------+-----------------+---------------+--------------+-----------------+---------------+------------------+-------------------------------+-------------------------+-----------------------+------------------------
+ test_b1            | public            | fk_emp_dept_id  | test_b1       | public       | employees_test1 | department_id |                1 |                             1 | public                  | departments_test1     | id
+(1 row)
+
+select * from INFORMATION_SCHEMA.KEY_COLUMN_USAGE where constraint_name = 'fk_emp_dept_name' order by 1,2,3,4;
+ constraint_catalog | constraint_schema | constraint_name  | table_catalog | table_schema |   table_name    |   column_name   | ordinal_position | position_in_unique_constraint | referenced_table_schema | referenced_table_name | referenced_column_name 
+--------------------+-------------------+------------------+---------------+--------------+-----------------+-----------------+------------------+-------------------------------+-------------------------+-----------------------+------------------------
+ test_b1            | public            | fk_emp_dept_name | test_b1       | public       | employees_test1 | department_name |                1 |                             1 | public                  | departments_test1     | name
+(1 row)
+
+CREATE TABLE employees_test2 (
+    id int PRIMARY KEY,
+    employee_name VARCHAR(100) NOT NULL,
+	department_name VARCHAR(100),
+    department_id INTEGER,
+	hire_date VARCHAR(50),
+	CONSTRAINT fk_emp_dept_name1 FOREIGN KEY (department_name) REFERENCES departments_test1(name) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_emp_dept_id1 FOREIGN KEY (department_id) REFERENCES departments_test1(id) ON DELETE SET NULL  ON UPDATE CASCADE
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "employees_test2_pkey" for table "employees_test2"
+select * from INFORMATION_SCHEMA.KEY_COLUMN_USAGE where constraint_name = 'fk_emp_dept_id1' order by 1,2,3,4;
+ constraint_catalog | constraint_schema | constraint_name | table_catalog | table_schema |   table_name    |  column_name  | ordinal_position | position_in_unique_constraint | referenced_table_schema | referenced_table_name | referenced_column_name 
+--------------------+-------------------+-----------------+---------------+--------------+-----------------+---------------+------------------+-------------------------------+-------------------------+-----------------------+------------------------
+ test_b1            | public            | fk_emp_dept_id1 | test_b1       | public       | employees_test2 | department_id |                1 |                             1 | public                  | departments_test1     | id
+(1 row)
+
+select * from INFORMATION_SCHEMA.KEY_COLUMN_USAGE where constraint_name = 'fk_emp_dept_name1' order by 1,2,3,4;
+ constraint_catalog | constraint_schema |  constraint_name  | table_catalog | table_schema |   table_name    |   column_name   | ordinal_position | position_in_unique_constraint | referenced_table_schema | referenced_table_name | referenced_column_name 
+--------------------+-------------------+-------------------+---------------+--------------+-----------------+-----------------+------------------+-------------------------------+-------------------------+-----------------------+------------------------
+ test_b1            | public            | fk_emp_dept_name1 | test_b1       | public       | employees_test2 | department_name |                1 |                             1 | public                  | departments_test1     | name
+(1 row)
+
+select * from INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS where constraint_name in ('fk_emp_dept_id', 'fk_emp_dept_name', 'fk_emp_dept_id1', 'fk_emp_dept_name1') order by constraint_name;
+ constraint_catalog | constraint_schema |  constraint_name  | unique_constraint_catalog | unique_constraint_schema |   unique_constraint_name   | match_option | update_rule | delete_rule |   table_name    | referenced_table_name 
+--------------------+-------------------+-------------------+---------------------------+--------------------------+----------------------------+--------------+-------------+-------------+-----------------+-----------------------
+ test_b1            | public            | fk_emp_dept_id    | test_b1                   | public                   | departments_test1_pkey     | NONE         | CASCADE     | SET NULL    | employees_test1 | departments_test1
+ test_b1            | public            | fk_emp_dept_id1   | test_b1                   | public                   | departments_test1_pkey     | NONE         | CASCADE     | SET NULL    | employees_test2 | departments_test1
+ test_b1            | public            | fk_emp_dept_name  | test_b1                   | public                   | departments_test1_name_key | NONE         | CASCADE     | SET NULL    | employees_test1 | departments_test1
+ test_b1            | public            | fk_emp_dept_name1 | test_b1                   | public                   | departments_test1_name_key | NONE         | CASCADE     | SET NULL    | employees_test2 | departments_test1
+(4 rows)
+
+drop table employees_test1;
+drop table employees_test2;
+drop table departments_test1;
+-- INFORMATION_SCHEMA.ROUTINES
+select routine_comment from INFORMATION_SCHEMA.ROUTINES  where routine_name in('pg_get_index_type', 'pg_avg_row_length') order by 1;
+  routine_comment  
+-------------------
+ pg_avg_row_length
+ pg_get_index_type
+(2 rows)
+
+-- INFORMATION_SCHEMA.TABLES
+CREATE TABLE test_compression_1 (
+    id INT,
+    data TEXT
+) WITH (orientation = column, compression = 'no');
+CREATE TABLE test_compression_2 (
+    id INT,
+    data TEXT
+) WITH (orientation = column, compression = 'yes');
+CREATE TABLE test_compression_3 (
+    id INT,
+    data TEXT
+) WITH (orientation = column, compression = 'low');
+CREATE TABLE test_compression_4 (
+    id INT,
+    data TEXT
+) WITH (orientation = column, compression = 'middle');
+CREATE TABLE test_compression_5 (
+    id INT,
+    data TEXT
+) WITH (orientation = column, compression = 'high');
+CREATE TABLE test_compression_6 (
+    id INT,
+    data TEXT
+) WITH (orientation = column);
+CREATE TABLE test_compression_7 (
+    id INT,
+    data TEXT
+);
+select table_name,row_format,create_options from INFORMATION_SCHEMA.TABLES where table_name like 'test_compression%'  and create_time is not null and update_time is not null order by table_name;
+     table_name     | row_format |             create_options              
+--------------------+------------+-----------------------------------------
+ test_compression_1 | Dynamic    | {orientation=column,compression=no}
+ test_compression_2 | Compressed | {orientation=column,compression=yes}
+ test_compression_3 | Compressed | {orientation=column,compression=low}
+ test_compression_4 | Compressed | {orientation=column,compression=middle}
+ test_compression_5 | Compressed | {orientation=column,compression=high}
+ test_compression_6 | Compressed | {orientation=column,compression=low}
+ test_compression_7 | Dynamic    | {orientation=row,compression=no}
+(7 rows)
+
+create table test_size_1(c1 int, c2 float8, c3 text, c4 varchar(5));
+insert into test_size_1 values (1, 1, 1, 1);
+insert into test_size_1 values (2, 2, 2, 2);
+insert into test_size_1 values (3, 3, 3, 3);
+insert into test_size_1 values (4, 4, 4, 4);
+insert into test_size_1 values (5, 5, 5, 5);
+create index test_size_1_indx1 on test_size_1(c1, c2, c3, c4);
+analyze test_size_1;
+select table_rows,avg_row_length,data_length,max_data_length,index_length,data_free from INFORMATION_SCHEMA.TABLES where table_name = 'test_size_1' order by 1,2,3,4;
+ table_rows | avg_row_length | data_length | max_data_length | index_length | data_free 
+------------+----------------+-------------+-----------------+--------------+-----------
+          5 |             16 |        8192 |                 |        16384 |          
+(1 row)
+
+CREATE TABLE test_auto_increase (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    age INT
+);
+NOTICE:  CREATE TABLE will create implicit sequence "test_auto_increase_id_seq" for serial column "test_auto_increase.id"
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "test_auto_increase_pkey" for table "test_auto_increase"
+NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test_auto_increase_username_key" for table "test_auto_increase"
+select get_auto_increment_nextval(1234, true);
+ get_auto_increment_nextval 
+----------------------------
+                           
+(1 row)
+
+select auto_increment from  INFORMATION_SCHEMA.tables where table_name = 'test_auto_increase';
+ auto_increment 
+----------------
+              1
+(1 row)
+
+insert into test_auto_increase(username, age) values ('users', 1);
+select auto_increment from  INFORMATION_SCHEMA.tables where table_name = 'test_auto_increase';
+ auto_increment 
+----------------
+              2
+(1 row)
+
+insert into test_auto_increase values (2147483646, 'users2', 1);
+select auto_increment from  INFORMATION_SCHEMA.tables where table_name = 'test_auto_increase';
+ auto_increment 
+----------------
+     2147483647
+(1 row)
+
+insert into test_auto_increase values (2147483647, 'users3', 1);
+select auto_increment from  INFORMATION_SCHEMA.tables where table_name = 'test_auto_increase';
+ auto_increment 
+----------------
+     2147483648
+(1 row)
+
+CREATE TABLE test_auto_increase2 (
+    id serial PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    age INT
+);
+NOTICE:  CREATE TABLE will create implicit sequence "test_auto_increase2_id_seq" for serial column "test_auto_increase2.id"
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "test_auto_increase2_pkey" for table "test_auto_increase2"
+NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test_auto_increase2_username_key" for table "test_auto_increase2"
+select auto_increment from  INFORMATION_SCHEMA.tables where table_name = 'test_auto_increase2';
+ auto_increment 
+----------------
+               
+(1 row)
+
+insert into test_auto_increase2(username, age) values ('users', 1);
+select auto_increment from  INFORMATION_SCHEMA.tables where table_name = 'test_auto_increase2';
+ auto_increment 
+----------------
+               
+(1 row)
+
+create table test_collation_1(c1 text) collate utf8_bin;
+create table test_collation_2(c1 text);
+select table_collation from INFORMATION_SCHEMA.TABLES where table_name in ('test_collation_1', 'test_collation_2');
+ table_collation 
+-----------------
+ utf8_bin
+ 
+(2 rows)
+
+drop table test_compression_1;
+drop table test_compression_2;
+drop table test_compression_3;
+drop table test_compression_4;
+drop table test_compression_5;
+drop table test_compression_6;
+drop table test_compression_7;
+drop table test_size_1;
+drop table test_auto_increase;
+drop table test_auto_increase2;
+drop table test_collation_1;
+drop table test_collation_2;
+--INFORMATION_SCHEMA.STATISTICS
+CREATE TABLE test_index_table1 (
+    id INT PRIMARY KEY,
+    user_id INT NOT NULL,
+    role_id INT NOT NULL,
+    age int NOT NULL
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "test_index_table1_pkey" for table "test_index_table1"
+CREATE UNIQUE INDEX test_index_table1_idx1 ON test_index_table1 (user_id, role_id);
+CREATE INDEX test_index_table1_idx2 ON test_index_table1 (user_id, role_id, age);
+CREATE INDEX test_index_table1_idx3 ON test_index_table1 (age, role_id, user_id);
+CREATE INDEX test_index_table1_idx4 ON test_index_table1 (age) using hash;
+CREATE INDEX test_index_table1_idx5 ON test_index_table1 (age) using ubtree;
+CREATE INDEX test_index_table1_idx6 ON test_index_table1 (user_id desc, role_id desc, age desc);
+CREATE INDEX test_index_table1_idx7 ON test_index_table1 (age desc, role_id desc, user_id desc);
+insert into test_index_table1 values (1, 1, 1, 1);
+insert into test_index_table1 values (2, 2, 2, 2);
+insert into test_index_table1 values (3, 3, 3, 3);
+insert into test_index_table1 values (4, 4, 4, 4);
+analyze test_index_table1;
+select * from INFORMATION_SCHEMA.STATISTICS where table_name = 'test_index_table1' order by 1,2,3,4;
+ table_catalog | table_schema |    table_name     | non_unique | index_schema |       index_name       | seq_in_index | column_name | collation | cardinality | sub_part | packed | nullable | index_type | comment | index_comment | is_visible | expression 
+---------------+--------------+-------------------+------------+--------------+------------------------+--------------+-------------+-----------+-------------+----------+--------+----------+------------+---------+---------------+------------+------------
+ test_b1       | public       | test_index_table1 |          0 | public       | test_index_table1_idx1 |            2 | role_id     | A         |           4 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          0 | public       | test_index_table1_pkey |            1 | id          | A         |           4 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          0 | public       | test_index_table1_idx1 |            1 | user_id     | A         |           4 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx3 |            1 | age         | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx5 |            1 | age         | A         |           0 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx7 |            3 | user_id     | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx7 |            2 | role_id     | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx7 |            1 | age         | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx2 |            1 | user_id     | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx2 |            2 | role_id     | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx2 |            3 | age         | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx4 |            1 | age         | A         |           0 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx6 |            1 | user_id     | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx6 |            2 | role_id     | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx6 |            3 | age         | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx3 |            3 | user_id     | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx3 |            2 | role_id     | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
+(17 rows)
+
+CREATE TABLE test_index_table2 (
+    id INT,
+    user_id INT,
+    role_id INT,
+    age int
+);
+CREATE UNIQUE INDEX test_index_table2_idx1 ON test_index_table2 (id, user_id, role_id);
+CREATE INDEX test_index_table2_idx2 ON test_index_table2 (user_id, role_id, age) COMMENT 'test_index_table1_idx2_d';
+select * from INFORMATION_SCHEMA.STATISTICS where table_name = 'test_index_table2' order by 1,2,3,4;
+ table_catalog | table_schema |    table_name     | non_unique | index_schema |       index_name       | seq_in_index | column_name | collation | cardinality | sub_part | packed | nullable | index_type | comment |      index_comment       | is_visible | expression 
+---------------+--------------+-------------------+------------+--------------+------------------------+--------------+-------------+-----------+-------------+----------+--------+----------+------------+---------+--------------------------+------------+------------
+ test_b1       | public       | test_index_table2 |          0 | public       | test_index_table2_idx1 |            1 | id          | A         |           0 |          |        | YES      | BTREE      |         |                          | YES        | 
+ test_b1       | public       | test_index_table2 |          0 | public       | test_index_table2_idx1 |            2 | user_id     | A         |           0 |          |        | YES      | BTREE      |         |                          | YES        | 
+ test_b1       | public       | test_index_table2 |          0 | public       | test_index_table2_idx1 |            3 | role_id     | A         |           0 |          |        | YES      | BTREE      |         |                          | YES        | 
+ test_b1       | public       | test_index_table2 |          1 | public       | test_index_table2_idx2 |            1 | user_id     | A         |           0 |          |        | YES      | BTREE      |         | test_index_table1_idx2_d | YES        | 
+ test_b1       | public       | test_index_table2 |          1 | public       | test_index_table2_idx2 |            2 | role_id     | A         |           0 |          |        | YES      | BTREE      |         | test_index_table1_idx2_d | YES        | 
+ test_b1       | public       | test_index_table2 |          1 | public       | test_index_table2_idx2 |            3 | age         | A         |           0 |          |        | YES      | BTREE      |         | test_index_table1_idx2_d | YES        | 
+(6 rows)
+
+CREATE TABLE test_index_table3 (
+    id int,
+    role_id varchar,
+    age int
+);
+CREATE INDEX test_index_table3_idx1 ON test_index_table3 (trunc(id));
+CREATE UNIQUE INDEX test_index_table3_idx2 ON test_index_table3 (SUBSTR(role_id, 1, 4));
+select * from INFORMATION_SCHEMA.STATISTICS where table_name = 'test_index_table3' order by 1,2,3,4;
+ table_catalog | table_schema |    table_name     | non_unique | index_schema |       index_name       | seq_in_index | column_name | collation | cardinality | sub_part | packed | nullable | index_type | comment | index_comment | is_visible |          expression           
+---------------+--------------+-------------------+------------+--------------+------------------------+--------------+-------------+-----------+-------------+----------+--------+----------+------------+---------+---------------+------------+-------------------------------
+ test_b1       | public       | test_index_table3 |          0 | public       | test_index_table3_idx2 |            1 | role_id     | A         |           0 |          |        | YES      | BTREE      |         |               | YES        | substr((role_id)::text, 1, 4)
+ test_b1       | public       | test_index_table3 |          1 | public       | test_index_table3_idx1 |            1 | id          | A         |           0 |          |        | YES      | BTREE      |         |               | YES        | trunc((id)::double precision)
+(2 rows)
+
+drop table test_index_table1;
+drop table test_index_table2;
+drop table test_index_table3;
+--INFORMATION_SCHEMA.PARTITIONS
+CREATE TABLE partition_table_test1(c1 int, c2 int, c3 int) 
+PARTITION BY RANGE (c1)
+(
+    PARTITION P_RANGE1 VALUES LESS THAN (5),
+	PARTITION P_RANGE2 VALUES LESS THAN (10),
+	PARTITION P_RANGE3 VALUES LESS THAN (15),
+	PARTITION P_RANGE4 VALUES LESS THAN (20)
+);
+select  table_catalog,table_schema,table_name,partition_name,subpartition_name,partition_ordinal_position,subpartition_ordinal_position,partition_method, subpartition_method,partition_expression,subpartition_expression,partition_description,table_rows,avg_row_length,data_length,max_data_length, index_length, data_free,check_time, partition_comment,nodegroup,tablespace_name  from INFORMATION_SCHEMA.PARTITIONS where table_name = 'partition_table_test1' order by 1,2,3,4;
+ table_catalog | table_schema |      table_name       | partition_name | subpartition_name | partition_ordinal_position | subpartition_ordinal_position | partition_method | subpartition_method | partition_expression | subpartition_expression | partition_description | table_rows | avg_row_length | data_length | max_data_length | index_length | data_free | check_time | partition_comment | nodegroup | tablespace_name 
+---------------+--------------+-----------------------+----------------+-------------------+----------------------------+-------------------------------+------------------+---------------------+----------------------+-------------------------+-----------------------+------------+----------------+-------------+-----------------+--------------+-----------+------------+-------------------+-----------+-----------------
+ test_b1       | public       | partition_table_test1 | p_range1       |                   |                          1 |                               | RANGE            |                     | c1                   |                         | 5                     |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test1 | p_range2       |                   |                          2 |                               | RANGE            |                     | c1                   |                         | 10                    |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test1 | p_range3       |                   |                          3 |                               | RANGE            |                     | c1                   |                         | 15                    |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test1 | p_range4       |                   |                          4 |                               | RANGE            |                     | c1                   |                         | 20                    |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+(4 rows)
+
+CREATE TABLE partition_table_test2 (
+  c1 INT,
+  c2 INT,
+  c3 INT
+)
+PARTITION BY RANGE (c1) 
+SUBPARTITION BY HASH (c2) (
+  PARTITION P_RANGE1 VALUES LESS THAN (5) (
+    SUBPARTITION P_RANGE1_1,
+    SUBPARTITION P_RANGE1_2,
+    SUBPARTITION P_RANGE1_3,
+    SUBPARTITION P_RANGE1_4
+  ),
+  PARTITION P_RANGE2 VALUES LESS THAN (10) (
+    SUBPARTITION P_RANGE2_1,
+    SUBPARTITION P_RANGE2_2,
+    SUBPARTITION P_RANGE2_3,
+    SUBPARTITION P_RANGE2_4
+  ),
+  PARTITION P_RANGE3 VALUES LESS THAN (15) (
+    SUBPARTITION P_RANGE3_1,
+    SUBPARTITION P_RANGE3_2,
+    SUBPARTITION P_RANGE3_3,
+    SUBPARTITION P_RANGE3_4
+  )
+);
+select  table_catalog,table_schema,table_name,partition_name,subpartition_name,partition_ordinal_position,subpartition_ordinal_position,partition_method, subpartition_method,partition_expression,subpartition_expression,partition_description,table_rows,avg_row_length,data_length,max_data_length, index_length, data_free,check_time, partition_comment,nodegroup,tablespace_name  from INFORMATION_SCHEMA.PARTITIONS where table_name = 'partition_table_test2' order by 1,2,3,4;
+ table_catalog | table_schema |      table_name       | partition_name | subpartition_name | partition_ordinal_position | subpartition_ordinal_position | partition_method | subpartition_method | partition_expression | subpartition_expression | partition_description | table_rows | avg_row_length | data_length | max_data_length | index_length | data_free | check_time | partition_comment | nodegroup | tablespace_name 
+---------------+--------------+-----------------------+----------------+-------------------+----------------------------+-------------------------------+------------------+---------------------+----------------------+-------------------------+-----------------------+------------+----------------+-------------+-----------------+--------------+-----------+------------+-------------------+-----------+-----------------
+ test_b1       | public       | partition_table_test2 | p_range1       | p_range1_1        |                          1 |                             1 | RANGE            | HASH                | c1                   | c2                      | 0                     |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test2 | p_range1       | p_range1_2        |                          1 |                             2 | RANGE            | HASH                | c1                   | c2                      | 1                     |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test2 | p_range1       | p_range1_3        |                          1 |                             3 | RANGE            | HASH                | c1                   | c2                      | 2                     |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test2 | p_range1       | p_range1_4        |                          1 |                             4 | RANGE            | HASH                | c1                   | c2                      | 3                     |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test2 | p_range2       | p_range2_1        |                          2 |                             1 | RANGE            | HASH                | c1                   | c2                      | 0                     |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test2 | p_range2       | p_range2_2        |                          2 |                             2 | RANGE            | HASH                | c1                   | c2                      | 1                     |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test2 | p_range2       | p_range2_3        |                          2 |                             3 | RANGE            | HASH                | c1                   | c2                      | 2                     |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test2 | p_range2       | p_range2_4        |                          2 |                             4 | RANGE            | HASH                | c1                   | c2                      | 3                     |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test2 | p_range3       | p_range3_1        |                          3 |                             1 | RANGE            | HASH                | c1                   | c2                      | 0                     |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test2 | p_range3       | p_range3_2        |                          3 |                             2 | RANGE            | HASH                | c1                   | c2                      | 1                     |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test2 | p_range3       | p_range3_3        |                          3 |                             3 | RANGE            | HASH                | c1                   | c2                      | 2                     |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test2 | p_range3       | p_range3_4        |                          3 |                             4 | RANGE            | HASH                | c1                   | c2                      | 3                     |          0 |             12 |           0 |                 |              |           |            |                   |           | pg_default
+(12 rows)
+
+CREATE TABLE partition_table_test3 (
+    c1 INT PRIMARY KEY,
+    c2 TIMESTAMP NOT NULL,  
+    c3 NUMERIC(10,2)          
+) 
+PARTITION BY RANGE (EXTRACT(YEAR FROM c2)) 
+(
+    PARTITION p2020 VALUES LESS THAN (2021),
+    PARTITION p2021 VALUES LESS THAN (2022), 
+    PARTITION p2022 VALUES LESS THAN (2023), 
+    PARTITION p_default VALUES LESS THAN (MAXVALUE)  
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "partition_table_test3_pkey" for table "partition_table_test3"
+select  table_catalog,table_schema,table_name,partition_name,subpartition_name,partition_ordinal_position,subpartition_ordinal_position,partition_method, subpartition_method,partition_expression,subpartition_expression,partition_description,table_rows,avg_row_length,data_length,max_data_length, index_length, data_free,check_time, partition_comment,nodegroup,tablespace_name  from INFORMATION_SCHEMA.PARTITIONS where table_name = 'partition_table_test3' order by 1,2,3,4;
+ table_catalog | table_schema |      table_name       | partition_name | subpartition_name | partition_ordinal_position | subpartition_ordinal_position | partition_method | subpartition_method |    partition_expression     | subpartition_expression | partition_description | table_rows | avg_row_length | data_length | max_data_length | index_length | data_free | check_time | partition_comment | nodegroup | tablespace_name 
+---------------+--------------+-----------------------+----------------+-------------------+----------------------------+-------------------------------+------------------+---------------------+-----------------------------+-------------------------+-----------------------+------------+----------------+-------------+-----------------+--------------+-----------+------------+-------------------+-----------+-----------------
+ test_b1       | public       | partition_table_test3 | p2020          |                   |                          1 |                               | RANGE            |                     | date_part('year'::text, c2) |                         | 2021                  |          0 |             28 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test3 | p2021          |                   |                          2 |                               | RANGE            |                     | date_part('year'::text, c2) |                         | 2022                  |          0 |             28 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test3 | p2022          |                   |                          3 |                               | RANGE            |                     | date_part('year'::text, c2) |                         | 2023                  |          0 |             28 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test3 | p_default      |                   |                          4 |                               | RANGE            |                     | date_part('year'::text, c2) |                         | MAXVALUE              |          0 |             28 |           0 |                 |              |           |            |                   |           | pg_default
+(4 rows)
+
+CREATE TABLE partition_table_test4 (
+  c1 float4,
+  c2 int,
+  c3 TIMESTAMP
+)
+PARTITION BY RANGE (floor(c1))
+SUBPARTITION BY RANGE (abs(c2)) (
+  PARTITION P_RANGE1 VALUES LESS THAN (1) (
+    SUBPARTITION P_RANGE1_1 VALUES LESS THAN (1),
+    SUBPARTITION P_RANGE1_2 VALUES LESS THAN (2),
+    SUBPARTITION P_RANGE1_3 VALUES LESS THAN (3),
+    SUBPARTITION P_RANGE1_4 VALUES LESS THAN (4)
+  ),
+  PARTITION P_RANGE2 VALUES LESS THAN (2) (
+    SUBPARTITION P_RANGE2_1 VALUES LESS THAN (1),
+    SUBPARTITION P_RANGE2_2 VALUES LESS THAN (2),
+    SUBPARTITION P_RANGE2_3 VALUES LESS THAN (3),
+    SUBPARTITION P_RANGE2_4 VALUES LESS THAN (4)
+  ),
+  PARTITION P_RANGE3 VALUES LESS THAN (3) (
+    SUBPARTITION P_RANGE3_1 VALUES LESS THAN (1),
+    SUBPARTITION P_RANGE3_2 VALUES LESS THAN (2),
+    SUBPARTITION P_RANGE3_3 VALUES LESS THAN (3),
+    SUBPARTITION P_RANGE3_4 VALUES LESS THAN (4)
+  )
+);
+select table_catalog,table_schema,table_name,partition_name,subpartition_name,partition_ordinal_position,subpartition_ordinal_position,partition_method, subpartition_method,partition_expression,subpartition_expression,partition_description,table_rows,avg_row_length,data_length,max_data_length, index_length, data_free,check_time, partition_comment,nodegroup,tablespace_name  from INFORMATION_SCHEMA.PARTITIONS where table_name = 'partition_table_test4' order by 1,2,3,4;
+ table_catalog | table_schema |      table_name       | partition_name | subpartition_name | partition_ordinal_position | subpartition_ordinal_position | partition_method | subpartition_method |     partition_expression      | subpartition_expression | partition_description | table_rows | avg_row_length | data_length | max_data_length | index_length | data_free | check_time | partition_comment | nodegroup | tablespace_name 
+---------------+--------------+-----------------------+----------------+-------------------+----------------------------+-------------------------------+------------------+---------------------+-------------------------------+-------------------------+-----------------------+------------+----------------+-------------+-----------------+--------------+-----------+------------+-------------------+-----------+-----------------
+ test_b1       | public       | partition_table_test4 | p_range1       | p_range1_1        |                          1 |                             1 | RANGE            | RANGE               | floor((c1)::double precision) | abs(c2)                 | 1                     |          0 |             16 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test4 | p_range1       | p_range1_2        |                          1 |                             2 | RANGE            | RANGE               | floor((c1)::double precision) | abs(c2)                 | 2                     |          0 |             16 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test4 | p_range1       | p_range1_3        |                          1 |                             3 | RANGE            | RANGE               | floor((c1)::double precision) | abs(c2)                 | 3                     |          0 |             16 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test4 | p_range1       | p_range1_4        |                          1 |                             4 | RANGE            | RANGE               | floor((c1)::double precision) | abs(c2)                 | 4                     |          0 |             16 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test4 | p_range2       | p_range2_1        |                          2 |                             1 | RANGE            | RANGE               | floor((c1)::double precision) | abs(c2)                 | 1                     |          0 |             16 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test4 | p_range2       | p_range2_2        |                          2 |                             2 | RANGE            | RANGE               | floor((c1)::double precision) | abs(c2)                 | 2                     |          0 |             16 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test4 | p_range2       | p_range2_3        |                          2 |                             3 | RANGE            | RANGE               | floor((c1)::double precision) | abs(c2)                 | 3                     |          0 |             16 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test4 | p_range2       | p_range2_4        |                          2 |                             4 | RANGE            | RANGE               | floor((c1)::double precision) | abs(c2)                 | 4                     |          0 |             16 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test4 | p_range3       | p_range3_1        |                          3 |                             1 | RANGE            | RANGE               | floor((c1)::double precision) | abs(c2)                 | 1                     |          0 |             16 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test4 | p_range3       | p_range3_2        |                          3 |                             2 | RANGE            | RANGE               | floor((c1)::double precision) | abs(c2)                 | 2                     |          0 |             16 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test4 | p_range3       | p_range3_3        |                          3 |                             3 | RANGE            | RANGE               | floor((c1)::double precision) | abs(c2)                 | 3                     |          0 |             16 |           0 |                 |              |           |            |                   |           | pg_default
+ test_b1       | public       | partition_table_test4 | p_range3       | p_range3_4        |                          3 |                             4 | RANGE            | RANGE               | floor((c1)::double precision) | abs(c2)                 | 4                     |          0 |             16 |           0 |                 |              |           |            |                   |           | pg_default
+(12 rows)
+
+drop table partition_table_test1;
+drop table partition_table_test2;
+drop table partition_table_test3;
+drop table partition_table_test4;
+DROP TABLE employees;
+DROP TABLE departments;
