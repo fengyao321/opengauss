@@ -485,7 +485,7 @@ void RelationDropStorage(Relation rel, bool isDfsTruncate)
     }
 
     // shared table files in otherdb are missing during resource pooling upgrade
-    if(u_sess->attr.attr_common.IsInplaceUpgrade && ENABLE_DMS && IsSharedRelation(rel->rd_id)) {
+    if (u_sess->attr.attr_common.IsInplaceUpgrade && ENABLE_DMS && IsSharedRelation(rel->rd_id)) {
         if (!smgrexists(rel->rd_smgr, MAIN_FORKNUM)) {
             return;
         }
