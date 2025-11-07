@@ -56,13 +56,6 @@
 #define IMCS_IS_STANDBY_MODE (t_thrd.postmaster_cxt.HaShmData->current_mode == STANDBY_MODE)
 #define IMCS_IS_SS_MODE (ENABLE_DSS)
 
-#define imcs_free_uheap_tuple(tup)                                             \
-    do {                                                                       \
-        if ((tup) != NULL && ((UHeapTuple)tup)->tupTableType == UHEAP_TUPLE) { \
-            UHeapFreeTuple(tup);                                               \
-        }                                                                      \
-    } while (0)
-
 typedef struct SendStandbyPopulateParams {
     Oid relOid;
     Oid partOid;
