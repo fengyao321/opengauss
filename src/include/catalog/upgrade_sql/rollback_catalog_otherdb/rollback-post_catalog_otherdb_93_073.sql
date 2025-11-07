@@ -765,6 +765,8 @@ GRANT SELECT ON information_schema.columns TO PUBLIC;
 DROP VIEW IF EXISTS KEYWORDS;
 DROP VIEW IF EXISTS statistics;
 DROP VIEW IF EXISTS partitions;
+DROP VIEW IF EXISTS events;
+
 
 DROP FUNCTION IF EXISTS pg_catalog.pg_get_expr(text, oid);
 DROP FUNCTION IF EXISTS pg_catalog.pg_extract_collate_name(oid);

@@ -882,4 +882,37 @@ SELECT CAST(pg_catalog.current_database() AS varchar(64)) AS table_catalog,
 	
 GRANT SELECT ON partitions TO PUBLIC; 
 
+CREATE OR REPLACE VIEW events AS
+  SELECT
+    CAST(pg_catalog.current_database() AS varchar(64)) AS event_catalog,
+    CAST(job.nspname AS varchar(64)) AS event_schema,
+    CAST(job_proc.job_name AS varchar(64)) AS event_name,
+    CAST(job.log_user AS varchar(288)) AS definer,
+    CAST('SYSTEM' AS varchar(64)) AS time_zone,
+    CAST('SQL' AS varchar(3)) AS event_body,
+    CAST(job_proc.what AS text) AS event_definition,
+    CAST(CASE WHEN job.interval IS NULL THEN 'ONE TIME' ELSE 'RECURRING' END AS varchar(9)) AS event_type,
+    CAST(CASE WHEN job.interval IS NULL THEN job.start_date ELSE NULL END AS timestamp) AS execute_at,
+    CAST(job.interval AS varchar(256)) AS interval_value,
+    CAST(NULL AS text) AS interval_field,
+    CAST(pg_catalog.get_param_values('dolphin.sql_mode'::text) AS text) AS sql_mode,
+    CAST(CASE WHEN job.interval IS NOT NULL THEN job.start_date ELSE NULL END AS timestamp) AS starts,
+    CAST(job.end_date AS timestamp) AS ends,
+    CAST(job.job_status AS varchar(21)) AS status, 
+    CAST('PRESERVE' AS varchar(12)) AS on_completion,
+    CAST(job.start_date AS timestamp) AS created,
+    CAST(job.start_date AS timestamp) AS last_altered,
+    CAST(job.last_start_date AS timestamp) AS last_executed,
+    CAST(NULL AS varchar(2048)) AS event_comment,
+    CAST(0 AS int) AS originator,
+    CAST(pg_catalog.get_param_values('client_encoding'::text) AS varchar(64)) AS character_set_client,
+    CAST(db.datcollate AS varchar(64)) AS collation_connection,
+    CAST(db.datcollate AS varchar(64)) AS database_collation
+    from pg_job job join pg_job_proc job_proc on job.job_id = job_proc.job_id
+      join pg_authid au on job.log_user = au.rolname
+   JOIN pg_database db ON db.datname = pg_catalog.current_database()
+      where pg_catalog.pg_has_role(au.oid, 'USAGE') AND db.datname = pg_catalog.current_database();
+
+GRANT SELECT ON events TO PUBLIC; 
+
 RESET search_path;
