@@ -465,9 +465,6 @@ void CStoreRelDropColumn(Relation rel, AttrNumber attrnum, Oid ownerid)
  */
 void RelationDropStorage(Relation rel, bool isDfsTruncate)
 {
-    ereport(WARNING, (errmsg("3. RelationDropStorage, relname: %s",
-                        RelationGetForm(rel)->relname.data)));
-    
     if (RelationIsUstoreFormat(rel)) {
         PgStat_StartBlockTableKey tabkey;
         tabkey.dbid = u_sess->proc_cxt.MyDatabaseId;
@@ -487,12 +484,9 @@ void RelationDropStorage(Relation rel, bool isDfsTruncate)
         }
     }
 
-    // 资源池化升级，共享表文件不存在，不删
-    // shared table files in otherdb not exist during resource pooling upgrade
+    // shared table files in otherdb are missing during resource pooling upgrade
     if(u_sess->attr.attr_common.IsInplaceUpgrade && ENABLE_DMS && IsSharedRelation(rel->rd_id)) {
         if (!smgrexists(rel->rd_smgr, MAIN_FORKNUM)) {
-            ereport(WARNING, (errmsg("3.1. !smgrexists, relname: %s, rel_id: %d, shared: %d",
-                        RelationGetForm(rel)->relname.data, rel->rd_id, IsSharedRelation(rel->rd_id))));
             return;
         }
     }
