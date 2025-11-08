@@ -1126,6 +1126,9 @@ void plpgsql_free_function_memory(PLpgSQL_function* func, bool fromPackage)
 
     /* Release plans associated with variable declarations */
     for (i = 0; i < func->ndatums; i++) {
+        if (func->datum_need_free == NULL) {
+            break;
+        }
         PLpgSQL_datum* d = func->datums[i];
         if (d != NULL) {
             if (!func->datum_need_free[i] || (func->parent_oid && d->inherit)) {
