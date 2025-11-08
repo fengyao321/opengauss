@@ -602,6 +602,12 @@ void StreamNodeGroup::SigStreamThreadClose()
  */
 void StreamNodeGroup::cancelStreamThread()
 {
+#ifndef ENABLE_MULTIPLE_NODES
+   if (StreamThreadAmI()) {
+       return;
+   }
+#endif
+
     if (u_sess->stream_cxt.global_obj != NULL && !u_sess->stream_cxt.global_obj->m_canceled) {
         u_sess->stream_cxt.global_obj->m_canceled = true;
         u_sess->stream_cxt.global_obj->signalStreamThreadInNodeGroup(SIGINT);
