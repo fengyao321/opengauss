@@ -252,7 +252,8 @@ void ThreadPoolGroup::AddWorkerIfNecessary()
             if (m_workers[i].stat.slotStatus == THREAD_SLOT_UNUSE &&
                 g_threadPoolControler->GetScheduler()->m_canAdjustPool) {
                 if (m_workers[i].worker != NULL) {
-                    pfree_ext(m_workers[i].worker);
+                    delete m_workers[i].worker;
+                    m_workers[i].worker = NULL;
                 }
                 AddWorker(i);
             }
