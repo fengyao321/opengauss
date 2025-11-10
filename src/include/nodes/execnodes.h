@@ -1751,6 +1751,8 @@ typedef struct StartWithOpState
     AttrNumber           sw_keyAttnum;
     const char          *sw_curKeyArrayStr;
 
+    TupleTableSlot      *predict_slot;
+
     /* tuple slot value array for conversion (to avoid per-tupe process memory alloc/free) */
     Datum               *sw_values;
     bool                *sw_isnull;
