@@ -67,7 +67,7 @@ typedef struct InnerSQLInfo {
     int sql_length;    /* size of string */
 } InnerSQLInfo;
 
-#define INNER_SQL_NUMBER 12
+#define INNER_SQL_NUMBER 14
 
 static InnerSQLInfo g_inner_sqls[INNER_SQL_NUMBER] = {
         {"SET extra_float_digits = 3", 26},
@@ -82,7 +82,13 @@ static InnerSQLInfo g_inner_sqls[INNER_SQL_NUMBER] = {
         {"select count(1) from pg_extension where extname = 'dolphin'", 50},
         {"show dolphin.b_compatibility_mode", 59},
         {"select name, setting from pg_settings where name in ('connection_info')", 71},
+        {"select name, setting from pg_settings where name in ($1)", 56},
         {"set connection_info = '{\"driver_name\":\"JDBC\",\"driver_version\":", 62},
-        {"select count(*) from pg_settings where name = 'support_batch_bind' and setting = 'on'", 85}
+        {"select count(*) from pg_settings where name = 'support_batch_bind' and setting = 'on'", 85},
+        {"SELECT c.oid, a.attnum, a.attname, c.relname, n.nspname, a.attnotnull OR (t.typtype = 'd' AND "
+         "t.typnotnull), pg_catalog.pg_get_expr(d.adbin, d.adrelid) LIKE '%nextval(%' FROM pg_catalog.pg_class "
+         "c JOIN pg_catalog.pg_namespace n ON (c.relnamespace = n.oid) JOIN pg_catalog.pg_attribute a "
+         "ON (c.oid = a.attrelid) JOIN pg_catalog.pg_type t ON (a.atttypid = t.oid) LEFT JOIN pg_catalog.pg_attrdef d",
+         294}
     };
 
