@@ -484,6 +484,13 @@ void RelationDropStorage(Relation rel, bool isDfsTruncate)
         }
     }
 
+    // shared table files in otherdb are missing during resource pooling upgrade
+    if (u_sess->attr.attr_common.IsInplaceUpgrade && ENABLE_DMS && IsSharedRelation(rel->rd_id)) {
+        if (!smgrexists(rel->rd_smgr, MAIN_FORKNUM)) {
+            return;
+        }
+    }
+
     /*
      * First we must push the column file, column bcm file to the pendingDeletes and
      * then push the logical table file to pendingDeletes.

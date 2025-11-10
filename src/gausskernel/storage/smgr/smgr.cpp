@@ -608,7 +608,7 @@ void smgrdounlink(SMgrRelation reln, bool isRedo, BlockNumber blockNum)
     HTAB *unlink_rel_hashtbl = g_instance.bgwriter_cxt.unlink_rel_hashtbl;
     DelFileTag *entry = NULL;
     bool found = false;
-
+    
     if (which == EXRTO_MANAGER && (reln->smgr_rnode.node.spcNode == EXRTO_BLOCK_INFO_SPACE_OID ||
                                    is_standby_read_seg_relnode(reln->smgr_rnode.node))) {
         max_forknum = EXRTO_FORK_NUM;
