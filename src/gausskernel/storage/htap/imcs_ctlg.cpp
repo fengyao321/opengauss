@@ -498,11 +498,9 @@ void PopulateImcs(Relation rel, int2vector* imcsAttsNum, int imcsNatts)
             }
             if (IMCS_IS_SS_MODE && !imcsDesc->populateInShareMem &&
                 currCu % SS_IMCU_CACHE->spqNodeNum != SS_IMCU_CACHE->curSpqIdx) {
-                imcs_free_uheap_tuple(tuple);
                 continue;
             }
             imcstoreInsert.AppendOneTuple(val, null);
-            imcs_free_uheap_tuple(tuple);
         }
 
         /* make sure that last batch data is inserted */
@@ -632,12 +630,9 @@ void ParallelPopulateImcsMain(const BgWorkerContext *bwc)
             }
             if (IMCS_IS_SS_MODE && !imcsDesc->populateInShareMem &&
                 currCu % SS_IMCU_CACHE->spqNodeNum != SS_IMCU_CACHE->curSpqIdx) {
-                imcs_free_uheap_tuple(tuple);
                 continue;
             }
             imcstoreInsert.AppendOneTuple(val, null);
-            imcs_free_uheap_tuple(tuple);
-
             CheckWalRcvIsRunning(nScan++);
         }
 
