@@ -546,6 +546,71 @@ execute p1(1);
 (1 row)
 
 drop table test_bypass;
+drop table if exists t1;
+NOTICE:  table "t1" does not exist, skipping
+create table t1 (c2 int4, c3 int8);
+insert into t1 values (100,1),(300,2),(200,3),(400,4),(400,40);
+analyze t1;
+create index idx3 on t1(c3, c2);
+-- opfusion datum sort
+explain (costs off) select c3 from t1 where c3 < 10 order by c2;
+               QUERY PLAN               
+----------------------------------------
+ [Bypass]
+ Sort
+   Sort Key: c2
+   ->  Index Only Scan using idx3 on t1
+         Index Cond: (c3 < 10)
+(5 rows)
+
+select c3 from t1 where c3 < 10 order by c2;
+ c3 
+----
+  1
+  3
+  2
+  4
+(4 rows)
+
+explain  (costs off) select c2 from t1 where c3 < 10 order by c2;
+               QUERY PLAN               
+----------------------------------------
+ [Bypass]
+ Sort
+   Sort Key: c2
+   ->  Index Only Scan using idx3 on t1
+         Index Cond: (c3 < 10)
+(5 rows)
+
+select c2 from t1 where c3 < 10 order by c2;
+ c2  
+-----
+ 100
+ 200
+ 300
+ 400
+(4 rows)
+
+explain  (costs off) select c2 from t1 where c3 < 10 order by c2 desc;
+               QUERY PLAN               
+----------------------------------------
+ [Bypass]
+ Sort
+   Sort Key: c2 DESC
+   ->  Index Only Scan using idx3 on t1
+         Index Cond: (c3 < 10)
+(5 rows)
+
+select c2 from t1 where c3 < 10 order by c2 desc;
+ c2  
+-----
+ 400
+ 300
+ 200
+ 100
+(4 rows)
+
+drop table if exists t1;
 -- clean 
 reset enable_seqscan;
 reset enable_bitmapscan;

@@ -124,6 +124,20 @@ execute p1(1);
 
 drop table test_bypass;
 
+drop table if exists t1;
+create table t1 (c2 int4, c3 int8);
+insert into t1 values (100,1),(300,2),(200,3),(400,4),(400,40);
+analyze t1;
+create index idx3 on t1(c3, c2);
+-- opfusion datum sort
+explain (costs off) select c3 from t1 where c3 < 10 order by c2;
+select c3 from t1 where c3 < 10 order by c2;
+explain  (costs off) select c2 from t1 where c3 < 10 order by c2;
+select c2 from t1 where c3 < 10 order by c2;
+explain  (costs off) select c2 from t1 where c3 < 10 order by c2 desc;
+select c2 from t1 where c3 < 10 order by c2 desc;
+drop table if exists t1;
+
 -- clean 
 reset enable_seqscan;
 reset enable_bitmapscan;
