@@ -44,3 +44,15 @@ select pg_get_viewdef('startwith_mv', true);
 
 drop materialized view startwith_mv;
 drop table startwith_t;
+
+create table ta(a int,b int);
+insert into ta values(1,1),(2,2),(3,3);
+
+
+select * from ta left join
+(SELECT -3.0 c1) AS test on c1=c1
+start with a != 1
+CONNECT BY NOCYCLE  (PRIOR c1) BETWEEN -6.7 AND 0.619;
+
+drop table ta;
+

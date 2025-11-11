@@ -53,6 +53,8 @@ static List *GetCurrentArrayColArray(const FunctionCallInfo fcinfo,
 static AttrNumber GetInternalArrayAttnum(TupleDesc tupDesc, AttrNumber origVarAttno, bool isPath);
 static const char *GetCurrentValue(TupleTableSlot *slot, AttrNumber attnum);
 static TupleTableSlot* ExecStartWithOp(PlanState* state);
+static bool DfsPredictLeafState(TupleTableSlot *src_slot, int32 predict_level, Datum predict_rownum,
+    RecursiveUnionState* node, SWDfsOpState* dfs_state);
 static inline void ResetResultSlotAttValueArray(StartWithOpState *state,
             Datum *values, bool *isnull)
 {
@@ -299,6 +301,9 @@ StartWithOpState* ExecInitStartWithOp(StartWithOp* node, EState* estate, int efl
     state->sw_workingSlot = ExecAllocTableSlot(&estate->es_tupleTable, TableAmHeap);
     ExecSetSlotDescriptor(state->sw_workingSlot, ExecTypeFromTL(targetlist, false));
 
+    state->predict_slot = ExecAllocTableSlot(&estate->es_tupleTable, TableAmHeap);
+    ExecSetSlotDescriptor(state->predict_slot, ExecTypeFromTL(targetlist, false));
+
     int natts = list_length(node->plan.targetlist);
     state->sw_values = (Datum *)palloc0(natts * sizeof(Datum));
     state->sw_isnull=  (bool *)palloc0(natts * sizeof(bool));
@@ -415,7 +420,8 @@ void ResetRecursiveInner(RecursiveUnionState *node)
  *
  * Does not support order siblings by yet.
  */
-static List* peekNextLevel(TupleTableSlot* startSlot, PlanState* outerNode, int level, bool* iscycle)
+static List* peekNextLevel(TupleTableSlot* startSlot, PlanState* outerNode, int level, bool* iscycle, bool* is_leaf,
+    SWDfsOpState* dfs_state)
 {
     List* queue = NULL;
     RecursiveUnionState* rus = (RecursiveUnionState*) outerNode;
@@ -430,18 +436,36 @@ static List* peekNextLevel(TupleTableSlot* startSlot, PlanState* outerNode, int 
     rus->iteration = level;
     TupleTableSlot* srcSlot = NULL;
     *iscycle = false;
+    *is_leaf = true;
+
+    int32 next_step = 1;
+    int32 next_level = dfs_state->cur_level + next_step;
+    Datum next_rownum = 0;
+    next_rownum = Int32GetDatum(dfs_state->cur_rownum + next_step);
+    
     markSWLevelBegin(swnode);
     for (;;) {
         srcSlot = ExecProcNode(outerNode);
         if (TupIsNull(srcSlot)) {
             break;
         }
-        if (CheckCycleExeception(swnode, srcSlot)) {
+
+        TupleTableSlot* newSlot = NULL;
+        newSlot = MakeSingleTupleTableSlot(srcSlot->tts_tupleDescriptor);
+        newSlot = ExecCopySlot(newSlot, srcSlot);
+        if (CheckCycleExeception(swnode, newSlot)) {
+            ExecDropSingleTupleTableSlot(newSlot);
             *iscycle = true;
             continue;
         }
-        TupleTableSlot* newSlot = MakeSingleTupleTableSlot(srcSlot->tts_tupleDescriptor);
-        newSlot = ExecCopySlot(newSlot, srcSlot);
+
+        if (DfsPredictLeafState(newSlot, next_level, next_rownum, rus, dfs_state)) {
+            ExecDropSingleTupleTableSlot(newSlot);
+            continue;
+        } else if (*is_leaf) {
+            *is_leaf = false;
+        }
+        
         queue = lappend(queue, newSlot);
     }
     markSWLevelEnd(swnode, list_length(queue));
@@ -536,10 +560,16 @@ static void DfsResetState(SWDfsOpState* state)
     state->cur_level = 0;
 }
 
-TupleTableSlot* DeformRUSlot(TupleTableSlot* ru_slot, StartWithOpState *node)
+TupleTableSlot* DeformRUSlot(TupleTableSlot* ru_slot, StartWithOpState *node, TupleTableSlot* target_slot = NULL)
 {
     TupleDesc tupDesc = ru_slot->tts_tupleDescriptor;
     TupleTableSlot* dst_slot = node->sw_workingSlot;
+    if (target_slot != NULL) {
+        dst_slot = target_slot;
+    } else {
+        dst_slot = node->sw_workingSlot;
+    }
+    
     ExecClearTuple(dst_slot);
     for (int i = 0; i < dst_slot->tts_tupleDescriptor->natts; i++) {
         dst_slot->tts_isnull[i] = true;
@@ -648,10 +678,11 @@ static TupleTableSlot* depth_first_connect(StartWithOpState *node)
             }
 
             bool iscycle = false;
-            List* queue = peekNextLevel(cur_slot, (PlanState*)runode, dfs_state->cur_level, &iscycle);
+            bool isleaf = false;
+            List* queue = peekNextLevel(cur_slot, (PlanState*)runode, dfs_state->cur_level, &iscycle,
+                &isleaf, dfs_state);
             dfs_state->cur_rownum++;
 
-            bool isleaf = (list_length(queue) == 0);
             UpdateVirtualSWCBTuple(cur_slot, node, SWCOL_ISCYCLE, BoolGetDatum(iscycle));
             UpdateVirtualSWCBTuple(cur_slot, node, SWCOL_ISLEAF, BoolGetDatum(isleaf));
 
@@ -1220,6 +1251,19 @@ static AttrNumber GetInternalArrayAttnum(TupleDesc tupDesc, AttrNumber origVarAt
     }
 
     return arrayAttNum;
+}
+
+static bool DfsPredictLeafState(TupleTableSlot *src_slot, int32 predict_level, Datum predict_rownum,
+    RecursiveUnionState* node, SWDfsOpState* dfs_state)
+{
+    bool current_is_leaf = false;
+    TupleTableSlot* predict_slot = DeformRUSlot(src_slot, node->swstate, node->swstate->predict_slot);
+    UpdateVirtualSWCBTuple(predict_slot, node->swstate, SWCOL_LEVEL, predict_level);
+    UpdateVirtualSWCBTuple(predict_slot, node->swstate, SWCOL_ROWNUM, predict_rownum);
+    dfs_state->cur_level++;
+    current_is_leaf = !ExecStartWithRowLevelQual(node, predict_slot);
+    dfs_state->cur_level--;
+    return current_is_leaf;
 }
 
 /* 
