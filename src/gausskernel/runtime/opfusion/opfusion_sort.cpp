@@ -105,53 +105,97 @@ bool SortFusion::execute(long max_rows, char *completionTag)
     int64       maxMem = (sortnode->plan.operatorMaxMem > 0) ?
         SET_NODEMEM(sortnode->plan.operatorMaxMem, sortnode->plan.dop) : 0;
 
-    {
-        AutoContextSwitch memSwitch(m_local.m_tmpContext);
-        tuplesortstate = tuplesort_begin_heap(m_c_local.m_scanDesc,
-                sortnode->numCols,
-                sortnode->sortColIdx,
-                sortnode->sortOperators,
-                sortnode->collations,
-                sortnode->nullsFirst,
-                sortMem,
-                false,
-                maxMem,
-                sortnode->plan.plan_node_id,
-                SET_DOP(sortnode->plan.dop));
-    }
-
-    /* receive data from indexscan node */
+    AutoContextSwitch memSwitch(m_local.m_tmpContext);
     long nprocessed = 0;
     TupleTableSlot *slot = NULL;
-    while ((slot = m_local.m_scan->getTupleSlot()) != NULL) {
-        tuplesort_puttupleslot(tuplesortstate, slot);
-    }
+    TupleDesc tupDesc = m_global->m_tupDesc;
 
-    /* sort all data */
-    tuplesort_performsort(tuplesortstate);
+    bool isDtumSort = (m_local.m_reslot->tts_tupleDescriptor->natts == 1 &&
+                      TupleDescAttr(m_local.m_reslot->tts_tupleDescriptor, 0)->attbyval) &&
+                      (list_length(sortnode->plan.targetlist) == 1);
+    if (isDtumSort) {
+        tuplesortstate = tuplesort_begin_datum(m_c_local.m_scanDesc->attrs[0].atttypid,
+                                               sortnode->sortOperators[0],
+                                               sortnode->collations[0],
+                                               sortnode->nullsFirst[0],
+                                               sortMem,
+                                               false);
 
-    /* analyze the tuplesortstate information for update unique sql sort info */
-    UpdateUniqueSQLSortStats(tuplesortstate, &startTime);
+        /* receive data from indexscan node */
+        while ((slot = m_local.m_scan->getTupleSlot()) != NULL) {
+            tableam_tslot_getsomeattrs(slot, 1);
+            tuplesort_putdatum(tuplesortstate, slot->tts_values[0], slot->tts_isnull[0]);
+        }
+        /* sort all data */
+        tuplesort_performsort(tuplesortstate);
 
-    /* send sorted data to client */
-    slot = MakeSingleTupleTableSlot(m_c_local.m_scanDesc);
-    while (tuplesort_gettupleslot(tuplesortstate, true, slot, NULL)) {
-        tableam_tslot_getsomeattrs(slot, m_c_local.m_scanDesc->natts);
-        for (int i = 0; i < m_global->m_tupDesc->natts; i++) {
-            values[i] = slot->tts_values[m_global->m_attrno[i] - 1];
-            isnull[i] = slot->tts_isnull[m_global->m_attrno[i] - 1];
+        /* analyze the tuplesortstate information for update unique sql sort info */
+        UpdateUniqueSQLSortStats(tuplesortstate, &startTime);
+
+        /* send sorted data to client */
+        slot = MakeSingleTupleTableSlot(m_c_local.m_scanDesc);
+
+        Datum attrVal;
+        bool attrIsNull;
+        while (tuplesort_getdatum(tuplesortstate, true, &attrVal, &attrIsNull)) {
+            HeapTuple tmptup = (HeapTuple)tableam_tops_form_tuple(tupDesc, &attrVal, &attrIsNull,
+                                                                  tupDesc->td_tam_ops);
+            (void)ExecStoreTuple(tmptup, reslot, InvalidBuffer, false);
+            
+            (*m_local.m_receiver->receiveSlot)(reslot, m_local.m_receiver);
+            tableam_tops_free_tuple(tmptup);
+
+            CHECK_FOR_INTERRUPTS();
+            nprocessed++;
+            if (nprocessed >= max_rows) {
+                break;
+            }
+        }
+    } else {
+        tuplesortstate = tuplesort_begin_heap(m_c_local.m_scanDesc,
+                                              sortnode->numCols,
+                                              sortnode->sortColIdx,
+                                              sortnode->sortOperators,
+                                              sortnode->collations,
+                                              sortnode->nullsFirst,
+                                              sortMem,
+                                              false,
+                                              maxMem,
+                                              sortnode->plan.plan_node_id,
+                                              SET_DOP(sortnode->plan.dop));
+
+        /* receive data from indexscan node */
+        while ((slot = m_local.m_scan->getTupleSlot()) != NULL) {
+            tuplesort_puttupleslot(tuplesortstate, slot);
         }
 
-        HeapTuple tmptup = (HeapTuple)tableam_tops_form_tuple(m_global->m_tupDesc, values, isnull, 
-                                                              m_global->m_tupDesc->td_tam_ops);
-        (void)ExecStoreTuple(tmptup, reslot, InvalidBuffer, false);
-        (*m_local.m_receiver->receiveSlot)(reslot, m_local.m_receiver);
-        tableam_tops_free_tuple(tmptup);
+        /* sort all data */
+        tuplesort_performsort(tuplesortstate);
 
-        CHECK_FOR_INTERRUPTS();
-        nprocessed++;
-        if (nprocessed >= max_rows) {
-            break;
+        /* analyze the tuplesortstate information for update unique sql sort info */
+        UpdateUniqueSQLSortStats(tuplesortstate, &startTime);
+
+        /* send sorted data to client */
+        slot = MakeSingleTupleTableSlot(m_c_local.m_scanDesc);
+
+        while (tuplesort_gettupleslot(tuplesortstate, true, slot, NULL)) {
+            tableam_tslot_getsomeattrs(slot, m_c_local.m_scanDesc->natts);
+            for (int i = 0; i < tupDesc->natts; i++) {
+                values[i] = slot->tts_values[m_global->m_attrno[i] - 1];
+                isnull[i] = slot->tts_isnull[m_global->m_attrno[i] - 1];
+            }
+
+            HeapTuple tmptup = (HeapTuple)tableam_tops_form_tuple(tupDesc, values, isnull,
+                                                                  tupDesc->td_tam_ops);
+            (void)ExecStoreTuple(tmptup, reslot, InvalidBuffer, false);
+            (*m_local.m_receiver->receiveSlot)(reslot, m_local.m_receiver);
+            tableam_tops_free_tuple(tmptup);
+
+            CHECK_FOR_INTERRUPTS();
+            nprocessed++;
+            if (nprocessed >= max_rows) {
+                break;
+            }
         }
     }
 
