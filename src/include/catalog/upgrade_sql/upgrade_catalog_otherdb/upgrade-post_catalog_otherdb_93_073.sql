@@ -33,7 +33,7 @@ CREATE OR REPLACE FUNCTION pg_catalog.pg_get_expr(text, oid) RETURNS text LANGUA
 
 DROP FUNCTION IF EXISTS pg_catalog.get_auto_increment_nextval(oid, bool);
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_PROC, 8554;
-CREATE FUNCTION pg_catalog.get_auto_increment_nextval(oid, bool) RETURNS bool LANGUAGE INTERNAL IMMUTABLE STRICT AS 'get_auto_increment_nextval';
+CREATE FUNCTION pg_catalog.get_auto_increment_nextval(oid, bool) RETURNS int16 LANGUAGE INTERNAL IMMUTABLE STRICT AS 'get_auto_increment_nextval';
 COMMENT ON FUNCTION pg_catalog.get_auto_increment_nextval(oid, bool) is 'get_auto_increment_nextval';
 
 DROP FUNCTION IF EXISTS pg_catalog.pg_avg_row_length(oid, oid);
