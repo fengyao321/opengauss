@@ -676,6 +676,10 @@ void UBTree3InsertPcrInternalOrMetaDesc(StringInfo buf, XLogReaderState* record,
     } else {
         Size dataLen;
         char *metadata = XLogRecGetBlockData(record, UBTREE3_INSERT_PCR_META_BLOCK_NUM, &dataLen);
+        if (metadata == NULL) {
+            appendStringInfoString(buf, "WARNING: this xlog contains no data.");
+            return;
+        }
         xl_btree_metadata *xlrec = (xl_btree_metadata *)metadata;
         appendStringInfo(buf, "UBtree3InsertMeta: fastlevel %u, fastroot %u, level: %u, root: %u, version: %u",
             xlrec->fastlevel, xlrec->fastroot, xlrec->level, xlrec->root, xlrec->version);
@@ -688,8 +692,12 @@ void UBTree3NewRootDesc(StringInfo buf, XLogReaderState* record)
     xl_btree_newroot *xlrecroot = (xl_btree_newroot *)rec;
     appendStringInfo(buf, "UBtree3NewRoot: rootblk %u, level %u", xlrecroot->rootblk, xlrecroot->level);
     Size dataLen;
-    char *matadata = XLogRecGetBlockData(record, BTREE_NEWROOT_META_BLOCK_NUM, &dataLen);
-    xl_btree_metadata *xlrecmeta = (xl_btree_metadata *)matadata;
+    char *metadata = XLogRecGetBlockData(record, BTREE_NEWROOT_META_BLOCK_NUM, &dataLen);
+    if (metadata == NULL) {
+        appendStringInfoString(buf, "WARNING: this xlog contains no data.");
+        return;
+    }
+    xl_btree_metadata *xlrecmeta = (xl_btree_metadata *)metadata;
     appendStringInfo(buf, "UBtree3InsertMeta: fastlevel %u, fastroot %u, level: %u, root: %u, version: %u",
         xlrecmeta->fastlevel, xlrecmeta->fastroot, xlrecmeta->level, xlrecmeta->root, xlrecmeta->version);
 }
@@ -867,6 +875,10 @@ static void UBTree4UnlinkPageDesc(StringInfo buf, XLogReaderState* record, bool 
         appendStringInfo(buf, "XLOG_UBTREE4_UNLINK_PAGE_META: ");
         Size metaDataLen;
         char *metaData = XLogRecGetBlockData(record, BTREE_UNLINK_PAGE_META_NUM, &metaDataLen);
+        if (metaData == NULL) {
+            appendStringInfoString(buf, "WARNING: this xlog contains no data.");
+            return;
+        }
         xl_btree_metadata *metaRec = (xl_btree_metadata *)metaData;
         appendStringInfo(buf, "meta info: [root blk no: %u, level %u, fast root blk no: %u, "
                          "fast level: %u, version: %u]",

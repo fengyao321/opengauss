@@ -208,6 +208,7 @@ extern void reindex_index(Oid indexId, Oid indexPartId,
                           bool dbWide,
                           void *baseDesc = NULL,
                           bool isTruncGTT = false);
+extern void reindexPartIndex(Oid indexId, Oid partOid, bool skip_constraint_checks);
 extern void ReindexGlobalIndexInternal(Relation heapRelation, Relation iRel, IndexInfo* indexInfo, void* baseDesc);
 
 /* Flag bits for ReindexRelation(): */

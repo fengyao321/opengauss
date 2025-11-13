@@ -50,7 +50,6 @@
 ./bin/pg_archivecleanup
 ./bin/gs_assessment
 ./bin/gs_retrieve
-./bin/spq*
 ./etc/kerberos/kadm5.acl  
 ./etc/kerberos/kdc.conf  
 ./etc/kerberos/krb5.conf  
@@ -123,7 +122,6 @@
 ./share/postgresql/extension/dblink--1.0.sql
 ./share/postgresql/extension/dblink--unpackaged--1.0.sql
 ./share/postgresql/extension/dblink.control
-./share/postgresql/extension/spq*
 ./share/postgresql/timezone/GB-Eire
 ./share/postgresql/timezone/Turkey
 ./share/postgresql/timezone/Kwajalein

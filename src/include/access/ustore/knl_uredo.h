@@ -198,6 +198,7 @@ typedef struct XlMultiInsertUTuple {
 #define XLOG_UHEAP2_BASE_SHIFT 0x00
 #define XLOG_UHEAP2_FREEZE 0x10
 #define XLOG_UHEAP2_EXTEND_TD_SLOTS 0x20
+#define XLOG_UHEAP2_LOCK 0x30
 typedef struct XlUHeapBaseShift {
     bool multi;
     int64 delta;
@@ -269,6 +270,19 @@ typedef struct XlUHeapExtendTdSlots {
     uint8   nExtended; /* Number of slots after extension */
 } XlUHeapExtendTdSlots;
 #define SizeOfUHeapExtendTDSlot        (offsetof(XlUHeapExtendTdSlots, nExtended) + sizeof(uint8))
+
+typedef struct XlUHeapLock {
+    TransactionId locking_xid; /* might be a MultiXactId not xid */
+    OffsetNumber offnum;       /* locked tuple's offset on page */
+    uint16 tuple_flag;
+    uint16 xlog_flag;
+    uint16 version;
+} XlUHeapLock;
+ 
+#define SIZE_OF_UHEAP_LOCK_TUPLE (sizeof(XlUHeapLock)) // 16 Bytes
+ 
+#define XLOG_UHEAP_LOCK_MULTI 0x0001
+#define XLOG_UHEAP_LOCK_SHARE 0x0002
 
 extern void UHeapRedo(XLogReaderState *record);
 extern void UHeapDesc(StringInfo buf, XLogReaderState *record);

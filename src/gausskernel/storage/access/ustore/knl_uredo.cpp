@@ -289,6 +289,10 @@ void UHeapXlogInsert(XLogReaderState *record)
             Page page = BufferGetPage(buffer.buf);
             UpageVerify((UHeapPageHeader)page, t_thrd.shemem_ptr_cxt.XLogCtl->RedoRecPtr, NULL,
                 NULL, &targetNode, blkno, true);
+            Size freespace = (page) ? PageGetUHeapFreeSpace(page) : 0;
+            if (freespace < BLCKSZ / FREESPACE_FRACTION) {
+                XLogRecordPageWithFreeSpace(targetNode, blkno, freespace);
+            }
         }
 
         if (BufferIsValid(buffer.buf)) {
@@ -489,6 +493,10 @@ static void UHeapXlogDelete(XLogReaderState *record)
             Page page = BufferGetPage(buffer.buf);
             UpageVerify((UHeapPageHeader)page, t_thrd.shemem_ptr_cxt.XLogCtl->RedoRecPtr, NULL,
                 NULL, &targetNode, blkno, true);
+            Size freespace = (page) ? PageGetUHeapFreeSpace(page) : 0;
+            if (freespace < BLCKSZ / FREESPACE_FRACTION) {
+                XLogRecordPageWithFreeSpace(targetNode, blkno, freespace);
+            }
         }
 
         if (BufferIsValid(buffer.buf)) {
@@ -1003,8 +1011,12 @@ static UndoRecPtr PrepareAndInsertUndoRecordForUpdateRedo(XLogReaderState *recor
             InsertPreparedUndo(t_thrd.ustore_cxt.urecvec, lsn);
         }
 
+        UndoRecordSize lastRecordSize = t_thrd.ustore_cxt.urecvec->LastRecordSize();
+        if (skipInsert) {
+            lastRecordSize = undometa.lastRecordSize;
+        }
         undo::RedoUndoMeta(record, &undometa, xlundohdr->urecptr, t_thrd.ustore_cxt.urecvec->LastRecord(),
-            t_thrd.ustore_cxt.urecvec->LastRecordSize());
+            lastRecordSize);
 
         URecVector *urecvec = t_thrd.ustore_cxt.urecvec;
         UndoRecord *undorec = (*urecvec)[0];
@@ -1494,8 +1506,11 @@ static UndoRecPtr PrepareAndInsertUndoRecordForMultiInsertRedo(XLogReaderState *
             Assert(UNDO_PTR_GET_OFFSET((*urecvec)[0]->Urp()) == UNDO_PTR_GET_OFFSET(xlundohdr->urecptr));
             InsertPreparedUndo(urecvec, lsn);
         }
-
-        undo::RedoUndoMeta(record, &undometa, xlundohdr->urecptr, urecvec->LastRecord(), urecvec->LastRecordSize());
+        UndoRecordSize lastRecordSize = urecvec->LastRecordSize();
+        if (skipUndo || skipInsert) {
+            lastRecordSize = undometa.lastRecordSize;
+        }
+        undo::RedoUndoMeta(record, &undometa, xlundohdr->urecptr, urecvec->LastRecord(), lastRecordSize);
         UHeapResetPreparedUndo();
         DELETE_EX(urecvec);
     }
@@ -1669,6 +1684,10 @@ static void UHeapXlogMultiInsert(XLogReaderState *record)
         Page page = BufferGetPage(buffer.buf);
         UpageVerify((UHeapPageHeader)page, t_thrd.shemem_ptr_cxt.XLogCtl->RedoRecPtr, NULL,
             NULL, &rnode, blkno, true);
+        Size freespace = (page) ? PageGetUHeapFreeSpace(page) : 0;
+        if (freespace < BLCKSZ / FREESPACE_FRACTION) {
+            XLogRecordPageWithFreeSpace(rnode, blkno, freespace);
+        }
     }
 
     pfree(ufreeOffsetRanges);
@@ -1850,6 +1869,30 @@ static void UHeapXlogFreeze(XLogReaderState *record)
         UnlockReleaseBuffer(buffer.buf);
     }
 }
+
+static void UHeapXlogLock(XLogReaderState *record)
+{
+    XLogRecPtr lsn = record->EndRecPtr;
+    RedoBufferInfo buffer = { 0 };
+    RelFileNode rnode;
+    BlockNumber blkno = InvalidBlockNumber;
+    Page page = NULL;
+
+    (void)XLogRecGetBlockTag(record, HEAP_FREEZE_ORIG_BLOCK_NUM, &rnode, NULL, &blkno);
+
+    if (XLogReadBufferForRedo(record, 0, &buffer) == BLK_NEEDS_REDO) {
+        page = buffer.pageinfo.page;
+        PageSetLSN(page, lsn);
+        if (BufferIsValid(buffer.buf)) {
+            MarkBufferDirty(buffer.buf);
+        }
+    }
+
+    if (BufferIsValid(buffer.buf)) {
+        UnlockReleaseBuffer(buffer.buf);
+    }
+}
+
 void UHeapXlogNewPage(XLogReaderState *record)
 {
     RedoBufferInfo buffer = { 0 };
@@ -1915,6 +1958,9 @@ void UHeap2Redo(XLogReaderState *record)
             break;
         case XLOG_UHEAP2_EXTEND_TD_SLOTS:
             UHeapXlogExtendTDSlot(record);
+            break;
+        case XLOG_UHEAP2_LOCK:
+            UHeapXlogLock(record);
             break;
         default:
             ereport(PANIC, (errmsg("UHeap2Redo: unknown op code %u", (uint8)info)));

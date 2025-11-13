@@ -26,6 +26,7 @@ typedef struct UndoWorkInfoData {
     UndoRecPtr endUndoPtr;
     Oid dbid;
     UndoSlotPtr slotPtr;
+    int statusIdx;
 } UndoWorkInfoData;
 
 typedef UndoWorkInfoData *UndoWorkInfo;

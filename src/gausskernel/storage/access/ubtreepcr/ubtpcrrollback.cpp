@@ -234,7 +234,7 @@ static void ExecuteRollback(Relation rel, BlockNumber blkno, Page page, OffsetNu
     UBTPCRPageOpaque opaque = (UBTPCRPageOpaque)PageGetSpecialPointer(page);
     UBTreeItemId itemid = UBTreePCRGetRowPtr(page, offnum);
     UBTreeUndoInfo undoinfo = FetchUndoInfoFromUndoRecord(urec);
-    uint8 prevTDid = (undoinfo->prev_td_id >= opaque->td_count) ? UBTreeFrozenTDSlotId : undoinfo->prev_td_id;
+    uint8 prevTDid = (undoinfo->prev_td_id > opaque->td_count) ? UBTreeFrozenTDSlotId : undoinfo->prev_td_id;
     UBTreeTD curTD = UBTreePCRGetTD(page, itemid->lp_td_id);
     if (urec->Utype() == UNDO_UBT_INSERT) {
         /* mark tuple deleted */

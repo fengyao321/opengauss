@@ -1578,3 +1578,16 @@ bool UBTreeIndexIsPCRType(Relation rel)
     }
     return false;
 }
+
+char *getIndexType(List *defList)
+{
+    char *res = NULL;
+    ListCell *cell = NULL;
+    foreach(cell, defList) {
+        DefElem *elem = (DefElem *)lfirst(cell);
+        if (pg_strcasecmp(elem->defname, "index_type") == 0) {
+            res = defGetString(elem);
+        }
+    }
+    return res;
+}

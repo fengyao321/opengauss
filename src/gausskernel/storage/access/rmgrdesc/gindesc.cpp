@@ -144,6 +144,10 @@ void gin_desc(StringInfo buf, XLogReaderState *record)
                 appendStringInfoString(buf, " (full page image)");
             else {
                 char *payload = XLogRecGetBlockData(record, 0, NULL);
+                if (payload == NULL) {
+                    appendStringInfoString(buf, "WARNING: this xlog contains no data.");
+                    return;
+                }
 
                 if (!(xlrec->flags & GIN_INSERT_ISDATA))
                     appendStringInfo(buf, " isdelete: %c", (((ginxlogInsertEntry *)payload)->isDelete) ? 'T' : 'F');
@@ -176,6 +180,10 @@ void gin_desc(StringInfo buf, XLogReaderState *record)
                 appendStringInfoString(buf, " (full page image)");
             else {
                 ginxlogVacuumDataLeafPage *xlrec = (ginxlogVacuumDataLeafPage *)XLogRecGetBlockData(record, 0, NULL);
+                if (xlrec == NULL) {
+                    appendStringInfoString(buf, "WARNING: this xlog contains no data.");
+                    return;
+                }
 
                 desc_recompress_leaf(buf, &xlrec->data);
             }

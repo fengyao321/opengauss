@@ -478,6 +478,8 @@ extern void UBTreePCRHandlePreviousTD(Relation rel, Buffer buf, uint8 *slotNo, U
 */
 bool UBTreeIndexIsPCRType(Relation rel);
 
+extern char *getIndexType(List *defList);
+
 extern int UBTreePCRRollback(URecVector *urecvec, int startIdx, int endIdx, TransactionId xid, Oid reloid,
     Oid partitionoid, BlockNumber blkno, bool isFullChain, int preRetCode, Oid *preReloid, Oid *prePartitionoid);
 extern bool UBTreePCRIsKeyEqual(Relation idxrel, IndexTuple itup, BTScanInsert itupKey);

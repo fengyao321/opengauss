@@ -890,7 +890,7 @@ void UndoRecycleMain()
             recycled = false;
             oldestXidHavingUndo = InvalidTransactionId;
             oldestFrozenXidInUndo = oldestXmin;
-            uint32 idx = 0;
+            int idx = 0;
             uint32 retry = 1;
             TransactionId recycleXid;
             TransactionId forceRecycleXid = InvalidTransactionId;

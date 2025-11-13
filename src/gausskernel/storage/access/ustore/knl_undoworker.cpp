@@ -190,6 +190,48 @@ static void UndoPerformWork(UndoWorkInfo undowork)
     }
 }
 
+RollbackRequestsHashEntry *GetNextRollbackRequestWithDbid(Oid dbid)
+{
+    RollbackRequestsHashEntry *entry = NULL;
+    HASH_SEQ_STATUS hashSeq;
+
+    LWLockAcquire(RollbackReqHashLock, LW_SHARED);
+    hash_seq_init(&hashSeq, t_thrd.rollback_requests_cxt.rollback_requests_hash);
+    hashSeq.curEntry = NULL;
+    hashSeq.curBucket = 0;
+
+    while ((entry = (RollbackRequestsHashEntry *)hash_seq_search(&hashSeq)) != NULL) {
+        if (!entry->launched && entry->dbid == dbid) {
+            entry->launched = true;
+            break;
+        }
+    }
+
+    LWLockRelease(RollbackReqHashLock);
+    return entry;
+}
+
+static bool AsyncRollbackWorkerGetWorkFromHashTable(UndoWorkInfo work)
+{
+    RollbackRequestsHashEntry *entry = GetNextRollbackRequestWithDbid(work->dbid);
+    int actualUndoWorkers = Min(g_instance.attr.attr_storage.max_undo_workers, MAX_UNDO_WORKERS);
+    if (entry == NULL) {
+        return false;
+    }
+
+    for (int i = 0; i < actualUndoWorkers; i++) {
+        if (t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[i].xid == entry->xid) {
+            return false;
+        }
+    }
+
+    work->xid = entry->xid;
+    work->startUndoPtr = entry->startUndoPtr;
+    work->endUndoPtr = entry->endUndoPtr;
+    work->slotPtr = entry->slotPtr;
+    return true;
+}
+
 bool IsUndoWorkerProcess(void)
 {
     return t_thrd.role == UNDO_WORKER;
@@ -197,6 +239,11 @@ bool IsUndoWorkerProcess(void)
 
 NON_EXEC_STATIC void UndoWorkerMain()
 {
+    const int MAX_RETRY_TIMES = 50;
+    int rollbacked = 0;
+    int retryTimes = 0;
+    int myIdx = -1;
+     
     UndoWorkInfoData undowork;
     bool databaseExists = false;
     int actualUndoWorkers = Min(g_instance.attr.attr_storage.max_undo_workers, MAX_UNDO_WORKERS);
@@ -298,24 +345,22 @@ NON_EXEC_STATIC void UndoWorkerMain()
 
     /* Get the work from the shared memory */
     UndoWorkerGetWork(&undowork);
-    
-    for (int i = 0; i < actualUndoWorkers; i++) {
-        if (TransactionIdEquals(t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[i].xid, undowork.xid)) {
-            t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[i].pid = gs_thread_self();
-            t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[i].rollbackStartTime = GetCurrentTimestamp();
-            break;
-        }
-    }
+    myIdx = undowork.statusIdx;
 
     Assert(undowork.dbid != InvalidOid);
 
     t_thrd.proc_cxt.PostInit->SetDatabaseAndUser(NULL, undowork.dbid, NULL);
     databaseExists = t_thrd.proc_cxt.PostInit->InitUndoWorker();
 
+    t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[myIdx].pid = gs_thread_self();
+    t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[myIdx].rollbackStartTime =
+        GetCurrentTimestamp();
+
     SetProcessingMode(NormalProcessing);
     pgstat_report_appname("UndoWorker");
     pgstat_report_activity(STATE_IDLE, NULL);
 
+start_rollback:
     if (databaseExists) {
         /* Perform the actual rollback */
         UndoPerformWork(&undowork);
@@ -329,8 +374,23 @@ NON_EXEC_STATIC void UndoWorkerMain()
                 undowork.slotPtr)));
         RemoveRollbackRequest(undowork.xid, undowork.startUndoPtr, gs_thread_self());
     }
+    while (retryTimes < MAX_RETRY_TIMES && !t_thrd.undoworker_cxt.got_SIGTERM) {
+        if (pmState == PM_WAIT_BACKENDS) {
+            break;
+        }
+        if (AsyncRollbackWorkerGetWorkFromHashTable(&undowork)) {
+            t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[myIdx].xid = undowork.xid;
+            t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[myIdx].startUndoPtr =
+                undowork.startUndoPtr;
+            t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[myIdx].rollbackStartTime =
+                GetCurrentTimestamp();
+            rollbacked++;
+            goto start_rollback;
+        }
+        retryTimes++;
+    }
 
 shutdown:
-    ereport(LOG, (errmsg("UndoWorker: shutting down")));
+    ereport(LOG, (errmsg("UndoWorker: shutting down, rollback xacts %d.", rollbacked)));
     proc_exit(0);
 }
