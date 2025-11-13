@@ -56,26 +56,8 @@ CREATE FUNCTION pg_catalog.gs_stat_walrecvwriter(
 )
 RETURNS SETOF record LANGUAGE INTERNAL ROWS 1 as 'gs_stat_walrecvwriter' stable;
 
-DO $$
-DECLARE
-    ans boolean;
-BEGIN
-select case when count(*)=1 then true else false end from (select * from pg_conversion where conname = 'gb18030_2022_to_utf8' limit 1) into ans;
-    if ans = true THEN
-        comment on conversion gb18030_2022_to_utf8 is 'conversion for GB18030_2022 to UTF8';
-    end if;
-END$$;
-
-DO $$
-DECLARE
-    ans boolean;
-BEGIN
-select case when count(*)=1 then true else false end from (select * from pg_conversion where conname = 'utf8_to_gb18030_2022' limit 1) into ans;
-    if ans = true THEN
-        comment on conversion utf8_to_gb18030_2022 is 'conversion for UTF8 to GB18030_2022';
-    end if;
-END$$;
-
+delete from pg_description where classoid = 2607 and description = 'conversion for GB18030_2022 to UTF8';
+delete from pg_description where classoid = 2607 and description = 'conversion for UTF8 to GB18030_2022';
 
 DROP FUNCTION IF EXISTS pg_catalog.gs_hot_standby_space_info() cascade;
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_PROC, 6218;
