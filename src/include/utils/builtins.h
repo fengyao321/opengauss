@@ -590,6 +590,8 @@ extern void pg_ltoa(int32 l, char* a);
 extern void pg_ltoa(int32 l, char* a, int* len);
 extern void pg_lltoa(int64 ll, char* a);
 extern void pg_lltoa(int64 ll, char* a, int* len);
+extern void pg_ultoa(uint32 value, char* a);
+extern void pg_ulltoa(uint64 value, char* a);
 extern void pg_i128toa(int128 value, char* a, int length);
 extern char* pg_ultostr(char* str, uint32 value);
 extern char* pg_ultostr_zeropad(char* str, uint32 value, int min_width);
