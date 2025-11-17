@@ -1,0 +1,154 @@
+\set VERBOSITY terse
+-- predictability
+SET synchronous_commit = on;
+SET
+DROP TABLE IF EXISTS table_with_pk;
+NOTICE:  table "table_with_pk" does not exist, skipping
+DROP TABLE
+DROP TABLE IF EXISTS table_without_pk;
+NOTICE:  table "table_without_pk" does not exist, skipping
+DROP TABLE
+DROP TABLE IF EXISTS table_with_unique;
+NOTICE:  table "table_with_unique" does not exist, skipping
+DROP TABLE
+CREATE TABLE table_with_pk (
+a	smallserial,
+b	smallint,
+c	int,
+d	bigint,
+e	numeric(5,3),
+f	real not null,
+g	double precision,
+h	char(10),
+i	varchar(30),
+j	text,
+k	bit varying(20),
+l	timestamp,
+m	date,
+n	boolean not null,
+o	json,
+p	tsvector,
+PRIMARY KEY(b, c, d)
+);
+NOTICE:  CREATE TABLE will create implicit sequence "table_with_pk_a_seq" for serial column "table_with_pk.a"
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "table_with_pk_pkey" for table "table_with_pk"
+CREATE TABLE
+CREATE TABLE table_without_pk (
+a	smallserial,
+b	smallint,
+c	int,
+d	bigint,
+e	numeric(5,3),
+f	real not null,
+g	double precision,
+h	char(10),
+i	varchar(30),
+j	text,
+k	bit varying(20),
+l	timestamp,
+m	date,
+n	boolean not null,
+o	json,
+p	tsvector
+);
+NOTICE:  CREATE TABLE will create implicit sequence "table_without_pk_a_seq" for serial column "table_without_pk.a"
+CREATE TABLE
+CREATE TABLE table_with_unique (
+a	smallserial,
+b	smallint,
+c	int,
+d	bigint,
+e	numeric(5,3) not null,
+f	real not null,
+g	double precision not null,
+h	char(10),
+i	varchar(30),
+j	text,
+k	bit varying(20),
+l	timestamp,
+m	date,
+n	boolean not null,
+o	json,
+p	tsvector,
+UNIQUE(g, n)
+);
+NOTICE:  CREATE TABLE will create implicit sequence "table_with_unique_a_seq" for serial column "table_with_unique.a"
+NOTICE:  CREATE TABLE / UNIQUE will create implicit index "table_with_unique_g_n_key" for table "table_with_unique"
+CREATE TABLE
+-- INSERT
+INSERT INTO table_with_pk (b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) VALUES(1, 2, 3, 3.54, 876.563452345, 1.23, 'teste', 'testando', 'um texto longo', B'001110010101010', '2013-11-02 17:30:52', '2013-02-04', true, '{ "a": 123 }', 'Old Old Parr'::tsvector);
+INSERT 0 1
+INSERT INTO table_without_pk (b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) VALUES(1, 2, 3, 3.54, 876.563452345, 1.23, 'teste', 'testando', 'um texto longo', B'001110010101010', '2013-11-02 17:30:52', '2013-02-04', true, '{ "a": 123 }', 'Old Old Parr'::tsvector);
+INSERT 0 1
+INSERT INTO table_with_unique (b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) VALUES(1, 2, 3, 3.54, 876.563452345, 1.23, 'teste', 'testando', 'um texto longo', B'001110010101010', '2013-11-02 17:30:52', '2013-02-04', true, '{ "a": 123 }', 'Old Old Parr'::tsvector);
+INSERT 0 1
+SELECT 'init' FROM pg_create_logical_replication_slot('regression_slot', 'wal2json');
+ ?column? 
+----------
+ init
+(1 row)
+
+-- DELETE: no pk
+DELETE FROM table_without_pk WHERE b = 1;
+DELETE 1
+-- DELETE: pk
+DELETE FROM table_with_pk WHERE b = 1;
+DELETE 1
+-- DELETE: unique
+DELETE FROM table_with_unique WHERE b = 1;
+DELETE 1
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '1', 'pretty-print', '1', 'include-typmod', '0');
+                                 data                                  
+-----------------------------------------------------------------------
+ {                                                                    +
+         "change": [                                                  +
+                 {                                                    +
+                         "kind": "delete",                            +
+                         "schema": "public",                          +
+                         "table": "table_without_pk"             }    +
+         ]                                                            +
+ }
+ {                                                                    +
+         "change": [                                                  +
+                 {                                                    +
+                         "kind": "delete",                            +
+                         "schema": "public",                          +
+                         "table": "table_with_pk",                    +
+                         "oldkeys": {                                 +
+                                 "keynames": ["b", "c", "d"],         +
+                                 "keytypes": ["int2", "int4", "int8"],+
+                                 "keyvalues": [1, 2, 3]               +
+                         }                                            +
+                 }                                                    +
+         ]                                                            +
+ }
+ {                                                                    +
+         "change": [                                                  +
+                 {                                                    +
+                         "kind": "delete",                            +
+                         "schema": "public",                          +
+                         "table": "table_with_unique"            }    +
+         ]                                                            +
+ }
+(3 rows)
+
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2');
+WARNING:  no tuple identifier for DELETE in table "public"."table_without_pk"
+WARNING:  no tuple identifier for DELETE in table "public"."table_with_unique"
+                                                                                             data                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"action":"B"}
+ {"action":"C"}
+ {"action":"B"}
+ {"action":"D","schema":"public","table":"table_with_pk","identity":[{"name":"b","type":"smallint","value":1},{"name":"c","type":"integer","value":2},{"name":"d","type":"bigint","value":3}]}
+ {"action":"C"}
+ {"action":"B"}
+ {"action":"C"}
+(7 rows)
+
+SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
+ ?column? 
+----------
+ stop
+(1 row)
+
