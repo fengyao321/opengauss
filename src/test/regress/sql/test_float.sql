@@ -100,5 +100,34 @@ call pak1.p1();
 DROP PACKAGE pak1;
 
 reset behavior_compat_options;
+
+set extra_float_digits to 3;
+create table test1(c1 float8);
+create table test2(c1 number(1000,0));
+prepare s1(float8) as insert into test1 (c1) values ($1);
+prepare s2(float8) as insert into test2 (c1) values ($1);
+execute s1  (1709468119209981);
+execute s2  (1709468119209981);
+select * from test1;
+select * from test2;
+
+create table test3(c1 float4);
+create table test4(c1 number(1000,0));
+prepare s3(float4) as insert into test3 (c1) values ($1);
+prepare s4(float4) as insert into test4 (c1) values ($1);
+execute s3  (1709468);
+execute s4  (1709468);
+select * from test3;
+select * from test4;
+
+deallocate s1;
+deallocate s2;
+deallocate s3;
+deallocate s4;
+drop table test1;
+drop table test2;
+drop table test3;
+drop table test4;
+
 reset current_schema;
 drop schema test_float cascade;
