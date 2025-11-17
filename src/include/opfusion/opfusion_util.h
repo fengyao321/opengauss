@@ -145,6 +145,14 @@ const int OPFUSION_FUNCTION_ID_MAX_HASH_SIZE = 203;
 
 /* length of function_id should not more than OPFUSION_FUNCTION_ID_MAX_HASH_SIZE */
 const Oid function_id[] = {
+    141,  /* int4mul */
+    152,  /* int2mul */
+    153,  /* int2div */
+    154,  /* int4div */
+    176,  /* int2pl */
+    177,  /* int4pl */
+    180,  /* int2mi */
+    181,  /* int4mi */
     311,  /* convert float4 to float8 */
     312,  /* convert float8 to float4 */
     313,  /* convert int2 to int4 */
@@ -158,6 +166,10 @@ const Oid function_id[] = {
     407,  /* convert text to name */
     408,  /* convert name to char(n) */
     409,  /* convert char(n) to name */
+    463,  /* int8pl */
+    464,  /* int8mi */
+    465,  /* int8mul */
+    466,  /* int8div */
     480,  /* convert int8 to int4 */
     668,  /* adjust char() to typmod length */
     669,  /* adjust varchar() to typmod length */
