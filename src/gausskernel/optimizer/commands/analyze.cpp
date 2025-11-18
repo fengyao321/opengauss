@@ -5423,7 +5423,6 @@ static void compute_scalar_stats(
                 if (toast_raw_datum_size(value) > WIDTH_THRESHOLD) {
                     toowide_cnt++;
                     toowideflag = true;
-                    continue;
                 }
                 value = PointerGetDatum(PG_DETOAST_DATUM(value));
             } else if (is_varwidth) {
