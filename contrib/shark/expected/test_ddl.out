@@ -304,6 +304,80 @@ select * from view3;
  a
 (1 row)
 
+declare
+    output1 nvarchar(max);
+    output2 nvarchar(max);
+    output3 nvarchar(max);
+    output4 nvarchar(max);
+begin
+    create table case0005(col1 int, col2 nvarchar(max), col3 nvarchar(50), col4 nvarchar, col nvarchar2(max), col6 nvarchar2(50), col7 nvarchar2);
+    insert into case0005 values(1, 'abcd', 'abcd', 'a', 'abcd','abcd','a');
+    select col2 into output1 from case0005 where col1 = 1;
+    raise info 'INFO: output1 is %',output1;
+    select col4 into output2 from case0005 where col1 = 1;
+    raise info 'INFO: output2 is %',output2;
+    select col into output3 from case0005 where col1 = 1;
+    raise info 'INFO: output3 is %',output3;
+    select col7 into output4 from case0005 where col1 = 1;
+    raise info 'INFO: output4 is %',output4;
+END;
+/
+INFO:  INFO: output1 is abcd
+INFO:  INFO: output2 is a
+INFO:  INFO: output3 is abcd
+INFO:  INFO: output4 is a
+CREATE OR REPLACE FUNCTION test_case0001() RETURNS VOID AS
+$$
+DECLARE
+    output1 nvarchar(max);
+    output2 nvarchar(max);
+    output3 nvarchar(max);
+    output4 nvarchar(max);
+BEGIN
+    create table case0001(col1 int, col2 nvarchar(max), col3 nvarchar(50), col4 nvarchar, col nvarchar2(max), col6 nvarchar2(50), col7 nvarchar2);
+    insert into case0001 values(1, 'abcd', 'abcd', 'a', 'abcd','abcd','a');
+    select col2 into output1 from case0001 where col1 = 1;
+    raise info 'INFO: output1 is %',output1;
+    select col4 into output2 from case0001 where col1 = 1;
+    raise info 'INFO: output2 is %',output2;
+    select col into output3 from case0001 where col1 = 1;
+    raise info 'INFO: output3 is %',output3;
+    select col7 into output4 from case0001 where col1 = 1;
+    raise info 'INFO: output4 is %',output4;
+END;
+$$ LANGUAGE plpgsql;
+select test_case0001();
+INFO:  INFO: output1 is abcd
+CONTEXT:  referenced column: test_case0001
+INFO:  INFO: output2 is a
+CONTEXT:  referenced column: test_case0001
+INFO:  INFO: output3 is abcd
+CONTEXT:  referenced column: test_case0001
+INFO:  INFO: output4 is a
+CONTEXT:  referenced column: test_case0001
+ test_case0001 
+---------------
+ 
+(1 row)
+
+declare
+    output1 nvarchar(max);
+    output2 nvarchar2(max);
+begin
+END;
+/
+select null::nvarchar(max);
+ nvarchar2 
+-----------
+ 
+(1 row)
+
+select null::nvarchar2(max);
+ nvarchar2 
+-----------
+ 
+(1 row)
+
 set d_format_behavior_compat_options = 'enable_sbr_identifier';
 drop table if exists t1;
 NOTICE:  table "t1" does not exist, skipping
@@ -790,7 +864,7 @@ Options: orientation=row, compression=no
 
 drop table t1;
 drop schema test_d_ddl cascade;
-NOTICE:  drop cascades to 11 other objects
+NOTICE:  drop cascades to 14 other objects
 DETAIL:  drop cascades to table animals
 drop cascades to table food
 drop cascades to function insert_food_fun1()
@@ -802,3 +876,6 @@ drop cascades to table test4
 drop cascades to view view1
 drop cascades to view view2
 drop cascades to view view3
+drop cascades to table case0005
+drop cascades to function test_case0001()
+drop cascades to table case0001

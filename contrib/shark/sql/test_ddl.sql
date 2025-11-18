@@ -99,6 +99,58 @@ select * from view1;
 select * from view2;
 select * from view3;
 
+declare
+    output1 nvarchar(max);
+    output2 nvarchar(max);
+    output3 nvarchar(max);
+    output4 nvarchar(max);
+begin
+    create table case0005(col1 int, col2 nvarchar(max), col3 nvarchar(50), col4 nvarchar, col nvarchar2(max), col6 nvarchar2(50), col7 nvarchar2);
+    insert into case0005 values(1, 'abcd', 'abcd', 'a', 'abcd','abcd','a');
+    select col2 into output1 from case0005 where col1 = 1;
+    raise info 'INFO: output1 is %',output1;
+    select col4 into output2 from case0005 where col1 = 1;
+    raise info 'INFO: output2 is %',output2;
+    select col into output3 from case0005 where col1 = 1;
+    raise info 'INFO: output3 is %',output3;
+    select col7 into output4 from case0005 where col1 = 1;
+    raise info 'INFO: output4 is %',output4;
+END;
+/
+
+CREATE OR REPLACE FUNCTION test_case0001() RETURNS VOID AS
+$$
+DECLARE
+    output1 nvarchar(max);
+    output2 nvarchar(max);
+    output3 nvarchar(max);
+    output4 nvarchar(max);
+BEGIN
+    create table case0001(col1 int, col2 nvarchar(max), col3 nvarchar(50), col4 nvarchar, col nvarchar2(max), col6 nvarchar2(50), col7 nvarchar2);
+    insert into case0001 values(1, 'abcd', 'abcd', 'a', 'abcd','abcd','a');
+    select col2 into output1 from case0001 where col1 = 1;
+    raise info 'INFO: output1 is %',output1;
+    select col4 into output2 from case0001 where col1 = 1;
+    raise info 'INFO: output2 is %',output2;
+    select col into output3 from case0001 where col1 = 1;
+    raise info 'INFO: output3 is %',output3;
+    select col7 into output4 from case0001 where col1 = 1;
+    raise info 'INFO: output4 is %',output4;
+END;
+$$ LANGUAGE plpgsql;
+
+select test_case0001();
+
+declare
+    output1 nvarchar(max);
+    output2 nvarchar2(max);
+begin
+END;
+/
+
+select null::nvarchar(max);
+select null::nvarchar2(max);
+
 set d_format_behavior_compat_options = 'enable_sbr_identifier';
 drop table if exists t1;
 CREATE TABLE t1(id [int]);
