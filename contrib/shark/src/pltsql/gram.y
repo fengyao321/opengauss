@@ -292,6 +292,7 @@ static void yylex_object_type_selfparam(char** fieldnames,
 static void CheckParallelCursorOpr(PLpgSQL_stmt_fetch* fetch);
 static void HandleSubprogram();
 static void HandleBlockLevel();
+static bool retrieve_from_sbr(char** type_name);
 %}
 
 %expect 0
@@ -10903,10 +10904,12 @@ read_datatype(int tok)
         }
     } else {
         u_sess->plsql_cxt.plpgsql_yylloc = plpgsql_yylloc;
+        bool is_sbr = retrieve_from_sbr(&type_name);
         result = parse_datatype(type_name, startlocation);
-
         pfree_ext(ds.data);
-
+        if(is_sbr) {
+            pfree_ext(type_name);
+        }
         pltsql_push_back_token(tok);
     }
     
@@ -15869,4 +15872,36 @@ static void HandleSubprogram(){
 static void HandleBlockLevel() {
     if(u_sess->plsql_cxt.curr_compile_context->plpgsql_curr_compile_package == NULL)
         u_sess->plsql_cxt.block_level++;
+}
+
+static bool retrieve_from_sbr(char** type_name) {
+    if (!ENABLE_SBR_IDENTIFIER) {
+        return false;
+    }
+    bool is_sbr = false;
+    int len = 0;
+    if ((*type_name)[0] == '[') {
+        int start = 0;
+        len = strlen(*type_name);
+        while (start < len) {
+            if ((*type_name)[start] == ']') {
+                is_sbr = true;
+                break;
+            }
+            start++;
+        }
+    }
+    if (is_sbr) {
+        char* norm_type_name = (char*)palloc(sizeof(char) * (len - 1));
+        int ind = 0;
+        for (int i = 0; i < len; i++) {
+            if ((*type_name)[i] == '[' || (*type_name)[i] == ']') {
+                continue;
+            }
+            norm_type_name[ind++] = (*type_name)[i];
+        }
+        norm_type_name[ind] = '\0';
+        *type_name = norm_type_name;
+    }
+    return is_sbr;
 }

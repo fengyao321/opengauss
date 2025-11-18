@@ -878,6 +878,27 @@ $$;
 select show_value('oiiaeooiiai');
 drop function if exists show_value([char](30));
 
+declare
+ v1 [bigint];
+begin 
+    raise info 'INFO:执行中';
+end;
+/
+
+declare
+ v1 [double precision];
+begin 
+    raise info 'INFO:执行中';
+end;
+/
+
+declare
+ v1 [binary_double];
+begin 
+    raise info 'INFO:执行中';
+end;
+/
+
 select '1'::[int] AS result;
 select '1'::[smallint] AS result;
 select '1'::[binary_integer] AS result;

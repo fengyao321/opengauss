@@ -3343,4 +3343,9 @@ Numeric: TSQL_DOUBLE_PRECISION
 					$$ = SystemTypeName("float8");
 					$$->location = @1;
 				}
+		| TSQL_BIGINT
+				{
+					$$ = SystemTypeName("int8");
+					$$->location = @1;
+				}
 		;
