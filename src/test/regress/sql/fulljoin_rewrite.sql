@@ -67,3 +67,21 @@ drop table fj_table0;
 -- contain system column, don't rewrite full join
 explain (costs off) select t1.oid from pg_class t1 full join pg_constraint t2 on t1.relname = t2.conname;
 
+
+create table t1(c1 int);
+create table t2(c1 int);
+
+insert into t1 values (1);
+insert into t2 values (1);
+
+select 
+    1 as a1
+  from ((select 1 as a1
+          from (t1 as ref_0 full outer join t1 as ref_1
+              on (true ))
+         ) as subq_0
+       full outer join t2 as ref_2
+      on (subq_0.a1 = ref_2.c1 ));
+
+drop table t1;
+drop table t2;

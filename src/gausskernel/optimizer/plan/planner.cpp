@@ -1316,6 +1316,33 @@ static inline bool contain_placeholdervar(Node *var_list)
     return result;
 }
 
+static bool join_equal_walker(Node* node, void* context)
+{
+    if (node == NULL) {
+        return false;
+    }
+   
+    if (IsA(node, JoinExpr)) {
+        JoinExpr* join = (JoinExpr*)node;
+        if (contain_placeholdervar(join->quals)) {
+            return true;
+        }
+        if (expression_tree_walker(join->larg, (bool (*)())join_equal_walker, context)) {
+            return true;
+        }
+
+        return expression_tree_walker(join->rarg, (bool (*)())join_equal_walker, context);
+    } else if (IsA(node, FromExpr)) {
+         FromExpr* from = (FromExpr*)node;
+         if (contain_placeholdervar(from->quals)) {
+            return true;
+         }
+         return expression_tree_walker((Node*)from->fromlist, (bool (*)())join_equal_walker, context);
+    }
+    return expression_tree_walker(node, (bool (*)())join_equal_walker, context);
+}
+
+
 static void preprocess_ru_is_under_start_with(PlannerInfo* root)
 {
     PlannerInfo* parent = root->parent_root;
@@ -1898,7 +1925,7 @@ Plan* subquery_planner(PlannerGlobal* glob, Query* parse, PlannerInfo* parent_ro
                     support_rewrite = false;
                     break;
                 }
-                if (root->parse->jointree != NULL && contain_placeholdervar(root->parse->jointree->quals)) {
+                if (join_equal_walker((Node*)root->parse->jointree, NULL)) {
                     support_rewrite = false;
                     break;
                 }
