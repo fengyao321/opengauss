@@ -446,8 +446,8 @@ DROP TABLE departments;
 
 create table test_event_log(id int);
 
-CREATE EVENT IF NOT EXISTS test_event ON SCHEDULE EVERY 1 MINUTE
- STARTS CURRENT_TIMESTAMP
+CREATE EVENT IF NOT EXISTS test_event ON SCHEDULE EVERY 30 MINUTE
+ STARTS CURRENT_TIMESTAMP + interval 33 minute
  DO INSERT INTO test_event_log VALUES (1);
 
 select * from INFORMATION_SCHEMA.events;
