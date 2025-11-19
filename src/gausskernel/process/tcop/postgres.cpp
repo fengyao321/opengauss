@@ -12963,7 +12963,7 @@ bool checkCompArgs(const char *compFormat)
     }
 
     if (pg_strncasecmp(compFormat, g_dbCompatArray[DB_CMPT_D].name, sizeof(g_dbCompatArray[DB_CMPT_D].name)) == 0 &&
-        t_thrd.proc->workingVersionNum < SUPPORT_D_FORMAT_DATABASE) {
+        !SUPPORT_D_FORMAT_DATABASE_MACRO) {
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("D-Format database not yet supported.")));
     }
     return true;

@@ -340,6 +340,22 @@ static const struct behavior_compat_entry restrict_nonsystem_relation_kind[OPT_R
     (bool(u_sess->utils_cxt.restrict_nonsystem_relation_kind_flags \
     & OPT_RESTRCIT_NONSYSTEM_RELATION_KIND_FOREIGN))
 
+/*
+ * 92975 is version num of SUPPORT_D_FORMAT_DATABASE in v6.0.3,
+ * 93000 is the first version num of 7.0.0-RC1. So also allow D-database
+ * between them.
+ */
+#define SUPPORT_D_FORMAT_DATABASE_MACRO \
+    (t_thrd.proc->workingVersionNum >= SUPPORT_D_FORMAT_DATABASE || \
+     (t_thrd.proc->workingVersionNum >= 92975 && \
+     t_thrd.proc->workingVersionNum < 93000))
+
+/* similar with SUPPORT_D_FORMAT_DATABASE_MACRO */
+#define IDENTITY_VERSION_NUM_MACRO \
+    (t_thrd.proc->workingVersionNum >= IDENTITY_VERSION_NUM || \
+     (t_thrd.proc->workingVersionNum >= 92976 && \
+     t_thrd.proc->workingVersionNum < 93000))
+
 /* define database compatibility Attribute */
 typedef struct {
     int flag;

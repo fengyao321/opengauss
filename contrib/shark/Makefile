@@ -8,7 +8,7 @@ shark--3.0.sql: shark--1.0.sql upgrade_script/shark--1.0--2.0.sql upgrade_script
 	cat $^ > $@
 
 DATA_built = shark--3.0.sql
-DATA = shark--3.0.sql upgrade_script/shark--1.0--2.0.sql upgrade_script/shark--2.0--3.0.sql rollback_script/shark--3.0--2.0.sql rollback_script/shark--2.0--1.0.sql
+DATA = shark--3.0.sql upgrade_script/shark--1.0--2.0.sql upgrade_script/shark--2.0--3.0.sql rollback_script/shark--3.0--2.0.sql rollback_script/shark--2.0--1.0.sql upgrade_script/shark--2.0--2.0.1.sql rollback_script/shark--2.0.1--2.0.sql
 REGRESS = dummy
 
 OBJS = shark.o dbcc.o varlena.o sqlvariant.o datefuncs.o uuidfuncs.o

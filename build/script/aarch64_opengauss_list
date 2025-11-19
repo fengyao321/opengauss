@@ -169,6 +169,8 @@
 ./share/postgresql/extension/shark--3.0--2.0.sql
 ./share/postgresql/extension/shark--1.0--2.0.sql
 ./share/postgresql/extension/shark--2.0--1.0.sql
+./share/postgresql/extension/shark--2.0--2.0.1.sql
+./share/postgresql/extension/shark--2.0.1--2.0.sql
 ./share/postgresql/extension/shark.control
 ./share/postgresql/extension/rack_dev--1.0.sql
 ./share/postgresql/extension/rack_dev.control

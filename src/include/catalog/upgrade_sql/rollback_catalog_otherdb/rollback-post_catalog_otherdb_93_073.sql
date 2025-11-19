@@ -1,5 +1,18 @@
 SET search_path TO information_schema;
 
+do $$
+DECLARE
+ans boolean;
+BEGIN
+    for ans in select case when count(*)=1 then true else false end as ans  from (select extname from pg_extension where extname='shark' and extversion = '2.0')
+    LOOP
+        if ans = true then
+            ALTER EXTENSION shark UPDATE TO '2.0.1';
+        end if;
+    exit;
+    END LOOP;
+END$$;
+
 DROP VIEW IF EXISTS character_sets CASCADE;
 CREATE OR REPLACE VIEW character_sets AS
     SELECT CAST(null AS sql_identifier) AS character_set_catalog,
@@ -64,7 +77,7 @@ CREATE OR REPLACE VIEW collations AS
 GRANT SELECT ON collations TO PUBLIC;
 
 
-DROP VIEW IF EXISTS columns CASCADE;
+DROP VIEW IF EXISTS information_schema.columns CASCADE;
 CREATE OR REPLACE VIEW columns AS
     SELECT CAST(pg_catalog.current_database() AS sql_identifier) AS table_catalog,
            CAST(nc.nspname AS sql_identifier) AS table_schema,
@@ -554,7 +567,7 @@ CREATE OR REPLACE VIEW table_constraints AS
 
 GRANT SELECT ON table_constraints TO PUBLIC;
 
-DROP VIEW IF EXISTS tables CASCADE;
+DROP VIEW IF EXISTS information_schema.tables CASCADE;
 CREATE OR REPLACE VIEW tables AS
     SELECT CAST(pg_catalog.current_database() AS sql_identifier) AS table_catalog,
            CAST(nc.nspname AS sql_identifier) AS table_schema,
@@ -778,5 +791,18 @@ DROP FUNCTION IF EXISTS pg_catalog.pg_get_index_type(oid, int2);
 DROP FUNCTION IF EXISTS pg_catalog.attnum_used_by_indexprs(text, int2);
 DROP FUNCTION IF EXISTS pg_catalog.pg_get_partition_expression(oid, int, bool);
 DROP FUNCTION IF EXISTS pg_catalog.partstrategy_to_full_str(input "char");
+
+do $$
+DECLARE
+ans boolean;
+BEGIN
+    for ans in select case when count(*)=1 then true else false end as ans  from (select extname from pg_extension where extname='shark' and extversion = '2.0.1')
+    LOOP
+        if ans = true then
+            ALTER EXTENSION shark UPDATE TO '2.0';
+        end if;
+    exit;
+    END LOOP;
+END$$;
 
 RESET search_path;

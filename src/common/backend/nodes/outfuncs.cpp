@@ -6039,7 +6039,7 @@ static void _outConstraint(StringInfo str, Constraint* node)
             break;
 
         case CONSTR_IDENTITY:
-            if (t_thrd.proc->workingVersionNum >= IDENTITY_VERSION_NUM) {
+            if (IDENTITY_VERSION_NUM_MACRO) {
                 appendStringInfo(str, "IDENTITY");
                 WRITE_CHAR_FIELD(generated_when);
             }
