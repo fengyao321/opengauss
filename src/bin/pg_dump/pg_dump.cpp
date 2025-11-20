@@ -10716,6 +10716,13 @@ void getTableAttrs(Archive* fout, TableInfo* tblinfo, int numTables)
                 attrdefs[j].adnum = adnum;
                 attrdefs[j].generatedCol = *(PQgetvalue(res, j, 4));
                 attrdefs[j].adef_expr = gs_strdup(PQgetvalue(res, j, 3));
+                if (findDBCompatibility(fout, PQdb(GetConnection(fout))) && hasSpecificExtension(fout, "dolphin") &&
+                    strstr(attrdefs[j].adef_expr, "anonymous_enum") != NULL) {
+                    char* castStart = strstr(attrdefs[j].adef_expr, "::");
+                    if (castStart != nullptr) {
+                        *castStart = '\0';
+                    }
+                }
                 if (tbinfo->autoinc_attnum == 0) {
                     tbinfo->autoinc_attnum = (strcmp(attrdefs[j].adef_expr, "AUTO_INCREMENT") == 0) ? adnum : 0;
                 }
