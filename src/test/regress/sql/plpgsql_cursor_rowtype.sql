@@ -68,7 +68,21 @@ END;
 
 drop table test_2 cascade;
 
+declare
+v1 unknown;
+begin
+ raise info 'INFO:执行中';
+end;
+/
+
 set behavior_compat_options='allow_procedure_compile_check,disable_record_type_in_dml';
+
+declare
+v1 unknown;
+begin
+ raise info 'INFO:执行中';
+end;
+/
 
 create table t1(col1 int ,col2 varchar(10));
 insert into t1 values(1,'one');
