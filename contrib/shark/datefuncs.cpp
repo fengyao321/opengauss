@@ -45,6 +45,10 @@
 #define MAX_MICRO_SECOND 1000000
 #define INTERVAL_NUM 35
 #define INTERVAL_KEY_SIZE 16
+#define DATEPART_MAX_VALUE (2958463)         /* maximum value for datepart general_integer_datatype */
+#define DATEPART_MIN_VALUE (-53690)          /* minimun value for datepart general_integer_datatype */
+#define DAYS_BETWEEN_YEARS_1900_TO_2000 (36524)   /* number of days present in between 1/1/1900 and 1/1/2000 */
+
 
 static HTAB *IntervalHash = NULL;
 extern "C" Datum dateaddtimestamp(PG_FUNCTION_ARGS);
@@ -63,6 +67,8 @@ extern "C" Datum datenametimestamptz(PG_FUNCTION_ARGS);
 extern "C" Datum datenamedate(PG_FUNCTION_ARGS);
 extern "C" Datum datenametime(PG_FUNCTION_ARGS);
 extern "C" Datum datenametimetz(PG_FUNCTION_ARGS);
+extern "C" Datum datepartint(PG_FUNCTION_ARGS);
+
 
 PG_FUNCTION_INFO_V1(dateaddtimestamp);
 PG_FUNCTION_INFO_V1(dateaddtimestamptz);
@@ -80,6 +86,8 @@ PG_FUNCTION_INFO_V1(datenametimestamptz);
 PG_FUNCTION_INFO_V1(datenamedate);
 PG_FUNCTION_INFO_V1(datenametime);
 PG_FUNCTION_INFO_V1(datenametimetz);
+PG_FUNCTION_INFO_V1(datepartint);
+
 
 typedef struct DataInfo {
     unsigned long year = 0;
@@ -750,6 +758,38 @@ Datum datepartdate(PG_FUNCTION_ARGS)
     get_date_part_by_string(args, tm, 0, fsec, res, false);
     PG_RETURN_INT32(res);
 }
+
+Timestamp number_to_timestamp(float8 df_tz)
+{
+    /* Checking for the limits for general_integer_datatype */
+    if (df_tz > DATEPART_MAX_VALUE || df_tz < DATEPART_MIN_VALUE) {
+        ereport(ERROR,
+            (errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+            errmsg("Arithmetic overflow error converting expression to data type datetime.")));
+    }
+    return (Timestamp)(((df_tz) - DAYS_BETWEEN_YEARS_1900_TO_2000) * USECS_PER_DAY);
+}
+
+Datum datepartint(PG_FUNCTION_ARGS)
+{
+    Timestamp timestampVal;
+    int32 input = PG_GETARG_INT32(1);
+    char* args = PG_GETARG_CSTRING(0);
+    struct pg_tm tt;
+    struct pg_tm *tm = &tt;
+    fsec_t fsec = 0;
+    int res = 0;
+
+    timestampVal = number_to_timestamp((float8)input);
+    timestamp2tm(timestampVal, NULL, tm, &fsec, NULL, NULL);
+    if (!IS_VALID_JULIAN(tm->tm_year, tm->tm_mon, tm->tm_mday)) {
+        ereport(ERROR, (errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+            errmsg("date out of range")));
+    }
+    get_date_part_by_string(args, tm, 0, fsec, res, false);
+    PG_RETURN_INT32(res);
+}
+
 
 Datum dateparttime(PG_FUNCTION_ARGS)
 {
