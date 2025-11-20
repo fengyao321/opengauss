@@ -196,3 +196,12 @@ CAST(-1 AS INT) AS creadential_id,
 CAST(-1 AS INT) AS owning_principal_id,
 CAST(-1 AS INT) AS is_fixed_role
 FROM pg_catalog.pg_roles AS Role;
+
+-- datepart
+CREATE OR REPLACE FUNCTION sys.datepart(cstring, int)
+RETURNS integer
+language c
+immutable strict NOT FENCED NOT SHIPPABLE
+AS '$libdir/shark', $function$datepartint$function$;
+
+CREATE OR REPLACE FUNCTION sys.datepart(text, text) RETURNS integer LANGUAGE SQL STABLE as 'select sys.datepart($1::cstring, $2::timestamp without time zone)';

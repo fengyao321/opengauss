@@ -750,6 +750,9 @@ SELECT DATEPART(year,time'23:20:20');
 SELECT DATEPART(year,timetz'23:20:20');
 select datepart('','2023/3/31');
 select datepart(2022,'2023/3/31 11:25:35.123456789');
+select sys.datepart('year', 0);
+select sys.datepart('year', 1);
+select sys.datepart('year', 2020);
 
 --test getdate
 select getdate();

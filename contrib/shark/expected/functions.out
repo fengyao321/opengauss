@@ -2046,13 +2046,30 @@ SELECT DATEPART(year,timetz'23:20:20');
 
 select datepart('','2023/3/31');
 ERROR:  unrecognized role option ""
-CONTEXT:  referenced column: datepart
+CONTEXT:  SQL function "datepart" during inlining
+referenced column: datepart
 select datepart(2022,'2023/3/31 11:25:35.123456789');
-ERROR:  function datepart(integer, unknown) does not exist
-LINE 1: select datepart(2022,'2023/3/31 11:25:35.123456789');
-               ^
-HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
-CONTEXT:  referenced column: datepart
+ERROR:  unrecognized role option "2022"
+CONTEXT:  SQL function "datepart" during inlining
+referenced column: datepart
+select sys.datepart('year', 0);
+ datepart 
+----------
+     1900
+(1 row)
+
+select sys.datepart('year', 1);
+ datepart 
+----------
+     1900
+(1 row)
+
+select sys.datepart('year', 2020);
+ datepart 
+----------
+     1905
+(1 row)
+
 --test getdate
 select getdate();
 --?.*

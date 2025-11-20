@@ -58,3 +58,6 @@ and has_column_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), a
 and s.nspname not in ('information_schema', 'pg_catalog', 'dbe_pldeveloper', 'coverage', 'dbe_perf', 'cstore', 'db4ai');
 
 drop view if exists sys.server_principals;
+
+drop function if exists sys.datepart(cstring, int);
+drop function if exists sys.datepart(text, text);
