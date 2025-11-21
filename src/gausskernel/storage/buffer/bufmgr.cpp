@@ -2601,7 +2601,7 @@ Buffer ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber fork
     Block bufBlock;
     bool found = false;
     bool isExtend = false;
-    bool isLocalBuf = SmgrIsTemp(smgr) || (ENABLE_DMS && relpersistence == 'u');
+    bool isLocalBuf = SmgrIsTemp(smgr);
     bool need_repair = false;
 
     *hit = false;
