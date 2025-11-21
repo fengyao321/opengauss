@@ -1197,8 +1197,6 @@ List *HnswSearchLayer(char *base, Datum q, List *ep, int ef, int lc, Relation in
                     node = CreatePairingHeapNode(e);
                     pairingheap_add(*discarded, &node->w_node);
                 }
-
-                continue;
             }
 
             if (enableEarlyStop && vNum == threshold) {
