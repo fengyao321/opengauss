@@ -53,7 +53,7 @@ const alias_names alias_list[ALIAS_LIST_LEN] = {
     {"binary_integer", INT_P},
     {"smallint", SMALLINT},
     {"tinyint", TINYINT},
-    {"bigint", BIGINT},
+    {"bigint", TSQL_BIGINT},
     {"float", FLOAT_P},
     {"real", REAL},
     {"double precision", TSQL_DOUBLE_PRECISION},

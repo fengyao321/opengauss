@@ -4521,6 +4521,27 @@ CONTEXT:  referenced column: show_value
 (1 row)
 
 drop function if exists show_value([char](30));
+declare
+ v1 [bigint];
+begin 
+    raise info 'INFO:执行中';
+end;
+/
+INFO:  INFO:执行中
+declare
+ v1 [double precision];
+begin 
+    raise info 'INFO:执行中';
+end;
+/
+INFO:  INFO:执行中
+declare
+ v1 [binary_double];
+begin 
+    raise info 'INFO:执行中';
+end;
+/
+INFO:  INFO:执行中
 select '1'::[int] AS result;
  result 
 --------
