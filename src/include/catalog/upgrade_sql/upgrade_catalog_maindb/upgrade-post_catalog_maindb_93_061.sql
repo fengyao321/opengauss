@@ -1,3 +1,6 @@
+do $$
+BEGIN
+IF working_version_num() < 92975 OR working_version_num() >= 93000 then
 DROP FUNCTION IF EXISTS pg_catalog.scale(numeric) CASCADE;
 SET LOCAL inplace_upgrade_next_system_object_oids=IUO_PROC, 8551;
 CREATE FUNCTION pg_catalog.scale(numeric)
@@ -25,3 +28,5 @@ IMMUTABLE;
 COMMENT ON FUNCTION pg_catalog.scale(numeric) IS 'return the count of decimal digits in the fractional part';
 COMMENT ON FUNCTION pg_catalog.make_timestamp(int4, int4, int4, int4, int4, float8) IS 'construct a timestamp';
 COMMENT ON FUNCTION pg_catalog.array_position(anyarray, int4) IS 'return the offset of a value in an array';
+END IF;
+END$$;
