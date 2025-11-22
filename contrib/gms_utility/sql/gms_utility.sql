@@ -504,6 +504,8 @@ call gms_utility.analyze_schema('test_utility_analyze', 'ESTIMATE', estimate_row
 call gms_utility.analyze_schema('test_utility_analyze', 'ESTIMATE', estimate_rows:=10000, estimate_percent:=101, method_opt:='FOR ALL COLUMNS SIZE 100');
 call gms_utility.analyze_schema('test_utility_analyze', 'ESTIMATE', estimate_rows:=10000, estimate_percent:=101, method_opt:='FOR ALL INDEXED COLUMNS');
 call gms_utility.analyze_schema('test_utility_analyze', 'ESTIMATE', estimate_rows:=10000, estimate_percent:=101, method_opt:='FOR ALL INDEXED COLUMNS SIZE 100');
+call gms_utility.analyze_schema('test_utility_analyze', 'ESTIMATE', estimate_rows:=1e+10);
+call gms_utility.analyze_schema('test_utility_analyze', 'ESTIMATE', estimate_rows:=1e+308);
 
 call gms_utility.analyze_schema('test_utility_analyze', 'COMPUTE');
 call gms_utility.analyze_schema('test_utility_analyze', 'COMPUTE', estimate_rows:=10000);

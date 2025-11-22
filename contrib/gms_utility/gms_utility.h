@@ -119,6 +119,7 @@ extern "C" Datum gms_comma_to_table(PG_FUNCTION_ARGS);
 extern "C" Datum gms_exec_ddl_statement(PG_FUNCTION_ARGS);
 extern "C" Datum gms_get_hash_value(PG_FUNCTION_ARGS);
 extern "C" Datum gms_table_to_comma(PG_FUNCTION_ARGS);
+extern Datum numeric_int8(PG_FUNCTION_ARGS);
 
 extern void RecompileSingleFunction(Oid func_oid, bool is_procedure);
 extern void RecompileSinglePackage(Oid package_oid, bool is_spec);

@@ -372,8 +372,7 @@ static AnalyzeVar* MakeAnalyzeVar(char* method, FunctionCallInfo fcinfo, int arg
     result->validPercent = !PG_ARGISNULL(argOffset + 1);
 
     if(result->validRows) {
-        estimateRows = PG_GETARG_NUMERIC(argOffset);
-        int64 rows = convert_short_numeric_to_int64_byscale(estimateRows, NUMERIC_DSCALE(estimateRows));
+        int64 rows = DatumGetInt64(DirectFunctionCall1(numeric_int8, PG_GETARG_DATUM(argOffset)));
         if (rows < 0) {
             pfree(result);
             ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR), 
@@ -382,8 +381,7 @@ static AnalyzeVar* MakeAnalyzeVar(char* method, FunctionCallInfo fcinfo, int arg
         result->estimateRows = rows;
     }
     if (!result->validRows && result->validPercent) {
-        estimatePercent = PG_GETARG_NUMERIC(argOffset + 1);
-        int64 percent = convert_short_numeric_to_int64_byscale(estimatePercent, NUMERIC_DSCALE(estimatePercent));
+        int64 percent = DatumGetInt64(DirectFunctionCall1(numeric_int8, PG_GETARG_DATUM(argOffset + 1)));
         if (percent < 0 || percent > 100) {
             pfree(result);
             ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR), 
