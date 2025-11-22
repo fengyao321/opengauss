@@ -2313,6 +2313,7 @@ Datum gms_table_to_comma(PG_FUNCTION_ARGS)
     bool nulls[2] = {false, true};
     int len = 0;
     StringInfo buf;
+    Datum result;
 
     tupdesc = CreateTemplateTupleDesc(2, false);
     TupleDescInitEntry(tupdesc, (AttrNumber)1, "tablen", INT4OID, -1, 0);
@@ -2332,7 +2333,8 @@ Datum gms_table_to_comma(PG_FUNCTION_ARGS)
         nulls[1] = false;
     }
 
+    result = HeapTupleGetDatum(heap_form_tuple(tupdesc, values, nulls));
     DestroyStringInfo(buf);
-    
-    return HeapTupleGetDatum(heap_form_tuple(tupdesc, values, nulls));
+    return result;
 }
+

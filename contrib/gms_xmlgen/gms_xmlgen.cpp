@@ -102,15 +102,13 @@ static XMLGenContext *get_xmlgen_context(int64 ctx_id)
 static void free_xmlgen_context(XMLGenContext *ctx)
 {
     if (ctx->memctx != NULL) {
+        MemoryContextReset(ctx->memctx);
         MemoryContextDelete(ctx->memctx);
     }
 
     MemoryContext oldcontext = MemoryContextSwitchTo(TOP_CONTEXT->memctx);
-
     TOP_CONTEXT->xmlgen_context_list = list_delete(TOP_CONTEXT->xmlgen_context_list, (void *)ctx);
-
     MemoryContextSwitchTo(oldcontext);
-    MemoryContextReset(ctx->memctx);
     pfree_ext(ctx);
 }
 
