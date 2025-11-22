@@ -9,3 +9,9 @@ select * from pg_cast where castsource in (114, 3802) order by castsource, castt
 select * from pg_opclass where opcfamily in (4033, 4034, 4035, 4036, 4037) order by opcfamily;
 select * from pg_amproc where amprocfamily in (4033, 4034, 4035, 4036, 4037) order by amprocfamily, amprocnum;
 select * from pg_amop where amopfamily in (4033, 4034, 4035, 4036, 4037) order by amopfamily, amopstrategy;
+
+create table tp(tpAttrs jsonb);
+insert into tp values ('{"mtu":1600, "uni":false,"vrf":null, "ipv6":[]}');
+select * from tp where (tpAttrs@>'{"uni":false}');
+select * from tp where not (tpAttrs@>'{"uni":true}');
+drop table tp;

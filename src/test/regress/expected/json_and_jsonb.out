@@ -124,11 +124,11 @@ select oid, * from pg_operator where oprleft in (114, 3802) order by oid;
  3243 | >       |           11 |       10 | b       | f           | f          |    3802 |     3802 |        16 |   3242 |      3244 | jsonb_gt                   | scalargtsel | scalargtjoinsel
  3244 | <=      |           11 |       10 | b       | f           | f          |    3802 |     3802 |        16 |   3245 |      3243 | jsonb_le                   | scalarltsel | scalarltjoinsel
  3245 | >=      |           11 |       10 | b       | f           | f          |    3802 |     3802 |        16 |   3244 |      3242 | jsonb_ge                   | scalargtsel | scalargtjoinsel
- 3246 | @>      |           11 |       10 | b       | f           | f          |    3802 |     3802 |        16 |      0 |      3250 | jsonb_contains             | contsel     | contjoinsel
+ 3246 | @>      |           11 |       10 | b       | f           | f          |    3802 |     3802 |        16 |      0 |         0 | jsonb_contains             | contsel     | contjoinsel
  3247 | ?       |           11 |       10 | b       | f           | f          |    3802 |       25 |        16 |      0 |         0 | jsonb_exists               | contsel     | contjoinsel
  3248 | ?|      |           11 |       10 | b       | f           | f          |    3802 |     1009 |        16 |      0 |         0 | jsonb_exists_any           | contsel     | contjoinsel
  3249 | ?&      |           11 |       10 | b       | f           | f          |    3802 |     1009 |        16 |      0 |         0 | jsonb_exists_all           | contsel     | contjoinsel
- 3250 | <@      |           11 |       10 | b       | f           | f          |    3802 |     3802 |        16 |      0 |      3246 | jsonb_contained            | contsel     | contjoinsel
+ 3250 | <@      |           11 |       10 | b       | f           | f          |    3802 |     3802 |        16 |      0 |         0 | jsonb_contained            | contsel     | contjoinsel
  3251 | -       |           11 |       10 | b       | f           | f          |    3802 |       23 |      3802 |      0 |         0 | pg_catalog.jsonb_delete    | -           | -
  3252 | -       |           11 |       10 | b       | f           | f          |    3802 |       25 |      3802 |      0 |         0 | pg_catalog.jsonb_delete    | -           | -
  3253 | -       |           11 |       10 | b       | f           | f          |    3802 |     1009 |      3802 |      0 |         0 | pg_catalog.jsonb_delete    | -           | -
@@ -201,3 +201,18 @@ select * from pg_amop where amopfamily in (4033, 4034, 4035, 4036, 4037) order b
        4037 |         3802 |          3802 |            7 | s           |    3246 |       2742 |              0
 (11 rows)
 
+create table tp(tpAttrs jsonb);
+insert into tp values ('{"mtu":1600, "uni":false,"vrf":null, "ipv6":[]}');
+select * from tp where (tpAttrs@>'{"uni":false}');
+                       tpattrs                        
+------------------------------------------------------
+ {"mtu": 1600, "uni": false, "vrf": null, "ipv6": []}
+(1 row)
+
+select * from tp where not (tpAttrs@>'{"uni":true}');
+                       tpattrs                        
+------------------------------------------------------
+ {"mtu": 1600, "uni": false, "vrf": null, "ipv6": []}
+(1 row)
+
+drop table tp;
