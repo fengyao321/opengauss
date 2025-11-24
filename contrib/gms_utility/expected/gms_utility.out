@@ -822,6 +822,16 @@ call gms_utility.analyze_schema('test_utility_analyze', 'ESTIMATE', estimate_row
  
 (1 row)
 
+call gms_utility.analyze_schema('test_utility_analyze', 'ESTIMATE', estimate_rows:=1e+10);
+ analyze_schema 
+----------------
+ 
+(1 row)
+
+call gms_utility.analyze_schema('test_utility_analyze', 'ESTIMATE', estimate_rows:=1e+308);
+ERROR:  bigint out of range
+CONTEXT:  SQL statement "CALL gms_utility.analyze_schema_c_fun(schema,method,estimate_rows,estimate_percent,method_opt)"
+PL/pgSQL function gms_utility.analyze_schema(character varying,character varying,numeric,numeric,character varying) line 2 at PERFORM
 call gms_utility.analyze_schema('test_utility_analyze', 'COMPUTE');
  analyze_schema 
 ----------------
