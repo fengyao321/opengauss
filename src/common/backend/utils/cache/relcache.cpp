@@ -1372,8 +1372,7 @@ static struct CatalogRelationBuildParam catalogBuildParam[CATALOG_NUM] = {{Defau
     };
 
 // Get cluster information of relation
-//
-static void ClusterConstraintFetch(__inout Relation relation);
+static void ClusterConstraintFetch(Relation relation, Relation conrel, HeapTuple htup);
 
 /*
  *		Hash tables that index the relation cache
@@ -1423,7 +1422,7 @@ static void RelationInitBucketKey(Relation relation, HeapTuple tuple);
 static void RelationInitBucketInfo(Relation relation, HeapTuple tuple);
 
 static void AttrDefaultFetch(Relation relation);
-static void CheckConstraintFetch(Relation relation);
+static void CheckConstraintFetch(Relation relation, Relation conrel, HeapTuple htup, int *found);
 static List* insert_ordered_oid(List* list, Oid datum);
 static void IndexSupportInitialize(Relation relation, oidvector* indclass, StrategyNumber maxSupportNumber,
     AttrNumber maxAttributeNumber, bool is_btree_or_ubtree);
@@ -1433,6 +1432,7 @@ static void unlink_initfile(const char* initfilename);
 static void meta_rel_init_index_amroutine(Relation relation);
 static Relation RelationBuildDescExtended(Oid targetRelId, bool insertIt, bool buildkey);
 static void RelationReloadIndexInfoExtended(Relation relation);
+static void ConstraintFetch(Relation relation);
 
 /*
  *		ScanPgRelation
@@ -1687,6 +1687,7 @@ static void RelationBuildTupleDesc(Relation relation, bool onlyLoadInitDefVal)
     TupleConstr* constr = NULL;
     AttrDefault* attrdef = NULL;
     int ndef = 0;
+    bool fetch_constr = false;
 
     /* alter table instantly */
     bool hasInitDefval = false;
@@ -1701,6 +1702,7 @@ static void RelationBuildTupleDesc(Relation relation, bool onlyLoadInitDefVal)
         constr = (TupleConstr*)MemoryContextAllocZero(LocalMyDBCacheMemCxt(), sizeof(TupleConstr));
         constr->has_not_null = false;
         constr->has_generated_stored = false;
+        constr->has_disable_constr = false;
     }
 
     /*
@@ -1921,45 +1923,63 @@ static void RelationBuildTupleDesc(Relation relation, bool onlyLoadInitDefVal)
     /*
      * Set up constraint/default info
      */
-    if (constr->has_not_null || ndef > 0 || relation->rd_rel->relchecks || relation->rd_rel->relhasclusterkey) {
-        relation->rd_att->constr = constr;
-
-        if (ndef > 0) /* DEFAULTs */
-        {
-            if (ndef < RelationGetNumberOfAttributes(relation))
-                constr->defval = (AttrDefault*)repalloc(attrdef, ndef * sizeof(AttrDefault));
-            else
-                constr->defval = attrdef;
-            constr->num_defval = ndef;
-            constr->generatedCols = (char *)MemoryContextAllocZero(LocalMyDBCacheMemCxt(),
-                RelationGetNumberOfAttributes(relation) * sizeof(char));
-            constr->has_on_update = (bool *)MemoryContextAllocZero(LocalMyDBCacheMemCxt(),
-                RelationGetNumberOfAttributes(relation) * sizeof(bool));
-            AttrDefaultFetch(relation);
+    relation->rd_att->constr = constr;
+    /* DEFAULTs */
+    if (ndef > 0) {
+        if (ndef < RelationGetNumberOfAttributes(relation)) {
+            constr->defval = (AttrDefault*)repalloc(attrdef, ndef * sizeof(AttrDefault));
         } else {
-            constr->num_defval = 0;
-            constr->defval = NULL;
-            constr->generatedCols = NULL;
-            constr->has_on_update = NULL;
+            constr->defval = attrdef;
         }
+        constr->num_defval = ndef;
+        constr->generatedCols = (char *)MemoryContextAllocZero(LocalMyDBCacheMemCxt(),
+            RelationGetNumberOfAttributes(relation) * sizeof(char));
+        constr->has_on_update = (bool *)MemoryContextAllocZero(LocalMyDBCacheMemCxt(),
+            RelationGetNumberOfAttributes(relation) * sizeof(bool));
+        AttrDefaultFetch(relation);
+    } else {
+        constr->num_defval = 0;
+        constr->defval = NULL;
+        constr->generatedCols = NULL;
+        constr->has_on_update = NULL;
+    }
 
-        if (relation->rd_rel->relchecks > 0) /* CHECKs */
-        {
-            constr->num_check = relation->rd_rel->relchecks;
-            constr->check =
-                (ConstrCheck*)MemoryContextAllocZero(LocalMyDBCacheMemCxt(), constr->num_check * sizeof(ConstrCheck));
-            CheckConstraintFetch(relation);
-        } else {
-            constr->num_check = 0;
-            constr->check = NULL;
-        }
+    /* CHECKs */
+    if (relation->rd_rel->relchecks > 0) {
+        constr->num_check = relation->rd_rel->relchecks;
+        constr->check =
+            (ConstrCheck*)MemoryContextAllocZero(LocalMyDBCacheMemCxt(), constr->num_check * sizeof(ConstrCheck));
+        fetch_constr = true;
+    } else {
+        constr->num_check = 0;
+        constr->check = NULL;
+    }
 
-        /* Relation has cluster keys */
-        if (relation->rd_rel->relhasclusterkey) {
-            ClusterConstraintFetch(relation);
-        } else {
-            constr->clusterKeyNum = 0;
-            constr->clusterKeys = NULL;
+    /* Relation has cluster keys */
+    if (!relation->rd_rel->relhasclusterkey) {
+        constr->clusterKeyNum = 0;
+        constr->clusterKeys = NULL;
+    } else {
+        fetch_constr = true;
+    }
+
+    /*
+     * some condition we need keep rd_att->constr:
+     * 1. has_not_null, we need to save constr->has_not_null attr
+     * 2. ndef > 0, we need to save constr->num_defval and related attr
+     * 3. relation->rd_rel->relchecks > 0 or relation->rd_rel->relhasclusterkey, we need to access pg_constraint
+     *      and save constr->check, constr->clusterKeys
+     * 4. (RelationIsRelation(relation) && relation->rd_id >= FirstNormalObjectId), we need to access pg_constraint
+     *      and save constr->has_disable_constr. this case is for speed up the testing for whether the relation
+     *      has any disable constraint(see CheckIndexDisableValid)
+     * if only 1 or 2 is true, but 3 or 4 is not true, we just need to keep constr, but no need to access
+     * pg_constraint.
+     */
+    fetch_constr |= (RelationIsRelation(relation) && relation->rd_id >= FirstNormalObjectId);
+    if (constr->has_not_null || ndef > 0 || fetch_constr) {
+        if (fetch_constr) {
+            /* fetch all kinds of constaint belong to relation */
+            ConstraintFetch(relation);
         }
     } else {
         pfree_ext(constr);
@@ -6177,19 +6197,104 @@ static void AttrDefaultFetch(Relation relation)
             (errmsg("%d attrdef record(s) missing for rel %s", ndef - found, RelationGetRelationName(relation))));
 }
 
-/*
- * Load any check constraints for the relation.
- */
-static void CheckConstraintFetch(Relation relation)
+static inline void DefaultConstraintFetch(Relation relation, Relation conrel, HeapTuple htup)
 {
-    ConstrCheck* check = relation->rd_att->constr->check;
-    int ncheck = relation->rd_att->constr->num_check;
-    Relation conrel;
-    SysScanDesc conscan;
-    ScanKeyData skey[1];
-    HeapTuple htup;
+    /* try to update has_disable_constr if it's value is false */
+    if (!relation->rd_att->constr->has_disable_constr) {
+        bool isnull = false;
+        Form_pg_constraint conform = (Form_pg_constraint)GETSTRUCT(htup);
+        Datum val = heap_getattr(htup, Anum_pg_constraint_condisable, RelationGetDescr(conrel), &isnull);
+        relation->rd_att->constr->has_disable_constr = !isnull && DatumGetBool(val) && conform->convalidated;
+    }
+}
+
+static void ClusterConstraintFetch(Relation relation, Relation conrel, HeapTuple htup)
+{
+    AttrNumber** pClusterKeys = &relation->rd_att->constr->clusterKeys;
     Datum val;
     bool isnull = false;
+
+    if (unlikely(*pClusterKeys != NULL)) {
+        ereport(ERROR,
+            (errmsg("expected only one cluster constraint for rel %s", RelationGetRelationName(relation))));
+    }
+
+    /* Grab and test conbin is actually set */
+    val = fastgetattr(htup, Anum_pg_constraint_conkey, conrel->rd_att, &isnull);
+    if (isnull) {
+        ereport(ERROR,
+            (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                errmsg("null cluster key for rel %s", RelationGetRelationName(relation))));
+    }
+
+    ArrayType* arr = DatumGetArrayTypeP(val);
+    int numkeys = ARR_DIMS(arr)[0];
+    errno_t rc = EOK;
+
+    *pClusterKeys = (AttrNumber*)MemoryContextAllocZero(LocalMyDBCacheMemCxt(), numkeys * sizeof(AttrNumber));
+
+    rc = memcpy_s(*pClusterKeys, numkeys * sizeof(int16), ARR_DATA_PTR(arr), numkeys * sizeof(int16));
+    securec_check(rc, "\0", "\0");
+
+    relation->rd_att->constr->clusterKeyNum = numkeys;
+
+    /* try to update has_disable_constr if it's value is false */
+    if (!relation->rd_att->constr->has_disable_constr) {
+        Form_pg_constraint conform = (Form_pg_constraint)GETSTRUCT(htup);
+        val = heap_getattr(htup, Anum_pg_constraint_condisable, RelationGetDescr(conrel), &isnull);
+        relation->rd_att->constr->has_disable_constr = !isnull && DatumGetBool(val) && conform->convalidated;
+    }
+}
+
+static void CheckConstraintFetch(Relation relation, Relation conrel, HeapTuple htup, int *found)
+{
+    Datum val;
+    bool isnull = false;
+    ConstrCheck* check = relation->rd_att->constr->check;
+    int ncheck = relation->rd_att->constr->num_check;
+    Form_pg_constraint conform = (Form_pg_constraint)GETSTRUCT(htup);
+    char* ccbin_str = NULL;
+
+    if (*found >= ncheck) {
+        ereport(ERROR,
+            (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                errmsg("unexpected constraint record found for rel %s", RelationGetRelationName(relation))));
+    }
+
+    check[*found].ccvalid = conform->convalidated;
+    check[*found].ccnoinherit = conform->connoinherit;
+    check[*found].cctype =  conform->contype;
+    val = heap_getattr(htup, Anum_pg_constraint_condisable, RelationGetDescr(conrel), &isnull);
+    if (isnull) {
+        check[*found].ccdisable = false;
+    } else {
+        bool condisable = DatumGetBool(val);
+        check[*found].ccdisable = condisable;
+    }
+    check[*found].ccname = MemoryContextStrdup(LocalMyDBCacheMemCxt(), NameStr(conform->conname));
+
+    /* Grab and test conbin is actually set */
+    val = fastgetattr(htup, Anum_pg_constraint_conbin, conrel->rd_att, &isnull);
+    if (isnull) {
+        ereport(ERROR,
+            (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                errmsg("null conbin for rel %s", RelationGetRelationName(relation))));
+    }
+    ccbin_str = TextDatumGetCString(val);
+    check[*found].ccbin = MemoryContextStrdup(LocalMyDBCacheMemCxt(), ccbin_str);
+    pfree(ccbin_str);
+
+    /* try to update has_disable_constr if it's value is false */
+    if (!relation->rd_att->constr->has_disable_constr) {
+        relation->rd_att->constr->has_disable_constr = check[*found].ccdisable && conform->convalidated;
+    }
+    (*found)++;
+}
+
+static void ConstraintFetch(Relation relation)
+{
+    ScanKeyData skey[1];
+    HeapTuple htup;
     int found = 0;
 
     ScanKeyInit(&skey[0],
@@ -6198,54 +6303,30 @@ static void CheckConstraintFetch(Relation relation)
         F_OIDEQ,
         ObjectIdGetDatum(RelationGetRelid(relation)));
 
-    conrel = heap_open(ConstraintRelationId, AccessShareLock);
-    conscan = systable_beginscan(conrel, ConstraintRelidIndexId, true, NULL, 1, skey);
+    Relation conrel = heap_open(ConstraintRelationId, AccessShareLock);
+    SysScanDesc conscan = systable_beginscan(conrel, ConstraintRelidIndexId, true, NULL, 1, skey);
 
     while (HeapTupleIsValid(htup = systable_getnext(conscan))) {
         Form_pg_constraint conform = (Form_pg_constraint)GETSTRUCT(htup);
-        char* ccbin_str = NULL;
-
-        /* We want check constraints only */
-        if (conform->contype != CONSTRAINT_CHECK)
-            continue;
-
-        if (found >= ncheck)
-            ereport(ERROR,
-                (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-                    errmsg("unexpected constraint record found for rel %s", RelationGetRelationName(relation))));
-
-        check[found].ccvalid = conform->convalidated;
-        check[found].ccnoinherit = conform->connoinherit;
-        check[found].cctype =  conform->contype;
-        val = heap_getattr(htup, Anum_pg_constraint_condisable, RelationGetDescr(conrel), &isnull);
-        if (isnull) {
-            check[found].ccdisable = false;
+        if (conform->contype == CONSTRAINT_CHECK) {
+            CheckConstraintFetch(relation, conrel, htup, &found);
+        } else if (conform->contype == CONSTRAINT_CLUSTER) {
+            ClusterConstraintFetch(relation, conrel, htup);
         } else {
-            bool condisable = DatumGetBool(val);
-            check[found].ccdisable = condisable;
+            /* only update for now */
+            DefaultConstraintFetch(relation, conrel, htup);
         }
-        check[found].ccname = MemoryContextStrdup(LocalMyDBCacheMemCxt(), NameStr(conform->conname));
-
-        /* Grab and test conbin is actually set */
-        val = fastgetattr(htup, Anum_pg_constraint_conbin, conrel->rd_att, &isnull);
-        if (isnull)
-            ereport(ERROR,
-                (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
-                    errmsg("null conbin for rel %s", RelationGetRelationName(relation))));
-        ccbin_str = TextDatumGetCString(val);
-        check[found].ccbin = MemoryContextStrdup(LocalMyDBCacheMemCxt(), ccbin_str);
-        pfree(ccbin_str);
-        found++;
     }
 
     systable_endscan(conscan);
     heap_close(conrel, AccessShareLock);
 
-    if (found != ncheck)
+    if (found != relation->rd_att->constr->num_check) {
         ereport(ERROR,
             (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-                errmsg(
-                    "%d constraint record(s) missing for rel %s", ncheck - found, RelationGetRelationName(relation))));
+                errmsg("%d constraint record(s) missing for rel %s",
+                relation->rd_att->constr->num_check - found, RelationGetRelationName(relation))));
+    }
 }
 
 void SaveCopyList(Relation relation, List* result, int oidIndex)
@@ -6929,62 +7010,6 @@ List* RelationGetIndexPredicate(Relation relation)
     (void)MemoryContextSwitchTo(oldcxt);
 
     return result;
-}
-
-/*
- * Load any check constraints for the relation.
- */
-static void ClusterConstraintFetch(__inout Relation relation)
-{
-    AttrNumber** pClusterKeys = &relation->rd_att->constr->clusterKeys;
-
-    Relation conrel;
-    SysScanDesc conscan;
-    ScanKeyData skey[1];
-    HeapTuple htup;
-    Datum val;
-    bool isnull = false;
-
-    ScanKeyInit(&skey[0],
-        Anum_pg_constraint_conrelid,
-        BTEqualStrategyNumber,
-        F_OIDEQ,
-        ObjectIdGetDatum(RelationGetRelid(relation)));
-
-    conrel = heap_open(ConstraintRelationId, AccessShareLock);
-    conscan = systable_beginscan(conrel, ConstraintRelidIndexId, true, NULL, 1, skey);
-
-    while (HeapTupleIsValid(htup = systable_getnext(conscan))) {
-        Form_pg_constraint conform = (Form_pg_constraint)GETSTRUCT(htup);
-
-        /* We want check constraints only */
-        if (conform->contype != CONSTRAINT_CLUSTER)
-            continue;
-
-        /* Grab and test conbin is actually set */
-        val = fastgetattr(htup, Anum_pg_constraint_conkey, conrel->rd_att, &isnull);
-        if (isnull)
-            ereport(ERROR,
-                (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
-                    errmsg("null cluster key for rel %s", RelationGetRelationName(relation))));
-
-        ArrayType* arr = DatumGetArrayTypeP(val);
-        int numkeys = ARR_DIMS(arr)[0];
-        errno_t rc = EOK;
-
-        *pClusterKeys = (AttrNumber*)MemoryContextAllocZero(LocalMyDBCacheMemCxt(), numkeys * sizeof(AttrNumber));
-
-        rc = memcpy_s(*pClusterKeys, numkeys * sizeof(int16), ARR_DATA_PTR(arr), numkeys * sizeof(int16));
-        securec_check(rc, "\0", "\0");
-
-        relation->rd_att->constr->clusterKeyNum = numkeys;
-
-        /* always only have one */
-        break;
-    }
-
-    systable_endscan(conscan);
-    heap_close(conrel, AccessShareLock);
 }
 
 /*

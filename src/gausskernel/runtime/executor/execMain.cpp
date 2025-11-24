@@ -2642,6 +2642,15 @@ void CheckIndexDisableValid(ResultRelInfo* result_rel_info, EState *estate)
     HeapTuple tuple;
     Form_pg_constraint con = NULL;
 
+    /*
+     * we have been traverse pg_constraint when open relation(RelationBuildTupleDesc),
+     * so we can do a quick check here avoid access syscache.
+     */
+    if (RelationIsRelation(rel) && rel->rd_id >= FirstNormalObjectId &&
+        rel->rd_att->constr && !rel->rd_att->constr->has_disable_constr) {
+        return;
+    }
+
     catlist = SearchSysCacheList1(CONSTRRELID, ObjectIdGetDatum(RelationGetRelid(rel)));
     if (!catlist)
         return;

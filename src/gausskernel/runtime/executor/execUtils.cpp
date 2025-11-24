@@ -1415,8 +1415,14 @@ void ExecOpenIndices(ResultRelInfo* resultRelInfo, bool speculative, bool checkD
 
         indexDesc = index_open(indexOid, RowExclusiveLock);
 
-        /* don't support IUD if there is an diable index */
+        /*
+         * don't support IUD if there is an diable index.
+         * we check Anum_pg_index_indexprs wether is null or not before get Anum_pg_index_indisenable.
+         * cause only func expr index can be disabled, and check Anum_pg_index_indexprs null cost less
+         * than access Anum_pg_index_indisenable
+         */
         if (checkDisableIndex && indexOid >= FirstNormalObjectId &&
+            !heap_attisnull(indexDesc->rd_indextuple, Anum_pg_index_indexprs, NULL) &&
             !GetIndexEnableStateByTuple(indexDesc->rd_indextuple)) {
             ereport(ERROR, (errcode(ERRCODE_OPERATOR_INTERVENTION),
                 errmsg("The relation(%s) has no permit to write because it has index(%s) in disable state",

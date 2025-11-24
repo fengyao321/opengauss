@@ -1794,8 +1794,9 @@ TupleTableSlot* ExecDelete(ItemPointer tupleid, Oid deletePartitionOid, int2 buc
     fake_relation = result_relation_desc;
 
 ldelete:
-        if (result_relation_desc->rd_att->constr)
+        if (result_relation_desc->rd_att->constr && result_relation_desc->rd_att->constr->num_check > 0) {
             CheckDisableValidateConstr(result_rel_info);
+        }
         CheckIndexDisableValid(result_rel_info, estate);
 #ifdef PGXC
         if (IS_PGXC_COORDINATOR && result_remote_rel) {
