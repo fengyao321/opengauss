@@ -236,7 +236,7 @@ void ThreadPageRepairedHashTableInit(void)
         ctl.entrysize = sizeof(RepairBlockEntry);
         ctl.hash = RepairBlockKeyHash;
         ctl.match = RepairBlockKeyMatch;
-        ctl.hcxt = INSTANCE_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_STORAGE);
+        ctl.hcxt = THREAD_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_STORAGE);
         t_thrd.xlog_cxt.pageRpairedHashTable =
             hash_create("Page Repair Hash Table", MAX_REPAIR_PAGE_NUM, &ctl,
                         HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT | HASH_COMPARE);
