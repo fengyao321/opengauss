@@ -623,7 +623,7 @@ int strnncoll_utf8mb4_general_pad_space(const unsigned char* arg1, size_t len1,
             uint64_t val1 = vget_lane_u64(vreinterpret_u64_u8(vec_arg1), 0);
             uint64_t val2 = vget_lane_u64(vreinterpret_u64_u8(vec_arg2), 0);
             if (val1 != val2) {
-                /* not equal, copare them by uint64 value directly, swap them first in little-endian machine */
+                /* not equal, compare them by uint64 value directly, swap them first in little-endian machine */
                 val1 = BigEndianToNative64(val1);
                 val2 = BigEndianToNative64(val2);
                 return (val1 > val2) ? 1 : -1;

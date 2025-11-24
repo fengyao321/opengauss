@@ -97,6 +97,7 @@ typedef struct tupleConstr {
     char* generatedCols;     /* attribute array */
     ConstrAutoInc* cons_autoinc; /* pointer*/
     bool* has_on_update;
+    bool has_disable_constr;
 } TupleConstr;
 
 /* This structure contains initdefval of a tuple */
