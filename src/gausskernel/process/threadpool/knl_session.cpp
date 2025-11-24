@@ -1212,7 +1212,6 @@ void knl_u_relmap_init(knl_u_relmap_context* relmap_cxt)
 void knl_u_inval_init(knl_u_inval_context* inval_cxt)
 {
     inval_cxt->DeepthInAcceptInvalidationMessage = 0;
-    inval_cxt->executing_roll_back_msg = false;
     inval_cxt->transInvalInfo = NULL;
     inval_cxt->SharedInvalidMessagesArray = NULL;
     inval_cxt->numSharedInvalidMessagesArray = 0;

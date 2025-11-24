@@ -2687,13 +2687,14 @@ static ArrayType* array_deleteidx_internal_db_a(ArrayType *v, int delIndex1, int
 
 static ArrayType* array_deleteidx_internal(ArrayType *v, int delIndex)
 {
-    ArrayType *array;
+    ArrayType *array = v;
     Oid element_type;
     Datum newelem = (Datum)0;
     int16 typlen;
     bool typbyval = false;
     char typalign;
     int indx;
+    int offset = 0;
     int *dimv = NULL;
     int *lb = NULL;
     int lower;
@@ -2703,6 +2704,7 @@ static ArrayType* array_deleteidx_internal(ArrayType *v, int delIndex)
     bits8* bitmap = NULL;
     uint32 bitmask;
     bool isnull;
+    int realIndex;
     if (ARR_NDIM(v) <= 0 || ARR_NDIM(v) > MAXDIM) {
         return v;
     }
@@ -2714,17 +2716,10 @@ static ArrayType* array_deleteidx_internal(ArrayType *v, int delIndex)
     upper = lower + length - 1;
 
     if (delIndex < lower || delIndex > upper) {
-        return v;
+        return array;
     }
-        /* The array contains only one element. An empty array is returned. */
-    if (length <= 1) {
-        return construct_empty_array(ARR_ELEMTYPE(v));
-    }
+    array = construct_empty_array(ARR_ELEMTYPE(v));
 
-    int valueIndex = 0;
-    int newLength = length - 1;
-    bool *nulls = (bool *)palloc(newLength * sizeof(bool));
-    Datum *values = (Datum *)palloc(newLength * sizeof(Datum));
     element_type = ARR_ELEMTYPE(v);
     get_typlenbyvalalign(element_type, &typlen, &typbyval, &typalign);
 
@@ -2752,24 +2747,15 @@ static ArrayType* array_deleteidx_internal(ArrayType *v, int delIndex)
         }
         /* If index is delIndex, skip */
         if (indx == delIndex) {
+            offset = 1;
             continue;
         }
-        values[valueIndex] = newelem;
-        nulls[valueIndex] = isnull;
-        valueIndex++;
+        realIndex = indx - offset;
+        array = array_set(array, 1, &realIndex, newelem, isnull, -1, typlen, typbyval, typalign);
     }
-
-    int dims[1];
-    int lbs[1];
-    dims[0] = newLength;
-    lbs[0] = lower;
-    array = construct_md_array(values, nulls, 1, dims, lbs, element_type, typlen, typbyval, typalign);
- 
-    pfree(values);
-    pfree(nulls);
     return array;
 }
-
+    
 Datum array_deleteidx(PG_FUNCTION_ARGS)
 {
     ArrayType* v = PG_GETARG_ARRAYTYPE_P(0);
