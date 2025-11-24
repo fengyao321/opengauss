@@ -1018,6 +1018,7 @@ static FunctionScan* _copyFunctionScan(const FunctionScan* from)
     COPY_NODE_FIELD(funccoltypes);
     COPY_NODE_FIELD(funccoltypmods);
     COPY_NODE_FIELD(funccolcollations);
+    COPY_SCALAR_FIELD(funcordinality);
 
     return newnode;
 }
@@ -4013,6 +4014,7 @@ static RangeTblEntry* _copyRangeTblEntry(const RangeTblEntry* from)
     COPY_NODE_FIELD(funccoltypmods);
     COPY_NODE_FIELD(funccolcollations);
     COPY_NODE_FIELD(tablefunc);
+    COPY_SCALAR_FIELD(funcordinality);
     COPY_NODE_FIELD(values_lists);
     COPY_NODE_FIELD(values_collations);
     COPY_STRING_FIELD(ctename);
@@ -4503,7 +4505,7 @@ static RangeFunction* _copyRangeFunction(const RangeFunction* from)
     COPY_NODE_FIELD(funccallnode);
     COPY_NODE_FIELD(alias);
     COPY_NODE_FIELD(coldeflist);
-
+    COPY_SCALAR_FIELD(ordinality);
     return newnode;
 }
 

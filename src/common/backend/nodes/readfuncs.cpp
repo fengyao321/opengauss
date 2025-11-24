@@ -3504,7 +3504,9 @@ static RangeTblEntry* _readRangeTblEntry(void)
             READ_NODE_FIELD(funccoltypes);
             READ_NODE_FIELD(funccoltypmods);
             READ_NODE_FIELD(funccolcollations);
-
+            IF_EXIST(funcordinality) {
+                READ_BOOL_FIELD(funcordinality);
+            }
             READ_TYPEINFO_LIST(funccoltypes);
             break;
         case RTE_TABLEFUNC:
@@ -5327,7 +5329,9 @@ static FunctionScan* _readFunctionScan(FunctionScan* local_node)
     READ_NODE_FIELD(funccoltypes);
     READ_NODE_FIELD(funccoltypmods);
     READ_NODE_FIELD(funccolcollations);
-
+    IF_EXIST(funcordinality) {
+        READ_BOOL_FIELD(funcordinality);
+    }
     READ_TYPEINFO_LIST(funccoltypes);
 
     READ_DONE();

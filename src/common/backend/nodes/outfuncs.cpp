@@ -1656,7 +1656,9 @@ static void _outFunctionScan(StringInfo str, FunctionScan* node)
     WRITE_NODE_FIELD(funccoltypes);
     WRITE_NODE_FIELD(funccoltypmods);
     WRITE_NODE_FIELD(funccolcollations);
-
+    if (t_thrd.proc->workingVersionNum >= WITH_ORDINALITY_VERSION_NUM) {
+        WRITE_BOOL_FIELD(funcordinality);
+    }
     WRITE_TYPEINFO_LIST(funccoltypes);
 }
 
@@ -5534,7 +5536,9 @@ static void _outRangeTblEntry(StringInfo str, RangeTblEntry* node)
             WRITE_NODE_FIELD(funccoltypes);
             WRITE_NODE_FIELD(funccoltypmods);
             WRITE_NODE_FIELD(funccolcollations);
-
+            if (t_thrd.proc->workingVersionNum >= WITH_ORDINALITY_VERSION_NUM) {
+                WRITE_BOOL_FIELD(funcordinality);
+            }
             WRITE_TYPEINFO_LIST(funccoltypes);
             break;
         case RTE_TABLEFUNC:
@@ -5909,6 +5913,9 @@ static void _outRangeFunction(StringInfo str, RangeFunction* node)
 {
     WRITE_NODE_TYPE("RANGEFUNCTION");
 
+    if (t_thrd.proc->workingVersionNum >= WITH_ORDINALITY_VERSION_NUM) {
+        WRITE_BOOL_FIELD(ordinality);
+    }
     WRITE_BOOL_FIELD(lateral);
     WRITE_NODE_FIELD(funccallnode);
     WRITE_NODE_FIELD(alias);

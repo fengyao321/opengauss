@@ -185,8 +185,8 @@ static AnnIndexScan* make_annindexscan(List* qptlist, List* qpqual, Index scanre
 static TidScan* make_tidscan(List* qptlist, List* qpqual, Index scanrelid, List* tidquals);
 static TidRangeScan *make_tidrangescan(List *qptlist, List *qpqual,
                                        Index scanrelid, List *tidrangequals);
-static FunctionScan* make_functionscan(List* qptlist, List* qpqual, Index scanrelid, Node* funcexpr, List* funccolnames,
-    List* funccoltypes, List* funccoltypmods, List* funccolcollations);
+static FunctionScan* make_functionscan(List* qptlist, List* qpqual, Index scanrelid, Node* funcexpr, bool ordinality,
+    List* funccolnames, List* funccoltypes, List* funccoltypmods, List* funccolcollations);
 static ValuesScan* make_valuesscan(List* qptlist, List* qpqual, Index scanrelid, List* values_lists);
 static TableFuncScan *make_tablefuncscan(List *qptlist, List *qpqual, Index scanrelid, TableFunc *tablefunc);
 static CteScan* make_ctescan(List* qptlist, List* qpqual, Index scanrelid, int ctePlanId, int cteParam);
@@ -3758,6 +3758,7 @@ static FunctionScan* create_functionscan_plan(PlannerInfo* root, Path* best_path
         scan_clauses,
         scan_relid,
         funcexpr,
+        rte->funcordinality,
         rte->eref->colnames,
         rte->funccoltypes,
         rte->funccoltypmods,
@@ -7007,7 +7008,8 @@ PlannedStmt* ReBuildNonSmpPlanForCursorExpr(const char* queryString)
     return castNode(PlannedStmt, linitial(plantree_list));
 }
 
-static FunctionScan* make_functionscan(List* qptlist, List* qpqual, Index scanrelid, Node* funcexpr, List* funccolnames,
+static FunctionScan* make_functionscan(List* qptlist, List* qpqual,
+    Index scanrelid, Node *funcexpr, bool ordinality, List *funccolnames,
     List* funccoltypes, List* funccoltypmods, List* funccolcollations)
 {
     FunctionScan* node = makeNode(FunctionScan);
@@ -7020,6 +7022,7 @@ static FunctionScan* make_functionscan(List* qptlist, List* qpqual, Index scanre
     plan->righttree = NULL;
     node->scan.scanrelid = scanrelid;
     node->funcexpr = funcexpr;
+    node->funcordinality = ordinality;
     node->funccolnames = funccolnames;
     node->funccoltypes = funccoltypes;
     node->funccoltypmods = funccoltypmods;
