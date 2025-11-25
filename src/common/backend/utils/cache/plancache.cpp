@@ -1529,9 +1529,6 @@ CachedPlan* BuildCachedPlan(CachedPlanSource* plansource, List* qlist, ParamList
     plan->is_oneshot = plansource->is_oneshot;
     plan->is_saved = false;
     plan->is_valid = true;
-#ifdef USE_ASSERT_CHECKING
-    plan->keep_in_simple_expr = false;
-#endif
     plan->cpi = NULL;
     plan->is_candidate = false;
     plan->cost = -1;

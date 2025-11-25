@@ -9227,7 +9227,6 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
             u_sess->plsql_cxt.depend_mem_cxt = NULL;
         }
         u_sess->statement_cxt.executer_run_level = 0;
-        u_sess->optimizer_query_memory = 0;
 
         initStringInfo(&input_message);
         t_thrd.storage_cxt.timer_continued = {0, 0};

@@ -929,7 +929,6 @@ void stp_mark_upper_func_exprcontext()
  */
 void stp_reserve_subxact_resowner(ResourceOwner resowner)
 {
-    u_sess->inval_cxt.executing_roll_back_msg = true;
     MemoryContext oldcxt = MemoryContextSwitchTo(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_STORAGE));
     XactContextItem *item = (XactContextItem*)palloc(sizeof(XactContextItem));
     item->resowner = resowner;
@@ -939,7 +938,6 @@ void stp_reserve_subxact_resowner(ResourceOwner resowner)
     ResourceOwnerMarkInvalid(item->resowner);
     item->next = u_sess->plsql_cxt.spi_xact_context;
     MemoryContextSwitchTo(oldcxt);
-    u_sess->inval_cxt.executing_roll_back_msg = false;
 
     u_sess->plsql_cxt.spi_xact_context = item;
 }
@@ -3563,7 +3561,7 @@ static void exec_exception_cleanup(PLpgSQL_execstate* estate, ExceptionContext *
      */
     XactCleanExceptionSubTransaction(
         context->oldTransactionId != SPI_get_top_transaction_id() ? 0 : context->subXid);
-    ReleaseSpiPlanRef(context->subXid);
+
     char *txnName = GetCurrentTransactionName();
 
     /* Abort the inner transaction */
@@ -12834,12 +12832,6 @@ static bool exec_eval_simple_expr(
             t_thrd.utils_cxt.CurrentResourceOwner = u_sess->plsql_cxt.shared_simple_eval_resowner;
             ReleaseCachedPlan(expr->expr_simple_plan, true);
             t_thrd.utils_cxt.CurrentResourceOwner = saveResourceOwner;
-            if (expr->expr_simple_plan != NULL) {
-#ifdef USE_ASSERT_CHECKING
-                expr->expr_simple_plan->keep_in_simple_expr = false;
-#endif
-                ReleaseCachedPlan(expr->expr_simple_plan, false);
-            }
             expr->expr_simple_plan = NULL;
             expr->expr_simple_plan_lxid = InvalidLocalTransactionId;
         }
@@ -12861,21 +12853,7 @@ static bool exec_eval_simple_expr(
         if (CachedPlanAllowsSimpleValidityCheck(expr->expr_simple_plansource, cplan,
                                                 u_sess->plsql_cxt.shared_simple_eval_resowner)) {
             /* Remember that we have the refcount */
-            if (expr->expr_simple_plan != NULL && expr->expr_simple_plan != cplan) {
-#ifdef USE_ASSERT_CHECKING
-                expr->expr_simple_plan->keep_in_simple_expr = false;
-#endif
-                ReleaseCachedPlan(expr->expr_simple_plan, false);
-            }
             expr->expr_simple_plan = cplan;
-            if (expr->expr_simple_plan->isShared()) {
-                pg_atomic_fetch_add_u32((volatile uint32*)&expr->expr_simple_plan->global_refcount, 1);
-            } else {
-                expr->expr_simple_plan->refcount++;
-            }
-#ifdef USE_ASSERT_CHECKING
-            expr->expr_simple_plan->keep_in_simple_expr = true;
-#endif
             expr->expr_simple_plan_lxid = curlxid;
         } else {
             /* Release SPI_plan_get_cached_plan's refcount */
@@ -14684,23 +14662,9 @@ static void exec_simple_check_plan(PLpgSQL_execstate *estate, PLpgSQL_expr* expr
      */
     if (estate != NULL &&
         CachedPlanAllowsSimpleValidityCheck(plansource, cplan, u_sess->plsql_cxt.shared_simple_eval_resowner)) {
-        if (expr->expr_simple_plan != NULL && expr->expr_simple_plan != cplan) {
-#ifdef USE_ASSERT_CHECKING
-            expr->expr_simple_plan->keep_in_simple_expr = false;
-#endif
-            ReleaseCachedPlan(expr->expr_simple_plan, false);
-        }
         /* Remember that we have the refcount */
         expr->expr_simple_plansource = plansource;
         expr->expr_simple_plan = cplan;
-        if (expr->expr_simple_plan->isShared()) {
-            pg_atomic_fetch_add_u32((volatile uint32*)&expr->expr_simple_plan->global_refcount, 1);
-        } else {
-            expr->expr_simple_plan->refcount++;
-        }
-#ifdef USE_ASSERT_CHECKING
-        expr->expr_simple_plan->keep_in_simple_expr = true;
-#endif
         expr->expr_simple_plan_lxid = t_thrd.proc->lxid;
 
         /* Share the remaining work with the replan code path */
