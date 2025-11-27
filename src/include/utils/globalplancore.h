@@ -121,6 +121,9 @@ typedef struct GPCPlainEnv
     double Geqo_selection_bias;    // QUERY_TUNING_GEQO
     double Geqo_seed;        		// QUERY_TUNING_GEQO
     double cursor_tuple_fraction;    // QUERY_TUNING_OTHER
+
+    unsigned int b_compatibility_mode;    //B format compatibility guc parameters
+    unsigned int sql_mode;
 }GPCPlainEnv;
 
 typedef struct GPCEnv

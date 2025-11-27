@@ -1635,6 +1635,10 @@ CoercionContext ccontext, CoercionForm cformat, int location, Oid collation)
         return result;
     }
 
+    if (u_sess->param_cxt.use_parame) {
+        return expr;
+    }
+
     pathtype = find_coercion_pathway(targettype, exprtype, ccontext, &funcId);
     if (pathtype != COERCION_PATH_NONE) {
         if (pathtype != COERCION_PATH_RELABELTYPE) {

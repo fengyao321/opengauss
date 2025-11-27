@@ -32,7 +32,6 @@
 #define MAX_PARAM_QUERY_LEN 512
 #define PARAM_QUERIES_BUCKET 32
 #define MAX_PARAM_NODES 64
-#define MAX_PARAMETERIZED_QUERY_STORED 512
 #define IUD_COMMAND_LEN 7
 
 typedef struct ParamCachedKey {

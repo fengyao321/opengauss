@@ -54,6 +54,7 @@
 #include "executor/executor.h"
 #include "opfusion/opfusion.h"
 #include "opfusion/opfusion_util.h"
+#include "opfusion/opfusion_insert.h"
 #include "optimizer/bucketpruning.h"
 #include "access/printtup.h"
 #include "commands/auto_parameterization.h"
@@ -93,6 +94,7 @@ static bool IsStringLengthValid(const char* queryString);
 static bool IsQualifiedParsetree(Node* parsetree, RangeVar** rel);
 static bool IsQualifiedTbl(RangeVar* rel);
 static bool isDataValid(Oid paramType, Node* node);
+static void refreshEstateFirstAutoInc (OpFusion* opfusionObj);
 
 #define NODENAMELEN 64
 
@@ -200,10 +202,29 @@ static bool IsQualifiedTbl(RangeVar* rel)
     return true;
 }
 
+static bool isBCompOp(Node* node)
+{
+    bool res = false;
+    A_Expr* aexpr = (A_Expr*)node;
+    if (aexpr->kind != AEXPR_OP || (list_length(aexpr->name) != 1) || (aexpr->lexpr == NULL || aexpr->rexpr == NULL)) {
+        return res;
+    }
+    char* op = strVal(linitial(aexpr->name));
+    if (op[0] == '+' || op[0] == '-' || op[0] == '*' || op[0] == '/') {
+        res = true;
+    }
+    return res;
+}
+
 static bool isNodeSkipParam(Node* node)
 {
     bool res = false;
     switch (nodeTag(node)) {
+        case T_A_Expr:
+            if (DB_IS_CMPT(B_FORMAT)) {
+                res = isBCompOp(node);
+            }
+            break;
         case T_FuncCall:
             res = true;
             break;
@@ -284,16 +305,27 @@ static ParamListInfo syncParams(Oid* paramTypes, int numParams, List* params, Ca
         Oid expectedTypeId = paramTypes[i];
         Oid givenTypeId;
 
-        expr = transformExpr(pstate, expr, EXPR_KIND_EXECUTE_PARAMETER);
+        if (u_sess->hook_cxt.transformExprHook != NULL) {
+            expr = ((transformExprFunc)(u_sess->hook_cxt.transformExprHook))(pstate, expr, EXPR_KIND_EXECUTE_PARAMETER);
+        } else {
+            expr = transformExpr(pstate, expr, EXPR_KIND_EXECUTE_PARAMETER);
+        }
 
         /* Cannot contain subselects or aggregates */
         if (pstate->p_hasSubLinks || pstate->p_hasAggs || pstate->p_hasWindowFuncs) {
-            ereport(LOG, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("can't use sublinks/agg/window in parameterization")));
+            ereport(LOG, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                          errmsg("can't use sublinks/agg/window in parameterization")));
             return NULL;
         }
         givenTypeId = exprType(expr);
-        expr = coerce_to_target_type(pstate, expr, givenTypeId, expectedTypeId, -1, COERCION_ASSIGNMENT,
-                                     COERCE_IMPLICIT_CAST, NULL, NULL, -1);
+        if (u_sess->hook_cxt.transformExprHook != NULL) {
+            expr = ((coerceTypeFunc)(u_sess->hook_cxt.coerceTypeHook))(pstate, expr, givenTypeId, expectedTypeId, -1,
+                                                                       COERCION_ASSIGNMENT, COERCE_IMPLICIT_CAST, NULL,
+                                                                       NULL, -1);
+        } else {
+            expr = coerce_to_target_type(pstate, expr, givenTypeId, expectedTypeId, -1, COERCION_ASSIGNMENT,
+                                         COERCE_IMPLICIT_CAST, NULL, NULL, -1);
+        }
         if (expr == NULL) {
             ereport(LOG, (errcode(ERRCODE_DATATYPE_MISMATCH),
                             errmsg("parameter $%d of type %s cannot be coerced to the expected type %s", i + 1,
@@ -384,6 +416,7 @@ bool execQueryParameterization(Node* parsetree, const char* queryString, Command
     if (!composeParamInfo(paramInfo)) {
         return false;
     }
+    u_sess->param_cxt.use_parame = true;
     makeParamKey(&paramCachedKey, paramInfo, parameterizedQuery);
     dest = CreateDestReceiver(cmdDest);
     ParamCachedPlan* paramCachedPlan = fetchCachedPlan(&paramCachedKey);
@@ -433,7 +466,6 @@ ParaRet:
     pfree_ext(paramListInfo);
     pfree_ext(paramInfo);
     return ret;
-
 }
 
 static void InitParameterHashTable(void)
@@ -1147,14 +1179,11 @@ static CachedPlanSource* buildParamCachedPlan(Node* parsetree, const char* query
     ParamListInfo params = NULL;
     MemoryContext oldContext = NULL;
     int rc = 0;
-    if (!ENABLE_CN_GPC && u_sess->param_cxt.param_cached_plan_count >= u_sess->attr.attr_sql.max_parameterized_query_stored) {
-        dropAllParameterizedQueries();
-        u_sess->param_cxt.param_cached_plan_count = 0;
-    }
     oldContext = MemoryContextSwitchTo(u_sess->top_portal_cxt);
     char CachedPlanName[NODENAMELEN];
     rc = snprintf_s(CachedPlanName, NODENAMELEN, NODENAMELEN - 1, "anonymous_%lu_%d", t_thrd.proc_cxt.MyProcPid,
                     u_sess->param_cxt.param_cached_plan_count);
+    securec_check_ss(rc, "", "");
     psrc =
         CreateCachedPlan(parsetree, paramCachedKey->parameterized_query, CachedPlanName, CreateCommandTag(parsetree));
     MemoryContextSwitchTo(oldContext);
@@ -1204,7 +1233,6 @@ static bool tryBypass(CachedPlanSource* psrc, ParameterizationInfo* paramInfo, D
     }
 
     if (psrc->opFusionObj != NULL) {
-        u_sess->param_cxt.use_parame = true;
         OpFusion* opFusionObj = (OpFusion*)(psrc->opFusionObj);
         if (opFusionObj->IsGlobal()) {
             opFusionObj = (OpFusion *)OpFusion::FusionFactory(opFusionObj->m_global->m_type,
@@ -1215,6 +1243,7 @@ static bool tryBypass(CachedPlanSource* psrc, ParameterizationInfo* paramInfo, D
         opFusionObj->useOuterParameter(*paramListInfo);
         opFusionObj->setCurrentOpFusionObj(opFusionObj);
         opFusionObj->m_local.m_isFirst = true; // for check ExecCheckRTPerms
+        refreshEstateFirstAutoInc(opFusionObj);
         if (OpFusion::process(FUSION_EXECUTE, NULL, 0, completionTag, false, NULL)) {
             return true;
         }
@@ -1231,6 +1260,15 @@ static void CopyPlanForGPCIfNecessary(CachedPlanSource* psrc, Portal portal)
         portal->stmts = CopyLocalStmt(portal->cplan->stmt_list, u_sess->temp_mem_cxt, &tmpCxt);
     }
 }
+static void refreshEstateFirstAutoInc(OpFusion* opfusionObj)
+{
+    if (opfusionObj->m_local.m_optype == INSERT_FUSION) {
+        InsertFusion* insertFusion = (InsertFusion*)opfusionObj;
+        insertFusion->ResetEstateAutoInc();
+    }
+    return;
+}
+
 static bool executeParamQuery(CachedPlanSource* psrc, ParamListInfo paramListInfo, DestReceiver* dest,
                               char* completionTag, CommandDest cmdDest)
 {
@@ -1247,7 +1285,6 @@ static bool executeParamQuery(CachedPlanSource* psrc, ParamListInfo paramListInf
     }
     query_string = MemoryContextStrdup(PortalGetHeapMemory(portal), psrc->query_string);
 
-    u_sess->param_cxt.use_parame = true;
     if (ENABLE_CACHEDPLAN_MGR) {
         cplan = GetWiseCachedPlan(psrc, paramListInfo, false);
     } else {

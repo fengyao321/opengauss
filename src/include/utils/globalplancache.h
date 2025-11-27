@@ -64,8 +64,8 @@ public:
     void InvalMsg(const SharedInvalidationMessage *msgs, int n);
 
     /* transaction */
-    void RecreateCachePlan(CachedPlanSource* oldsource, const char* stmt_name,
-                           PreparedStatement *entry, SPIPlanPtr spiplan, ListCell* spiplanCell, bool hasGetLock, void* paramCachedKey = NULL);
+    void RecreateCachePlan(CachedPlanSource* oldsource, const char* stmt_name, PreparedStatement* entry,
+                           SPIPlanPtr spiplan, ListCell* spiplanCell, bool hasGetLock, void* paramCachedKey = NULL);
     void Commit();
     bool CheckRecreateCachePlan(CachedPlanSource* psrc, bool* hasGetLock);
 

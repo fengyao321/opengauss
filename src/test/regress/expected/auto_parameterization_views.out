@@ -1,5 +1,5 @@
 SELECT * FROM query_parameterization_views();
- databaseid | query_type | is_bypass | param_types | param_nums | parameterized_query
+ databaseid | query_type | is_bypass | param_types | param_nums | parameterized_query 
 ------------+------------+-----------+-------------+------------+---------------------
 (0 rows)
 
@@ -41,7 +41,6 @@ SELECT COUNT(*) FROM query_parameterization_views();
 
 set enable_query_parameterization=on;
 UPDATE test SET C1 = 100 WHERE C1 = 3;
-SET max_parameterized_query_stored=1;
 -- 2 records, insert & update
 SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM query_parameterization_views();
  query_type | is_bypass | param_types | param_nums |          parameterized_query           
@@ -51,14 +50,15 @@ SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM 
 (2 rows)
 
 DELETE FROM test where C1 = 3;
--- only 1 delete record
+-- 3 records
 SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM query_parameterization_views();
- query_type | is_bypass | param_types | param_nums |      parameterized_query       
-------------+-----------+-------------+------------+--------------------------------
+ query_type | is_bypass | param_types | param_nums |          parameterized_query           
+------------+-----------+-------------+------------+----------------------------------------
+ UPDATE     | f         | 23 23       |          2 | UPDATE test SET C1 = ? WHERE C1 = ?;
+ INSERT     | t         | 23 23       |          2 | INSERT INTO test(C1, C2) VALUES(?, ?);
  DELETE     | f         | 23          |          1 | DELETE FROM test where C1 = ?;
-(1 row)
+(3 rows)
 
-SET max_parameterized_query_stored=1;
 ALTER TABLE test DROP COLUMN C2;
 -- no record left 
 SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM query_parameterization_views();
@@ -76,4 +76,111 @@ SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM 
 (1 row)
 
 DROP TABLE test1;
+-- Support select with where clause
+CREATE TABLE test2(c1 INT, c2 INT);
+SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM query_parameterization_views();
+ query_type | is_bypass | param_types | param_nums | parameterized_query 
+------------+-----------+-------------+------------+---------------------
+(0 rows)
+
+INSERT INTO test2(c1, c2) VALUES(1, 1);
+INSERT INTO test2(c1, c2) VALUES(1, 2);
+INSERT INTO test2(c1, c2) VALUES(2, 2);
+SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM query_parameterization_views();
+ query_type | is_bypass | param_types | param_nums |           parameterized_query           
+------------+-----------+-------------+------------+-----------------------------------------
+ INSERT     | t         | 23 23       |          2 | INSERT INTO test2(c1, c2) VALUES(?, ?);
+(1 row)
+
+SELECT * FROM test2;
+ c1 | c2 
+----+----
+  1 |  1
+  1 |  2
+  2 |  2
+(3 rows)
+
+SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM query_parameterization_views();
+ query_type | is_bypass | param_types | param_nums |           parameterized_query           
+------------+-----------+-------------+------------+-----------------------------------------
+ INSERT     | t         | 23 23       |          2 | INSERT INTO test2(c1, c2) VALUES(?, ?);
+(1 row)
+
+SELECT * FROM test2 WHERE c1 = 1;
+ c1 | c2 
+----+----
+  1 |  1
+  1 |  2
+(2 rows)
+
+SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM query_parameterization_views();
+ query_type | is_bypass | param_types | param_nums |           parameterized_query           
+------------+-----------+-------------+------------+-----------------------------------------
+ SELECT     | f         | 23          |          1 | SELECT * FROM test2 WHERE c1 = ?;
+ INSERT     | t         | 23 23       |          2 | INSERT INTO test2(c1, c2) VALUES(?, ?);
+(2 rows)
+
+SELECT * FROM test2 WHERE c1 = 1 and c2 = 2;
+ c1 | c2 
+----+----
+  1 |  2
+(1 row)
+
+SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM query_parameterization_views();
+ query_type | is_bypass | param_types | param_nums |             parameterized_query              
+------------+-----------+-------------+------------+----------------------------------------------
+ SELECT     | f         | 23          |          1 | SELECT * FROM test2 WHERE c1 = ?;
+ INSERT     | t         | 23 23       |          2 | INSERT INTO test2(c1, c2) VALUES(?, ?);
+ SELECT     | f         | 23 23       |          2 | SELECT * FROM test2 WHERE c1 = ? and c2 = ?;
+(3 rows)
+
+SELECT * FROM test2 WHERE c1 = 1 or c2 = 2;
+ c1 | c2 
+----+----
+  1 |  1
+  1 |  2
+  2 |  2
+(3 rows)
+
+SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM query_parameterization_views();
+ query_type | is_bypass | param_types | param_nums |             parameterized_query              
+------------+-----------+-------------+------------+----------------------------------------------
+ SELECT     | f         | 23          |          1 | SELECT * FROM test2 WHERE c1 = ?;
+ SELECT     | f         | 23 23       |          2 | SELECT * FROM test2 WHERE c1 = ? or c2 = ?;
+ INSERT     | t         | 23 23       |          2 | INSERT INTO test2(c1, c2) VALUES(?, ?);
+ SELECT     | f         | 23 23       |          2 | SELECT * FROM test2 WHERE c1 = ? and c2 = ?;
+(4 rows)
+
+-- Do not support other clauses
+SELECT * FROM test2 WHERE c1 = 1 ORDER BY c2 ASC;
+ c1 | c2 
+----+----
+  1 |  1
+  1 |  2
+(2 rows)
+
+SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM query_parameterization_views();
+ query_type | is_bypass | param_types | param_nums |             parameterized_query              
+------------+-----------+-------------+------------+----------------------------------------------
+ SELECT     | f         | 23          |          1 | SELECT * FROM test2 WHERE c1 = ?;
+ SELECT     | f         | 23 23       |          2 | SELECT * FROM test2 WHERE c1 = ? or c2 = ?;
+ INSERT     | t         | 23 23       |          2 | INSERT INTO test2(c1, c2) VALUES(?, ?);
+ SELECT     | f         | 23 23       |          2 | SELECT * FROM test2 WHERE c1 = ? and c2 = ?;
+(4 rows)
+
+SELECT * FROM test2 WHERE c1 = 1 LIMIT 1;
+ c1 | c2 
+----+----
+  1 |  1
+(1 row)
+
+SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM query_parameterization_views();
+ query_type | is_bypass | param_types | param_nums |             parameterized_query              
+------------+-----------+-------------+------------+----------------------------------------------
+ SELECT     | f         | 23          |          1 | SELECT * FROM test2 WHERE c1 = ?;
+ SELECT     | f         | 23 23       |          2 | SELECT * FROM test2 WHERE c1 = ? or c2 = ?;
+ INSERT     | t         | 23 23       |          2 | INSERT INTO test2(c1, c2) VALUES(?, ?);
+ SELECT     | f         | 23 23       |          2 | SELECT * FROM test2 WHERE c1 = ? and c2 = ?;
+(4 rows)
+
 set enable_query_parameterization=off;

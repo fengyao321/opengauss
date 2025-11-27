@@ -40,7 +40,7 @@
 #define QUERY_TYPE_DELETE 3
 #define QUERY_TYPE_SELECT 4
 
-static char* query_type_text[FIXED_QUERY_TYPE_LEN] = {"OTHERS", "INSERT", "UPDATE", "DELETE", "SELECT"};
+static char* QueryTypeText[FIXED_QUERY_TYPE_LEN] = {"OTHERS", "INSERT", "UPDATE", "DELETE", "SELECT"};
 
 static void FillParamViewValues(Datum* paramViewsValues, bool* paramViewsNulls, ParamView* paramView);
 static int2vector* MakeInt2Vec(Oid* paramTypes, int paramNums);
@@ -79,7 +79,7 @@ ParamView* GetAllParamQueries(uint32* num)
     CachedPlanSource* psrc = NULL;
     ParamCachedPlan* entry = NULL;
 
-    ParamView* results = (ParamView*)palloc(sizeof(ParamView) * MAX_PARAMETERIZED_QUERY_STORED);
+    ParamView* results = (ParamView*)palloc(sizeof(ParamView) * u_sess->param_cxt.param_cached_plan_count);
     int2vector* vec = NULL;
     hash_seq_init(&seq, u_sess->param_cxt.parameterized_queries);
     while (((entry = (ParamCachedPlan*)hash_seq_search(&seq))) != NULL) {
@@ -162,19 +162,19 @@ static char* MakeQueryTypeString(Node* parsetree)
     char* res = NULL;
     switch (nodeTag(parsetree)) {
         case T_InsertStmt:
-            res = query_type_text[QUERY_TYPE_INSERT];
+            res = QueryTypeText[QUERY_TYPE_INSERT];
             break;
         case T_UpdateStmt:
-            res = query_type_text[QUERY_TYPE_UPDATE];
+            res = QueryTypeText[QUERY_TYPE_UPDATE];
             break;
         case T_DeleteStmt:
-            res = query_type_text[QUERY_TYPE_DELETE];
+            res = QueryTypeText[QUERY_TYPE_DELETE];
             break;
         case T_SelectStmt:
-            res = query_type_text[QUERY_TYPE_SELECT];
+            res = QueryTypeText[QUERY_TYPE_SELECT];
             break;
         default:
-            res = query_type_text[QUERY_TYPE_UNKNOWN];
+            res = QueryTypeText[QUERY_TYPE_UNKNOWN];
             break;
     }
 

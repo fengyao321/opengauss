@@ -72,6 +72,8 @@ extern DatanodeStatement* light_set_datanode_queries(const char* stmt_name);
 extern void GetPreparedStatements(HTAB* htbl, Tuplestorestate* tupStore, TupleDesc tupDesc, uint64 sessionId, char* userName);
 extern void GetThreadPreparedStatements(Tuplestorestate* tupStore, TupleDesc tupDesc, uint64 sessionId);
 extern bool quickPlanner(List* querytree_list, Node* parsetree, const char*queryString, CommandDest dest, char* completionTag);
+typedef Datum (*bpcharLaunchFunc)(bool can_ignore, BpChar* source, int32 &maxlen, bool isExplicit);
+typedef Datum (*varcharLaunchFunc)(bool can_ignore, VarChar* source, int32 &typmod, bool isExplicit);
 #ifdef ENABLE_MOT
 extern void TryMotJitCodegenQuery(const char* queryString, CachedPlanSource* psrc, Query* query);
 #endif

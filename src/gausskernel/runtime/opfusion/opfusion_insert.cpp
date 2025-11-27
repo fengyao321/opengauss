@@ -537,6 +537,14 @@ bool InsertFusion::ResetReuseFusion(MemoryContext context, CachedPlanSource* psr
     return true;
 }
 
+void InsertFusion::ResetEstateAutoInc()
+{
+    if (m_c_local.m_estate != NULL && m_c_local.m_estate->first_autoinc != 0) {
+        m_c_local.m_estate->first_autoinc = 0;
+    }
+    return;
+}
+
 void InsertSubFusion::InitGlobals()
 {
     m_c_global = (InsertSubFusionGlobalVariable*)palloc0(sizeof(InsertSubFusionGlobalVariable));

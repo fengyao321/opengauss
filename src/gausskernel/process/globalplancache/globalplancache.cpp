@@ -361,7 +361,6 @@ bool GlobalPlanCache::TryStore(CachedPlanSource *plansource,  PreparedStatement 
             DropCachedPlan(plansource);
             u_sess->pcache_cxt.gpc_in_try_store = false;
         }
-
     }
 
     MemoryContextSwitchTo(oldcontext);
@@ -688,8 +687,9 @@ void GlobalPlanCache::MoveIntoInvalidPlanList(CachedPlanSource* psrc)
     }
 }
 
-void GlobalPlanCache::RecreateCachePlan(CachedPlanSource* oldsource, const char* stmt_name, PreparedStatement *entry,
-                                        SPIPlanPtr spiplan, ListCell* spiplanCell, bool hasGetLock, void* paramCachedKey)
+void GlobalPlanCache::RecreateCachePlan(CachedPlanSource* oldsource, const char* stmt_name, PreparedStatement* entry,
+                                        SPIPlanPtr spiplan, ListCell* spiplanCell, bool hasGetLock,
+                                        void* paramCachedKey)
 {
     GPC_LOG("recreate plan", oldsource, oldsource->stmt_name);
     /* these operator may throw error, make sure shared plan is invalid first */
