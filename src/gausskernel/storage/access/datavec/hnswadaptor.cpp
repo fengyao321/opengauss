@@ -33,6 +33,8 @@
         }                                               \
     } while (0)
 
+#define ARM_CPU_IMP_HISI 0x48
+
 int pq_resolve_path(char* absolute_path, const char* raw_path, const char* filename)
 {
     char path[MAX_PATH_LEN] = { 0 };
@@ -132,10 +134,30 @@ int pq_func_init()
     return PQ_SUCCESS;
 }
 
+#ifdef __aarch64__
+static bool HwDetect()
+{
+    unsigned long long cpuId;
+    __asm__ volatile("mrs %0, MIDR_EL1" : "=r"(cpuId));
+
+    unsigned long long vendor = (cpuId >> 0x18) & 0xFF;
+    if (vendor == ARM_CPU_IMP_HISI) {
+        return true;
+    }
+    return false;
+}
+#endif
+
 int PQInit()
 {
 #ifdef __x86_64__
     return PQ_ERROR;
+#endif
+#ifdef __aarch64__
+    if (!HwDetect()) {
+        ereport(WARNING, (errmsg("KVecturbo: The library is running into an error, please check CPU architect")));
+        return PQ_ERROR;
+    }
 #endif
     if (pq_func_init() != PQ_SUCCESS) {
         return PQ_ERROR;
