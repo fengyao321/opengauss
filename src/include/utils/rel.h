@@ -316,6 +316,9 @@ typedef struct RelationData {
     char *diskPQTableTransposed;
     char *centroids;
     uint32 *offsets;
+
+    /* used only for datavec rabitq*/
+    void *rbqMatrix;
 } RelationData;
 
 /*

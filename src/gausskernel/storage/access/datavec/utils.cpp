@@ -29,6 +29,7 @@
 #include "access/datavec/bitvec.h"
 #include "access/datavec/vector.h"
 #include "access/datavec/hnsw.h"
+#include "access/tableam.h"
 #include "utils/dynahash.h"
 #include "commands/vacuum.h"
 
@@ -535,7 +536,8 @@ void GetMMapMetaPageInfo(Relation index, int* m, void** entryPoint)
     return;
 }
 bool MmapLoadElement(HnswElement element, float *distance, Datum *q, Relation index, FmgrInfo *procinfo, Oid collation,
-                     bool loadVec, float *maxDistance, IndexScanDesc scan, bool enablePQ, PQSearchInfo *pqinfo)
+                     bool loadVec, float *maxDistance, bool enableRabitQ, RabitqQueryParams *rbqParams,
+                     RabitqInsertOnDiskParams *rbqDiskParams, IndexScanDesc scan, bool enablePQ, PQSearchInfo *pqinfo)
 {
 
     HnswElementTuple etup;
@@ -543,8 +545,8 @@ bool MmapLoadElement(HnswElement element, float *distance, Datum *q, Relation in
     PQParams *params;
     Page page = (Page)GetMMapPage(index, element->blkno);
     if (page == NULL) {
-        return HnswLoadElement(element, distance, q, index, procinfo,
-                                         collation, loadVec, maxDistance, scan, enablePQ, pqinfo);
+        return HnswLoadElement(element, distance, q, index, procinfo, collation, loadVec, maxDistance,
+                               enableRabitQ, rbqParams, rbqDiskParams, scan, enablePQ, pqinfo);
     }
 
     etup = (HnswElementTuple)PageGetItem(page, PageGetItemId(page, element->offno));
@@ -575,13 +577,13 @@ bool MmapLoadElement(HnswElement element, float *distance, Datum *q, Relation in
 
     /* Load element */
     if (distance == NULL || maxDistance == NULL || *distance < *maxDistance) {
-        HnswLoadElementFromTuple(element, etup, true, loadVec);
+        HnswLoadElementFromTuple(element, etup, true, loadVec, NULL, NULL); // todo wjy mmap
         if (enablePQ) {
             params = &pqinfo->params;
             Vector *vd1 = &etup->data;
             Vector *vd2 = (Vector *)DatumGetPointer(*q);
             float exactDis;
-            if (pqinfo->params.funcType == PQ_DIS_IP) {
+            if (pqinfo->params.funcType == DIS_IP) {
                 exactDis = -VectorInnerProduct(params->dim, vd1->x, vd2->x);
             } else {
                 exactDis = VectorL2SquaredDistance(params->dim, vd1->x, vd2->x);
@@ -595,17 +597,20 @@ bool MmapLoadElement(HnswElement element, float *distance, Datum *q, Relation in
 
 
 HnswCandidate *MMapEntryCandidate(char *base, HnswElement entryPoint, Datum q, Relation index, FmgrInfo *procinfo,
-                                  Oid collation, bool loadVec, IndexScanDesc scan, bool enablePQ, PQSearchInfo *pqinfo)
+                                  Oid collation, bool loadVec, bool enableRabitQ, RabitqQueryParams *rbqParams,
+                                  RabitqInsertOnDiskParams *rbqDiskParams, IndexScanDesc scan, bool enablePQ,
+                                  PQSearchInfo *pqinfo)
 {
     if (index == NULL || !entryPoint->fromMmap || !CanUseMmap(index)) {
-        return HnswEntryCandidate(base, entryPoint, q, index, procinfo, collation, loadVec, scan, enablePQ, pqinfo);
+        return HnswEntryCandidate(base, entryPoint, q, index, procinfo, collation, loadVec, 
+                                  enableRabitQ, rbqParams, rbqDiskParams, scan, enablePQ, pqinfo);
     }
     HnswCandidate *hc = (HnswCandidate *)palloc(sizeof(HnswCandidate));
 
     HnswPtrStore(base, hc->element, entryPoint);
 
-    MmapLoadElement(entryPoint, &hc->distance, &q, index, procinfo,
-                                     collation, loadVec, NULL, scan, enablePQ, pqinfo);
+    MmapLoadElement(entryPoint, &hc->distance, &q, index, procinfo, collation, loadVec,
+                    NULL, enableRabitQ, rbqParams, rbqDiskParams, scan, enablePQ, pqinfo);
     return hc;
 }
 
@@ -899,15 +904,39 @@ void EstimateRows(Relation onerel, double* totalrows)
     }
 }
 
-int GetPQfunctionType(FmgrInfo* procinfo, FmgrInfo* normprocinfo)
+HeapTuple GetTupleFromHeap(Relation relation, ItemPointer tid)
+{
+    Buffer user_buf = InvalidBuffer;
+    HeapTuple tuple = NULL;
+    HeapTuple new_tuple = NULL;
+
+    /* alloc mem for old tuple and set tuple id */
+    tuple = (HeapTupleData *)heaptup_alloc(BLCKSZ);
+    tuple->t_data = (HeapTupleHeader)((char *)tuple + HEAPTUPLESIZE);
+    Assert(tid != NULL);
+    tuple->t_self = *tid;
+
+    if (heap_fetch(relation, SnapshotAny, tuple, &user_buf, false, NULL)) {
+        new_tuple = heapCopyTuple((HeapTuple)tuple, relation->rd_att, NULL);
+        ReleaseBuffer(user_buf);
+    } else {
+        ereport(ERROR, (errcode(ERRCODE_SYSTEM_ERROR), errmsg("The tuple is not found"),
+            errdetail("Another user is getting tuple or the datum is NULL")));
+    }
+
+    heap_freetuple(tuple);
+    return new_tuple;
+}
+
+int GetFunctionType(FmgrInfo* procinfo, FmgrInfo* normprocinfo)
 {
     switch (procinfo->fn_oid) {
         case L2_FUNC_OID:
-            return PQ_DIS_L2;
+            return DIS_L2;
         case IP_FUNC_OID:
-            return normprocinfo ? PQ_DIS_COSINE : PQ_DIS_IP;
+            return normprocinfo ? DIS_COSINE : DIS_IP;
         default:
-            ereport(ERROR, (errmsg("current data type or distance type can't support pq index build.")));
+            ereport(ERROR, (errmsg("current data type or distance type can't support index build.")));
             return -1;
     }
 }

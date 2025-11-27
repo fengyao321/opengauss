@@ -223,11 +223,11 @@ char* IVFPQLoadPQtable(Relation index)
     pqTable = (char*)palloc0(pqTableSize);
 
     for (uint16 i = 0; i < nblks; i++) {
-        curFlushSize = (i == nblks - 1) ? (pqTableSize - i * PQTABLE_STORAGE_SIZE) : PQTABLE_STORAGE_SIZE;
+        curFlushSize = (i == nblks - 1) ? (pqTableSize - i * CHUNK_STORAGE_SIZE) : CHUNK_STORAGE_SIZE;
         buf = ReadBuffer(index, IVFPQTABLE_START_BLKNO + i);
         LockBuffer(buf, BUFFER_LOCK_SHARE);
         page = BufferGetPage(buf);
-        errno_t err = memcpy_s(pqTable + i * PQTABLE_STORAGE_SIZE, curFlushSize,
+        errno_t err = memcpy_s(pqTable + i * CHUNK_STORAGE_SIZE, curFlushSize,
                                PageGetContents(page), curFlushSize);
         securec_check(err, "\0", "\0");
         UnlockReleaseBuffer(buf);
@@ -250,11 +250,11 @@ float* IVFPQLoadPQDisTable(Relation index)
 
     BlockNumber startBlkno = IVFPQTABLE_START_BLKNO + pqTableNblk;
     for (uint32 i = 0; i < nblks; i++) {
-        curFlushSize = (i == nblks - 1) ? (pqDisTableSize - i * PQTABLE_STORAGE_SIZE) : PQTABLE_STORAGE_SIZE;
+        curFlushSize = (i == nblks - 1) ? (pqDisTableSize - i * CHUNK_STORAGE_SIZE) : CHUNK_STORAGE_SIZE;
         buf = ReadBuffer(index, startBlkno + i);
         LockBuffer(buf, BUFFER_LOCK_SHARE);
         page = BufferGetPage(buf);
-        errno_t err = memcpy_s((char*)disTable + i * PQTABLE_STORAGE_SIZE, curFlushSize,
+        errno_t err = memcpy_s((char*)disTable + i * CHUNK_STORAGE_SIZE, curFlushSize,
                                PageGetContents(page), curFlushSize);
         securec_check(err, "\0", "\0");
         UnlockReleaseBuffer(buf);
@@ -287,14 +287,14 @@ void GetPQInfoOnDisk(IvfflatScanOpaque so, Relation index)
     UnlockReleaseBuffer(buf);
 
     if (so->enablePQ) {
-        so->funcType = GetPQfunctionType(so->procinfo, so->normprocinfo);
+        so->funcType = GetFunctionType(so->procinfo, so->normprocinfo);
         /* Now save pqTable and pqDistanceTable in the relcache entry. */
         if (index->pqTable == NULL) {
             MemoryContext oldcxt = MemoryContextSwitchTo(index->rd_indexcxt);
             index->pqTable = IVFPQLoadPQtable(index);
             (void)MemoryContextSwitchTo(oldcxt);
         }
-        if (index->pqDistanceTable == NULL && so->byResidual && so->funcType != PQ_DIS_IP) {
+        if (index->pqDistanceTable == NULL && so->byResidual && so->funcType != DIS_IP) {
             MemoryContext oldcxt = MemoryContextSwitchTo(index->rd_indexcxt);
             index->pqDistanceTable = IVFPQLoadPQDisTable(index);
             (void)MemoryContextSwitchTo(oldcxt);
@@ -329,7 +329,7 @@ void IvfpqComputeQueryRelTablesInternal(IvfflatScanOpaque so, float *q, char *pq
  */
 void IvfpqComputeQueryRelTables(IvfflatScanOpaque so, Relation index, Datum q, float *simTable)
 {
-    if (so->funcType == PQ_DIS_IP) {
+    if (so->funcType == DIS_IP) {
         /* compute q*r */
         IvfpqComputeQueryRelTablesInternal(so, DatumGetVector(q)->x, index->pqTable, true, simTable);
     } else {
@@ -530,13 +530,13 @@ void IvfFlushPQInfoInternal(Relation index, char* table, BlockNumber startBlkno,
 
     for (uint32 i = 0; i < nblks; i++) {
         curFlushSize = (i == nblks - 1) ?
-                        (totalSize - i * PQTABLE_STORAGE_SIZE) : PQTABLE_STORAGE_SIZE;
+                        (totalSize - i * CHUNK_STORAGE_SIZE) : CHUNK_STORAGE_SIZE;
         buf = ReadBufferExtended(index, MAIN_FORKNUM, startBlkno + i, RBM_NORMAL, NULL);
         LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
         state = GenericXLogStart(index);
         page = GenericXLogRegisterBuffer(state, buf, 0);
         errno_t err = memcpy_s(PageGetContents(page), curFlushSize,
-                               table + i * PQTABLE_STORAGE_SIZE, curFlushSize);
+                               table + i * CHUNK_STORAGE_SIZE, curFlushSize);
         securec_check(err, "\0", "\0");
         p = (PageHeader)page;
         p->pd_lower += curFlushSize;
@@ -562,7 +562,7 @@ void IvfFlushPQInfo(IvfflatBuildState *buildstate)
 
     /* Flush pq table */
     IvfFlushPQInfoInternal(index, pqTable, IVF_PQTABLE_START_BLKNO, pqTableNblk, pqTableSize);
-    if (buildstate->byResidual && buildstate->params->funcType != PQ_DIS_IP) {
+    if (buildstate->byResidual && buildstate->params->funcType != DIS_IP) {
         /* Flush pq distance table */
         IvfFlushPQInfoInternal(index, (char*)preComputeTable,
                                IVF_PQTABLE_START_BLKNO + pqTableNblk, pqPrecomputeTableNblk, pqPrecomputeTableSize);
