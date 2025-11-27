@@ -409,7 +409,8 @@ typedef enum {
     PRED_PUSH_FORCE = (1 << 8),
     SUBLINK_PULLUP_DISABLE_EXPR = (1 << 9), /* disable pull sublink in expr clause */
     SUBLINK_PULLUP_ENHANCED = (1 << 10),
-    REMOVE_REDUNDANT_DISTINCT_GROUP_BY = (1 << 11)
+    REMOVE_REDUNDANT_DISTINCT_GROUP_BY = (1 << 11),
+    SUBLINK_PULLUP_ROWNUM = (1 << 12),
 } rewrite_param;
 
 typedef enum {
@@ -476,6 +477,9 @@ typedef enum {
 
 #define ENABLE_REMOVE_REDUNDANT_DISTINCT_GROUP_BY() \
     ((REMOVE_REDUNDANT_DISTINCT_GROUP_BY) & (uint)u_sess->attr.attr_sql.rewrite_rule)
+
+#define ENABLE_SUBLINK_PULLUP_ROWNUM() \
+    ((SUBLINK_PULLUP_ROWNUM) & (uint)u_sess->attr.attr_sql.rewrite_rule)
 
 #define ENABLE_SQL_BETA_FEATURE(feature) \
     ((bool)((uint)u_sess->attr.attr_sql.sql_beta_feature & feature))

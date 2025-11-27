@@ -938,6 +938,12 @@ void GlobalPlanCache::SPITryStore(CachedPlanSource* plansource, SPIPlanPtr spipl
         m_array[bucket_id].count++;
         pg_atomic_fetch_add_u32((volatile uint32*)&plansource->gplan->global_refcount, 1);
         plansource->gplan->is_share = true;
+        /* if refcount large than 2 means there contains simple expr */
+        const int standardRefCount = 2;
+        if (plansource->gplan->refcount >= standardRefCount) {
+            Assert(plansource->gplan->keep_in_simple_expr);
+            pg_atomic_fetch_add_u32((volatile uint32*)&plansource->gplan->global_refcount, 1);
+        }
         Assert(plansource->context->is_shared);
         MemoryContextSeal(plansource->context);
         Assert(plansource->query_context->is_shared);

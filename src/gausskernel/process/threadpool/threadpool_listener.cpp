@@ -217,6 +217,7 @@ void ThreadPoolListener::dispatch_socked_closed_session(knl_session_context* ses
     }
     session->proc_cxt.MyProcPort->sock = PGINVALID_SOCKET;
     AddIdleSessionToHead(session);
+    pg_atomic_fetch_add_u32((volatile uint32*)&m_group->m_waitServeSessionCount, 1);
 }
 
 void ThreadPoolListener::AddEpoll(knl_session_context* session)
@@ -715,5 +716,7 @@ void ThreadPoolListener::AddIdleSessionToHead(knl_session_context* session)
     DLAddHead(&m_session_bucket[hash_index], &session->elem2);
     PthreadRWlockUnlock(owner, &m_session_rw_locks[hash_index]);
     m_readySessionList->AddHead(&session->elem);
-    pg_atomic_add_fetch_u32(&m_uninit_count, 1);
+    if (session->status == KNL_SESS_UNINIT) {
+        pg_atomic_add_fetch_u32(&m_uninit_count, 1);
+    }
 }

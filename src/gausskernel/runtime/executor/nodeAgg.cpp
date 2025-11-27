@@ -210,6 +210,10 @@ void initialize_phase(AggState* aggstate, int newphase)
 {
     Assert(newphase == 0 || newphase == aggstate->current_phase + 1);
 
+    if (aggstate->sort_slot) {
+        (void)ExecClearTuple(aggstate->sort_slot);
+    }
+
     /*
      * Whatever the previous state, we're now done with whatever input
      * tuplesort was in use.

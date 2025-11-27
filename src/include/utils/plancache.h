@@ -469,6 +469,9 @@ typedef struct CachedPlan {
     bool is_candidate;
     double cost;      /* cost of generic plan, or -1 if not known */
     Oid param_collation;
+#ifdef USE_ASSERT_CHECKING
+    bool keep_in_simple_expr;
+#endif
 } CachedPlan;
 
 typedef struct CachedPlanInfo {

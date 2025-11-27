@@ -8605,8 +8605,7 @@ void XactCleanExceptionSubTransaction(SubTransactionId head)
         if (IS_PGXC_DATANODE) {
             OpFusion::ClearInSubUnexpectSituation(s->curTransactionOwner);
         }
-        /* release ref for spi's cachedplan */
-        ReleaseSpiPlanRef(s->subTransactionId);
+
         /* reset cursor's attribute var */
         ResetPortalCursor(s->subTransactionId, InvalidOid, 0);
 

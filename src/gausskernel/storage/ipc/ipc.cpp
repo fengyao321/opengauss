@@ -75,6 +75,7 @@ extern void AtProcExit_Files(int code, Datum arg);
 extern void audit_processlogout(int code, Datum arg);
 extern void CancelAutoAnalyze();
 extern void DestoryAutonomousSession(bool force);
+extern void CleanAutonomousSession(int code, Datum arg);
 #ifdef ENABLE_MOT
 static void MOTCleanupSession(int code, Datum arg)
 {
@@ -99,7 +100,8 @@ static const pg_on_exit_callback on_sess_exit_list[] = {
     audit_processlogout,
     log_disconnections,
     libpqsw_cleanup,
-    og_record_time_cleanup
+    og_record_time_cleanup,
+    CleanAutonomousSession
 };
 
 static const int on_sess_exit_size = lengthof(on_sess_exit_list);
