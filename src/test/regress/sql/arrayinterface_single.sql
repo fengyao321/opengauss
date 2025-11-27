@@ -385,6 +385,152 @@ end;
 
 call array_interface_p12();
 
+declare
+    v1 int[];
+    v2 int[];
+    v3 int[];
+begin
+    v1 := ARRAY[1, 2, 3];
+    v2(-9) := -9;
+    v2(-7) := -7;
+    v2(-5) := -5;
+    v3(4) := null;
+    v3(5) := 5;
+    v3(8) := 8;
+    v1.delete(1);
+    v2.delete(-9);
+    v3.delete(4);
+    raise info '%', v1;
+    raise info '%', v2;
+    raise info '%', v3;
+end;
+/
+
+declare
+    v1 int[];
+    v2 int[];
+    v_null_int int;
+    v3 int[] := ARRAY[]::int[];
+    v4 int[];
+begin
+    v1 := ARRAY[1, 2, 3, 4, 5];
+    v1.delete(v_null_int);
+    raise info '%', v1;
+    v1 := ARRAY[1, 2, 3, 4, 5];
+    v1.delete(0);
+    raise info '%', v1;
+    v1 := ARRAY[1, 2, 3, 4, 5];
+    v1.delete(1);
+    raise info '%', v1;
+    v1 := ARRAY[1, 2, 3, 4, 5];
+    v1.delete(2);
+    raise info '%', v1;
+    v1 := ARRAY[1, 2, 3, 4, 5];
+    v1.delete(3);
+    raise info '%', v1;
+    v1 := ARRAY[1, 2, 3, 4, 5];
+    v1.delete(4);
+    raise info '%', v1;
+    v1 := ARRAY[1, 2, 3, 4, 5];
+    v1.delete(5);
+    raise info '%', v1;
+    v1 := ARRAY[1, 2, 3, 4, 5];
+    v1.delete(6);
+    raise info '%', v1;
+ 
+    v2(-5) := 1;
+    v2(-4) := 2;
+    v2(-3) := 3;
+    v2(-2) := 4;
+    v2.delete(-6);
+    raise info '%', v2;
+    v2.delete(-5);
+    raise info '%', v2;
+    v2(-2) := 5;
+    v2.delete(-4);
+    raise info '%', v2;
+    v2(-2) := 6;
+    v2.delete(-3);
+    raise info '%', v2;
+    v2(-2) := 7;
+    v2.delete(-2);
+    raise info '%', v2;
+    v2(-2) := 8;
+    v2.delete(-1);
+    raise info '%', v2;
+    v2 := null;
+ 
+    v2(-2) := 1;
+    v2(-1) := 2;
+    v2(0) := 3;
+    v2(1) := 4;
+    v2.delete(-3);
+    raise info '%', v2;
+    v2.delete(-2);
+    raise info '%', v2;
+    v2(1) := 5;
+    v2.delete(-1);
+    raise info '%', v2;
+    v2(1) := 6;
+    v2.delete(0);
+    raise info '%', v2;
+    v2(1) := 7;
+    v2.delete(1);
+    raise info '%', v2;
+    v2(1) := 8;
+    v2.delete(2);
+    raise info '%', v2;
+    v2 := null;
+ 
+    v2(2) := 1;
+    v2(3) := 2;
+    v2(4) := 3;
+    v2(5) := 4;
+    v2.delete(1);
+    raise info '%', v2;
+    v2.delete(2);
+    raise info '%', v2;
+    v2(5) := 5;
+    v2.delete(3);
+    raise info '%', v2;
+    v2(5) := 6;
+    v2.delete(4);
+    raise info '%', v2;
+    v2(5) := 7;
+    v2.delete(5);
+    raise info '%', v2;
+    v2(5) := 8;
+    v2.delete(6);
+    raise info '%', v2;
+    v2 := null;
+ 
+    v3.delete(0);
+    raise info '%', v3;
+    v3.delete(1);
+    raise info '%', v3;
+    v3.delete(2);
+    raise info '%', v3;
+ 
+    v4 := ARRAY[ARRAY[1, 2, 3], ARRAY[4, 5, 6], ARRAY[7, 8, 9], ARRAY[10, 11, 12]];
+    v4.delete(0);
+    raise info '%', v4;
+    v4 := ARRAY[ARRAY[1, 2, 3], ARRAY[4, 5, 6], ARRAY[7, 8, 9], ARRAY[10, 11, 12]];
+    v4.delete(1);
+    raise info '%', v4;
+    v4 := ARRAY[ARRAY[1, 2, 3], ARRAY[4, 5, 6], ARRAY[7, 8, 9], ARRAY[10, 11, 12]];
+    v4.delete(2);
+    raise info '%', v4;
+    v4 := ARRAY[ARRAY[1, 2, 3], ARRAY[4, 5, 6], ARRAY[7, 8, 9], ARRAY[10, 11, 12]];
+    v4.delete(3);
+    raise info '%', v4;
+    v4 := ARRAY[ARRAY[1, 2, 3], ARRAY[4, 5, 6], ARRAY[7, 8, 9], ARRAY[10, 11, 12]];
+    v4.delete(4);
+    raise info '%', v4;
+    v4 := ARRAY[ARRAY[1, 2, 3], ARRAY[4, 5, 6], ARRAY[7, 8, 9], ARRAY[10, 11, 12]];
+    v4.delete(v_null_int);
+    raise info '%', v4;
+end;
+/
 
 -- clean up --
 drop schema if exists plpgsql_array_interface cascade;

@@ -263,6 +263,13 @@ static inline const char* err_gettext(const char* str)
  */
 bool errstart(int elevel, const char* filename, int lineno, const char* funcname, const char* domain)
 {
+    bool isSyscacheInvalid = u_sess->inval_cxt.DeepthInAcceptInvalidationMessage > 0;
+    isSyscacheInvalid = isSyscacheInvalid || u_sess->inval_cxt.executing_roll_back_msg;
+    if (!isSyscacheInvalid && EnableLocalSysCache()) {
+        isSyscacheInvalid = t_thrd.lsc_cxt.lsc->inval_cxt.DeepthInAcceptInvalidationMessage > 0;
+        isSyscacheInvalid = isSyscacheInvalid || t_thrd.lsc_cxt.lsc->inval_cxt.executing_roll_back_msg;
+    }
+
     ErrorData* edata = NULL;
     bool output_to_server = false;
     bool output_to_client = false;
@@ -302,6 +309,7 @@ bool errstart(int elevel, const char* filename, int lineno, const char* funcname
         if (elevel == ERROR) {
             if (t_thrd.log_cxt.PG_exception_stack == NULL ||
                 t_thrd.proc_cxt.proc_exit_inprogress ||
+                isSyscacheInvalid ||
                 t_thrd.xact_cxt.executeSubxactUndo)
             {
                 elevel = FATAL;

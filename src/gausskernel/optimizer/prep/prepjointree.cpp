@@ -223,7 +223,7 @@ void pull_up_sublinks(PlannerInfo* root)
 
 #ifndef ENABLE_MULTIPLE_NODES
     /* if quals include rownum, forbid pulling up sublinks */
-    if (find_rownum_in_quals(root)) {
+    if (!ENABLE_SUBLINK_PULLUP_ROWNUM() && find_rownum_in_quals(root)) {
         return;
     }
 

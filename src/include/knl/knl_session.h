@@ -2467,6 +2467,7 @@ typedef struct knl_u_user_login_context {
 #define MAXINVALMSGS 32
 typedef struct knl_u_inval_context {
     int32 DeepthInAcceptInvalidationMessage;
+    bool executing_roll_back_msg;
 
     struct TransInvalidationInfo* transInvalInfo;
 
@@ -3200,6 +3201,8 @@ typedef struct knl_session_context {
     int num_guc_variables;
 
     int on_sess_exit_index;
+
+    uint64 optimizer_query_memory;
 
     PBEMessage pbe_message;
 

@@ -1162,8 +1162,10 @@ void AtEOXact_Inval(bool isCommit)
     } else if (inval_cxt->transInvalInfo != NULL) {
         /* Must be at top of stack */
         Assert(inval_cxt->transInvalInfo->parent == NULL);
+        inval_cxt->executing_roll_back_msg = true;
         ProcessInvalidationMessages(
             &inval_cxt->transInvalInfo->PriorCmdInvalidMsgs, LocalExecuteThreadAndSessionInvalidationMessage);
+        inval_cxt->executing_roll_back_msg = false;
     }
 
     /* Need not free anything explicitly */
@@ -1218,7 +1220,9 @@ void AtEOSubXact_Inval(bool isCommit)
     } else if (myInfo != NULL && myInfo->my_level == my_level) {
         /* Must be at non-top of stack */
         Assert(myInfo->parent != NULL);
+        inval_cxt->executing_roll_back_msg = true;
         ProcessInvalidationMessages(&myInfo->PriorCmdInvalidMsgs, LocalExecuteThreadAndSessionInvalidationMessage);
+        inval_cxt->executing_roll_back_msg = false;
 
         /* Pop the transaction state stack */
         inval_cxt->transInvalInfo = myInfo->parent;
@@ -1254,12 +1258,14 @@ void CommandEndInvalidationMessages(void)
     if (inval_cxt->transInvalInfo == NULL) {
         return;
     }
+    inval_cxt->executing_roll_back_msg = true;
     ProcessInvalidationMessagesMulti(
         &inval_cxt->transInvalInfo->CurrentCmdInvalidMsgs, GlobalExecuteSharedInvalidMessages);
     ProcessInvalidationMessages(
         &inval_cxt->transInvalInfo->CurrentCmdInvalidMsgs, LocalExecuteThreadAndSessionInvalidationMessage);
     AppendInvalidationMessages(&inval_cxt->transInvalInfo->PriorCmdInvalidMsgs,
         &inval_cxt->transInvalInfo->CurrentCmdInvalidMsgs);
+    inval_cxt->executing_roll_back_msg = false;
 }
 
 /*

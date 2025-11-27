@@ -1052,6 +1052,13 @@ void free_expr(PLpgSQL_expr* expr)
         SPI_freeplan(expr->plan);
         expr->plan = NULL;
     }
+    if (expr != NULL && expr->expr_simple_plan != NULL) {
+#ifdef USE_ASSERT_CHECKING
+        expr->expr_simple_plan->keep_in_simple_expr = false;
+#endif
+        ReleaseCachedPlan(expr->expr_simple_plan, false);
+        expr->expr_simple_plan = NULL;
+    }
 }
 
 static void DropDependencyForAnonymousType(PLpgSQL_type* type, PLpgSQL_function* func)

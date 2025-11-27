@@ -291,6 +291,10 @@ void DestoryAutonomousSession(bool force)
     }
 }
 
+void CleanAutonomousSession(int code, Datum arg)
+{
+    DestoryAutonomousSession(true);
+}
 
 /*
  * HandleResInfo

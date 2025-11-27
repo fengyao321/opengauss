@@ -2997,7 +2997,9 @@ static int _SPI_execute_plan0(SPIPlanPtr plan, ParamListInfo paramLI, Snapshot s
             ForgetSpiPlanRef();
         ResourceOwner tmp = t_thrd.utils_cxt.CurrentResourceOwner;
         t_thrd.utils_cxt.CurrentResourceOwner = oldOwner;
-        ReleaseCachedPlan(cplan, plan->saved);
+        if (!(plan->saved && !ResourceOwnerIsValid(oldOwner))) {
+            ReleaseCachedPlan(cplan, plan->saved);
+        }
         t_thrd.utils_cxt.CurrentResourceOwner  = tmp;
         cplan = NULL;
         if (ENABLE_GPC && tmp_cxt)
@@ -3026,7 +3028,9 @@ fail:
             ForgetSpiPlanRef();
         ResourceOwner tmp = t_thrd.utils_cxt.CurrentResourceOwner;
         t_thrd.utils_cxt.CurrentResourceOwner = oldOwner;
-        ReleaseCachedPlan(cplan, plan->saved);
+        if (!(plan->saved && !ResourceOwnerIsValid(oldOwner))) {
+            ReleaseCachedPlan(cplan, plan->saved);
+        }
         t_thrd.utils_cxt.CurrentResourceOwner  = tmp;
     }
     /*
