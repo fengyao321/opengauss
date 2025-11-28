@@ -1719,6 +1719,43 @@ void VectorInnerProductNY(size_t d, size_t ny, float *x, char *pqTable, Size sub
 }
 #endif
 
+#ifdef __aarch64__
+float VectorRbqDpPopcnt(int dim, int qb, uint8 *qx, uint8 *ex)
+{
+    return 0;
+}
+#else
+float VectorRbqDpPopcnt(int dim, int qb, uint8 *qx, uint8 *ex)
+{
+    return 0;
+}
+#endif
+
+void KacsWalk(float* data, uint64_t len)
+{
+    return;
+}
+
+void FlipSign(const uint8_t* matfht, float* data, uint64_t dim)
+{
+    return;
+}
+
+void VecRescale(float* data, uint64_t dim, float val)
+{
+    return;
+}
+
+void RotateOp(float* data, int idx, int dim, int step)
+{
+    return;
+}
+
+void FHTRotate(float* data, uint64_t dim)
+{
+    return;
+}
+
 /*
  * WAL-log a range of blocks in a relation.
  *

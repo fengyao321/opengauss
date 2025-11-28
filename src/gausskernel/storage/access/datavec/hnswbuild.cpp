@@ -87,6 +87,14 @@ static void AddSample(Datum *values, HnswBuildState *buildstate)
 }
 
 /*
+ * Sum samples
+ */
+static void SumSamples(Datum *values, HnswBuildState *buildstate)
+{
+    return;
+}
+
+/*
  * Callback for sampling
  */
 static void SampleCallback(Relation index, CALLBACK_ITEM_POINTER, Datum *values,
@@ -103,8 +111,13 @@ static void SampleCallback(Relation index, CALLBACK_ITEM_POINTER, Datum *values,
     /* Use memory context since detoast can allocate */
     oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
 
-    /* Add sample */
-    AddSample(values, buildstate);
+    if (buildstate->enableRabitQ) {
+        /* Sum samples */
+        SumSamples(values, buildstate);
+    } else {
+        /* Add sample */
+        AddSample(values, buildstate);
+    }
 
     /* Reset memory context */
     MemoryContextSwitchTo(oldCtx);
@@ -137,7 +150,7 @@ PQParams *InitPQParamsInMemory(HnswBuildState *buildstate)
     PQParams *params = (PQParams*)palloc(sizeof(PQParams));
     params->pqM = buildstate->pqM;
     params->pqKsub = buildstate->pqKsub;
-    params->funcType = GetPQfunctionType(buildstate->procinfo, buildstate->normprocinfo);
+    params->funcType = GetFunctionType(buildstate->procinfo, buildstate->normprocinfo);
     params->dim = buildstate->dimensions;
     Size subItemsize = buildstate->typeInfo->itemSize(buildstate->dimensions / buildstate->pqM);
     params->subItemSize = MAXALIGN(subItemsize);
@@ -248,19 +261,42 @@ static void CreateMetaPage(HnswBuildState *buildstate)
     if (buildstate->enablePQ) {
         metap->pqTableSize = (uint32)buildstate->pqTableSize;
         metap->pqTableNblk = (uint16)(
-            (metap->pqTableSize + PQTABLE_STORAGE_SIZE - 1) / PQTABLE_STORAGE_SIZE);
+            (metap->pqTableSize + CHUNK_STORAGE_SIZE - 1) / CHUNK_STORAGE_SIZE);
         if (buildstate->pqMode == HNSW_PQMODE_SDC) {
             uint32 disTableLen = buildstate->pqM * buildstate->pqKsub * buildstate->pqKsub;
             metap->pqDisTableSize = (uint32)disTableLen * sizeof(float);
             metap->pqDisTableNblk = (uint16)(
-                (metap->pqDisTableSize + PQTABLE_STORAGE_SIZE - 1) / PQTABLE_STORAGE_SIZE);
+                (metap->pqDisTableSize + CHUNK_STORAGE_SIZE - 1) / CHUNK_STORAGE_SIZE);
         }
     } else {
         metap->pqTableSize = 0;
         metap->pqTableNblk = 0;
     }
 
-    ((PageHeader)page)->pd_lower = ((char *)metap + sizeof(HnswMetaPageData)) - (char *)page;
+    /* set RabitQ info */
+    metap->enableRabitQ = buildstate->enableRabitQ;
+    if (buildstate->enableRabitQ) {
+        metap->useFHT = buildstate->rbqConfig->FHT;
+        int dim = buildstate->dimensions;
+        Size matrixSize;
+        if (buildstate->rbqConfig->FHT) {
+            matrixSize = ((dim + 7) / 8) * FHT_ROUND * sizeof(uint8);
+        } else {
+            matrixSize = dim * dim * sizeof(float);
+        }
+        metap->matrixSize = matrixSize;
+        metap->matrixNblk = (uint16)(
+                (matrixSize + CHUNK_STORAGE_SIZE - 1) / CHUNK_STORAGE_SIZE);
+        size_t cenSize = buildstate->dimensions * sizeof(float);
+        errno_t rc = memcpy_s(metap->centroid, cenSize, buildstate->centroid, cenSize);
+        securec_check_c(rc, "\0", "\0");
+        ((PageHeader)page)->pd_lower = ((char *)metap + offsetof(HnswMetaPageData, centroid) + cenSize) - (char *)page;
+    } else {
+        metap->useFHT = false;
+        metap->matrixNblk = 0;
+        metap->matrixSize = 0;
+        ((PageHeader)page)->pd_lower = ((char *)metap + offsetof(HnswMetaPageData, centroid)) - (char *)page;
+    }
 
     MarkBufferDirty(buf);
     UnlockReleaseBuffer(buf);
@@ -298,6 +334,14 @@ static void CreatePQPages(HnswBuildState *buildstate)
         MarkBufferDirty(buf);
         UnlockReleaseBuffer(buf);
     }
+}
+
+/*
+ * Create RabitQ-matrix pages
+ */
+static void CreateRbqMatrixPages(HnswBuildState *buildstate)
+{
+    return;
 }
 
 /*
@@ -345,6 +389,8 @@ static void CreateGraphPages(HnswBuildState *buildstate)
     char *base = buildstate->hnswarea;
     IndexTransInfo *idxXid;
     Size pqcodesSize = buildstate->pqcodeSize;
+    Size rbqcodesSize = rbqCodeSize(buildstate->dimensions);
+    Size rbqEtupSize = MAXALIGN(offsetof(HnswElementTupleData, data) + (rbqcodesSize));
 
     /* Calculate sizes */
     maxSize = HNSW_MAX_SIZE;
@@ -361,10 +407,18 @@ static void CreateGraphPages(HnswBuildState *buildstate)
     /* Check vector and pqcode can be on the same page */
     if (!HnswPtrIsNull(base, buildstate->graph->head)) {
         HnswElement head = (HnswElement)HnswPtrAccess(base, buildstate->graph->head);
-        Size elementSize = HNSW_ELEMENT_TUPLE_SIZE(VARSIZE_ANY((Pointer)HnswPtrAccess(base, head->value)));
-        if (PageGetFreeSpace(page) < elementSize + MAXALIGN(pqcodesSize)) {
-            int maxPQcodeSize = ((PageGetFreeSpace(page) - elementSize) / 8) * 8;
-            ereport(ERROR, (errmsg("vector and pqcode must be on the same page, max pq_m is %d", maxPQcodeSize)));
+        Size elementSize;
+        if (buildstate->enableRabitQ) {
+            elementSize = rbqEtupSize;
+            if (PageGetFreeSpace(page) < elementSize) {
+                ereport(ERROR, (errmsg("One rabitqcode must be stored within a single page")));
+            }
+        } else {
+            elementSize = HNSW_ELEMENT_TUPLE_SIZE(VARSIZE_ANY((Pointer)HnswPtrAccess(base, head->value)));
+            if (PageGetFreeSpace(page) < elementSize + MAXALIGN(pqcodesSize)) {
+                int maxPQcodeSize = ((PageGetFreeSpace(page) - elementSize) / 8) * 8;
+                ereport(ERROR, (errmsg("vector and pqcode must be on the same page, max pq_m is %d", maxPQcodeSize)));
+            }
         }
     }
 
@@ -386,7 +440,8 @@ static void CreateGraphPages(HnswBuildState *buildstate)
         MemSet(etup, 0, HNSW_TUPLE_ALLOC_SIZE);
 
         /* Calculate sizes */
-        etupSize = HNSW_ELEMENT_TUPLE_SIZE(VARSIZE_ANY(valuePtr));
+        etupSize = buildstate->enableRabitQ ? rbqEtupSize
+                    : HNSW_ELEMENT_TUPLE_SIZE(VARSIZE_ANY(valuePtr));
         ntupSize = HNSW_NEIGHBOR_TUPLE_SIZE(element->level, buildstate->m);
         combinedSize = etupSize + MAXALIGN(pqcodesSize) + ntupSize + sizeof(ItemIdData);
 
@@ -399,7 +454,7 @@ static void CreateGraphPages(HnswBuildState *buildstate)
             elog(ERROR, "index tuple too large");
         }
 
-        HnswSetElementTuple(base, etup, element);
+        HnswSetElementTuple(base, etup, element, etupSize);
 
         /* Keep element and neighbors on the same page if possible */
         if (PageGetFreeSpace(page) < etupSize + MAXALIGN(pqcodesSize) ||
@@ -532,6 +587,10 @@ static void FlushPages(HnswBuildState *buildstate)
         /* Save PQ table and distance table */
         FlushPQInfo(buildstate);
     }
+    if (buildstate->enableRabitQ) {
+        /* Create pages and flush matrix */
+        CreateRbqMatrixPages(buildstate);
+    }
     CreateGraphPages(buildstate);
     WriteNeighborTuples(buildstate);
 
@@ -596,7 +655,7 @@ static void AddElementInMemory(char *base, HnswGraph *graph, HnswElement element
 /*
  * Update neighbors
  */
-static void UpdateNeighborsInMemory(char *base, FmgrInfo *procinfo, Oid collation, HnswElement e, int m)
+static void UpdateNeighborsInMemory(char *base, FmgrInfo *procinfo, Oid collation, HnswElement e, int m, bool enableRabitQ)
 {
     for (int lc = e->level; lc >= 0; lc--) {
         int lm = HnswGetLayerM(m, lc);
@@ -612,7 +671,7 @@ static void UpdateNeighborsInMemory(char *base, FmgrInfo *procinfo, Oid collatio
 
             /* Use element for lock instead of hc since hc can be replaced */
             LWLockAcquire(&neighborElement->lock, LW_EXCLUSIVE);
-            HnswUpdateConnection(base, e, hc, lm, lc, NULL, NULL, procinfo, collation);
+            HnswUpdateConnection(base, e, hc, lm, lc, NULL, NULL, procinfo, collation, enableRabitQ, NULL);
             LWLockRelease(&neighborElement->lock);
         }
     }
@@ -636,7 +695,7 @@ static void UpdateGraphInMemory(FmgrInfo *procinfo, Oid collation, HnswElement e
     AddElementInMemory(base, graph, element);
 
     /* Update neighbors */
-    UpdateNeighborsInMemory(base, procinfo, collation, element, m);
+    UpdateNeighborsInMemory(base, procinfo, collation, element, m, buildstate->enableRabitQ);
 
     /* Update entry point if needed (already have lock) */
     if (entryPoint == NULL || element->level > entryPoint->level) {
@@ -658,6 +717,7 @@ static void InsertTupleInMemory(HnswBuildState *buildstate, HnswElement element)
     int efConstruction = buildstate->efConstruction;
     int m = buildstate->m;
     char *base = buildstate->hnswarea;
+    int funcType = GetFunctionType(procinfo, buildstate->normprocinfo);
 
     /* Wait if another process needs exclusive lock on entry lock */
     LWLockAcquire(entryWaitLock, LW_EXCLUSIVE);
@@ -681,8 +741,9 @@ static void InsertTupleInMemory(HnswBuildState *buildstate, HnswElement element)
     }
 
     /* Find neighbors for element */
-    HnswFindElementNeighbors(base, element, entryPoint, NULL, procinfo, collation, m, efConstruction,
-                             false, buildstate->enablePQ, buildstate->params);
+    HnswFindElementNeighbors(base, element, entryPoint, NULL, procinfo, collation, m, efConstruction, false,
+                             buildstate->enablePQ, buildstate->params, buildstate->enableRabitQ, funcType,
+                             buildstate->centroid, NULL);
 
     /* Update graph in memory */
     UpdateGraphInMemory(procinfo, collation, element, m, efConstruction, entryPoint, buildstate);
@@ -704,6 +765,7 @@ static bool InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
     Size valueSize;
     Pointer valuePtr;
     Pointer codePtr = NULL;
+    Pointer rbqPtr = NULL;
     LWLock *flushLock = &graph->flushLock;
     char *base = buildstate->hnswarea;
 
@@ -724,9 +786,6 @@ static bool InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
         value = HnswNormValue(typeInfo, buildstate->collation, value);
     }
 
-    /* Get datum size */
-    valueSize = VARSIZE_ANY(DatumGetPointer(value));
-
     /* Ensure graph not flushed when inserting */
     LWLockAcquire(flushLock, LW_SHARED);
 
@@ -734,7 +793,7 @@ static bool InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
     if (graph->flushed) {
         LWLockRelease(flushLock);
 
-        return HnswInsertTupleOnDisk(index, value, values, isnull, heaptid, true);
+        return HnswInsertTupleOnDisk(index, value, isnull, heaptid, true, buildstate->heap);
     }
 
     /*
@@ -764,8 +823,23 @@ static bool InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
 
         LWLockRelease(flushLock);
 
-        return HnswInsertTupleOnDisk(index, value, values, isnull, heaptid, true);
+        return HnswInsertTupleOnDisk(index, value, isnull, heaptid, true, buildstate->heap);
     }
+
+    /* Transform vector in rabitq */
+    if (buildstate->enableRabitQ) {
+        VectorTransform* vtrans = buildstate->rbqConfig->vtrans;
+        Vector *transValue = InitVector(buildstate->dimensions);
+        if (vtrans->type == RANDOM_ORTHOGONAL) {
+            RomTransform(vtrans, ((Vector *)DatumGetPointer(value))->x, transValue->x);
+        } else {
+            FhtTransform(vtrans, ((Vector *)DatumGetPointer(value))->x, transValue->x);
+        }
+        value = (Datum)transValue;
+    }
+
+    /* Get datum size */
+    valueSize = VARSIZE_ANY(DatumGetPointer(value));
 
     /* Ok, we can proceed to allocate the element */
     element = HnswInitElement(base, heaptid, buildstate->m, buildstate->ml, buildstate->maxLevel, allocator);
@@ -773,6 +847,10 @@ static bool InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
     if (buildstate->enablePQ) {
         Size codesize = buildstate->pqM * sizeof(uint8);
         codePtr = (Pointer)HnswAlloc(allocator, codesize);
+    }
+    if (buildstate->enableRabitQ) {
+        Size codesize = rbqCodeSize(buildstate->dimensions);
+        rbqPtr = (Pointer)HnswAlloc(allocator, codesize);
     }
 
     /*
@@ -787,6 +865,7 @@ static bool InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
     securec_check(rc, "\0", "\0");
     HnswPtrStore(base, element->value, valuePtr);
     HnswPtrStore(base, element->pqcodes, codePtr);
+    HnswPtrStore(base, element->rbqcodes, rbqPtr);
 
     /* Create a lock for the element */
     LWLockInitialize(&element->lock, hnsw_lock_tranche_id);
@@ -954,6 +1033,12 @@ static void InitBuildState(HnswBuildState *buildstate, Relation heap, Relation i
 
     buildstate->pqM = HnswGetPqM(index);
     buildstate->pqKsub = HnswGetPqKsub(index);
+
+    buildstate->enableRabitQ = HnswGetEnableRabitQ(index);
+    if (buildstate->enablePQ && buildstate->enableRabitQ) {
+        ereport(ERROR, (errmsg("hnsw does not support the mixed use of the two quantization methods: PQ and RabitQ.")));
+    }
+
     if (buildstate->enablePQ) {
         if (buildstate->kmeansnormprocinfo != NULL && buildstate->dimensions == 1) {
             ereport(ERROR, (errmsg("dimensions must be greater than one for this opclass.")));
@@ -976,6 +1061,22 @@ static void InitBuildState(HnswBuildState *buildstate, Relation heap, Relation i
     buildstate->pqMode = HNSW_PQMODE_DEFAULT;
     buildstate->pqDistanceTable = NULL;
 
+    if (buildstate->enableRabitQ && !buildstate->typeInfo->supportRabitQ) {
+        ereport(ERROR, (errmsg("this data type cannot support hnsw_rabitq.")));
+    }
+    if (buildstate->enableRabitQ && !parallel) {
+        RabitQConfig *rbqConfig = (RabitQConfig *)palloc(sizeof(RabitQConfig));
+        rbqConfig->FHT = HnswGetUseFHT(index);
+        buildstate->rbqConfig = rbqConfig;
+        VectorTransform *vt = (VectorTransform *)palloc(sizeof(VectorTransform));
+        rbqConfig->vtrans = vt;
+        vt->dim = buildstate->dimensions;
+        vt->type = rbqConfig->FHT ? FAST_HTRANSFORM : RANDOM_ORTHOGONAL;
+    } else {
+        buildstate->rbqConfig = NULL;
+    }
+    buildstate->centroid = NULL;
+
     buildstate->isUStore = buildstate->heap ? RelationIsUstoreFormat(buildstate->heap) : false;
 }
 
@@ -992,6 +1093,11 @@ static void FreeBuildState(HnswBuildState *buildstate, bool parallel)
             pfree(buildstate->pqDistanceTable);
         }
         pfree(buildstate->params);
+    }
+    if (buildstate->enableRabitQ  && !parallel) {
+        pfree(buildstate->centroid);
+        pfree(buildstate->rbqConfig->vtrans);
+        pfree(buildstate->rbqConfig);
     }
 }
 
@@ -1031,6 +1137,10 @@ static void HnswParallelScanAndInsert(Relation heapRel, Relation indexRel, HnswS
         buildstate.params->pqTable = hnswshared->pqTable;
     }
     buildstate.pqDistanceTable = hnswshared->pqDistanceTable;
+    if (buildstate.enableRabitQ) {
+        buildstate.centroid = hnswshared->centroid;
+        buildstate.rbqConfig = hnswshared->rbqConfig;
+    }
     InitAllocator(&buildstate.allocator, &HnswSharedMemoryAlloc, &buildstate);
     scan = tableam_scan_begin_parallel(heapRel, &hnswshared->heapdesc);
     reltuples = tableam_index_build_scan(heapRel, indexRel, indexInfo, true, BuildCallback, (void *)&buildstate, scan);
@@ -1126,6 +1236,13 @@ static HnswShared *HnswParallelInitshared(HnswBuildState *buildstate)
         }
     } else {
         hnswshared->pqTable = NULL;
+    }
+    if (buildstate->enableRabitQ) {
+        hnswshared->centroid = buildstate->centroid;
+        hnswshared->rbqConfig = buildstate->rbqConfig;
+    } else {
+        hnswshared->centroid = NULL;
+        hnswshared->rbqConfig = NULL;
     }
     SpinLockInit(&hnswshared->mutex);
     /* Initialize mutable state */
@@ -1225,6 +1342,33 @@ static void BuildGraph(HnswBuildState *buildstate, ForkNumber forkNum)
     }
 }
 
+void ComputeCenter(HnswBuildState *buildstate)
+{
+    if (buildstate->heap == NULL) {
+        return;
+    }
+    double num;
+    EstimateRows(buildstate->heap, &num);
+    int numSamples = (int)num;
+
+    BlockNumber totalblocks = RelationGetNumberOfBlocks(buildstate->heap);
+    buildstate->rowstoskip = -1;
+    BlockSampler_Init(&buildstate->bs, totalblocks, numSamples);
+
+    buildstate->rstate = anl_init_selection_state(numSamples);
+    while (BlockSampler_HasMore(&buildstate->bs)) {
+        BlockNumber targblock = BlockSampler_Next(&buildstate->bs);
+
+        tableam_index_build_scan(buildstate->heap, buildstate->index, buildstate->indexInfo,
+                                 false, SampleCallback, (void *) buildstate, NULL, targblock, 1);
+    }
+    float *centroid = buildstate->centroid;
+    for (int i = 0; i < buildstate->dimensions; i++) {
+        centroid[i] = centroid[i] / numSamples;
+    }
+    ereport(LOG, (errmsg("HNSW RabitQ compute center successful.")));
+}
+
 /*
  * Build the index
  */
@@ -1252,6 +1396,24 @@ static void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, Hnsw
             buildstate->pqDistanceTable = (float *)palloc(pqM * pqKsub * pqKsub * sizeof(float));
             GetPQDistanceTableSdc(buildstate->params, buildstate->pqDistanceTable);
         }
+    }
+
+    if (buildstate->enableRabitQ) {
+        float *centroid = (float *)palloc(sizeof(float) * buildstate->dimensions);
+        buildstate-> centroid = centroid;
+        ComputeCenter(buildstate);
+
+        float *transCentroid = (float *)palloc(buildstate->dimensions * sizeof(float));
+        VectorTransform* vtrans = buildstate->rbqConfig->vtrans;
+        if (vtrans->type == RANDOM_ORTHOGONAL) {
+            RomTrain(vtrans);
+            RomTransform(vtrans, centroid, transCentroid);
+        }else {
+            FhtTrain(vtrans);
+            FhtTransform(vtrans, centroid, transCentroid);
+        }
+        buildstate->centroid = transCentroid;
+        pfree(centroid);
     }
 
     BuildGraph(buildstate, forkNum);

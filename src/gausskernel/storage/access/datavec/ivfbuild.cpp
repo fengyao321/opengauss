@@ -209,7 +209,7 @@ PQParams *InitIVFPQParamsInMemory(IvfflatBuildState *buildstate)
     PQParams *params = (PQParams*)palloc(sizeof(PQParams));
     params->pqM = buildstate->pqM;
     params->pqKsub = buildstate->pqKsub;
-    params->funcType = GetPQfunctionType(buildstate->procinfo, buildstate->normprocinfo);
+    params->funcType = GetFunctionType(buildstate->procinfo, buildstate->normprocinfo);
     params->dim = buildstate->dimensions;
     Size subItemsize = buildstate->typeInfo->itemSize(buildstate->dimensions / buildstate->pqM);
     params->subItemSize = MAXALIGN(subItemsize);
@@ -621,7 +621,7 @@ static void InitBuildState(IvfflatBuildState *buildstate, Relation heap, Relatio
         buildstate->params = InitIVFPQParamsInMemory(buildstate);
 
         if (buildstate->byResidual &&
-            (buildstate->params->funcType == PQ_DIS_L2 || buildstate->params->funcType == PQ_DIS_COSINE)) {
+            (buildstate->params->funcType == DIS_L2 || buildstate->params->funcType == DIS_COSINE)) {
             buildstate->preComputeTableSize = buildstate->lists * buildstate->pqM * buildstate->pqKsub;
             buildstate->preComputeTable = (float*)palloc0(buildstate->preComputeTableSize * sizeof(float));
         } else {
@@ -740,17 +740,17 @@ static void CreateMetaPage(Relation index, IvfflatBuildState *buildstate, ForkNu
     metap->pqTableSize = (uint32)buildstate->pqTableSize;
     metap->pqTableNblk =
         buildstate->enablePQ
-            ? (uint16)((metap->pqTableSize + PQTABLE_STORAGE_SIZE - 1) / PQTABLE_STORAGE_SIZE)
+            ? (uint16)((metap->pqTableSize + CHUNK_STORAGE_SIZE - 1) / CHUNK_STORAGE_SIZE)
             : 0;
     if (buildstate->enablePQ) {
         metap->pqTableNblk = (uint16)(
-            (metap->pqTableSize + PQTABLE_STORAGE_SIZE - 1) / PQTABLE_STORAGE_SIZE);
+            (metap->pqTableSize + CHUNK_STORAGE_SIZE - 1) / CHUNK_STORAGE_SIZE);
         if (buildstate->byResidual &&
-            (buildstate->params->funcType == PQ_DIS_L2 || buildstate->params->funcType == PQ_DIS_COSINE)) {
+            (buildstate->params->funcType == DIS_L2 || buildstate->params->funcType == DIS_COSINE)) {
             uint64 TableLen = buildstate->lists * buildstate->pqM * buildstate->pqKsub;
             metap->pqPreComputeTableSize = (uint64)TableLen * sizeof(float);
             metap->pqPreComputeTableNblk = (uint32)(
-                (metap->pqPreComputeTableSize + PQTABLE_STORAGE_SIZE - 1) / PQTABLE_STORAGE_SIZE);
+                (metap->pqPreComputeTableSize + CHUNK_STORAGE_SIZE - 1) / CHUNK_STORAGE_SIZE);
         }
     } else {
         metap->pqTableNblk = 0;
@@ -1527,7 +1527,7 @@ static void CreateEntryPages(IvfflatBuildState *buildstate, ForkNumber forkNum)
             ereport(LOG, (errmsg("IVFPQ finish to train codebook.")));
         }
         if (buildstate->byResidual &&
-            (buildstate->params->funcType == PQ_DIS_L2 || buildstate->params->funcType == PQ_DIS_COSINE))
+            (buildstate->params->funcType == DIS_L2 || buildstate->params->funcType == DIS_COSINE))
             ComputePreTable(buildstate);
     }
 

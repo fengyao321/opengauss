@@ -132,6 +132,8 @@ static relopt_bool boolRelOpts[] = {
      GENERIC_DEFAULT_ENABLE_PQ},
     {{"use_mmap", "Whether to enable use mmap during hnsw search", RELOPT_KIND_HNSW }, GENERIC_DEFAULT_USE_MMAP },
     {{"by_residual", "Whether to use residual during IVFPQ", RELOPT_KIND_IVFFLAT}, IVFPQ_DEFAULT_RESIDUAL},
+    {{"enable_rabitq", "Whether to enable RabitQ", RELOPT_KIND_HNSW | RELOPT_KIND_IVFFLAT}, GENERIC_DEFAULT_ENABLE_RABITQ},
+    {{"rabitq_fht", "Whether to use fht transform in RabitQ", RELOPT_KIND_HNSW | RELOPT_KIND_IVFFLAT}, GENERIC_DEFAULT_USE_FHT},
     {{"pad_index", "pad_index", RELOPT_KIND_D_INDEX}, false},
     {{"ignore_dup_key", "ignore_dup_key", RELOPT_KIND_D_INDEX}, false},
     {{"statistics_norecompute", "statistics_norecompute", RELOPT_KIND_D_INDEX}, false},

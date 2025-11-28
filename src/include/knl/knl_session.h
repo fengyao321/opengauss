@@ -3123,6 +3123,7 @@ typedef struct knl_u_datavec_context {
     int hnsw_earlystop_threshold;
     int hnsw_iterative_scan;
     int hnsw_max_scan_tuples;
+    int rbq_query_bits;
     int ivfflat_probes;
     int ivfpq_kreorder;
     int diskann_probes;
