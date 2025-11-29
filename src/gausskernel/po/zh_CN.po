@@ -61925,11 +61925,6 @@ msgstr "TryUnlockAccount(): roleid无效。"
 msgid "Invalid roleid in pg_user_status."
 msgstr "pg_user_status中的roleid无效。"
 
-#: optimizer/commands/user.cpp:5545 optimizer/commands/user.cpp:5775
-#, c-format
-msgid "IsAccountLocked(): roleid is not valid."
-msgstr "IsAccountLocked(): roleid无效。"
-
 #: optimizer/commands/user.cpp:5577
 #, c-format
 msgid "getAccountLockedStyle: roleid is not valid."
