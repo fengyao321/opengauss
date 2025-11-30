@@ -188,6 +188,10 @@ typedef struct RelationMetaData {
 #define DATA_COMPRESSION_D_INDEX_COLUMNSTORE "columnstore"
 #define DATA_COMPRESSION_D_INDEX_COLUMNSTROE_ARCHIVE "columnstore_archive"
 
+#define RABITQ_REFINE_TYPE_SQ8 "sq8"
+#define RABITQ_REFINE_TYPE_FP32 "fp32"
+#define RABITQ_REFINE_TYPE_NONE "none"
+
 /*
  * values for different table access method types.
  */

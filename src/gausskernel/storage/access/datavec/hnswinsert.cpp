@@ -27,6 +27,7 @@
 #include "access/generic_xlog.h"
 #include "access/xact.h"
 #include "access/datavec/hnsw.h"
+#include "catalog/index.h"
 #include "storage/buf/bufmgr.h"
 #include "storage/lmgr.h"
 #include "utils/datum.h"
@@ -132,7 +133,7 @@ static void HnswInsertAppendPage(Relation index, Buffer *nbuf, Page *npage, Gene
  * Add to element and neighbor pages
  */
 static void AddElementOnDisk(Relation index, HnswElement e, int m, BlockNumber insertPage,
-                             BlockNumber *updatedInsertPage, bool building)
+                             BlockNumber *updatedInsertPage, bool building, RabitQConfig *rbqConfig)
 {
     Buffer buf;
     Page page;
@@ -158,6 +159,7 @@ static void AddElementOnDisk(Relation index, HnswElement e, int m, BlockNumber i
     Size pqcodesSize;
     bool enableRabitQ;
     int dim;
+    Size rbqcodesSize = 0;
 
     /* Get info from metapage */
     Buffer metaBuf = ReadBuffer(index, HNSW_METAPAGE_BLKNO);
@@ -171,8 +173,9 @@ static void AddElementOnDisk(Relation index, HnswElement e, int m, BlockNumber i
 
     /* Calculate sizes */
     if (enableRabitQ) {
-        Size rbqcodesSize = rbqCodeSize(dim);
-        etupSize = MAXALIGN(offsetof(HnswElementTupleData, data) + (rbqcodesSize));
+        bool refineSQ8 = rbqConfig->reType == SQ8;
+        rbqcodesSize = rbqCodeSize(dim, refineSQ8);
+        etupSize = MAXALIGN(offsetof(HnswElementTupleData, data) + rbqcodesSize);
     } else {
         etupSize = HNSW_ELEMENT_TUPLE_SIZE(VARSIZE_ANY(HnswPtrAccess(base, e->value)));
     }
@@ -184,7 +187,7 @@ static void AddElementOnDisk(Relation index, HnswElement e, int m, BlockNumber i
 
     /* Prepare element tuple */
     etup = (HnswElementTuple)palloc0(etupSize);
-    HnswSetElementTuple(base, etup, e, etupSize);
+    HnswSetElementTuple(base, etup, e, rbqcodesSize);
 
     /* Prepare neighbor tuple */
     ntup = (HnswNeighborTuple)palloc0(ntupSize);
@@ -577,7 +580,7 @@ static bool FindDuplicateOnDisk(Relation index, HnswElement element, bool buildi
  */
 static void UpdateGraphOnDisk(Relation index, FmgrInfo *procinfo, Oid collation, HnswElement element, int m,
                               int efConstruction, HnswElement entryPoint, bool building, bool enableRabitQ,
-                              RabitqInsertOnDiskParams *rbqDiskParams)
+                              RabitqInsertOnDiskParams *rbqDiskParams, RabitQConfig *rbqConfig)
 {
     BlockNumber newInsertPage = InvalidBlockNumber;
 
@@ -587,7 +590,7 @@ static void UpdateGraphOnDisk(Relation index, FmgrInfo *procinfo, Oid collation,
     }
 
     /* Add element */
-    AddElementOnDisk(index, element, m, GetInsertPage(index), &newInsertPage, building);
+    AddElementOnDisk(index, element, m, GetInsertPage(index), &newInsertPage, building, rbqConfig);
 
     /* Update insert page if needed */
     if (BlockNumberIsValid(newInsertPage)) {
@@ -624,8 +627,8 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
     RabitqInsertOnDiskParams rbqDiskParams;
     RabitQConfig *rbqConfig = NULL;
     int dim = TupleDescAttr(index->rd_att, 0)->atttypmod;
-    int funcType = GetFunctionType(procinfo, HnswOptionalProcInfo(index, HNSW_NORM_PROC));
-    float *centroid = (float *)palloc(dim * sizeof(float));
+    int funcType = -1;
+    float *centroid = NULL;
 
     /*
      * Get a shared lock. This allows vacuum to ensure no in-flight inserts
@@ -640,11 +643,21 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
     /* Create an element */
     element = HnswInitElement(base, heap_tid, m, HnswGetMl(m), HnswGetMaxLevel(m), NULL);
 
-    rbqConfig = InitRbqConfigOnDisk(index, &enableRabitQ, centroid, dim);
+    rbqConfig = InitRbqConfigOnDisk(index, &enableRabitQ, &centroid, dim);
     if (enableRabitQ) {
-        Size codesize = rbqCodeSize(dim);
-        Pointer rbqPtr = (Pointer)HnswAlloc(NULL, codesize);
+        Pointer rbqPtr;
+        if (rbqConfig->reType == SQ8) {
+            /* Calculate origin vector's SQ8 */
+            rbqPtr = (Pointer)HnswAlloc(NULL, rbqCodeSize(dim, true));
+            ScalarQuantizer *sq = rbqConfig->sq;
+            int dim = sq->dim;
+            VectorEncodeSQ(dim, sq->trained, sq->trained + dim, ((Vector *)DatumGetPointer(value))->x,
+                                getRefineCode(rbqPtr, rbqConfig->reOffset));
+        } else {
+            rbqPtr = (Pointer)HnswAlloc(NULL, rbqCodeSize(dim, false));
+        }
         HnswPtrStore(base, element->rbqcodes, rbqPtr);
+
         /* hnsw insert on disk need to transform vector */
         VectorTransform *vtrans = rbqConfig->vtrans;
         Vector *transValue = InitVector(dim);
@@ -653,9 +666,17 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
         } else {
             FhtTransform(vtrans, ((Vector *)DatumGetPointer(value))->x, transValue->x);
         }
+        FmgrInfo *normprocinfo = HnswOptionalProcInfo(index, HNSW_NORM_PROC);
+        funcType = GetFunctionType(procinfo, normprocinfo);
+
         (&rbqDiskParams)->heap = heap;
+        (&rbqDiskParams)->normprocinfo = normprocinfo;
+        (&rbqDiskParams)->collation = collation;
         (&rbqDiskParams)->vtrans = vtrans;
         (&rbqDiskParams)->originInsertVec = value;
+        (&rbqDiskParams)->funcType = funcType;
+        (&rbqDiskParams)->heapTuple = (HeapTupleData *)heaptup_alloc(BLCKSZ);
+        (&rbqDiskParams)->indexInfo = BuildIndexInfo(index);
         value = (Datum)transValue;
     }
 
@@ -689,16 +710,16 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
 
     /* Update graph on disk */
     UpdateGraphOnDisk(index, procinfo, collation, element, m, efConstruction, entryPoint, building,
-                      enableRabitQ, &rbqDiskParams);
+                      enableRabitQ, &rbqDiskParams, rbqConfig);
 
     /* Release lock */
     UnlockPage(index, HNSW_UPDATE_LOCK, lockmode);
 
-    pfree(centroid);
     if (enableRabitQ) {
-        pfree(rbqConfig->vtrans);
-        pfree(rbqConfig);
+        pfree((&rbqDiskParams)->heapTuple);
+        pfree((&rbqDiskParams)->indexInfo);
     }
+
     return true;
 }
 
@@ -749,6 +770,42 @@ bool hnswinsert_internal(Relation index, Datum *values, bool *isnull, ItemPointe
     if (IsRelnodeMmapLoad(index->rd_node.relNode)) {
         ereport(ERROR, (errmsg("cannot do DML after mmap load")));
         return false;
+    }
+
+    /* When the amount of inserted data is less than the threshold,
+     * update insertedRows in the metapage; when the threshold is reached,
+     * update insertedRows in the metapage, change the state of rbqDelay,
+     * and then build the index with HNSW RabitQ; when the threshold is exceeded,
+     * insert data into the built index.
+     */
+    bool rbqDelay;
+    int64 insertedRows;
+    HnswGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, NULL, NULL,
+                               NULL, NULL, &rbqDelay, &insertedRows);
+    if (rbqDelay) {
+        LockPage(index, HNSW_UPDATE_LOCK, ExclusiveLock);
+        bool rbqDelayCheck;
+        HnswGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, NULL, NULL,
+                               NULL, NULL, &rbqDelayCheck, NULL);
+        if (rbqDelayCheck) {
+            int64 sampleRows = u_sess->datavec_ctx.rbq_sample_rows;
+            if (insertedRows + 1 < sampleRows) {
+                HnswUpdateMetaPageRbq(index, MAIN_FORKNUM, false);
+            } else if (insertedRows + 1 == sampleRows){
+                HnswUpdateMetaPageRbq(index, MAIN_FORKNUM, true);
+                HnswBuildState buildstate;
+                IndexInfo *indexInfo = BuildIndexInfo(index);
+                BuildIndex(heap, index, indexInfo, &buildstate, MAIN_FORKNUM);
+                ereport(LOG, (errmsg("The amount of data in the heap table is equal to rbq_sample_rows,"
+                    "build HNSW RabitQ index.")));
+            } else {
+                ereport(ERROR, (errmsg("The amount of data in the heap table is greater than rbq_sample_rows,"
+                    "but the state of rbqDelay has not changed.")));
+            }
+            UnlockPage(index, HNSW_UPDATE_LOCK, ExclusiveLock);
+            return false;
+        }
+        UnlockPage(index, HNSW_UPDATE_LOCK, ExclusiveLock);
     }
 
     /* Create memory context */

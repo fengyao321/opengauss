@@ -37,6 +37,7 @@
 #include "storage/buf/bufmgr.h"
 #include "utils/datum.h"
 #include "utils/rel.h"
+#include "utils/rel_gs.h"
 
 #include "utils/hashutils.h"
 
@@ -227,6 +228,27 @@ bool HnswGetUseFHT(Relation index)
     }
 
     return GENERIC_DEFAULT_USE_FHT;
+}
+
+/*
+ * Get refine type
+ */
+RefineType HnswGetRefineType(Relation index)
+{
+    HnswOptions *opts = (HnswOptions *)index->rd_options;
+
+    if (opts) {
+        char *rrt = (char *)HnswOptionsGetStringData(opts, rabitqRT, RABITQ_REFINE_TYPE_SQ8);
+        if (pg_strcasecmp(rrt, RABITQ_REFINE_TYPE_SQ8) == 0) {
+            return SQ8;
+        } else if (pg_strcasecmp(rrt, RABITQ_REFINE_TYPE_FP32) == 0) {
+            return FP32;
+        }else if (pg_strcasecmp(rrt, RABITQ_REFINE_TYPE_NONE) == 0) {
+            return NotRefine;
+        }
+    }
+
+    return GENERIC_DEFAULT_REFINE_TYPE;
 }
 
 /*
@@ -437,6 +459,18 @@ static void HnswUpdateMetaPageInfo(Page page, int updateEntry, HnswElement entry
 }
 
 /*
+ * Update the metapage info about RabitQ
+ */
+static void HnswUpdateMetaPageInfoRbq(Page page, bool updateDelay)
+{
+    HnswMetaPage metap = HnswPageGetMeta(page);
+    metap->rbqInsertRows += 1;
+    if (updateDelay) {
+        metap->rbqDelay = false;
+    }
+}
+
+/*
  * Update the append metapage info
  */
 static void HnswUpdateAppendMetaPageInfo(Page page, int updateEntry, HnswElement entryPoint,
@@ -491,6 +525,26 @@ void HnswUpdateMetaPage(Relation index, int updateEntry, HnswElement entryPoint,
         MarkBufferDirty(buf);
     else
         GenericXLogFinish(state);
+    UnlockReleaseBuffer(buf);
+}
+
+/*
+ * Update the metapage about RabitQ
+ */
+void HnswUpdateMetaPageRbq(Relation index, ForkNumber forkNum, bool updateDelay)
+{
+    Buffer buf;
+    Page page;
+    GenericXLogState *state;
+
+    buf = ReadBufferExtended(index, forkNum, HNSW_METAPAGE_BLKNO, RBM_NORMAL, NULL);
+    LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
+    state = GenericXLogStart(index);
+    page = GenericXLogRegisterBuffer(state, buf, 0);
+
+    HnswUpdateMetaPageInfoRbq(page, updateDelay);
+
+    GenericXLogFinish(state);
     UnlockReleaseBuffer(buf);
 }
 
@@ -630,7 +684,7 @@ LoadPQcode(HnswElementTuple tuple)
 /*
  * Set element tuple, except for neighbor info
  */
-void HnswSetElementTuple(char *base, HnswElementTuple etup, HnswElement element, Size rbqEtupSize)
+void HnswSetElementTuple(char *base, HnswElementTuple etup, HnswElement element, Size rbqSize)
 {
     errno_t rc = EOK;
 
@@ -646,7 +700,7 @@ void HnswSetElementTuple(char *base, HnswElementTuple etup, HnswElement element,
     }
     if ((Pointer)HnswPtrAccess(base, element->rbqcodes) != NULL) {
         Pointer rbqPtr = (Pointer)HnswPtrAccess(base, element->rbqcodes);
-        rc = memcpy_s(&etup->data, rbqEtupSize, rbqPtr, rbqEtupSize);
+        rc = memcpy_s(&etup->data, rbqSize, rbqPtr, rbqSize);
     } else {
         Pointer valuePtr = (Pointer)HnswPtrAccess(base, element->value);
         rc = memcpy_s(&etup->data, VARSIZE_ANY(valuePtr), valuePtr, VARSIZE_ANY(valuePtr));
@@ -754,7 +808,7 @@ void HnswLoadNeighbors(HnswElement element, Relation index, int m)
 /*
  * Load an element from a tuple
  */
-void HnswLoadElementFromTuple(HnswElement element, HnswElementTuple etup, bool loadHeaptids, bool loadVec, Datum eRbqDiskVec, bool *store)
+void HnswLoadElementFromTuple(HnswElement element, HnswElementTuple etup, bool loadHeaptids, bool loadVec, Datum eRbqDiskVec)
 {
     element->level = etup->level;
     element->deleted = etup->deleted;
@@ -778,7 +832,6 @@ void HnswLoadElementFromTuple(HnswElement element, HnswElementTuple etup, bool l
         Datum value;
         if (eRbqDiskVec != NULL) {
             value = eRbqDiskVec;
-            *store = true;
         } else {
             value = datumCopy(PointerGetDatum(&etup->data), false, -1);
         }
@@ -787,15 +840,12 @@ void HnswLoadElementFromTuple(HnswElement element, HnswElementTuple etup, bool l
     }
 }
 
-Datum HnswGetVectorFromHeap(ItemPointer tid, IndexInfo *indexInfo, RabitqInsertOnDiskParams *rbqDiskParams)
+float *HnswGetVectorFromHeapRefine(Relation heap, ItemPointer tid, IndexInfo *indexInfo, VectorTransform* vtrans, HeapTuple tuple)
 {
-    Relation heap = rbqDiskParams->heap;
-    VectorTransform* vtrans = rbqDiskParams->vtrans;
-
     if (indexInfo->ii_NumIndexAttrs != 1) {
         ereport(ERROR, (errmsg("Supports vector indexing exclusively for a single column.")));
     }
-    HeapTuple tuple = GetTupleFromHeap(heap, tid);
+    GetTupleFromHeap(heap, tid, tuple);
 
     TupleDesc relTupleDesc = heap->rd_att;
     Datum *val = (Datum *)palloc(sizeof(Datum) * (relTupleDesc->natts + 1));
@@ -814,19 +864,60 @@ Datum HnswGetVectorFromHeap(ItemPointer tid, IndexInfo *indexInfo, RabitqInsertO
     }
 
     int dim = originVec->dim;
-    Vector *resVec = InitVector(dim);
+    float *resData;
 
-    if (vtrans->type == FAST_HTRANSFORM) {
-        FhtTransform(vtrans, originVec->x, resVec->x);
+    if (vtrans != NULL && vtrans->type == FAST_HTRANSFORM) {
+        resData = (float *)palloc(dim * sizeof(float));
+        FhtTransform(vtrans, originVec->x, resData);
+        pfree(val);
     } else {
-        Size vecsize = dim * sizeof(float);
-        errno_t err = memcpy_s(resVec->x, vecsize, originVec->x, vecsize);
-        securec_check(err, "\0", "\0");
+        resData = originVec->x;
     }
 
-    pfree(val);
     pfree(null);
-    return (Datum)resVec;
+    return resData;
+}
+
+float *HnswGetVectorFromHeapInsert(Relation heap, ItemPointer tid, IndexInfo *indexInfo, VectorTransform* vtrans, HeapTuple tuple,
+                                     FmgrInfo *normprocinfo, Oid collation)
+{
+    if (indexInfo->ii_NumIndexAttrs != 1) {
+        ereport(ERROR, (errmsg("Supports vector indexing exclusively for a single column.")));
+    }
+    GetTupleFromHeap(heap, tid, tuple);
+
+    TupleDesc relTupleDesc = heap->rd_att;
+    Datum *val = (Datum *)palloc(sizeof(Datum) * (relTupleDesc->natts + 1));
+    bool *null = (bool *)palloc(sizeof(bool) * (relTupleDesc->natts + 1));
+
+    tableam_tops_deform_tuple(tuple, relTupleDesc, val, null);
+    Vector *originVec;
+
+    for (int i = 0; i < indexInfo->ii_NumIndexAttrs; i++) {
+        int keycol = indexInfo->ii_KeyAttrNumbers[i];
+        if (keycol != 0) {
+            originVec = DatumGetVector(val[keycol - 1]);
+        } else {
+            ereport(ERROR, (errmsg("Failed to get origin vector from heap.")));
+        }
+    }
+
+    if (normprocinfo != NULL) {
+        originVec = (Vector *)DirectFunctionCall1Coll(l2_normalize, collation, (Datum)originVec);
+    }
+    int dim = originVec->dim;
+    float *resData;
+
+    if (vtrans != NULL && vtrans->type == FAST_HTRANSFORM) {
+        resData = (float *)palloc(dim * sizeof(float));
+        FhtTransform(vtrans, originVec->x, resData);
+        pfree(val);
+    } else {
+        resData = originVec->x;
+    }
+
+    pfree(null);
+    return resData;
 }
 
 /*
@@ -843,8 +934,7 @@ bool HnswLoadElement(HnswElement element, float *distance, Datum *q, Relation in
     bool isVisible = true;
     uint8 *ePQCode;
     PQParams *params;
-    Datum eRbqDiskVec = NULL;
-    bool store = false;
+    float *eRbqDiskData = NULL;
 
     /* Read vector */
     buf = ReadBuffer(index, element->blkno);
@@ -882,22 +972,29 @@ bool HnswLoadElement(HnswElement element, float *distance, Datum *q, Relation in
                 *distance = 0;
             } else if (rbqDiskParams != NULL) {
                 VectorTransform *vtrans = rbqDiskParams->vtrans;
-                eRbqDiskVec = HnswGetVectorFromHeap(&etup->heaptids[0], BuildIndexInfo(index), rbqDiskParams);
+                Relation heap = rbqDiskParams->heap;
+                eRbqDiskData = HnswGetVectorFromHeapInsert(rbqDiskParams->heap, &etup->heaptids[0], rbqDiskParams->indexInfo, vtrans, rbqDiskParams->heapTuple,
+                                                     rbqDiskParams->normprocinfo, rbqDiskParams->collation);
+                Vector *qVec;
                 if (vtrans->type == FAST_HTRANSFORM) {
                     /* 
                      * origin vec A B, after FHT+rescale+sign+walk transformed vec A1 B1
                      * Dis(A,B) != Dis(A1,B1)
                      * Here, *distance = Dis(A1,B1)
                      */
-                    *distance = (float)DatumGetFloat8(FunctionCall2Coll(procinfo, collation, *q, eRbqDiskVec));
+                    qVec = (Vector *)DatumGetPointer(*q);
                 } else {
                     /* 
                      * origin vec A B, after ROM transformed vec A1 B1
                      * Dis(A,B) = Dis(A1,B1)
                      * Vector transformation takes time. To avoid it, we use *distance = Dis(A,B)
                      */
-                    *distance = (float)DatumGetFloat8(FunctionCall2Coll(procinfo, collation,
-                        rbqDiskParams->originInsertVec, eRbqDiskVec));
+                    qVec = (Vector *)DatumGetPointer(rbqDiskParams->originInsertVec);
+                }
+                if (rbqDiskParams->funcType == DIS_L2) {
+                    *distance = VectorL2SquaredDistance(qVec->dim, qVec->x, eRbqDiskData);
+                } else {
+                    *distance = -VectorInnerProduct(qVec->dim, qVec->x, eRbqDiskData);
                 }
             } else if (rbqQueryParams != NULL) {
                 RabitqVector *rbqVec = (RabitqVector *)PointerGetDatum(&etup->data);
@@ -920,7 +1017,16 @@ bool HnswLoadElement(HnswElement element, float *distance, Datum *q, Relation in
 
     /* Load element */
     if (distance == NULL || maxDistance == NULL || *distance < *maxDistance) {
-        HnswLoadElementFromTuple(element, etup, true, loadVec, eRbqDiskVec, &store);
+        if (eRbqDiskData != NULL) {
+            int dim = rbqDiskParams->vtrans->dim;
+            Vector *eRbqDiskVec = InitVector(dim);
+            Size vecSize = dim * sizeof(float);
+            errno_t rc =  memcpy_s(eRbqDiskVec->x, vecSize, eRbqDiskData, vecSize);
+            securec_check(rc, "\0", "\0");
+            HnswLoadElementFromTuple(element, etup, true, loadVec, (Datum)eRbqDiskVec);
+        } else {
+            HnswLoadElementFromTuple(element, etup, true, loadVec, NULL);
+        }
         if (enablePQ) {
             params = &pqinfo->params;
             Vector *vd1 = &etup->data;
@@ -936,9 +1042,6 @@ bool HnswLoadElement(HnswElement element, float *distance, Datum *q, Relation in
     }
 
     UnlockReleaseBuffer(buf);
-    if (eRbqDiskVec != NULL && !store) {
-        pfree((Vector *)eRbqDiskVec);
-    }
     return isVisible;
 }
 
@@ -1153,6 +1256,23 @@ void HnswLoadUnvisitedFromDisk(HnswElement element, HnswElement *unvisited, int 
     }
 }
 
+bool HnswRbqNeedReorder(bool enableRabitQ, RabitqQueryParams *rbqParams, int lc)
+{
+    if (lc != 0) {
+        return false;
+    }
+    if (!enableRabitQ || rbqParams == NULL) {
+        return false;
+    }
+    if (rbqParams->rbqConfig->reType == NotRefine) {
+        return false;
+    }
+    if (rbqParams->rbqConfig->kreorder == 0) {
+        return false;
+    }
+    return true;
+}
+
 /*
  * Algorithm 2 from paper
  */
@@ -1177,6 +1297,7 @@ List *HnswSearchLayer(char *base, Datum q, List *ep, int ef, int lc, Relation in
     int vNum = 0;
     int threshold = u_sess->datavec_ctx.hnsw_earlystop_threshold;
     bool enableEarlyStop = threshold == INT32_MAX ? false : true;
+    int candidateNum = 0;
 
     if (v == NULL) {
         v = &vh;
@@ -1215,6 +1336,7 @@ List *HnswSearchLayer(char *base, Datum q, List *ep, int ef, int lc, Relation in
         node = CreatePairingHeapNode(hc);
         pairingheap_add(C, &node->c_node);
         pairingheap_add(W, &node->w_node);
+        candidateNum++;
 
         /*
          * Do not count elements being deleted towards ef when vacuuming. It
@@ -1297,6 +1419,7 @@ List *HnswSearchLayer(char *base, Datum q, List *ep, int ef, int lc, Relation in
                 node = CreatePairingHeapNode(e);
                 pairingheap_add(C, &node->c_node);
                 pairingheap_add(W, &node->w_node);
+                candidateNum++;
 
                 /*
                  * Do not count elements being deleted towards ef when
@@ -1309,6 +1432,7 @@ List *HnswSearchLayer(char *base, Datum q, List *ep, int ef, int lc, Relation in
                    /* No need to decrement wlen */
                     if (wlen > ef) {
                         HnswCandidate *d = HnswGetPairingHeapCandidate(w_node, pairingheap_remove_first(W));
+                        candidateNum--;
 
                         if (discarded != NULL) {
                             node = CreatePairingHeapNode(d);
@@ -1333,6 +1457,81 @@ List *HnswSearchLayer(char *base, Datum q, List *ep, int ef, int lc, Relation in
             if (enableEarlyStop && vNum == threshold) {
                 break;
             }
+        }
+    }
+
+    if (HnswRbqNeedReorder(enableRabitQ, rbqParams, lc)) {
+        pairingheap *R = pairingheap_allocate(CompareFurthestCandidates, NULL);
+        RabitQConfig *rbqConfig = rbqParams->rbqConfig;
+        int64 kreorderStart = candidateNum - rbqConfig->kreorder + 1;
+        int num = 0;
+        pairingheap_node *node;
+        HnswCandidate *c;
+        HnswElement cElement;
+        BlockNumber blkno = InvalidBlockNumber;
+        Buffer buf;
+        Page page;
+        float refineDis;
+        IndexInfo* indexInfo;
+        HeapTuple heapTuple;
+        float square;
+        if (rbqParams->rbqConfig->reType == FP32) {
+            indexInfo = BuildIndexInfo(index);
+            heapTuple = (HeapTupleData *)heaptup_alloc(BLCKSZ);
+        }
+
+        while (!pairingheap_is_empty(W)) {
+            num++;
+            node = pairingheap_remove_first(W);
+            if (num < kreorderStart) {
+                continue;
+            }
+            c = HnswGetPairingHeapCandidate(w_node, node);
+            cElement = (HnswElement)HnswPtrAccess(base, c->element);
+
+            buf = ReadBuffer(index, cElement->blkno);
+            LockBuffer(buf, BUFFER_LOCK_SHARE);
+            page = BufferGetPage(buf);
+
+            HnswElementTuple etup = (HnswElementTuple)PageGetItem(page, PageGetItemId(page, cElement->offno));
+            Assert(HnswIsElementTuple(etup));
+
+            if (rbqParams->rbqConfig->reType == SQ8) {
+                uint8 *refineCode = getRefineCode(PointerGetDatum(&etup->data), rbqConfig->reOffset);
+                ScalarQuantizer *sq = rbqConfig->sq;
+                int dim = sq->dim;
+                VectorDecodeSQ(dim, sq->trained, sq->trained + dim, sq->decodeVec->x, refineCode);
+                refineDis = (float)DatumGetFloat8(FunctionCall2Coll(
+                            procinfo, collation, rbqParams->originQueryVec, PointerGetDatum(sq->decodeVec)));
+                UnlockReleaseBuffer(buf);
+            } else if (rbqParams->rbqConfig->reType == FP32) {
+                UnlockReleaseBuffer(buf);
+                float *eRbqDiskData = HnswGetVectorFromHeapRefine(rbqParams->heap, &etup->heaptids[0], indexInfo, NULL, heapTuple);
+                Vector *qVec = (Vector *)DatumGetPointer(rbqParams->originQueryVec);
+                if (rbqParams->funcType == DIS_L2) {
+                    refineDis = VectorL2SquaredDistance(qVec->dim, qVec->x, eRbqDiskData);
+                } else {
+                    refineDis = -VectorInnerProduct(qVec->dim, qVec->x, eRbqDiskData);
+                }
+                if (rbqParams->normprocinfo != NULL) {
+                    square = (float)vector_square(eRbqDiskData, qVec->dim);
+                    if (square == 0) {
+                        continue;
+                    }
+                    refineDis = -refineDis * refineDis / square;
+                }
+
+            } else {
+                ereport(ERROR, (errmsg("HNSW RabitQ rerank type error!")));
+            }
+
+            c->distance = refineDis;
+            pairingheap_add(R, node);
+        }
+        W = R;
+        if (rbqParams->rbqConfig->reType == FP32) {
+            pfree(indexInfo);
+            pfree(heapTuple);
         }
     }
 
@@ -1824,8 +2023,9 @@ void InitPQParamsOnDisk(PQParams *params, Relation index, FmgrInfo *procinfo, in
 /*
 * Get the info related to RabitQ in metapage
 */
-void HnswGetRbqInfoFromMetaPage(Relation index, bool *enableRabitQ, bool *useFHT, uint16 *matrixNblk,
-                                uint32 *matrixSize, float *centroid, int dim)
+void HnswGetRbqInfoFromMetaPage(Relation index, bool *enableRabitQ, bool *useFHT, uint16 *reOffset,
+                                RefineType *reType, uint16 *matrixNblk, uint32 *matrixSize,
+                                uint16 *otherNblk, uint32 *otherSize, bool *rbqDelay, int64 *rbqInsertRows)
 {
     Buffer buf;
     Page page;
@@ -1842,14 +2042,12 @@ void HnswGetRbqInfoFromMetaPage(Relation index, bool *enableRabitQ, bool *useFHT
 
     if (enableRabitQ != NULL) {
         *enableRabitQ = metap->enableRabitQ;
-        if (*enableRabitQ && centroid != NULL) {
-            size_t centroidSize = dim * sizeof(float);
-            errno_t err = memcpy_s((char*)centroid, centroidSize, metap->centroid, centroidSize);
-            securec_check(err, "\0", "\0");
-        }
     }
     if (useFHT != NULL) {
         *useFHT = metap->useFHT;
+    }
+    if (reOffset != NULL) {
+        *reOffset = metap->reOffset;
     }
     if (matrixNblk != NULL) {
         *matrixNblk = metap->matrixNblk;
@@ -1857,48 +2055,85 @@ void HnswGetRbqInfoFromMetaPage(Relation index, bool *enableRabitQ, bool *useFHT
     if (matrixSize != NULL) {
         *matrixSize = metap->matrixSize;
     }
+    if (reType != NULL) {
+        *reType = metap->reType;
+    }
+    if (otherNblk != NULL) {
+        *otherNblk = metap->otherNblk;
+    }
+    if (otherSize != NULL) {
+        *otherSize = metap->otherSize;
+    }
+    if (rbqDelay != NULL) {
+        *rbqDelay = metap->rbqDelay;
+    }
+    if (rbqInsertRows != NULL) {
+        *rbqInsertRows = metap->rbqInsertRows;
+    }
 
     UnlockReleaseBuffer(buf);
 }
 
-void* LoadRbqMatrix(Relation index, uint16 matrixNblk, uint32 matrixSize)
+void* LoadRbq(Relation index, uint16 startBlkNo, uint16 nblk, uint32 size)
 {
     Buffer buf;
     Page page;
     uint32 curFlushSize;
-    void *matrix = (void *)palloc0(matrixSize);
+    void *rbq = (void *)palloc0(size);
 
-    for (uint16 i = 0; i < matrixNblk; i++) {
-        curFlushSize = (i == matrixNblk - 1) ? (matrixSize - i * CHUNK_STORAGE_SIZE) : CHUNK_STORAGE_SIZE;
-        buf = ReadBuffer(index, HNSW_CHUNK_START_BLKNO + i);
+    for (uint16 i = 0; i < nblk; i++) {
+        curFlushSize = (i == nblk - 1) ? (size - i * CHUNK_STORAGE_SIZE) : CHUNK_STORAGE_SIZE;
+        buf = ReadBuffer(index, startBlkNo + i);
         LockBuffer(buf, BUFFER_LOCK_SHARE);
         page = BufferGetPage(buf);
-        errno_t err = memcpy_s((char *)matrix + i * CHUNK_STORAGE_SIZE, curFlushSize,
+        errno_t err = memcpy_s((char *)rbq + i * CHUNK_STORAGE_SIZE, curFlushSize,
                                PageGetContents(page), curFlushSize);
         securec_check(err, "\0", "\0");
         UnlockReleaseBuffer(buf);
     }
-    return matrix;
+    return rbq;
 }
 
-RabitQConfig *InitRbqConfigOnDisk(Relation index, bool *enableRabitQ, float *centroid, int dim)
+RabitQConfig *InitRbqConfigOnDisk(Relation index, bool *enableRabitQ, float **centroid, int dim)
 {
     uint16 matrixNblk;
     uint32 matrixSize;
+    uint16 otherNblk;
+    uint32 otherSize;
     bool useFHT;
+    uint16 reOffset;
+    RefineType reType;
 
-    HnswGetRbqInfoFromMetaPage(index, enableRabitQ, &useFHT, &matrixNblk, &matrixSize, centroid, dim);
+    HnswGetRbqInfoFromMetaPage(index, enableRabitQ, &useFHT, &reOffset, &reType, &matrixNblk,
+                               &matrixSize, &otherNblk, &otherSize, NULL, NULL);
 
     if (!enableRabitQ) {
         return NULL;
     }
     if (index->rbqMatrix == NULL) {
         MemoryContext oldcxt = MemoryContextSwitchTo(index->rd_indexcxt);
-        index->rbqMatrix = LoadRbqMatrix(index, matrixNblk, matrixSize);
+        index->rbqMatrix = LoadRbq(index, HNSW_CHUNK_START_BLKNO, matrixNblk, matrixSize);
         (void)MemoryContextSwitchTo(oldcxt);
     }
+    if (index->rbqOther == NULL) {
+        MemoryContext oldcxt = MemoryContextSwitchTo(index->rd_indexcxt);
+        index->rbqOther = (float *)LoadRbq(index, HNSW_CHUNK_START_BLKNO + matrixNblk,
+                          otherNblk, otherSize);
+        (void)MemoryContextSwitchTo(oldcxt);
+    }
+ 
     RabitQConfig *rbqConfig = (RabitQConfig *)palloc(sizeof(RabitQConfig));
     rbqConfig->FHT = useFHT;
+    rbqConfig->reOffset = reOffset;
+    rbqConfig->reType = reType;
+    if (reType == SQ8) {
+        rbqConfig->sq = (ScalarQuantizer *)palloc(sizeof(ScalarQuantizer));
+        rbqConfig->sq->dim = dim;
+        rbqConfig->sq->trained = index->rbqOther + dim;
+        rbqConfig->sq->decodeVec = InitVector(dim);
+    } else {
+        rbqConfig->sq = NULL;
+    }
     VectorTransform *vtrans = (VectorTransform *)palloc(sizeof(VectorTransform));
     rbqConfig->vtrans = vtrans;
     vtrans->dim = dim;
@@ -1910,6 +2145,7 @@ RabitQConfig *InitRbqConfigOnDisk(Relation index, bool *enableRabitQ, float *cen
         vtrans->type = RANDOM_ORTHOGONAL;
         vtrans->matrix = (float *)index->rbqMatrix;
     }
+    *centroid = index->rbqOther;
     return rbqConfig;
 }
 

@@ -196,8 +196,7 @@ IndexScanDesc hnswbeginscan_internal(Relation index, int nkeys, int norderbys)
     so->rbqParams = (RabitqQueryParams *)palloc(sizeof(RabitqQueryParams));
     so->rbqParams->dim = dim;
     so->rbqParams->funcType = GetFunctionType(so->procinfo, so->normprocinfo);
-    so->rbqParams->centroid = (float *)palloc(dim * sizeof(float));
-    so->rbqParams->rbqConfig = InitRbqConfigOnDisk(index, &so->enableRabitQ, so->rbqParams->centroid, dim);
+    so->rbqParams->rbqConfig = InitRbqConfigOnDisk(index, &so->enableRabitQ, &so->rbqParams->centroid, dim);
     so->rbqParams->rbqConfig->rbqQueryBits = u_sess->datavec_ctx.rbq_query_bits;
     so->rbqParams->qrbqVec = NULL;
 
@@ -271,6 +270,19 @@ bool hnswgettuple_internal(IndexScanDesc scan, ScanDirection dir)
 
         if (so->enableRabitQ) {
             RabitqQueryParams *rbqParams = so->rbqParams;
+            rbqParams->heap = scan->heapRelation;
+            rbqParams->normprocinfo = so->normprocinfo;
+            rbqParams->collation = so->collation;
+            if (rbqParams->rbqConfig->reType != NotRefine) {
+                rbqParams->originQueryVec = value;
+                if (scan->limitk == -1) {
+                    rbqParams->rbqConfig->kreorder = 0;
+                } else {
+                    rbqParams->rbqConfig->kreorder = (int64)ceil(u_sess->datavec_ctx.rbq_refinek * scan->limitk);
+                }
+                so->length = rbqParams->rbqConfig->kreorder > so->length ?
+                             rbqParams->rbqConfig->kreorder : so->length;
+            }
             /* Transform scan value */
             VectorTransform *vtrans = rbqParams->rbqConfig->vtrans;
             Vector *transValue = InitVector(rbqParams->dim);
@@ -295,7 +307,6 @@ bool hnswgettuple_internal(IndexScanDesc scan, ScanDirection dir)
 
         so->w = GetScanItems(scan, value);
 
-        /* Release shared lock */
         UnlockPage(scan->indexRelation, HNSW_SCAN_LOCK, ShareLock);
 
         so->first = false;
@@ -397,10 +408,12 @@ void hnswendscan_internal(IndexScanDesc scan)
     MemoryContextDelete(so->tmpCtx);
 
     if (so->rbqParams) {
-        pfree(so->rbqParams->centroid);
         if (so->rbqParams->rbqConfig) {
             if (so->rbqParams->rbqConfig->vtrans) {
                 pfree(so->rbqParams->rbqConfig->vtrans);
+            }
+            if (so->rbqParams->rbqConfig->sq) {
+                pfree(so->rbqParams->rbqConfig->sq);
             }
             pfree(so->rbqParams->rbqConfig);
         }

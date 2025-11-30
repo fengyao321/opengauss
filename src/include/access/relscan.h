@@ -186,6 +186,7 @@ typedef struct IndexScanDescData {
      *xs_ctbuf_hdr. t_bits which is varlength arr
      */
     int64 count;
+    int64 limitk;
     HeapTupleHeaderData xs_ctbuf_hdr;
     /* DO NOT add any other members here. xs_ctbuf_hdr must be the last one. */
 } IndexScanDescData;

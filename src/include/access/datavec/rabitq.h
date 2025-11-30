@@ -7,12 +7,17 @@
 #include "nodes/execnodes.h"
 #include "access/datavec/vector.h"
 #include "access/datavec/vectortransformer.h"
+#include "access/datavec/scalarquantizer.h"
 #include "access/datavec/utils.h"
 
 typedef struct RabitQConfig {
     bool FHT;
-    VectorTransform* vtrans;
+    VectorTransform *vtrans;
     int rbqQueryBits;
+    uint16 reOffset;
+    RefineType reType;
+    int64 kreorder;
+    ScalarQuantizer *sq;
 } RabitQConfig;
 
 typedef struct FactorData {
@@ -43,7 +48,12 @@ typedef struct QueryRabitqVector {
 
 typedef struct RabitqInsertOnDiskParams {
     Relation heap;
+    FmgrInfo *normprocinfo;
+    Oid collation;
     Datum originInsertVec;
+    int funcType;
+    HeapTuple heapTuple;
+    IndexInfo *indexInfo;
     VectorTransform* vtrans;
 } RabitqInsertOnDiskParams;
 
@@ -51,11 +61,16 @@ typedef struct RabitqQueryParams {
     int dim;
     int funcType;
     float *centroid;
+    Relation heap;
+    FmgrInfo *normprocinfo;
+    Oid collation;
+    Datum originQueryVec;
     RabitQConfig *rbqConfig;
     QueryRabitqVector* qrbqVec;
 } RabitqQueryParams;
 
-#define rbqCodeSize(d) MAXALIGN(sizeof(FactorData) + (d + 7) / 8)
+#define rbqCodeSize(d, sq8) MAXALIGN(sizeof(FactorData) + (d + 7) / 8 + (sq8 ? d : 0))
+#define getRefineCode(ptr, offset) &(((RabitqVector *)ptr)->data[offset])
 #define rbqQuerySize(d, qb) MAXALIGN(sizeof(QueryFactorData) + ((d + 7) / 8) * qb)
 
 void ComputeVectorRBQCode(int dim, float *vec, RabitqVector *rbqVec, float *centroid, int funcType);

@@ -9,6 +9,7 @@
 #define GENERIC_DEFAULT_USE_MMAP false
 #define GENERIC_DEFAULT_ENABLE_RABITQ false
 #define GENERIC_DEFAULT_USE_FHT false
+#define GENERIC_DEFAULT_REFINE_TYPE SQ8
 #define GENERIC_DEFAULT_PQ_M 8
 #define GENERIC_MIN_PQ_M 1
 #define GENERIC_MAX_PQ_M HNSW_MAX_DIM
@@ -23,6 +24,12 @@
 #define CHUNK_STORAGE_SIZE (uint16)(6 * 1024)
 
 #define DEFAULT_TARGET_ROWS 300
+
+enum RefineType {
+    SQ8,
+    FP32,
+    NotRefine
+};
 
 inline bool operator==(const ItemPointerData& lhs, const ItemPointerData& rhs) {
     return (lhs.ip_blkid.bi_hi == rhs.ip_blkid.bi_hi) && (lhs.ip_blkid.bi_lo == rhs.ip_blkid.bi_lo) && (lhs.ip_posid == rhs.ip_posid);
@@ -404,7 +411,7 @@ void BitSumCenter(Pointer v, float *x);
 VectorArray VectorArrayInit(int maxlen, int dimensions, Size itemsize);
 void VectorArrayFree(VectorArray arr);
 void EstimateRows(Relation onerel, double *totalrows);
-HeapTuple GetTupleFromHeap(Relation relation, ItemPointer tid);
+void GetTupleFromHeap(Relation relation, ItemPointer tid, HeapTuple tuple);
 int GetFunctionType(FmgrInfo *procinfo, FmgrInfo *normprocinfo);
 int PQInit();
 void PQUinit();

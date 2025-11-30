@@ -3124,9 +3124,11 @@ typedef struct knl_u_datavec_context {
     int hnsw_iterative_scan;
     int hnsw_max_scan_tuples;
     int rbq_query_bits;
+    int rbq_sample_rows;
     int ivfflat_probes;
     int ivfpq_kreorder;
     int diskann_probes;
+    double rbq_refinek;
     bool enable_npu;
     bool hnsw_use_mmap;
 } knl_u_datavec_context;

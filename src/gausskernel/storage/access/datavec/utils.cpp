@@ -577,7 +577,7 @@ bool MmapLoadElement(HnswElement element, float *distance, Datum *q, Relation in
 
     /* Load element */
     if (distance == NULL || maxDistance == NULL || *distance < *maxDistance) {
-        HnswLoadElementFromTuple(element, etup, true, loadVec, NULL, NULL); // todo wjy mmap
+        HnswLoadElementFromTuple(element, etup, true, loadVec, NULL); // todo wjy mmap
         if (enablePQ) {
             params = &pqinfo->params;
             Vector *vd1 = &etup->data;
@@ -904,28 +904,21 @@ void EstimateRows(Relation onerel, double* totalrows)
     }
 }
 
-HeapTuple GetTupleFromHeap(Relation relation, ItemPointer tid)
+void GetTupleFromHeap(Relation relation, ItemPointer tid, HeapTuple tuple)
 {
     Buffer user_buf = InvalidBuffer;
-    HeapTuple tuple = NULL;
-    HeapTuple new_tuple = NULL;
-
-    /* alloc mem for old tuple and set tuple id */
-    tuple = (HeapTupleData *)heaptup_alloc(BLCKSZ);
+    errno_t rc = memset_s(tuple, BLCKSZ, 0, BLCKSZ);
+    securec_check(rc, "\0", "\0");
     tuple->t_data = (HeapTupleHeader)((char *)tuple + HEAPTUPLESIZE);
     Assert(tid != NULL);
     tuple->t_self = *tid;
 
     if (heap_fetch(relation, SnapshotAny, tuple, &user_buf, false, NULL)) {
-        new_tuple = heapCopyTuple((HeapTuple)tuple, relation->rd_att, NULL);
         ReleaseBuffer(user_buf);
     } else {
         ereport(ERROR, (errcode(ERRCODE_SYSTEM_ERROR), errmsg("The tuple is not found"),
             errdetail("Another user is getting tuple or the datum is NULL")));
     }
-
-    heap_freetuple(tuple);
-    return new_tuple;
 }
 
 int GetFunctionType(FmgrInfo* procinfo, FmgrInfo* normprocinfo)

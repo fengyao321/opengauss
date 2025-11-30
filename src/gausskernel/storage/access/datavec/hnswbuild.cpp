@@ -87,11 +87,38 @@ static void AddSample(Datum *values, HnswBuildState *buildstate)
 }
 
 /*
- * Sum samples
+ * Sum samples and get the minmax of each dim
  */
-static void SumSamples(Datum *values, HnswBuildState *buildstate)
+static void SumAndMixMaxSamples(Datum *values, HnswBuildState *buildstate)
 {
-    return;
+    VectorArray samples = buildstate->samples;
+    int targsamples = samples->maxlen;
+
+    /* Detoast once for all calls */
+    Datum value = PointerGetDatum(PG_DETOAST_DATUM(values[0]));
+
+    if (buildstate->kmeansnormprocinfo != NULL) {
+        if (!HnswCheckNorm(buildstate->kmeansnormprocinfo, buildstate->collation, value)) {
+            return;
+        }
+
+        value = HnswNormValue(buildstate->typeInfo, buildstate->collation, value);
+    }
+
+    Vector *vec = (Vector *)value;
+    float *centroid = buildstate->centroid;
+    for (int i = 0; i < vec->dim; i++) {
+        centroid[i] += vec->x[i];
+    }
+    if (buildstate->rbqConfig->reType == SQ8) {
+        ScalarQuantizer *sq = buildstate->rbqConfig->sq;
+        float *vmin = sq->trained;
+        float *vmax = vmin + sq->dim;
+        for (int i = 0; i < sq->dim; i++) {
+            vmin[i] = vec->x[i] < vmin[i] ? vec->x[i] : vmin[i];
+            vmax[i] = vec->x[i] > vmax[i] ? vec->x[i] : vmax[i];
+        }
+    }
 }
 
 /*
@@ -112,8 +139,8 @@ static void SampleCallback(Relation index, CALLBACK_ITEM_POINTER, Datum *values,
     oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
 
     if (buildstate->enableRabitQ) {
-        /* Sum samples */
-        SumSamples(values, buildstate);
+        /* Sum samples and get the minmax of each dim */
+        SumAndMixMaxSamples(values, buildstate);
     } else {
         /* Add sample */
         AddSample(values, buildstate);
@@ -275,8 +302,11 @@ static void CreateMetaPage(HnswBuildState *buildstate)
 
     /* set RabitQ info */
     metap->enableRabitQ = buildstate->enableRabitQ;
+    metap->rbqDelay = buildstate->rbqDelay;
+    metap->rbqInsertRows = 0;
     if (buildstate->enableRabitQ) {
         metap->useFHT = buildstate->rbqConfig->FHT;
+        metap->reOffset = buildstate->rbqConfig->reOffset;
         int dim = buildstate->dimensions;
         Size matrixSize;
         if (buildstate->rbqConfig->FHT) {
@@ -287,16 +317,26 @@ static void CreateMetaPage(HnswBuildState *buildstate)
         metap->matrixSize = matrixSize;
         metap->matrixNblk = (uint16)(
                 (matrixSize + CHUNK_STORAGE_SIZE - 1) / CHUNK_STORAGE_SIZE);
-        size_t cenSize = buildstate->dimensions * sizeof(float);
-        errno_t rc = memcpy_s(metap->centroid, cenSize, buildstate->centroid, cenSize);
-        securec_check_c(rc, "\0", "\0");
-        ((PageHeader)page)->pd_lower = ((char *)metap + offsetof(HnswMetaPageData, centroid) + cenSize) - (char *)page;
+
+        metap->reType = buildstate->rbqConfig->reType;
+        Size otherSize = dim * sizeof(float);
+        if (metap->reType == SQ8) {
+            otherSize *= 3;
+        }
+        metap->otherSize = otherSize;
+        metap->otherNblk = (uint16)(
+                (otherSize + CHUNK_STORAGE_SIZE - 1) / CHUNK_STORAGE_SIZE);
     } else {
         metap->useFHT = false;
+        metap->reOffset = 0;
         metap->matrixNblk = 0;
         metap->matrixSize = 0;
-        ((PageHeader)page)->pd_lower = ((char *)metap + offsetof(HnswMetaPageData, centroid)) - (char *)page;
+        metap->reType = NotRefine;
+        metap->otherSize = 0;
+        metap->otherNblk = 0;
     }
+
+    ((PageHeader)page)->pd_lower = ((char *)metap + sizeof(HnswMetaPageData)) - (char *)page;
 
     MarkBufferDirty(buf);
     UnlockReleaseBuffer(buf);
@@ -341,7 +381,80 @@ static void CreatePQPages(HnswBuildState *buildstate)
  */
 static void CreateRbqMatrixPages(HnswBuildState *buildstate)
 {
-    return;
+    uint16 nblks;
+    Relation index = buildstate->index;
+    ForkNumber forkNum = buildstate->forkNum;
+    Buffer buf;
+    Page page;
+    uint16 matrixNblk;
+    uint32 matrixSize;
+    void *matrix;
+
+    HnswGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, &matrixNblk,
+                               &matrixSize, NULL, NULL, NULL, NULL);
+
+    /* create matrix page */
+    for (uint16 i = 0; i < matrixNblk; i++) {
+        buf = HnswNewBuffer(index, forkNum);
+        page = BufferGetPage(buf);
+        HnswInitPage(buf, page);
+        MarkBufferDirty(buf);
+        UnlockReleaseBuffer(buf);
+    }
+
+    VectorTransform* vtrans = buildstate->rbqConfig->vtrans;
+    if (vtrans->type == RANDOM_ORTHOGONAL) {
+        matrix = RomGetMatrix(vtrans);
+    } else {
+        matrix = FhtGetMatrix(vtrans);
+    }
+
+    FlushChunkInfoInternal(index, (char *)matrix, HNSW_CHUNK_START_BLKNO, matrixNblk, matrixSize);
+}
+
+/*
+ * Create RabitQ-other pages, including centroid and min+diff if refine_type is SQ8
+ */
+static void CreateRbqOtherPages(HnswBuildState *buildstate)
+{
+    uint16 nblks;
+    Relation index = buildstate->index;
+    ForkNumber forkNum = buildstate->forkNum;
+    RabitQConfig *rbqConfig = buildstate->rbqConfig;
+    Buffer buf;
+    Page page;
+    uint16 matrixNblk;
+    uint16 otherNblk;
+    uint32 otherSize;
+    uint32 oneSize =buildstate->dimensions * sizeof(float);
+    void *other;
+    errno_t rc;
+
+    HnswGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, &matrixNblk, NULL,
+                               &otherNblk, &otherSize, NULL, NULL);
+
+    /* create ohter page */
+    for (uint16 i = 0; i < otherNblk; i++) {
+        buf = HnswNewBuffer(index, forkNum);
+        page = BufferGetPage(buf);
+        HnswInitPage(buf, page);
+        MarkBufferDirty(buf);
+        UnlockReleaseBuffer(buf);
+    }
+
+    if (rbqConfig->reType == SQ8) {
+        other = (void *)palloc(oneSize * 3);
+        rc = memcpy_s((char*)other, oneSize, buildstate->centroid, oneSize);
+        securec_check(rc, "\0", "\0");
+        rc = memcpy_s((char*)(other + oneSize), oneSize * 2, rbqConfig->sq->trained, oneSize * 2);
+        securec_check(rc, "\0", "\0");
+    } else {
+        other = (void *)palloc(oneSize);
+        rc = memcpy_s((char*)other, oneSize, buildstate->centroid, oneSize);
+        securec_check(rc, "\0", "\0");
+    }
+
+    FlushChunkInfoInternal(index, (char *)other, HNSW_CHUNK_START_BLKNO + matrixNblk, otherNblk, otherSize);
 }
 
 /*
@@ -389,8 +502,15 @@ static void CreateGraphPages(HnswBuildState *buildstate)
     char *base = buildstate->hnswarea;
     IndexTransInfo *idxXid;
     Size pqcodesSize = buildstate->pqcodeSize;
-    Size rbqcodesSize = rbqCodeSize(buildstate->dimensions);
-    Size rbqEtupSize = MAXALIGN(offsetof(HnswElementTupleData, data) + (rbqcodesSize));
+    bool refineSQ8;
+    Size rbqcodesSize = 0;
+    Size rbqEtupSize = 0;
+
+    if (buildstate->enableRabitQ) {
+        refineSQ8 = buildstate->rbqConfig->reType == SQ8;
+        rbqcodesSize = rbqCodeSize(buildstate->dimensions, refineSQ8);
+        rbqEtupSize = MAXALIGN(offsetof(HnswElementTupleData, data) + rbqcodesSize);
+    }
 
     /* Calculate sizes */
     maxSize = HNSW_MAX_SIZE;
@@ -454,7 +574,7 @@ static void CreateGraphPages(HnswBuildState *buildstate)
             elog(ERROR, "index tuple too large");
         }
 
-        HnswSetElementTuple(base, etup, element, etupSize);
+        HnswSetElementTuple(base, etup, element, rbqcodesSize);
 
         /* Keep element and neighbors on the same page if possible */
         if (PageGetFreeSpace(page) < etupSize + MAXALIGN(pqcodesSize) ||
@@ -580,8 +700,16 @@ static void FlushPages(HnswBuildState *buildstate)
 #ifdef HNSW_MEMORY
     elog(INFO, "memory: %zu MB", buildstate->graph->memoryUsed / (1024 * 1024));
 #endif
-
-    CreateMetaPage(buildstate);
+    BlockNumber numPages = RelationGetNumberOfBlocks(buildstate->index);
+    /* 
+     * When numPages != 0, it means there was no data in the table when hnsw rabitq
+     * called "create index", so a Metapage is created to record basic information.
+     * After inserting sufficient data, the index is built in a delayed manner here,
+     * and there is no need to recreate the Metapage.
+     */
+    if (numPages == 0) {
+        CreateMetaPage(buildstate);
+    }
     if (buildstate->enablePQ) {
         CreatePQPages(buildstate);
         /* Save PQ table and distance table */
@@ -590,6 +718,8 @@ static void FlushPages(HnswBuildState *buildstate)
     if (buildstate->enableRabitQ) {
         /* Create pages and flush matrix */
         CreateRbqMatrixPages(buildstate);
+        /* Create pages and flush centroid (min+diff if refine type is SQ8) */
+        CreateRbqOtherPages(buildstate);
     }
     CreateGraphPages(buildstate);
     WriteNeighborTuples(buildstate);
@@ -717,7 +847,10 @@ static void InsertTupleInMemory(HnswBuildState *buildstate, HnswElement element)
     int efConstruction = buildstate->efConstruction;
     int m = buildstate->m;
     char *base = buildstate->hnswarea;
-    int funcType = GetFunctionType(procinfo, buildstate->normprocinfo);
+    int funcType = -1;
+    if (buildstate->enableRabitQ) {
+        funcType = GetFunctionType(procinfo, buildstate->normprocinfo);
+    }
 
     /* Wait if another process needs exclusive lock on entry lock */
     LWLockAcquire(entryWaitLock, LW_EXCLUSIVE);
@@ -826,9 +959,20 @@ static bool InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
         return HnswInsertTupleOnDisk(index, value, isnull, heaptid, true, buildstate->heap);
     }
 
-    /* Transform vector in rabitq */
     if (buildstate->enableRabitQ) {
-        VectorTransform* vtrans = buildstate->rbqConfig->vtrans;
+        RabitQConfig *rbqConfig = buildstate->rbqConfig;
+        if (rbqConfig->reType == SQ8) {
+            /* Calculate origin vector's SQ8 */
+            rbqPtr = (Pointer)HnswAlloc(allocator, rbqCodeSize(buildstate->dimensions, true));
+            ScalarQuantizer *sq = rbqConfig->sq;
+            int dim = sq->dim;
+            VectorEncodeSQ(dim, sq->trained, sq->trained + dim, ((Vector *)DatumGetPointer(value))->x,
+                                getRefineCode(rbqPtr, rbqConfig->reOffset));
+        } else {
+            rbqPtr = (Pointer)HnswAlloc(allocator, rbqCodeSize(buildstate->dimensions, false));
+        }
+        /* Transform vector in rabitq */
+        VectorTransform* vtrans = rbqConfig->vtrans;
         Vector *transValue = InitVector(buildstate->dimensions);
         if (vtrans->type == RANDOM_ORTHOGONAL) {
             RomTransform(vtrans, ((Vector *)DatumGetPointer(value))->x, transValue->x);
@@ -847,10 +991,6 @@ static bool InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
     if (buildstate->enablePQ) {
         Size codesize = buildstate->pqM * sizeof(uint8);
         codePtr = (Pointer)HnswAlloc(allocator, codesize);
-    }
-    if (buildstate->enableRabitQ) {
-        Size codesize = rbqCodeSize(buildstate->dimensions);
-        rbqPtr = (Pointer)HnswAlloc(allocator, codesize);
     }
 
     /*
@@ -872,6 +1012,10 @@ static bool InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
 
     /* Insert tuple */
     InsertTupleInMemory(buildstate, element);
+
+    if (buildstate->enableRabitQ) {
+        pfree((Vector *)value);
+    }
 
     /* Release flush lock */
     LWLockRelease(flushLock);
@@ -1035,6 +1179,7 @@ static void InitBuildState(HnswBuildState *buildstate, Relation heap, Relation i
     buildstate->pqKsub = HnswGetPqKsub(index);
 
     buildstate->enableRabitQ = HnswGetEnableRabitQ(index);
+    buildstate->rbqDelay = false;
     if (buildstate->enablePQ && buildstate->enableRabitQ) {
         ereport(ERROR, (errmsg("hnsw does not support the mixed use of the two quantization methods: PQ and RabitQ.")));
     }
@@ -1068,6 +1213,13 @@ static void InitBuildState(HnswBuildState *buildstate, Relation heap, Relation i
         RabitQConfig *rbqConfig = (RabitQConfig *)palloc(sizeof(RabitQConfig));
         rbqConfig->FHT = HnswGetUseFHT(index);
         buildstate->rbqConfig = rbqConfig;
+        rbqConfig->reType = HnswGetRefineType(index);
+        rbqConfig->reOffset = (buildstate->dimensions + 7) / 8;
+        if (rbqConfig->reType == SQ8) {
+            rbqConfig->sq = InitScalarQuantizer(buildstate->dimensions);
+        } else {
+            rbqConfig->sq = NULL;
+        }
         VectorTransform *vt = (VectorTransform *)palloc(sizeof(VectorTransform));
         rbqConfig->vtrans = vt;
         vt->dim = buildstate->dimensions;
@@ -1094,9 +1246,14 @@ static void FreeBuildState(HnswBuildState *buildstate, bool parallel)
         }
         pfree(buildstate->params);
     }
-    if (buildstate->enableRabitQ  && !parallel) {
-        pfree(buildstate->centroid);
+    if (buildstate->enableRabitQ && !parallel) {
+        if (buildstate->centroid != NULL) {
+            pfree(buildstate->centroid);
+        }
         pfree(buildstate->rbqConfig->vtrans);
+        if (buildstate->rbqConfig->sq != NULL){
+            FreeScalarQuantizer(buildstate->rbqConfig->sq);
+        }
         pfree(buildstate->rbqConfig);
     }
 }
@@ -1342,7 +1499,7 @@ static void BuildGraph(HnswBuildState *buildstate, ForkNumber forkNum)
     }
 }
 
-void ComputeCenter(HnswBuildState *buildstate)
+void ComputeCenterAndTrainRefine(HnswBuildState *buildstate)
 {
     if (buildstate->heap == NULL) {
         return;
@@ -1350,6 +1507,26 @@ void ComputeCenter(HnswBuildState *buildstate)
     double num;
     EstimateRows(buildstate->heap, &num);
     int numSamples = (int)num;
+    if (numSamples == 0) {
+        buildstate->rbqDelay = true;
+        ereport(LOG, (errmsg("If there is no data in the table, RabitQ cannot be trained,"
+            "and the index will not be built for the time being.")));
+        return;
+    }
+
+    PG_TRY();
+    {
+        /* Sample rows */
+        ereport(LOG, (errmsg("HNSW RabitQ start sample rows.")));
+        buildstate->samples = VectorArrayInit(numSamples, buildstate->dimensions,
+                                              buildstate->typeInfo->itemSize(buildstate->dimensions));
+    }
+    PG_CATCH();
+    {
+        ereport(ERROR, (errmsg("memory alloc failed during HNSW RabitQ sampling, suggest using hnsw without RabitQ.")));
+        PG_RE_THROW();
+    }
+    PG_END_TRY();
 
     BlockNumber totalblocks = RelationGetNumberOfBlocks(buildstate->heap);
     buildstate->rowstoskip = -1;
@@ -1366,13 +1543,23 @@ void ComputeCenter(HnswBuildState *buildstate)
     for (int i = 0; i < buildstate->dimensions; i++) {
         centroid[i] = centroid[i] / numSamples;
     }
-    ereport(LOG, (errmsg("HNSW RabitQ compute center successful.")));
+    ereport(LOG, (errmsg("HNSW RabitQ compute center successfully.")));
+
+    if (buildstate->rbqConfig->reType == SQ8) {
+        ScalarQuantizer *sq = buildstate->rbqConfig->sq;
+        float *vmin = sq->trained;
+        float *vdiff = vmin + sq->dim;
+        for (int i = 0; i < sq->dim; i++) {
+            vdiff[i] -= vmin[i];
+        }
+        ereport(LOG, (errmsg("HNSW RabitQ train SQ8 successfully for refine.")));
+    }
 }
 
 /*
  * Build the index
  */
-static void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildState *buildstate,
+void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildState *buildstate,
                        ForkNumber forkNum)
 {
 #ifdef HNSW_MEMORY
@@ -1401,22 +1588,29 @@ static void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, Hnsw
     if (buildstate->enableRabitQ) {
         float *centroid = (float *)palloc(sizeof(float) * buildstate->dimensions);
         buildstate-> centroid = centroid;
-        ComputeCenter(buildstate);
-
-        float *transCentroid = (float *)palloc(buildstate->dimensions * sizeof(float));
-        VectorTransform* vtrans = buildstate->rbqConfig->vtrans;
-        if (vtrans->type == RANDOM_ORTHOGONAL) {
-            RomTrain(vtrans);
-            RomTransform(vtrans, centroid, transCentroid);
-        }else {
-            FhtTrain(vtrans);
-            FhtTransform(vtrans, centroid, transCentroid);
+        ComputeCenterAndTrainRefine(buildstate);
+        if (buildstate->rbqDelay) {
+            buildstate-> centroid = NULL;
+        } else {
+            float *transCentroid = (float *)palloc(buildstate->dimensions * sizeof(float));
+            VectorTransform* vtrans = buildstate->rbqConfig->vtrans;
+            if (vtrans->type == RANDOM_ORTHOGONAL) {
+                RomTrain(vtrans);
+                RomTransform(vtrans, centroid, transCentroid);
+            }else {
+                FhtTrain(vtrans);
+                FhtTransform(vtrans, centroid, transCentroid);
+            }
+            buildstate->centroid = transCentroid;
         }
-        buildstate->centroid = transCentroid;
         pfree(centroid);
     }
 
-    BuildGraph(buildstate, forkNum);
+    if (buildstate->rbqDelay) {
+        CreateMetaPage(buildstate);
+    } else {
+        BuildGraph(buildstate, forkNum);
+    }
 
     if (RelationNeedsWAL(index) || forkNum == INIT_FORKNUM)
         LogNewpageRange(index, forkNum, 0, RelationGetNumberOfBlocksInFork(index, forkNum), true);

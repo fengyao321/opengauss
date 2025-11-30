@@ -90,6 +90,7 @@ static void ValidateStrOptCmkId(const char *val);
 static void ValidateIndexTypeOption(const char* val);
 static void ValidateStrOptIndexType(const char *val);
 static void ValidateDataCompressionOption(const char *val);
+static void ValidateRabitqRefineOption(const char *val);
 
 #ifdef USE_SPQ
 static void CheckSpqBTBuildOption(const char *val);
@@ -613,6 +614,13 @@ static relopt_string stringRelOpts[] = {
         false,
         ValidateDataCompressionOption,
         DATA_COMPRESSION_D_INDEX_NONE,
+    },
+    {
+        {"rabitq_refine_type", "sq8, fp32, none", RELOPT_KIND_HNSW | RELOPT_KIND_IVFFLAT},
+        strlen(RABITQ_REFINE_TYPE_SQ8),
+        false,
+        ValidateRabitqRefineOption,
+        RABITQ_REFINE_TYPE_SQ8,
     },
     /* list terminator */
     {{NULL}}
@@ -2347,6 +2355,24 @@ static void ValidateDataCompressionOption(const char *val)
         ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
             errmsg("Invalid string for \"data_compression\" option for d database"),
             errdetail("Valid string are \"none\", \"row\", \"page\", \"columnstore\", \"columnstore_archive\".")));
+    }
+}
+
+/*
+ * Brief        : Check the data_compression option for d database index.
+ * Input        : val, data_compression option value.
+ * Output       : None.
+ * Return Value : None.
+ * Notes        : None.
+ */
+static void ValidateRabitqRefineOption(const char *val)
+{
+    if (pg_strcasecmp(val, RABITQ_REFINE_TYPE_SQ8) != 0 &&
+        pg_strcasecmp(val, RABITQ_REFINE_TYPE_FP32) != 0 &&
+        pg_strcasecmp(val, RABITQ_REFINE_TYPE_NONE) != 0) {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+            errmsg("Invalid string for \"rabitq_refine_type\" option for Datavec"),
+            errdetail("Valid string are \"none\", \"sq8\", \"fp32\".")));
     }
 }
 
