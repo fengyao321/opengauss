@@ -284,6 +284,62 @@ static void SampleCallback(Relation index, CALLBACK_ITEM_POINTER, Datum *values,
 }
 
 /*
+ * get the minmax of each dim
+ */
+static void MixMaxSamples(Datum *values, IvfflatBuildState *buildstate)
+{
+    VectorArray samples = buildstate->samples;
+    int targsamples = samples->maxlen;
+
+    /* Detoast once for all calls */
+    Datum value = PointerGetDatum(PG_DETOAST_DATUM(values[0]));
+
+    if (buildstate->kmeansnormprocinfo != NULL) {
+        if (!IvfflatCheckNorm(buildstate->kmeansnormprocinfo, buildstate->collation, value)) {
+            return;
+        }
+
+        value = IvfflatNormValue(buildstate->typeInfo, buildstate->collation, value);
+    }
+
+    Vector *vec = (Vector *)value;
+    if (buildstate->rbqConfig->reType == SQ8) {
+        ScalarQuantizer *sq = buildstate->rbqConfig->sq;
+        float *vmin = sq->trained;
+        float *vmax = vmin + sq->dim;
+        for (int i = 0; i < sq->dim; i++) {
+            vmin[i] = vec->x[i] < vmin[i] ? vec->x[i] : vmin[i];
+            vmax[i] = vec->x[i] > vmax[i] ? vec->x[i] : vmax[i];
+        }
+    }
+}
+
+/*
+ * Callback for sampling
+ */
+static void SQ8SampleCallback(Relation index, CALLBACK_ITEM_POINTER, Datum *values, const bool *isnull,
+    bool tupleIsAlive, void *state)
+{
+    IvfflatBuildState *buildstate = (IvfflatBuildState *)state;
+    MemoryContext oldCtx;
+
+    /* Skip nulls */
+    if (isnull[0]) {
+        return;
+    }
+
+    /* Use memory context since detoast can allocate */
+    oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
+
+    /* get min/max in sample */
+    MixMaxSamples(values, buildstate);
+
+    /* Reset memory context */
+    MemoryContextSwitchTo(oldCtx);
+    MemoryContextReset(buildstate->tmpCtx);
+}
+
+/*
  * Sample rows with same logic as ANALYZE
  */
 static void SampleRows(IvfflatBuildState *buildstate)
@@ -327,10 +383,28 @@ static void AddTupleToSort(Relation index, ItemPointer tid, Datum *values, Ivffl
         value = IvfflatNormValue(buildstate->typeInfo, buildstate->collation, value);
     }
 
+    Vector *transValue = NULL;
+    if (buildstate->enableRabitQ) {
+        RabitQConfig *rbqConfig = buildstate->rbqConfig;
+        VectorTransform* vtrans = rbqConfig->vtrans;
+        transValue = InitVector(buildstate->dimensions);
+        if (vtrans->type == RANDOM_ORTHOGONAL) {
+            RomTransform(vtrans, ((Vector *)DatumGetPointer(value))->x, transValue->x);
+        } else {
+            FhtTransform(vtrans, ((Vector *)DatumGetPointer(value))->x, transValue->x);
+        }
+    }
+
     /* Find the list that minimizes the distance */
     for (int i = 0; i < centers->length; i++) {
-        distance = DatumGetFloat8(FunctionCall2Coll(buildstate->procinfo, buildstate->collation, value,
-                                                    PointerGetDatum(VectorArrayGet(centers, i))));
+        if (buildstate->enableRabitQ) {
+            distance = DatumGetFloat8(FunctionCall2Coll(buildstate->procinfo, buildstate->collation, (Datum)transValue,
+                                                        PointerGetDatum(VectorArrayGet(buildstate->centroid, i))));
+        } else {
+            distance = DatumGetFloat8(FunctionCall2Coll(buildstate->procinfo, buildstate->collation, value,
+                                                        PointerGetDatum(VectorArrayGet(centers, i))));
+        }
+
         if (distance < minDistance) {
             minDistance = distance;
             closestCenter = i;
@@ -343,6 +417,34 @@ static void AddTupleToSort(Relation index, ItemPointer tid, Datum *values, Ivffl
         if (buildstate->byResidual) {
             residual = (Vector *)lfirst(buildstate->rlist->tail);
         }
+    }
+
+    RabitqVector *rbqVec = NULL;
+    bytea *rbqdata = NULL;
+    if (buildstate->enableRabitQ) {
+        RabitQConfig *rbqConfig = buildstate->rbqConfig;
+        bool refineSQ8 = rbqConfig->reType == SQ8;
+        if (refineSQ8) {
+            /* Calculate origin vector's SQ8 */
+            rbqVec = (RabitqVector *)palloc(rbqCodeSize(buildstate->dimensions, true));
+            ScalarQuantizer *sq = rbqConfig->sq;
+            int dim = sq->dim;
+            VectorEncodeSQ(dim, sq->trained, sq->trained + dim, ((Vector *)DatumGetPointer(value))->x,
+                                getRefineCode(rbqVec, rbqConfig->reOffset));
+        } else {
+            rbqVec = (RabitqVector *)palloc(rbqCodeSize(buildstate->dimensions, false));
+        }
+        
+        Vector *centroid = (Vector *)VectorArrayGet(buildstate->centroid, closestCenter);
+        int funcType = GetFunctionType(buildstate->procinfo, buildstate->normprocinfo);
+        ComputeVectorRBQCode(transValue->dim, transValue->x, rbqVec, centroid->x, funcType);
+
+        rbqdata = (bytea *)palloc(rbqDataSize(transValue->dim, refineSQ8) + VARHDRSZ);
+        SET_VARSIZE(rbqdata, rbqDataSize(transValue->dim, refineSQ8) + VARHDRSZ);
+        
+        errno_t rc = memcpy_s(VARDATA(rbqdata), rbqDataSize(transValue->dim, refineSQ8),
+            rbqVec->data, rbqDataSize(transValue->dim, refineSQ8));
+        securec_check(rc, "\0", "\0");
     }
 
 #ifdef IVFFLAT_KMEANS_DEBUG
@@ -361,6 +463,17 @@ static void AddTupleToSort(Relation index, ItemPointer tid, Datum *values, Ivffl
     slot->tts_isnull[IVF_VECTOR - 1] = false;
     slot->tts_values[IVF_RESIDUAL - 1] = residual == NULL ? NULL : PointerGetDatum(residual);
     slot->tts_isnull[IVF_RESIDUAL - 1] = residual == NULL ? true : false;
+
+    slot->tts_values[IVF_RBQ_DATA - 1] = rbqVec == NULL ? NULL : PointerGetDatum(rbqdata);
+    slot->tts_isnull[IVF_RBQ_DATA - 1] = rbqVec == NULL ? true : false;
+    slot->tts_values[IVF_OR_MINUS_CL2_SQR - 1] = rbqVec == NULL ? NULL : Float4GetDatum(rbqVec->fac.orMinusCL2Sqr);
+    slot->tts_isnull[IVF_OR_MINUS_CL2_SQR - 1] = rbqVec == NULL ? true : false;
+    slot->tts_values[IVF_XB_SUM - 1] = rbqVec == NULL ? NULL : Float4GetDatum(rbqVec->fac.xbSum);
+    slot->tts_isnull[IVF_XB_SUM - 1] = rbqVec == NULL ? true : false;
+    slot->tts_values[IVF_DP_MULTIPLIER - 1] = rbqVec == NULL ? NULL : Float4GetDatum(rbqVec->fac.dpMultiplier);
+    slot->tts_isnull[IVF_DP_MULTIPLIER - 1] = rbqVec == NULL ? true : false;
+    slot->tts_values[IVF_UNUSED - 1] = rbqVec == NULL ? NULL : UInt32GetDatum(rbqVec->fac.unused);
+    slot->tts_isnull[IVF_UNUSED - 1] = rbqVec == NULL ? true : false;
     ExecStoreVirtualTuple(slot);
 
     /*
@@ -393,6 +506,17 @@ static void BuildCallback(Relation index, CALLBACK_ITEM_POINTER, Datum *values, 
 
     Vector *vec = InitVector(buildstate->dimensions);
     buildstate->rlist = lappend(buildstate->rlist, vec);
+
+    /* RabitQ delay build, avoid "insert into select from" sql from inserting repeatedly. */
+    if (buildstate->enableRabitQ && buildstate->rbqDelayState == RBQ_BUILD_AFTER_DELAY) {
+        buildstate->rbqDelayBuildRows++;
+        int64 insertedRows;
+        IvfflatGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, NULL, NULL,
+                                   NULL, NULL, NULL, &insertedRows);
+        if (buildstate->rbqDelayBuildRows > insertedRows) {
+            return;
+        }
+    }
 
     /* Use memory context since detoast can allocate */
     oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
@@ -432,17 +556,33 @@ static void BuildCallback(Relation index, CALLBACK_ITEM_POINTER, Datum *values, 
  * Get index tuple from sort state
  */
 static inline void GetNextTuple(Tuplesortstate *sortstate, TupleDesc tupdesc, TupleTableSlot *slot, IndexTuple *itup,
-                                int *list)
+                                int *list, bool enableRabitQ)
 {
     Datum value;
     bool isnull;
+    Oid attrelid = tupdesc->attrs[0].attrelid;
 
     if (tuplesort_gettupleslot(sortstate, true, slot, NULL)) {
         *list = DatumGetInt32(heap_slot_getattr(slot, 1, &isnull));
-        value = heap_slot_getattr(slot, 3, &isnull);
+        TupleDesc rbqTupdesc = NULL;
+        if (enableRabitQ) {
+            value = heap_slot_getattr(slot, 5, &isnull);
+
+            rbqTupdesc = CreateTemplateTupleDesc(1, false);
+            TupleDescInitEntry(rbqTupdesc, (AttrNumber)1, "rbqdata", BYTEAOID, -1, 0);
+            rbqTupdesc->attrs[0].attrelid = attrelid;
+            rbqTupdesc->attrs[0].attstorage = 'p';
+        } else {
+            value = heap_slot_getattr(slot, 3, &isnull);
+        }
 
         /* Form the index tuple */
-        *itup = index_form_tuple(tupdesc, &value, &isnull);
+        if (enableRabitQ) {
+            *itup = index_form_tuple(rbqTupdesc, &value, &isnull);
+        } else {
+            *itup = index_form_tuple(tupdesc, &value, &isnull);
+        }
+        
         (*itup)->t_tid = *((ItemPointer)DatumGetPointer(heap_slot_getattr(slot, 2, &isnull)));
     } else {
         *list = -1;
@@ -462,7 +602,7 @@ static void InsertTuples(Relation index, IvfflatBuildState *buildstate, ForkNumb
     TupleDesc tupdesc = RelationGetDescr(index);
     Size pqcodesSize = buildstate->pqcodeSize;
 
-    GetNextTuple(buildstate->sortstate, tupdesc, slot, &itup, &list);
+    GetNextTuple(buildstate->sortstate, tupdesc, slot, &itup, &list, buildstate->enableRabitQ);
 
     /* Check vector and pqcode can be on the same page */
     if (list != -1) {
@@ -495,7 +635,7 @@ static void InsertTuples(Relation index, IvfflatBuildState *buildstate, ForkNumb
         while (list == i) {
             /* Check for free space */
             Size itemsz = MAXALIGN(IndexTupleSize(itup));
-            if (PageGetFreeSpace(page) < itemsz + MAXALIGN(pqcodesSize))
+            if (PageGetFreeSpace(page) < itemsz + MAXALIGN(pqcodesSize) + MAXALIGN(sizeof(FactorData)))
                 IvfflatAppendPage(index, &buf, &page, &state, forkNum);
 
             if (buildstate->enablePQ) {
@@ -511,6 +651,20 @@ static void InsertTuples(Relation index, IvfflatBuildState *buildstate, ForkNumb
                 securec_check_c(rc, "\0", "\0");
             }
 
+            if (buildstate->enableRabitQ) {
+                bool isnull;
+                Size rbqvecsize = MAXALIGN(sizeof(FactorData));
+                FactorData *fac = (FactorData *)palloc(rbqvecsize);
+                fac->orMinusCL2Sqr = DatumGetFloat4(heap_slot_getattr(slot, 6, &isnull));
+                fac->xbSum = DatumGetFloat4(heap_slot_getattr(slot, 7, &isnull));
+                fac->dpMultiplier = DatumGetFloat4(heap_slot_getattr(slot, 8, &isnull));
+                fac->unused = DatumGetUInt32(heap_slot_getattr(slot, 9, &isnull));
+                ((PageHeader)page)->pd_upper -= rbqvecsize;
+                errno_t rc = memcpy_s(
+                    ((char *)page) + ((PageHeader)page)->pd_upper, rbqvecsize, (char *)fac, rbqvecsize);
+                securec_check_c(rc, "\0", "\0");
+            }
+
             /* Add the item */
             if (PageAddItem(page, (Item)itup, itemsz, InvalidOffsetNumber, false, false) == InvalidOffsetNumber)
                 elog(ERROR, "failed to add index item to \"%s\"", RelationGetRelationName(index));
@@ -521,7 +675,7 @@ static void InsertTuples(Relation index, IvfflatBuildState *buildstate, ForkNumb
 
             UpdateProgress(PROGRESS_CREATEIDX_TUPLES_DONE, ++inserted);
 
-            GetNextTuple(buildstate->sortstate, tupdesc, slot, &itup, &list);
+            GetNextTuple(buildstate->sortstate, tupdesc, slot, &itup, &list, buildstate->enableRabitQ);
         }
 
         insertPage = BufferGetBlockNumber(buf);
@@ -537,7 +691,8 @@ static void InsertTuples(Relation index, IvfflatBuildState *buildstate, ForkNumb
 /*
  * Initialize the build state
  */
-static void InitBuildState(IvfflatBuildState *buildstate, Relation heap, Relation index, IndexInfo *indexInfo)
+static void InitBuildState(IvfflatBuildState *buildstate, Relation heap, Relation index,
+    IndexInfo *indexInfo, bool parallel)
 {
     buildstate->heap = heap;
     buildstate->index = index;
@@ -571,6 +726,36 @@ static void InitBuildState(IvfflatBuildState *buildstate, Relation heap, Relatio
     /* Require more than one dimension for spherical k-means */
     if (buildstate->kmeansnormprocinfo != NULL && buildstate->dimensions == 1)
         elog(ERROR, "dimensions must be greater than one for this opclass");
+    
+    /* RabitQ info */
+    buildstate->enableRabitQ = IvfGetEnableRabitQ(index);
+    buildstate->rbqDelayBuildRows = 0;
+    buildstate->rbqDelayState = RBQ_BUILD_NORMAL;
+    if (buildstate->enableRabitQ && !buildstate->typeInfo->supportRabitQ) {
+        ereport(ERROR, (errmsg("this data type cannot support ivfflat_rabitq.")));
+    }
+    if (buildstate->enableRabitQ && !parallel) {
+        RabitQConfig *rbqConfig = (RabitQConfig *)palloc(sizeof(RabitQConfig));
+        rbqConfig->FHT = IvfGetUseFHT(index);
+        buildstate->rbqConfig = rbqConfig;
+        rbqConfig->reType = IvfGetRefineType(index);
+        rbqConfig->reOffset = (buildstate->dimensions + 7) / 8;
+        if (rbqConfig->reType == SQ8) {
+            rbqConfig->sq = InitScalarQuantizer(buildstate->dimensions);
+        } else {
+            rbqConfig->sq = NULL;
+        }
+        VectorTransform *vt = (VectorTransform *)palloc(sizeof(VectorTransform));
+        rbqConfig->vtrans = vt;
+        vt->dim = buildstate->dimensions;
+        vt->type = rbqConfig->FHT ? FAST_HTRANSFORM : RANDOM_ORTHOGONAL;
+        vt->matrix = NULL;
+        vt->fastRotation = NULL;
+    } else {
+        buildstate->rbqConfig = NULL;
+    }
+    buildstate->centroid = VectorArrayInit(buildstate->lists, buildstate->dimensions,
+                                           buildstate->typeInfo->itemSize(buildstate->dimensions));
 
     /* Create tuple description for sorting */
     buildstate->tupdesc = CreateTemplateTupleDesc(IVF_NUM_COLUMNS, false);
@@ -578,6 +763,14 @@ static void InitBuildState(IvfflatBuildState *buildstate, Relation heap, Relatio
     TupleDescInitEntry(buildstate->tupdesc, (AttrNumber)IVF_TID, "tid", TIDOID, -1, 0);
     TupleDescInitEntry(buildstate->tupdesc, (AttrNumber)IVF_VECTOR, "vector", RelationGetDescr(index)->attrs[0].atttypid, -1, 0);
     TupleDescInitEntry(buildstate->tupdesc, (AttrNumber)IVF_RESIDUAL, "residual", VECTOROID, -1, 0);
+
+    TupleDescInitEntry(buildstate->tupdesc, (AttrNumber)IVF_RBQ_DATA, "rbqdata", BYTEAOID, -1, 0);
+    TupleDescInitEntry(buildstate->tupdesc, (AttrNumber)IVF_OR_MINUS_CL2_SQR, "orMinusCL2Sqr", FLOAT4OID, -1, 0);
+    TupleDescInitEntry(buildstate->tupdesc, (AttrNumber)IVF_XB_SUM, "xbSum", FLOAT4OID, -1, 0);
+    TupleDescInitEntry(buildstate->tupdesc, (AttrNumber)IVF_DP_MULTIPLIER, "dpMultiplier", FLOAT4OID, -1, 0);
+    TupleDescInitEntry(buildstate->tupdesc, (AttrNumber)IVF_UNUSED, "unused", INT4OID, -1, 0);
+
+    buildstate->tupdesc->attrs[IVF_RBQ_DATA - 1].attstorage = 'p';
 
     buildstate->slot = MakeSingleTupleTableSlot(buildstate->tupdesc);
 
@@ -638,6 +831,11 @@ static void InitBuildState(IvfflatBuildState *buildstate, Relation heap, Relatio
     }
     buildstate->pqDistanceTable = NULL;
 
+    if (buildstate->enablePQ && buildstate->enableRabitQ) {
+        ereport(ERROR, (\
+            errmsg("ivfflat does not support the mixed use of the two quantization methods: PQ and RabitQ.")));
+    }
+
     buildstate->ivfclosestCentersIndexs = NULL;
     buildstate->ivfclosestCentersDistances = NULL;
     buildstate->tupleslist = NIL;
@@ -655,7 +853,7 @@ static void InitBuildState(IvfflatBuildState *buildstate, Relation heap, Relatio
 /*
  * Free resources
  */
-static void FreeBuildState(IvfflatBuildState *buildstate)
+static void FreeBuildState(IvfflatBuildState *buildstate, bool parallel)
 {
     VectorArrayFree(buildstate->centers);
     if (buildstate->residuals) {
@@ -667,6 +865,18 @@ static void FreeBuildState(IvfflatBuildState *buildstate)
     pfree(buildstate->listSums);
     pfree(buildstate->listCounts);
 #endif
+
+    if (buildstate->enableRabitQ && !parallel) {
+        if (buildstate->centroid != NULL) {
+            VectorArrayFree(buildstate->centroid);
+        }
+        
+        FreeTransformer(buildstate->rbqConfig->vtrans);
+        if (buildstate->rbqConfig->sq != NULL) {
+            FreeScalarQuantizer(buildstate->rbqConfig->sq);
+        }
+        pfree(buildstate->rbqConfig);
+    }
 
     MemoryContextDelete(buildstate->tmpCtx);
 }
@@ -756,6 +966,43 @@ static void CreateMetaPage(Relation index, IvfflatBuildState *buildstate, ForkNu
         metap->pqTableNblk = 0;
     }
 
+     /* set RabitQ info */
+    metap->enableRabitQ = buildstate->enableRabitQ;
+    metap->rbqDelayState = buildstate->rbqDelayState;
+    metap->rbqInsertRows = 0;
+    if (buildstate->enableRabitQ) {
+        metap->useFHT = buildstate->rbqConfig->FHT;
+        metap->reOffset = buildstate->rbqConfig->reOffset;
+        int dim = buildstate->dimensions;
+        Size matrixSize;
+        if (buildstate->rbqConfig->FHT) {
+            int outputDim = FhtOutputDim(dim);
+            matrixSize = FhtSerializeSize(outputDim);
+        } else {
+            matrixSize = dim * dim * sizeof(float);
+        }
+        metap->matrixSize = matrixSize;
+        metap->matrixNblk = (uint16)(
+                (matrixSize + CHUNK_STORAGE_SIZE - 1) / CHUNK_STORAGE_SIZE);
+
+        metap->reType = buildstate->rbqConfig->reType;
+        Size otherSize = 0;
+        if (metap->reType == SQ8) {
+            otherSize = 2 * dim * sizeof(float);
+        }
+        metap->otherSize = otherSize;
+        metap->otherNblk = (uint16)(
+                (otherSize + CHUNK_STORAGE_SIZE - 1) / CHUNK_STORAGE_SIZE);
+    } else {
+        metap->useFHT = false;
+        metap->reOffset = 0;
+        metap->matrixNblk = 0;
+        metap->matrixSize = 0;
+        metap->reType = NotRefine;
+        metap->otherSize = 0;
+        metap->otherNblk = 0;
+    }
+
     ((PageHeader)page)->pd_lower = ((char *)metap + sizeof(IvfflatMetaPageData)) - (char *)page;
 
     IvfflatCommitBuffer(buf, state);
@@ -764,8 +1011,8 @@ static void CreateMetaPage(Relation index, IvfflatBuildState *buildstate, ForkNu
 /*
  * Create list pages
  */
-static void CreateListPages(Relation index, VectorArray centers, int dimensions, int lists, ForkNumber forkNum,
-                            ListInfo **listInfo)
+static void CreateListPages(Relation index, VectorArray centers, VectorArray centroid, int dimensions, int lists,
+                            ForkNumber forkNum, ListInfo **listInfo, bool enableRabitQ)
 {
     Buffer buf;
     Page page;
@@ -791,7 +1038,12 @@ static void CreateListPages(Relation index, VectorArray centers, int dimensions,
         list->insertPage = InvalidBlockNumber;
         list->listId = i;
         list->tupleNum = 0;
-        rc = memcpy_s(&list->center, VARSIZE_ANY(VectorArrayGet(centers, i)), VectorArrayGet(centers, i), VARSIZE_ANY(VectorArrayGet(centers, i)));
+        if (enableRabitQ) {
+            rc = memcpy_s(&list->center, VARSIZE_ANY(VectorArrayGet(centroid, i)), VectorArrayGet(centroid, i),
+                VARSIZE_ANY(VectorArrayGet(centroid, i)));
+        } else {
+            rc = memcpy_s(&list->center, VARSIZE_ANY(VectorArrayGet(centers, i)), VectorArrayGet(centers, i), VARSIZE_ANY(VectorArrayGet(centers, i)));
+        }
         securec_check(rc, "\0", "\0");
 
         /* Ensure free space */
@@ -811,6 +1063,82 @@ static void CreateListPages(Relation index, VectorArray centers, int dimensions,
     IvfflatCommitBuffer(buf, state);
 
     pfree(list);
+}
+
+/*
+ * Create RabitQ-matrix pages
+ */
+static void CreateRbqMatrixPages(IvfflatBuildState *buildstate, ForkNumber fNum)
+{
+    uint16 nblks;
+    Relation index = buildstate->index;
+    ForkNumber forkNum = fNum;
+    Buffer buf;
+    Page page;
+    uint16 matrixNblk;
+    uint32 matrixSize;
+    void *matrix;
+
+    IvfflatGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, &matrixNblk,
+                               &matrixSize, NULL, NULL, NULL, NULL);
+
+    /* create matrix page */
+    for (uint16 i = 0; i < matrixNblk; i++) {
+        buf = IvfflatNewBuffer(index, forkNum);
+        page = BufferGetPage(buf);
+        IvfflatInitPage(buf, page);
+        MarkBufferDirty(buf);
+        UnlockReleaseBuffer(buf);
+    }
+
+    VectorTransform* vtrans = buildstate->rbqConfig->vtrans;
+    if (vtrans->type == RANDOM_ORTHOGONAL) {
+        matrix = RomGetMatrix(vtrans);
+    } else {
+        matrix = FhtGetMatrix(vtrans);
+    }
+
+    IvfFlushChunkInfoInternal(index, (char *)matrix, IVFFLAT_CHUNK_START_BLKNO, matrixNblk, matrixSize);
+    if (vtrans->type == FAST_HTRANSFORM) {
+        pfree(matrix);
+    }
+}
+
+/*
+ * Create RabitQ-other pages, including centroid and min+diff if refine_type is SQ8
+ */
+static void CreateRbqOtherPages(IvfflatBuildState *buildstate, ForkNumber fNum)
+{
+    uint16 nblks;
+    Relation index = buildstate->index;
+    ForkNumber forkNum = fNum;
+    RabitQConfig *rbqConfig = buildstate->rbqConfig;
+    Buffer buf;
+    Page page;
+    uint16 matrixNblk;
+    uint16 otherNblk;
+    uint32 otherSize;
+    uint32 oneSize = buildstate->dimensions * sizeof(float);
+    void *other;
+    errno_t rc;
+
+    IvfflatGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, &matrixNblk, NULL,
+                               &otherNblk, &otherSize, NULL, NULL);
+
+    /* create ohter page */
+    for (uint16 i = 0; i < otherNblk; i++) {
+        buf = IvfflatNewBuffer(index, forkNum);
+        page = BufferGetPage(buf);
+        IvfflatInitPage(buf, page);
+        MarkBufferDirty(buf);
+        UnlockReleaseBuffer(buf);
+    }
+
+    other = (void *)palloc(oneSize * 2);
+    rc = memcpy_s((char*)other, oneSize * 2, rbqConfig->sq->trained, oneSize * 2);
+    securec_check(rc, "\0", "\0");
+
+    IvfFlushChunkInfoInternal(index, (char *)other, IVFFLAT_CHUNK_START_BLKNO + matrixNblk, otherNblk, otherSize);
 }
 
 #ifdef IVFFLAT_KMEANS_DEBUG
@@ -1238,7 +1566,7 @@ static void IvfflatParallelScanAndSort(IvfflatSpool *ivfspool, IvfflatShared *iv
     /* Join parallel scan */
     indexInfo = BuildIndexInfo(ivfspool->index);
     indexInfo->ii_Concurrent = false;
-    InitBuildState(&buildstate, ivfspool->heap, ivfspool->index, indexInfo);
+    InitBuildState(&buildstate, ivfspool->heap, ivfspool->index, indexInfo, true);
     Size centersSize = buildstate.centers->itemsize * buildstate.centers->maxlen;
     rc = memcpy_s(buildstate.centers->items, centersSize, ivfcenters, centersSize);
     securec_check(rc, "\0", "\0");
@@ -1247,6 +1575,15 @@ static void IvfflatParallelScanAndSort(IvfflatSpool *ivfspool, IvfflatShared *iv
                                                nullsFirstFlags, sortmem, false, 0, 0, 1, coordinate);
     buildstate.sortstate = ivfspool->sortstate;
     buildstate.enableNPU = ivfshared->enablenpu;
+
+    if (buildstate.enableRabitQ) {
+        Size centroidSize = buildstate.centroid->itemsize * buildstate.centroid->maxlen;
+        rc = memcpy_s(buildstate.centroid->items, centroidSize, ivfshared->centroid, centroidSize);
+        securec_check(rc, "\0", "\0");
+        buildstate.centroid->length = buildstate.centroid->maxlen;
+
+        buildstate.rbqConfig = ivfshared->rbqConfig;
+    }
 
     scan = tableam_scan_begin_parallel(ivfspool->heap, &ivfshared->heapdesc);
 
@@ -1295,7 +1632,7 @@ static void IvfflatParallelScanAndSort(IvfflatSpool *ivfspool, IvfflatShared *iv
     /* We can end tuplesorts immediately */
     tuplesort_end(ivfspool->sortstate);
 
-    FreeBuildState(&buildstate);
+    FreeBuildState(&buildstate, true);
 }
 
 /*
@@ -1382,6 +1719,18 @@ static IvfflatShared *IvfflatParallelInitshared(IvfflatBuildState *buildstate, i
     securec_check(rc, "\0", "\0");
     ivfshared->ivfcenters = (Vector *)ivfcenters;
     ivfshared->enablenpu = u_sess->datavec_ctx.enable_npu;
+
+    if (buildstate->enableRabitQ) {
+        char *ivfcentroid = (char *)MemoryContextAllocZero(INSTANCE_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_STORAGE),
+            estcenters);
+        errno_t rc = memcpy_s(ivfcentroid, estcenters, buildstate->centroid->items, estcenters);
+        securec_check(rc, "\0", "\0");
+        ivfshared->centroid = (Vector *)ivfcentroid;
+        ivfshared->rbqConfig = buildstate->rbqConfig;
+    } else {
+        ivfshared->centroid = NULL;
+        ivfshared->rbqConfig = NULL;
+    }
 
     ivfshared->tmpCtx =
         AllocSetContextCreate(CurrentMemoryContext, "Ivfflat build temporary context", ALLOCSET_DEFAULT_SIZES);
@@ -1477,8 +1826,9 @@ static void AssignTuples(IvfflatBuildState *buildstate)
     if (buildstate->heap != NULL)
         parallel_workers = PlanCreateIndexWorkers(buildstate->heap, indexInfo);
 
+    bool singleThreadBuild = (buildstate->enableRabitQ && buildstate->rbqDelayState == RBQ_BUILD_AFTER_DELAY);
     /* Attempt to launch parallel worker scan when required */
-    if (parallel_workers > 0) {
+    if (parallel_workers > 0 && !singleThreadBuild) {
         Assert(!indexInfo->ii_Concurrent);
         IvfflatBeginParallel(buildstate, parallel_workers, workmem);
     }
@@ -1543,26 +1893,125 @@ static void CreateEntryPages(IvfflatBuildState *buildstate, ForkNumber forkNum)
     }
 }
 
+void TrainRefine(IvfflatBuildState *buildstate)
+{
+    if (buildstate->heap == NULL) {
+        return;
+    }
+    double num;
+    EstimateRows(buildstate->heap, &num);
+    int numSamples = (int)num;
+    if (numSamples == 0) {
+        buildstate->rbqDelayState = RBQ_BUILD_DELAY;
+        ereport(LOG, (errmsg("If there is no data in the table, RabitQ cannot be trained,"
+            "and the index will not be built for the time being.")));
+        return;
+    }
+
+    PG_TRY();
+    {
+        /* Sample rows */
+        ereport(LOG, (errmsg("IVFFLAT RabitQ start sample rows.")));
+        buildstate->samples = VectorArrayInit(numSamples, buildstate->dimensions,
+                                              buildstate->typeInfo->itemSize(buildstate->dimensions));
+    }
+    PG_CATCH();
+    {
+        ereport(ERROR, (errmsg("memory alloc failed during IVFFLAT RabitQ sampling,"
+            "suggest using ivfflat without RabitQ.")));
+        PG_RE_THROW();
+    }
+    PG_END_TRY();
+
+    BlockNumber totalblocks = RelationGetNumberOfBlocks(buildstate->heap);
+    buildstate->rowstoskip = -1;
+    BlockSampler_Init(&buildstate->bs, totalblocks, numSamples);
+
+    buildstate->rstate = anl_init_selection_state(numSamples);
+    while (BlockSampler_HasMore(&buildstate->bs)) {
+        BlockNumber targblock = BlockSampler_Next(&buildstate->bs);
+
+        tableam_index_build_scan(buildstate->heap, buildstate->index, buildstate->indexInfo,
+                                 false, SQ8SampleCallback, (void *) buildstate, NULL, targblock, 1);
+    }
+
+    if (buildstate->rbqConfig->reType == SQ8) {
+        ScalarQuantizer *sq = buildstate->rbqConfig->sq;
+        float *vmin = sq->trained;
+        float *vdiff = vmin + sq->dim;
+        for (int i = 0; i < sq->dim; i++) {
+            vdiff[i] -= vmin[i];
+        }
+        ereport(LOG, (errmsg("IVFFLAT RabitQ train SQ8 successfully for refine.")));
+    }
+}
+
+
 /*
  * Build the index
  */
-static void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, IvfflatBuildState *buildstate,
-                       ForkNumber forkNum)
+void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, IvfflatBuildState *buildstate,
+                       ForkNumber forkNum, bool insert)
 {
-    InitBuildState(buildstate, heap, index, indexInfo);
+    InitBuildState(buildstate, heap, index, indexInfo, false);
 
     ComputeCenters(buildstate);
 
-    /* Create pages */
-    CreateMetaPage(index, buildstate, forkNum);
+    if (buildstate->enableRabitQ) {
+        buildstate->rbqDelayState = insert ? RBQ_BUILD_AFTER_DELAY : RBQ_BUILD_NORMAL;
+        int dim = buildstate->dimensions;
+        TrainRefine(buildstate);
+        if (buildstate->rbqDelayState == RBQ_BUILD_DELAY) {
+            buildstate->centroid = NULL;
+        } else {
+            for (int i = 0; i < buildstate->centers->length; i++) {
+                Vector *centerData = (Vector *)VectorArrayGet(buildstate->centers, i);
+                float *transCentroid = (float *)palloc(dim * sizeof(float));
+                VectorTransform* vtrans = buildstate->rbqConfig->vtrans;
+                if (vtrans->type == RANDOM_ORTHOGONAL) {
+                    RomTrain(vtrans);
+                    RomTransform(vtrans, centerData->x, transCentroid);
+                } else {
+                    FhtTrain(vtrans);
+                    FhtTransform(vtrans, centerData->x, transCentroid);
+                }
+                Vector *transValue = InitVector(dim);
+                errno_t rc = memcpy_s(&transValue->x[0], sizeof(float) * dim, transCentroid, sizeof(float) * dim);
+                securec_check_c(rc, "\0", "\0");
 
-    if (buildstate->enablePQ) {
-        CreatePQPages(buildstate, forkNum);
+                VectorArraySet(buildstate->centroid, i, (Pointer)transValue);
+
+                pfree(transCentroid);
+            }
+        }
     }
 
-    CreateListPages(index, buildstate->centers, buildstate->dimensions, buildstate->lists, forkNum,
-                    &buildstate->listInfo);
-    CreateEntryPages(buildstate, forkNum);
+    if (buildstate->rbqDelayState == RBQ_BUILD_DELAY) {
+        /* Create pages */
+        CreateMetaPage(index, buildstate, forkNum);
+    } else {
+        BlockNumber numPages = RelationGetNumberOfBlocks(buildstate->index);
+        if (numPages == 0) {
+            CreateMetaPage(index, buildstate, forkNum);
+        }
+
+        if (buildstate->enablePQ) {
+            CreatePQPages(buildstate, forkNum);
+        }
+
+        if (buildstate->enableRabitQ) {
+            /* Create pages and flush matrix */
+            CreateRbqMatrixPages(buildstate, forkNum);
+            /* Create pages and flush centroid (min+diff if refine type is SQ8) */
+            if (buildstate->rbqConfig->reType == SQ8) {
+                CreateRbqOtherPages(buildstate, forkNum);
+            }
+        }
+
+        CreateListPages(index, buildstate->centers, buildstate->centroid, buildstate->dimensions,
+            buildstate->lists, forkNum, &buildstate->listInfo, buildstate->enableRabitQ);
+        CreateEntryPages(buildstate, forkNum);
+    }
 
     if (buildstate->enablePQ) {
         IvfFlushPQInfo(buildstate);
@@ -1572,7 +2021,7 @@ static void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, Ivff
     if (forkNum == INIT_FORKNUM)
         LogNewpageRange(index, forkNum, 0, RelationGetNumberOfBlocksInFork(index, forkNum), true);
 
-    FreeBuildState(buildstate);
+    FreeBuildState(buildstate, false);
 }
 
 /*
@@ -1583,7 +2032,7 @@ IndexBuildResult *ivfflatbuild_internal(Relation heap, Relation index, IndexInfo
     IndexBuildResult *result;
     IvfflatBuildState buildstate;
 
-    BuildIndex(heap, index, indexInfo, &buildstate, MAIN_FORKNUM);
+    BuildIndex(heap, index, indexInfo, &buildstate, MAIN_FORKNUM, false);
 
     result = (IndexBuildResult *)palloc(sizeof(IndexBuildResult));
     result->heap_tuples = buildstate.reltuples;
@@ -1600,5 +2049,5 @@ void ivfflatbuildempty_internal(Relation index)
     IndexInfo *indexInfo = BuildIndexInfo(index);
     IvfflatBuildState buildstate;
 
-    BuildIndex(NULL, index, indexInfo, &buildstate, INIT_FORKNUM);
+    BuildIndex(NULL, index, indexInfo, &buildstate, INIT_FORKNUM, false);
 }

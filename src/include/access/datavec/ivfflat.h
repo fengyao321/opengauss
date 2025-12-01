@@ -36,6 +36,7 @@
 #include "access/datavec/vector.h"
 #include "access/datavec/utils.h"
 #include "postmaster/bgworker.h"
+#include "access/datavec/rabitq.h"
 
 #ifdef IVFFLAT_BENCH
 #include "portability/instr_time.h"
@@ -56,7 +57,7 @@
 
 /* Preserved page numbers */
 #define IVFFLAT_METAPAGE_BLKNO 0
-#define IVFPQTABLE_START_BLKNO 1 /* first list page of pqtable start page */
+#define IVFFLAT_CHUNK_START_BLKNO 1 /* first list page of pqtable start page */
 
 /* IVFFlat parameters */
 #define IVFFLAT_DEFAULT_LISTS 100
@@ -73,11 +74,16 @@
 #define PROGRESS_IVFFLAT_PHASE_ASSIGN 3
 #define PROGRESS_IVFFLAT_PHASE_LOAD 4
 
-#define IVF_NUM_COLUMNS 4
+#define IVF_NUM_COLUMNS 9
 #define IVF_LISTID 1
 #define IVF_TID 2
 #define IVF_VECTOR 3
 #define IVF_RESIDUAL 4
+#define IVF_RBQ_DATA 5
+#define IVF_OR_MINUS_CL2_SQR 6
+#define IVF_XB_SUM 7
+#define IVF_DP_MULTIPLIER 8
+#define IVF_UNUSED 9
 
 #define IVFFLAT_LIST_SIZE(size) (offsetof(IvfflatListData, center) + (size))
 
@@ -120,7 +126,15 @@ typedef struct IvfflatOptions {
     int pqM;
     int pqKsub;
     bool byResidual;    /* whether to quantify by residual */
+    bool enableRabitQ;
+    bool rabitqFHT;
+    char *rabitqRT;
 } IvfflatOptions;
+
+#define IvfflatOptionsGetStringData(_basePtr, _memberName, _defaultVal)                    \
+    (((_basePtr) && (((IvfflatOptions*)(_basePtr))->_memberName))                          \
+            ? (((char*)(_basePtr) + *(int*)&(((IvfflatOptions*)(_basePtr))->_memberName))) \
+            : (_defaultVal))
 
 typedef struct IvfflatSpool {
     Tuplesortstate *sortstate;
@@ -147,6 +161,9 @@ typedef struct IvfflatShared {
     List *rlist;
     int workmem;
 
+    Vector *centroid;
+    RabitQConfig *rbqConfig;
+
     /* Memory */
     MemoryContext tmpCtx;
 
@@ -171,6 +188,7 @@ typedef struct IvfflatTypeInfo {
     int maxDimensions;
     bool supportNPU;
     bool supportPQ;
+    bool supportRabitQ;
     Datum (*normalize)(PG_FUNCTION_ARGS);
     Size (*itemSize)(int dimensions);
     void (*updateCenter)(Pointer v, int dimensions, const float *x);
@@ -240,6 +258,13 @@ typedef struct IvfflatBuildState {
     float *preComputeTable;
     uint64 preComputeTableSize;
 
+    /* RabitQ info */
+    bool enableRabitQ;
+    int rbqDelayState;
+    int64 rbqDelayBuildRows;
+    VectorArray centroid;
+    RabitQConfig *rbqConfig;
+
     /* NPU info */
     int *ivfclosestCentersIndexs;
     float *ivfclosestCentersDistances;
@@ -265,6 +290,18 @@ typedef struct IvfflatMetaPageData {
     uint16 pqTableNblk;
     uint64 pqPreComputeTableSize;
     uint32 pqPreComputeTableNblk;
+
+    /* RabitQ info */
+    bool enableRabitQ;
+    bool useFHT;
+    int rbqDelayState;
+    int64 rbqInsertRows;
+    uint16 reOffset;
+    uint16 matrixNblk;
+    uint32 matrixSize;
+    RefineType reType;
+    uint16 otherNblk;
+    uint32 otherSize; /* centroid + (min + diff) if reType == SQ8 */
 } IvfflatMetaPageData;
 
 typedef IvfflatMetaPageData *IvfflatMetaPage;
@@ -295,6 +332,7 @@ typedef struct IvfflatScanList {
     double pqDistance;
     int listId;
     int tupleNum;
+    Vector *center;
 } IvfflatScanList;
 
 typedef struct IvfflatScanOpaqueData {
@@ -324,6 +362,11 @@ typedef struct IvfflatScanOpaqueData {
     bool byResidual;
     int kreorder;
     MemoryContext pqCtx;
+
+    /* RabitQ info */
+    bool enableRabitQ;
+    RabitqQueryParams *rbqParams;
+    MemoryContext RabitqCtx;
 
     /* Lists */
     pairingheap *listQueue;
@@ -368,11 +411,14 @@ bool IvfGetEnablePQ(Relation index);
 int IvfGetPqM(Relation index);
 int IvfGetPqKsub(Relation index);
 int IvfGetByResidual(Relation index);
+bool IvfGetEnableRabitQ(Relation index);
+bool IvfGetUseFHT(Relation index);
+RefineType IvfGetRefineType(Relation index);
 
 
 void IvfGetPQInfoFromMetaPage(Relation index, uint16 *pqTableNblk, uint32 *pqTableSize,
                               uint32 *pqPreComputeTableNblk, uint64 *pqPreComputeTableSize);
-void IvfFlushPQInfoInternal(Relation index, char* table, BlockNumber startBlkno, uint32 nblks, uint64 totalSize);
+void IvfFlushChunkInfoInternal(Relation index, char* table, BlockNumber startBlkno, uint32 nblks, uint64 totalSize);
 void IvfFlushPQInfo(IvfflatBuildState *buildstate);
 
 int IvfComputePQTable(VectorArray samples, PQParams *params);
@@ -388,6 +434,14 @@ float GetPQDistance(float *pqDistanceTable, uint8 *code, double dis0, int pqM, i
 IvfpqPairingHeapNode * IvfpqCreatePairingHeapNode(float distance, ItemPointer heapTid,
                                                   BlockNumber indexBlk, OffsetNumber indexOff);
 char* IVFPQLoadPQtable(Relation index);
+void IvfflatGetRbqInfoFromMetaPage(Relation index, bool *enableRabitQ, bool *useFHT, uint16 *reOffset,
+                                RefineType *reType, uint16 *matrixNblk, uint32 *matrixSize,
+                                uint16 *otherNblk, uint32 *otherSize, int *rbqDelayState, int64 *rbqInsertRows);
+RabitQConfig *IvfInitRbqConfigOnDisk(Relation index, bool *enableRabitQ, int dim);
+FactorData *LoadRbqData(IndexTuple itup);
+void IvfUpdateMetaPageRbq(Relation index, ForkNumber forkNum, bool updateDelay);
+void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, IvfflatBuildState *buildstate,
+                       ForkNumber forkNum, bool insert);
 
 void ReleaseIvfNpuContext(Oid indexid);
 

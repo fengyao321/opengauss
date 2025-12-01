@@ -35,9 +35,14 @@ IndexBulkDeleteResult *ivfflatbulkdelete_internal(IndexVacuumInfo *info, IndexBu
 {
     uint16 pqTableNblk;
     uint32 pqDisTableNblk;
+    uint16 matrixNblk;
+    uint16 otherNblk;
+
     Relation index = info->index;
     IvfGetPQInfoFromMetaPage(index, &pqTableNblk, NULL, &pqDisTableNblk, NULL);
-    BlockNumber blkno = IVFPQTABLE_START_BLKNO + pqTableNblk + pqDisTableNblk;
+    IvfflatGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, &matrixNblk,
+                            NULL, &otherNblk, NULL, NULL, NULL);
+    BlockNumber blkno = IVFFLAT_CHUNK_START_BLKNO + pqTableNblk + pqDisTableNblk + matrixNblk + otherNblk;
     BufferAccessStrategy bas = GetAccessStrategy(BAS_BULKREAD);
 
     if (stats == NULL)
