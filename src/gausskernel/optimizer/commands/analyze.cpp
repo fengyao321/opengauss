@@ -571,6 +571,7 @@ static void analyze_rel_internal(Relation onerel, Oid grandparentOid, Oid parent
 
                 foreach (partCell, partList) {
                     part = (Partition)lfirst(partCell);
+                    CHECK_FOR_INTERRUPTS();
 
                     if (RelationIsSubPartitioned(onerel)) {
                         relpages += GetSubPartitionNumberOfBlocks(onerel, part, lockmode);
@@ -1321,6 +1322,8 @@ static VacAttrStats** get_vacattrstats_by_vacstmt(Relation onerel, VacuumStmt* v
 
         /* set up statistic structure for single column */
         for (i = 1; i <= *attr_cnt; i++) {
+            CHECK_FOR_INTERRUPTS();
+
             vacattrstats[tcnt] = examine_attribute(onerel, i, NULL);
             if (vacattrstats[tcnt] != NULL)
                 tcnt++;
@@ -1386,6 +1389,7 @@ static VacAttrStats** get_vacattrstats_by_vacstmt(Relation onerel, VacuumStmt* v
         for (ind = 0; ind < *nindexes; ind++) {
             AnlIndexData* thisdata = &tmpindexdata[ind];
             IndexInfo* indexInfo = NULL;
+            CHECK_FOR_INTERRUPTS();
 
             thisdata->indexInfo = indexInfo = BuildIndexInfo(IdxRel[ind]);
             thisdata->tupleFract = 1.0;
@@ -1396,6 +1400,7 @@ static VacAttrStats** get_vacattrstats_by_vacstmt(Relation onerel, VacuumStmt* v
                 tcnt = 0;
                 for (i = 0; i < indexInfo->ii_NumIndexAttrs; i++) {
                     int keycol = indexInfo->ii_KeyAttrNumbers[i];
+                    CHECK_FOR_INTERRUPTS();
 
                     if (keycol == 0) {
                         /* Found an index expression */
@@ -1944,6 +1949,7 @@ static void compute_index_stats(Relation onerel, double totalrows, AnlIndexData*
     old_context = MemoryContextSwitchTo(ind_context);
 
     for (ind = 0; ind < nindexes; ind++) {
+        CHECK_FOR_INTERRUPTS();
         AnlIndexData* thisdata = &indexdata[ind];
         IndexInfo* indexInfo = thisdata->indexInfo;
         int attr_cnt = thisdata->attr_cnt;
@@ -3987,10 +3993,9 @@ static int64 acquire_inherited_sample_rows(
     foreach (lc, tableOIDs) {
         Oid childOID = lfirst_oid(lc);
         Relation childrel;
-
+        CHECK_FOR_INTERRUPTS();
         /* We already got the needed lock */
         childrel = heap_open(childOID, NoLock);
-
         /* Ignore if temp table of another backend */
         if (RELATION_IS_OTHER_TEMP(childrel)) {
             /* ... but release the lock on it */
@@ -4017,6 +4022,7 @@ static int64 acquire_inherited_sample_rows(
     for (i = 0; i < nrels; i++) {
         Relation childrel = rels[i];
         double childblocks = relblocks[i];
+        CHECK_FOR_INTERRUPTS();
 
         if (childblocks > 0) {
             int64 childtargrows;

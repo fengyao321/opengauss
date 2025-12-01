@@ -6829,55 +6829,6 @@ bool pg_package_ownercheck(Oid package_oid, Oid roleid)
     return has_privs_of_role(roleid, ownerId);
 }
 
-
-/*
- * Ownership check for a client master key (specified by OID).
- */
-bool gs_sec_cmk_ownercheck(Oid key_oid, Oid roleid)
-{
-    HeapTuple tuple;
-    Oid ownerId;
-
-    /* Superusers bypass all permission checking. */
-    /* Database Security:  Support separation of privilege. */
-    if (superuser_arg(roleid) || systemDBA_arg(roleid)) {
-        return true;
-    }
-    tuple = SearchSysCache1(GLOBALSETTINGOID, ObjectIdGetDatum(key_oid));
-    if (!HeapTupleIsValid(tuple)) {
-        ereport(ERROR, (errmodule(MOD_SEC), errcode(ERRCODE_UNDEFINED_KEY), 
-            errmsg("client master key with OID %u does not exist", key_oid), errdetail("N/A"),
-                errcause("System error."), erraction("Contact engineer to support.")));
-    }
-    ownerId = ((Form_gs_client_global_keys)GETSTRUCT(tuple))->key_owner;
-    ReleaseSysCache(tuple);
-    return has_privs_of_role(roleid, ownerId);
-}
-
-/*
- * Ownership check for a function (specified by OID).
- */
-bool gs_sec_cek_ownercheck(Oid key_oid, Oid roleid)
-{
-    HeapTuple tuple;
-    Oid ownerId;
-
-    /* Superusers bypass all permission checking. */
-    /* Database Security:  Support separation of privilege. */
-    if (superuser_arg(roleid) || systemDBA_arg(roleid)) {
-        return true;
-    }
-    tuple = SearchSysCache1(COLUMNSETTINGOID, ObjectIdGetDatum(key_oid));
-    if (!HeapTupleIsValid(tuple)) {
-        ereport(ERROR, (errmodule(MOD_SEC), errcode(ERRCODE_UNDEFINED_KEY),
-            errmsg("column encryption key with OID %u does not exist", key_oid), errdetail("N/A"),
-                errcause("System error."), erraction("Contact engineer to support.")));
-    }
-    ownerId = ((Form_gs_column_keys)GETSTRUCT(tuple))->key_owner;
-    ReleaseSysCache(tuple);
-    return has_privs_of_role(roleid, ownerId);
-}
-
 /*
  * Ownership check for a procedural language (specified by OID)
  */

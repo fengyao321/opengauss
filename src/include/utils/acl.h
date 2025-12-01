@@ -385,8 +385,6 @@ extern bool pg_ts_config_ownercheck(Oid cfg_oid, Oid roleid);
 extern bool pg_foreign_data_wrapper_ownercheck(Oid srv_oid, Oid roleid);
 extern bool pg_foreign_server_ownercheck(Oid srv_oid, Oid roleid);
 extern bool pg_extension_ownercheck(Oid ext_oid, Oid roleid);
-extern bool gs_sec_cmk_ownercheck(Oid key_oid, Oid roleid);
-extern bool gs_sec_cek_ownercheck(Oid key_oid, Oid roleid);
 extern bool pg_extension_data_source_ownercheck(Oid src_oid, Oid roleid);
 extern bool pg_synonym_ownercheck(Oid synOid, Oid roleId);
 extern bool has_createrole_privilege(Oid roleid);
