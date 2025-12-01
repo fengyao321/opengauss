@@ -97,15 +97,20 @@ static void SumAndMixMaxSamples(Datum *values, HnswBuildState *buildstate)
     /* Detoast once for all calls */
     Datum value = PointerGetDatum(PG_DETOAST_DATUM(values[0]));
 
-    if (buildstate->kmeansnormprocinfo != NULL) {
-        if (!HnswCheckNorm(buildstate->kmeansnormprocinfo, buildstate->collation, value)) {
+    if (buildstate->normprocinfo != NULL) {
+        if (!HnswCheckNorm(buildstate->normprocinfo, buildstate->collation, value)) {
             return;
         }
 
         value = HnswNormValue(buildstate->typeInfo, buildstate->collation, value);
     }
 
-    Vector *vec = (Vector *)value;
+    Vector *vec;
+    if (IS_HALFVEC(buildstate->procinfo->fn_oid)) {
+        vec = Halfvec2Vector(value);
+    } else {
+        vec = (Vector *)value;
+    }
     float *centroid = buildstate->centroid;
     for (int i = 0; i < vec->dim; i++) {
         centroid[i] += vec->x[i];
@@ -302,7 +307,7 @@ static void CreateMetaPage(HnswBuildState *buildstate)
 
     /* set RabitQ info */
     metap->enableRabitQ = buildstate->enableRabitQ;
-    metap->rbqDelay = buildstate->rbqDelay;
+    metap->rbqDelayState = buildstate->rbqDelayState;
     metap->rbqInsertRows = 0;
     if (buildstate->enableRabitQ) {
         metap->useFHT = buildstate->rbqConfig->FHT;
@@ -310,7 +315,8 @@ static void CreateMetaPage(HnswBuildState *buildstate)
         int dim = buildstate->dimensions;
         Size matrixSize;
         if (buildstate->rbqConfig->FHT) {
-            matrixSize = ((dim + 7) / 8) * FHT_ROUND * sizeof(uint8);
+            int outputDim = FhtOutputDim(dim);
+            matrixSize = FhtSerializeSize(outputDim);
         } else {
             matrixSize = dim * dim * sizeof(float);
         }
@@ -410,6 +416,9 @@ static void CreateRbqMatrixPages(HnswBuildState *buildstate)
     }
 
     FlushChunkInfoInternal(index, (char *)matrix, HNSW_CHUNK_START_BLKNO, matrixNblk, matrixSize);
+    if (vtrans->type == FAST_HTRANSFORM) {
+        pfree(matrix);
+    }
 }
 
 /*
@@ -426,7 +435,7 @@ static void CreateRbqOtherPages(HnswBuildState *buildstate)
     uint16 matrixNblk;
     uint16 otherNblk;
     uint32 otherSize;
-    uint32 oneSize =buildstate->dimensions * sizeof(float);
+    uint32 oneSize = buildstate->dimensions * sizeof(float);
     void *other;
     errno_t rc;
 
@@ -446,7 +455,8 @@ static void CreateRbqOtherPages(HnswBuildState *buildstate)
         other = (void *)palloc(oneSize * 3);
         rc = memcpy_s((char*)other, oneSize, buildstate->centroid, oneSize);
         securec_check(rc, "\0", "\0");
-        rc = memcpy_s((char*)(other + oneSize), oneSize * 2, rbqConfig->sq->trained, oneSize * 2);
+        uint32 sq8Size = oneSize + oneSize;
+        rc = memcpy_s(((char*)other + oneSize), sq8Size, rbqConfig->sq->trained, sq8Size);
         securec_check(rc, "\0", "\0");
     } else {
         other = (void *)palloc(oneSize);
@@ -960,6 +970,9 @@ static bool InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
     }
 
     if (buildstate->enableRabitQ) {
+        if (IS_HALFVEC(buildstate->procinfo->fn_oid)) {
+            value = (Datum)Halfvec2Vector(value);
+        }
         RabitQConfig *rbqConfig = buildstate->rbqConfig;
         if (rbqConfig->reType == SQ8) {
             /* Calculate origin vector's SQ8 */
@@ -978,6 +991,10 @@ static bool InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
             RomTransform(vtrans, ((Vector *)DatumGetPointer(value))->x, transValue->x);
         } else {
             FhtTransform(vtrans, ((Vector *)DatumGetPointer(value))->x, transValue->x);
+        }
+
+        if (IS_HALFVEC(buildstate->procinfo->fn_oid)) {
+            pfree((Vector *)value);
         }
         value = (Datum)transValue;
     }
@@ -1038,6 +1055,17 @@ static void BuildCallback(Relation index, CALLBACK_ITEM_POINTER, Datum *values, 
     /* Skip nulls */
     if (isnull[0]) {
         return;
+    }
+
+    /* RabitQ delay build, avoid "insert into select from" sql from inserting repeatedly. */
+    if (buildstate->enableRabitQ && buildstate->rbqDelayState == RBQ_BUILD_AFTER_DELAY) {
+        buildstate->rbqDelayBuildRows++;
+        int64 insertedRows;
+        HnswGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, NULL, NULL,
+                                   NULL, NULL, NULL, &insertedRows);
+        if (buildstate->rbqDelayBuildRows > insertedRows) {
+            return;
+        }
     }
 
     /* Use memory context */
@@ -1179,7 +1207,8 @@ static void InitBuildState(HnswBuildState *buildstate, Relation heap, Relation i
     buildstate->pqKsub = HnswGetPqKsub(index);
 
     buildstate->enableRabitQ = HnswGetEnableRabitQ(index);
-    buildstate->rbqDelay = false;
+    buildstate->rbqDelayBuildRows = 0;
+    buildstate->rbqDelayState = RBQ_BUILD_NORMAL;
     if (buildstate->enablePQ && buildstate->enableRabitQ) {
         ereport(ERROR, (errmsg("hnsw does not support the mixed use of the two quantization methods: PQ and RabitQ.")));
     }
@@ -1224,6 +1253,8 @@ static void InitBuildState(HnswBuildState *buildstate, Relation heap, Relation i
         rbqConfig->vtrans = vt;
         vt->dim = buildstate->dimensions;
         vt->type = rbqConfig->FHT ? FAST_HTRANSFORM : RANDOM_ORTHOGONAL;
+        vt->matrix = NULL;
+        vt->fastRotation = NULL;
     } else {
         buildstate->rbqConfig = NULL;
     }
@@ -1250,7 +1281,7 @@ static void FreeBuildState(HnswBuildState *buildstate, bool parallel)
         if (buildstate->centroid != NULL) {
             pfree(buildstate->centroid);
         }
-        pfree(buildstate->rbqConfig->vtrans);
+        FreeTransformer(buildstate->rbqConfig->vtrans);
         if (buildstate->rbqConfig->sq != NULL){
             FreeScalarQuantizer(buildstate->rbqConfig->sq);
         }
@@ -1465,8 +1496,10 @@ static void BuildGraph(HnswBuildState *buildstate, ForkNumber forkNum)
         parallel_workers = PlanCreateIndexWorkers(buildstate->heap, buildstate->indexInfo);
     }
 
+    bool singleThreadBuild = (buildstate->enableRabitQ && buildstate->rbqDelayState == RBQ_BUILD_AFTER_DELAY);
+
     /* Attempt to launch parallel worker scan when required */
-    if (parallel_workers > 0) {
+    if (parallel_workers > 0 && !singleThreadBuild) {
         HnswBeginParallel(buildstate, parallel_workers);
     }
 
@@ -1507,8 +1540,10 @@ void ComputeCenterAndTrainRefine(HnswBuildState *buildstate)
     double num;
     EstimateRows(buildstate->heap, &num);
     int numSamples = (int)num;
-    if (numSamples == 0) {
-        buildstate->rbqDelay = true;
+    if (buildstate->rbqDelayState == RBQ_BUILD_AFTER_DELAY) {
+        numSamples = u_sess->datavec_ctx.rbq_sample_rows;
+    } else if (numSamples == 0) {
+        buildstate->rbqDelayState = RBQ_BUILD_DELAY;
         ereport(LOG, (errmsg("If there is no data in the table, RabitQ cannot be trained,"
             "and the index will not be built for the time being.")));
         return;
@@ -1523,7 +1558,6 @@ void ComputeCenterAndTrainRefine(HnswBuildState *buildstate)
     }
     PG_CATCH();
     {
-        ereport(ERROR, (errmsg("memory alloc failed during HNSW RabitQ sampling, suggest using hnsw without RabitQ.")));
         PG_RE_THROW();
     }
     PG_END_TRY();
@@ -1560,7 +1594,7 @@ void ComputeCenterAndTrainRefine(HnswBuildState *buildstate)
  * Build the index
  */
 void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildState *buildstate,
-                       ForkNumber forkNum)
+                       ForkNumber forkNum, bool insert)
 {
 #ifdef HNSW_MEMORY
     SeedRandom(42);
@@ -1586,10 +1620,11 @@ void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildSt
     }
 
     if (buildstate->enableRabitQ) {
-        float *centroid = (float *)palloc(sizeof(float) * buildstate->dimensions);
+        buildstate->rbqDelayState = insert ? RBQ_BUILD_AFTER_DELAY : RBQ_BUILD_NORMAL;
+        float *centroid = (float *)palloc0(sizeof(float) * buildstate->dimensions);
         buildstate-> centroid = centroid;
         ComputeCenterAndTrainRefine(buildstate);
-        if (buildstate->rbqDelay) {
+        if (buildstate->rbqDelayState == RBQ_BUILD_DELAY) {
             buildstate-> centroid = NULL;
         } else {
             float *transCentroid = (float *)palloc(buildstate->dimensions * sizeof(float));
@@ -1597,7 +1632,7 @@ void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildSt
             if (vtrans->type == RANDOM_ORTHOGONAL) {
                 RomTrain(vtrans);
                 RomTransform(vtrans, centroid, transCentroid);
-            }else {
+            } else {
                 FhtTrain(vtrans);
                 FhtTransform(vtrans, centroid, transCentroid);
             }
@@ -1606,7 +1641,7 @@ void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildSt
         pfree(centroid);
     }
 
-    if (buildstate->rbqDelay) {
+    if (buildstate->rbqDelayState == RBQ_BUILD_DELAY) {
         CreateMetaPage(buildstate);
     } else {
         BuildGraph(buildstate, forkNum);
@@ -1626,7 +1661,7 @@ IndexBuildResult *hnswbuild_internal(Relation heap, Relation index, IndexInfo *i
     IndexBuildResult *result;
     HnswBuildState buildstate;
 
-    BuildIndex(heap, index, indexInfo, &buildstate, MAIN_FORKNUM);
+    BuildIndex(heap, index, indexInfo, &buildstate, MAIN_FORKNUM, false);
 
     result = (IndexBuildResult *)palloc(sizeof(IndexBuildResult));
     result->heap_tuples = buildstate.reltuples;
@@ -1643,5 +1678,5 @@ void hnswbuildempty_internal(Relation index)
     IndexInfo *indexInfo = BuildIndexInfo(index);
     HnswBuildState buildstate;
 
-    BuildIndex(NULL, index, indexInfo, &buildstate, INIT_FORKNUM);
+    BuildIndex(NULL, index, indexInfo, &buildstate, INIT_FORKNUM, false);
 }

@@ -645,6 +645,9 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
 
     rbqConfig = InitRbqConfigOnDisk(index, &enableRabitQ, &centroid, dim);
     if (enableRabitQ) {
+        if (IS_HALFVEC(procinfo->fn_oid)) {
+            value = (Datum)Halfvec2Vector(value);
+        }
         Pointer rbqPtr;
         if (rbqConfig->reType == SQ8) {
             /* Calculate origin vector's SQ8 */
@@ -677,6 +680,7 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
         (&rbqDiskParams)->funcType = funcType;
         (&rbqDiskParams)->heapTuple = (HeapTupleData *)heaptup_alloc(BLCKSZ);
         (&rbqDiskParams)->indexInfo = BuildIndexInfo(index);
+        (&rbqDiskParams)->vacuum = false;
         value = (Datum)transValue;
     }
 
@@ -778,16 +782,16 @@ bool hnswinsert_internal(Relation index, Datum *values, bool *isnull, ItemPointe
      * and then build the index with HNSW RabitQ; when the threshold is exceeded,
      * insert data into the built index.
      */
-    bool rbqDelay;
+    int rbqDelayState;
     int64 insertedRows;
     HnswGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, NULL, NULL,
-                               NULL, NULL, &rbqDelay, &insertedRows);
-    if (rbqDelay) {
+                               NULL, NULL, &rbqDelayState, &insertedRows);
+    if (rbqDelayState == RBQ_BUILD_DELAY) {
         LockPage(index, HNSW_UPDATE_LOCK, ExclusiveLock);
-        bool rbqDelayCheck;
+        int rbqDelayStateCheck;
         HnswGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, NULL, NULL,
-                               NULL, NULL, &rbqDelayCheck, NULL);
-        if (rbqDelayCheck) {
+                               NULL, NULL, &rbqDelayStateCheck, NULL);
+        if (rbqDelayStateCheck == RBQ_BUILD_DELAY) {
             int64 sampleRows = u_sess->datavec_ctx.rbq_sample_rows;
             if (insertedRows + 1 < sampleRows) {
                 HnswUpdateMetaPageRbq(index, MAIN_FORKNUM, false);
@@ -795,10 +799,11 @@ bool hnswinsert_internal(Relation index, Datum *values, bool *isnull, ItemPointe
                 HnswUpdateMetaPageRbq(index, MAIN_FORKNUM, true);
                 HnswBuildState buildstate;
                 IndexInfo *indexInfo = BuildIndexInfo(index);
-                BuildIndex(heap, index, indexInfo, &buildstate, MAIN_FORKNUM);
+                BuildIndex(heap, index, indexInfo, &buildstate, MAIN_FORKNUM, true);
                 ereport(LOG, (errmsg("The amount of data in the heap table is equal to rbq_sample_rows,"
                     "build HNSW RabitQ index.")));
             } else {
+                UnlockPage(index, HNSW_UPDATE_LOCK, ExclusiveLock);
                 ereport(ERROR, (errmsg("The amount of data in the heap table is greater than rbq_sample_rows,"
                     "but the state of rbqDelay has not changed.")));
             }

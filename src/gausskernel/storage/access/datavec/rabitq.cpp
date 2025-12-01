@@ -1,3 +1,25 @@
+/*
+ * Copyright (c) 2025 Huawei Technologies Co.,Ltd.
+ *
+ * openGauss is licensed under Mulan PSL v2.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *
+ *          http://license.coscl.org.cn/MulanPSL2
+ *
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ * -------------------------------------------------------------------------
+ *
+ * rabitq.cpp
+ *
+ * IDENTIFICATION
+ *        src/gausskernel/storage/access/datavec/rabitq.cpp
+ *
+ * -------------------------------------------------------------------------
+ */
 #include <float.h>
 #include <math.h>
 
@@ -119,5 +141,24 @@ void SetRBQQuery(int dim, int qb, float *vec, QueryRabitqVector *qrbqVec, float 
 
 float ComputeRbqDistance(int dim, int qb, RabitqVector *eVec, QueryRabitqVector *qVec, int funcType)
 {
-    return 0;
+    FactorData fac = eVec->fac;
+    uint8 *edata = eVec->data;
+    QueryFactorData qfac = qVec->fac;
+    uint8 *qdata = qVec->data;
+
+    float xbDotQu = VectorRbqDpPopcnt(dim, qb, qdata, edata);
+    float finalDot = qfac.cof1 * xbDotQu + qfac.cof2 * fac.xbSum - qfac.cof34;
+
+    /*
+     * L2: distance = ||or-c||^2 + ||qr-c||^2 - 2*||or-c||*||qr-c||*<q,o>
+     * IP: distance = ||or-c||^2 + ||qr-c||^2 - 2*||or-c||*||qr-c||*<q,o> - ||or||^2
+     */
+    float distance = fac.orMinusCL2Sqr + qfac.qrMinusCL2Sqr - 2 * fac.dpMultiplier * finalDot;
+
+    if (funcType != DIS_L2) {
+        /* -<or,q> = (||or-q||^2 - ||q||^2 - ||or||^2) / 2 */
+        return (distance - qfac.qrNormL2Sqr) * 0.5f;
+    } else {
+        return distance;
+    }
 }

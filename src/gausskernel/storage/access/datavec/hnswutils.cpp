@@ -466,7 +466,7 @@ static void HnswUpdateMetaPageInfoRbq(Page page, bool updateDelay)
     HnswMetaPage metap = HnswPageGetMeta(page);
     metap->rbqInsertRows += 1;
     if (updateDelay) {
-        metap->rbqDelay = false;
+        metap->rbqDelayState = RBQ_BUILD_AFTER_DELAY;
     }
 }
 
@@ -840,7 +840,8 @@ void HnswLoadElementFromTuple(HnswElement element, HnswElementTuple etup, bool l
     }
 }
 
-float *HnswGetVectorFromHeapRefine(Relation heap, ItemPointer tid, IndexInfo *indexInfo, VectorTransform* vtrans, HeapTuple tuple)
+float *HnswGetVectorFromHeap(Relation heap, ItemPointer tid, IndexInfo *indexInfo, HeapTuple tuple,
+                             FmgrInfo *procinfo, FmgrInfo *normprocinfo, Oid collation)
 {
     if (indexInfo->ii_NumIndexAttrs != 1) {
         ereport(ERROR, (errmsg("Supports vector indexing exclusively for a single column.")));
@@ -852,72 +853,36 @@ float *HnswGetVectorFromHeapRefine(Relation heap, ItemPointer tid, IndexInfo *in
     bool *null = (bool *)palloc(sizeof(bool) * (relTupleDesc->natts + 1));
 
     tableam_tops_deform_tuple(tuple, relTupleDesc, val, null);
+    Datum origin;
     Vector *originVec;
 
     for (int i = 0; i < indexInfo->ii_NumIndexAttrs; i++) {
         int keycol = indexInfo->ii_KeyAttrNumbers[i];
         if (keycol != 0) {
-            originVec = DatumGetVector(val[keycol - 1]);
+            origin = (Datum)(PG_DETOAST_DATUM(val[keycol - 1]));
         } else {
             ereport(ERROR, (errmsg("Failed to get origin vector from heap.")));
         }
     }
 
-    int dim = originVec->dim;
-    float *resData;
-
-    if (vtrans != NULL && vtrans->type == FAST_HTRANSFORM) {
-        resData = (float *)palloc(dim * sizeof(float));
-        FhtTransform(vtrans, originVec->x, resData);
-        pfree(val);
-    } else {
-        resData = originVec->x;
-    }
-
-    pfree(null);
-    return resData;
-}
-
-float *HnswGetVectorFromHeapInsert(Relation heap, ItemPointer tid, IndexInfo *indexInfo, VectorTransform* vtrans, HeapTuple tuple,
-                                     FmgrInfo *normprocinfo, Oid collation)
-{
-    if (indexInfo->ii_NumIndexAttrs != 1) {
-        ereport(ERROR, (errmsg("Supports vector indexing exclusively for a single column.")));
-    }
-    GetTupleFromHeap(heap, tid, tuple);
-
-    TupleDesc relTupleDesc = heap->rd_att;
-    Datum *val = (Datum *)palloc(sizeof(Datum) * (relTupleDesc->natts + 1));
-    bool *null = (bool *)palloc(sizeof(bool) * (relTupleDesc->natts + 1));
-
-    tableam_tops_deform_tuple(tuple, relTupleDesc, val, null);
-    Vector *originVec;
-
-    for (int i = 0; i < indexInfo->ii_NumIndexAttrs; i++) {
-        int keycol = indexInfo->ii_KeyAttrNumbers[i];
-        if (keycol != 0) {
-            originVec = DatumGetVector(val[keycol - 1]);
+    if (IS_HALFVEC(procinfo->fn_oid)) {
+        if (normprocinfo != NULL) {
+            origin = DirectFunctionCall1Coll(halfvec_l2_normalize, collation, origin);
+            originVec = Halfvec2Vector(origin);
+            pfree((void *)origin);
         } else {
-            ereport(ERROR, (errmsg("Failed to get origin vector from heap.")));
+            originVec = Halfvec2Vector(origin);
+        }
+    } else {
+        if (normprocinfo != NULL) {
+            originVec = (Vector *)DirectFunctionCall1Coll(l2_normalize, collation, origin);
+        } else {
+            originVec = (Vector *)origin;
         }
     }
 
-    if (normprocinfo != NULL) {
-        originVec = (Vector *)DirectFunctionCall1Coll(l2_normalize, collation, (Datum)originVec);
-    }
-    int dim = originVec->dim;
-    float *resData;
-
-    if (vtrans != NULL && vtrans->type == FAST_HTRANSFORM) {
-        resData = (float *)palloc(dim * sizeof(float));
-        FhtTransform(vtrans, originVec->x, resData);
-        pfree(val);
-    } else {
-        resData = originVec->x;
-    }
-
     pfree(null);
-    return resData;
+    return originVec->x;
 }
 
 /*
@@ -971,26 +936,21 @@ bool HnswLoadElement(HnswElement element, float *distance, Datum *q, Relation in
             if (DatumGetPointer(*q) == NULL) {
                 *distance = 0;
             } else if (rbqDiskParams != NULL) {
-                VectorTransform *vtrans = rbqDiskParams->vtrans;
-                Relation heap = rbqDiskParams->heap;
-                eRbqDiskData = HnswGetVectorFromHeapInsert(rbqDiskParams->heap, &etup->heaptids[0], rbqDiskParams->indexInfo, vtrans, rbqDiskParams->heapTuple,
-                                                     rbqDiskParams->normprocinfo, rbqDiskParams->collation);
-                Vector *qVec;
-                if (vtrans->type == FAST_HTRANSFORM) {
-                    /* 
-                     * origin vec A B, after FHT+rescale+sign+walk transformed vec A1 B1
-                     * Dis(A,B) != Dis(A1,B1)
-                     * Here, *distance = Dis(A1,B1)
-                     */
-                    qVec = (Vector *)DatumGetPointer(*q);
-                } else {
-                    /* 
-                     * origin vec A B, after ROM transformed vec A1 B1
-                     * Dis(A,B) = Dis(A1,B1)
-                     * Vector transformation takes time. To avoid it, we use *distance = Dis(A,B)
-                     */
-                    qVec = (Vector *)DatumGetPointer(rbqDiskParams->originInsertVec);
+                if (!ItemPointerIsValid(&etup->heaptids[0])) {
+                    *distance = FLT_MAX;
+                    return false;
                 }
+                Relation heap = rbqDiskParams->heap;
+                eRbqDiskData = HnswGetVectorFromHeap(rbqDiskParams->heap, &etup->heaptids[0], rbqDiskParams->indexInfo,
+                                                     rbqDiskParams->heapTuple, procinfo, rbqDiskParams->normprocinfo,
+                                                     rbqDiskParams->collation);
+                Vector *qVec;
+                /*
+                 * origin vec A B, after ROM / FHT transformed vec A1 B1
+                 * Dis(A,B) = Dis(A1,B1)
+                 * Vector transformation takes time. To avoid it, we use *distance = Dis(A,B)
+                 */
+                qVec = (Vector *)DatumGetPointer(rbqDiskParams->originInsertVec);
                 if (rbqDiskParams->funcType == DIS_L2) {
                     *distance = VectorL2SquaredDistance(qVec->dim, qVec->x, eRbqDiskData);
                 } else {
@@ -1013,6 +973,15 @@ bool HnswLoadElement(HnswElement element, float *distance, Datum *q, Relation in
                             procinfo, collation, *q, PointerGetDatum(&etup->data)));
             }
         }
+    }
+
+    /* vacuum entrypoint of HNSW RabitQ */
+    if (distance == NULL && enableRabitQ && rbqDiskParams != NULL) {
+        VectorTransform *vtrans = rbqDiskParams->vtrans;
+        Relation heap = rbqDiskParams->heap;
+        eRbqDiskData = HnswGetVectorFromHeap(heap, &etup->heaptids[0], rbqDiskParams->indexInfo,
+                                             rbqDiskParams->heapTuple, procinfo, rbqDiskParams->normprocinfo,
+                                             rbqDiskParams->collation);
     }
 
     /* Load element */
@@ -1048,9 +1017,20 @@ bool HnswLoadElement(HnswElement element, float *distance, Datum *q, Relation in
 /*
  * Get the distance for a candidate
  */
-static float GetCandidateDistance(char *base, HnswElement element, Datum q, FmgrInfo *procinfo, Oid collation)
+static float GetCandidateDistance(char *base, HnswElement element, Datum q, FmgrInfo *procinfo, Oid collation,
+                                  bool enableRabitQ)
 {
     Datum value = HnswGetValue(base, element);
+
+    if (enableRabitQ && IS_HALFVEC(procinfo->fn_oid)) {
+        Vector *eVec = (Vector *)value;
+        Vector *qVec = (Vector *)q;
+        if (GetFunctionType(procinfo, NULL) == DIS_L2) {
+            return VectorL2SquaredDistance(qVec->dim, qVec->x, eVec->x);
+        } else {
+            return -VectorInnerProduct(qVec->dim, qVec->x, eVec->x);
+        }
+    }
 
     return DatumGetFloat8(FunctionCall2Coll(procinfo, collation, q, value));
 }
@@ -1067,7 +1047,7 @@ HnswCandidate *HnswEntryCandidate(char *base, HnswElement entryPoint, Datum q, R
 
     HnswPtrStore(base, hc->element, entryPoint);
     if (index == NULL) {
-        hc->distance = GetCandidateDistance(base, entryPoint, q, procinfo, collation);
+        hc->distance = GetCandidateDistance(base, entryPoint, q, procinfo, collation, enableRabitQ);
     } else {
         bool isVisible = HnswLoadElement(entryPoint, &hc->distance, &q, index, procinfo,
                                          collation, loadVec, NULL, enableRabitQ, rbqQueryParams,
@@ -1386,17 +1366,21 @@ List *HnswSearchLayer(char *base, Datum q, List *ep, int ef, int lc, Relation in
                     uint8 *ePQCode = (uint8*)HnswPtrAccess(base, eElement->pqcodes);
                     GetPQDistance(ePQCode, pqinfo->qPQCode, &pqinfo->params, pqinfo->pqDistanceTable, &eDistance);
                 } else {
-                    eDistance = GetCandidateDistance(base, eElement, q, procinfo, collation);
+                    eDistance = GetCandidateDistance(base, eElement, q, procinfo, collation, enableRabitQ);
                 }
             } else {
+                bool vacuumVisibility;
                 if (tryMmap) {
-                    MmapLoadElement(eElement, &eDistance, &q, index, procinfo, collation, inserting,
+                    vacuumVisibility = MmapLoadElement(eElement, &eDistance, &q, index, procinfo, collation, inserting,
                                     alwaysAdd || discarded != NULL ? NULL : &f->distance, enableRabitQ, rbqParams,
                                     rbqDiskParams, NULL, enablePQ, pqinfo);
                 } else {
-                    HnswLoadElement(eElement, &eDistance, &q, index, procinfo, collation, inserting,
+                    vacuumVisibility = HnswLoadElement(eElement, &eDistance, &q, index, procinfo, collation, inserting,
                                     alwaysAdd || discarded != NULL ? NULL : &f->distance, enableRabitQ,
                                     rbqParams, rbqDiskParams, NULL, enablePQ, pqinfo);
+                }
+                if (enableRabitQ && !vacuumVisibility) {
+                    continue;
                 }
             }
 
@@ -1506,7 +1490,11 @@ List *HnswSearchLayer(char *base, Datum q, List *ep, int ef, int lc, Relation in
                 UnlockReleaseBuffer(buf);
             } else if (rbqParams->rbqConfig->reType == FP32) {
                 UnlockReleaseBuffer(buf);
-                float *eRbqDiskData = HnswGetVectorFromHeapRefine(rbqParams->heap, &etup->heaptids[0], indexInfo, NULL, heapTuple);
+                if (!ItemPointerIsValid(&etup->heaptids[0])) {
+                    continue;
+                }
+                float *eRbqDiskData = HnswGetVectorFromHeap(rbqParams->heap, &etup->heaptids[0], indexInfo,
+                                                            heapTuple, procinfo, NULL, collation);
                 Vector *qVec = (Vector *)DatumGetPointer(rbqParams->originQueryVec);
                 if (rbqParams->funcType == DIS_L2) {
                     refineDis = VectorL2SquaredDistance(qVec->dim, qVec->x, eRbqDiskData);
@@ -1520,8 +1508,8 @@ List *HnswSearchLayer(char *base, Datum q, List *ep, int ef, int lc, Relation in
                     }
                     refineDis = -refineDis * refineDis / square;
                 }
-
             } else {
+                UnlockReleaseBuffer(buf);
                 ereport(ERROR, (errmsg("HNSW RabitQ rerank type error!")));
             }
 
@@ -1604,10 +1592,21 @@ static int
 /*
  * Calculate the distance between elements
  */
-static float HnswGetDistance(char *base, HnswElement a, HnswElement b, FmgrInfo *procinfo, Oid collation)
+static float HnswGetDistance(char *base, HnswElement a, HnswElement b, FmgrInfo *procinfo, Oid collation,
+                             bool enableRabitQ)
 {
     Datum aValue = HnswGetValue(base, a);
     Datum bValue = HnswGetValue(base, b);
+
+    if (enableRabitQ && IS_HALFVEC(procinfo->fn_oid)) {
+        Vector *eVec = (Vector *)aValue;
+        Vector *qVec = (Vector *)bValue;
+        if (GetFunctionType(procinfo, NULL) == DIS_L2) {
+            return VectorL2SquaredDistance(qVec->dim, qVec->x, eVec->x);
+        } else {
+            return -VectorInnerProduct(qVec->dim, qVec->x, eVec->x);
+        }
+    }
 
     return DatumGetFloat8(FunctionCall2Coll(procinfo, collation, aValue, bValue));
 }
@@ -1615,7 +1614,8 @@ static float HnswGetDistance(char *base, HnswElement a, HnswElement b, FmgrInfo 
 /*
  * Check if an element is closer to q than any element from R
  */
-static bool CheckElementCloser(char *base, HnswCandidate *e, List *r, FmgrInfo *procinfo, Oid collation)
+static bool CheckElementCloser(char *base, HnswCandidate *e, List *r, FmgrInfo *procinfo, Oid collation,
+                               bool enableRabitQ)
 {
     HnswElement eElement = (HnswElement)HnswPtrAccess(base, e->element);
     ListCell *lc2;
@@ -1623,7 +1623,7 @@ static bool CheckElementCloser(char *base, HnswCandidate *e, List *r, FmgrInfo *
     foreach (lc2, r) {
         HnswCandidate *ri = (HnswCandidate *)lfirst(lc2);
         HnswElement riElement = (HnswElement)HnswPtrAccess(base, ri->element);
-        float distance = HnswGetDistance(base, eElement, riElement, procinfo, collation);
+        float distance = HnswGetDistance(base, eElement, riElement, procinfo, collation, enableRabitQ);
 
         if (distance <= e->distance) {
             return false;
@@ -1637,7 +1637,8 @@ static bool CheckElementCloser(char *base, HnswCandidate *e, List *r, FmgrInfo *
  * Algorithm 4 from paper
  */
 static List *SelectNeighbors(char *base, List *c, int lm, int lc, FmgrInfo *procinfo, Oid collation, HnswElement e2,
-                             HnswCandidate *newCandidate, HnswCandidate **pruned, bool sortCandidates)
+                             HnswCandidate *newCandidate, HnswCandidate **pruned, bool sortCandidates,
+                             bool enableRabitQ)
 {
     List *r = NIL;
     List *w = list_copy(c);
@@ -1672,7 +1673,7 @@ static List *SelectNeighbors(char *base, List *c, int lm, int lc, FmgrInfo *proc
 
         /* Use previous state of r and wd to skip work when possible */
         if (mustCalculate) {
-            e->closer = CheckElementCloser(base, e, r, procinfo, collation);
+            e->closer = CheckElementCloser(base, e, r, procinfo, collation, enableRabitQ);
         } else if (list_length(added) > 0) {
             /* Keep Valgrind happy for in-memory, parallel builds */
             if (base != NULL) {
@@ -1684,7 +1685,7 @@ static List *SelectNeighbors(char *base, List *c, int lm, int lc, FmgrInfo *proc
              * with the other candidates that we have added.
              */
             if (e->closer) {
-                e->closer = CheckElementCloser(base, e, added, procinfo, collation);
+                e->closer = CheckElementCloser(base, e, added, procinfo, collation, enableRabitQ);
 
                 if (!e->closer) {
                     removedAny = true;
@@ -1695,14 +1696,14 @@ static List *SelectNeighbors(char *base, List *c, int lm, int lc, FmgrInfo *proc
                  * that was not closer earlier might now be.
                  */
                 if (removedAny) {
-                    e->closer = CheckElementCloser(base, e, r, procinfo, collation);
+                    e->closer = CheckElementCloser(base, e, r, procinfo, collation, enableRabitQ);
                     if (e->closer) {
                         added = lappend(added, e);
                     }
                 }
             }
         } else if (e == newCandidate) {
-            e->closer = CheckElementCloser(base, e, r, procinfo, collation);
+            e->closer = CheckElementCloser(base, e, r, procinfo, collation, enableRabitQ);
             if (e->closer) {
                 added = lappend(added, e);
             }
@@ -1789,7 +1790,7 @@ void HnswUpdateConnection(char *base, HnswElement element, HnswCandidate *hc, in
                     HnswLoadElement(hc3Element, &hc3->distance, &q, index, procinfo, collation, true,
                                     NULL, enableRabitQ, NULL, rbqDiskParams);
                 else
-                    hc3->distance = GetCandidateDistance(base, hc3Element, q, procinfo, collation);
+                    hc3->distance = GetCandidateDistance(base, hc3Element, q, procinfo, collation, enableRabitQ);
 
                 /* Prune element if being deleted */
                 if (hc3Element->heaptidsLength == 0) {
@@ -1808,7 +1809,7 @@ void HnswUpdateConnection(char *base, HnswElement element, HnswCandidate *hc, in
             }
             c = lappend(c, &hc2);
 
-            SelectNeighbors(base, c, lm, lc, procinfo, collation, hce, &hc2, &pruned, true);
+            SelectNeighbors(base, c, lm, lc, procinfo, collation, hce, &hc2, &pruned, true, enableRabitQ);
 
             /* Should not happen */
             if (pruned == NULL)
@@ -1889,7 +1890,7 @@ void HnswFindElementNeighbors(char *base, HnswElement element, HnswElement entry
         return;
 
     /* compute rabitq code */
-    if (enableRabitQ) {
+    if (enableRabitQ && (base != NULL || (rbqDiskParams != NULL && !rbqDiskParams->vacuum))) {
         Vector *vec = (Vector *)HnswPtrAccess(base, element->value);
         RabitqVector *rbqVec = (RabitqVector *)HnswPtrAccess(base, element->rbqcodes);
         ComputeVectorRBQCode(vec->dim, vec->x, rbqVec, centroid, funcType);
@@ -1935,7 +1936,7 @@ void HnswFindElementNeighbors(char *base, HnswElement element, HnswElement entry
          * sortCandidates to true for in-memory builds to enable closer
          * caching, but there does not seem to be a difference in performance.
          */
-        neighbors = SelectNeighbors(base, lw, lm, lc, procinfo, collation, element, NULL, NULL, false);
+        neighbors = SelectNeighbors(base, lw, lm, lc, procinfo, collation, element, NULL, NULL, false, enableRabitQ);
 
         AddConnections(base, element, neighbors, lc);
 
@@ -2025,7 +2026,7 @@ void InitPQParamsOnDisk(PQParams *params, Relation index, FmgrInfo *procinfo, in
 */
 void HnswGetRbqInfoFromMetaPage(Relation index, bool *enableRabitQ, bool *useFHT, uint16 *reOffset,
                                 RefineType *reType, uint16 *matrixNblk, uint32 *matrixSize,
-                                uint16 *otherNblk, uint32 *otherSize, bool *rbqDelay, int64 *rbqInsertRows)
+                                uint16 *otherNblk, uint32 *otherSize, int *rbqDelayState, int64 *rbqInsertRows)
 {
     Buffer buf;
     Page page;
@@ -2064,8 +2065,8 @@ void HnswGetRbqInfoFromMetaPage(Relation index, bool *enableRabitQ, bool *useFHT
     if (otherSize != NULL) {
         *otherSize = metap->otherSize;
     }
-    if (rbqDelay != NULL) {
-        *rbqDelay = metap->rbqDelay;
+    if (rbqDelayState != NULL) {
+        *rbqDelayState = metap->rbqDelayState;
     }
     if (rbqInsertRows != NULL) {
         *rbqInsertRows = metap->rbqInsertRows;
@@ -2112,7 +2113,14 @@ RabitQConfig *InitRbqConfigOnDisk(Relation index, bool *enableRabitQ, float **ce
     }
     if (index->rbqMatrix == NULL) {
         MemoryContext oldcxt = MemoryContextSwitchTo(index->rd_indexcxt);
-        index->rbqMatrix = LoadRbq(index, HNSW_CHUNK_START_BLKNO, matrixNblk, matrixSize);
+        void *rbq = LoadRbq(index, HNSW_CHUNK_START_BLKNO, matrixNblk, matrixSize);
+        if (useFHT) {
+            FastRotation *fr = FhtDeserialize(rbq);
+            index->rbqMatrix = (void *)fr;
+            pfree(rbq);
+        } else {
+            index->rbqMatrix = rbq;
+        }
         (void)MemoryContextSwitchTo(oldcxt);
     }
     if (index->rbqOther == NULL) {
@@ -2139,8 +2147,7 @@ RabitQConfig *InitRbqConfigOnDisk(Relation index, bool *enableRabitQ, float **ce
     vtrans->dim = dim;
     if (useFHT) {
         vtrans->type = FAST_HTRANSFORM;
-        FhtInit(vtrans);
-        vtrans->matfht = (uint8 *)index->rbqMatrix;
+        vtrans->fastRotation = (FastRotation *)index->rbqMatrix;
     } else {
         vtrans->type = RANDOM_ORTHOGONAL;
         vtrans->matrix = (float *)index->rbqMatrix;
@@ -2179,7 +2186,7 @@ PGDLLEXPORT PG_FUNCTION_INFO_V1(hnsw_halfvec_support);
 Datum hnsw_halfvec_support(PG_FUNCTION_ARGS)
 {
     static const HnswTypeInfo typeInfo = {
-        .maxDimensions = HNSW_MAX_DIM * 2, .supportPQ = false, .supportRabitQ = false,
+        .maxDimensions = HNSW_MAX_DIM * 2, .supportPQ = false, .supportRabitQ = true,
         .itemSize = HalfvecItemSize, .normalize = halfvec_l2_normalize, .checkValue = NULL};
 
     PG_RETURN_POINTER(&typeInfo);

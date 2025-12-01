@@ -4933,6 +4933,7 @@ void validate_index(Oid heapId, Oid indexId, Snapshot snapshot, bool isPart)
     ivinfo.num_heap_tuples = heapRelation->rd_rel->reltuples;
     ivinfo.strategy = NULL;
     ivinfo.invisibleParts = NULL;
+    ivinfo.heaprel = heapRelation;
 
     state.tuplesort = tuplesort_begin_datum(
         TIDOID, TIDLessOperator, InvalidOid, false, u_sess->attr.attr_memory.maintenance_work_mem, false);

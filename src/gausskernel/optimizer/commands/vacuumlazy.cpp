@@ -144,7 +144,8 @@ static void lazy_vacuum_all_heap(Relation onerel, LVRelStats* vacrelstats);
 static void lazy_vacuum_heap(Relation onerel, LVRelStats* vacrelstats,
                              TidStoreIter *&iter, TidStoreIterResult *&iter_result);
 static bool lazy_check_needs_freeze(Buffer buf);
-extern void lazy_vacuum_index(Relation indrel, IndexBulkDeleteResult** stats, LVRelStats* vacrelstats);
+extern void lazy_vacuum_index(Relation indrel, IndexBulkDeleteResult** stats, LVRelStats* vacrelstats,
+                              Relation heaprel = NULL);
 static void lazy_vacuum_page(Relation onerel, BlockNumber blkno, Buffer buffer,
                              OffsetNumber *deadoffsets, int num_offsets,
                              LVRelStats* vacrelstats);
@@ -938,7 +939,7 @@ static void lazy_scan_bucket(Relation onerel, LVRelStats* vacrelstats, VacuumStm
             continue;
         }
         IndexBulkDeleteResult *indstat = NULL;
-        lazy_vacuum_index(Irel[idx], &indstat, vacbucketstats, vac_strategy);
+        lazy_vacuum_index(Irel[idx], &indstat, vacbucketstats, vac_strategy, onerel);
         indstat = lazy_cleanup_index(Irel[idx], indstat, vacrelstats, vac_strategy);
         vacrelstats->new_idx_pages[idx] = indstat->num_pages;
         vacrelstats->new_idx_tuples[idx] = indstat->num_index_tuples;
@@ -1164,7 +1165,7 @@ static IndexBulkDeleteResult** lazy_scan_heap(
             /* Remove index entries */
             for (i = 0; i < nindexes; i++) {
                 vacuum_log_cleanup_info(Irel[i], vacrelstats);
-                lazy_vacuum_index(Irel[i], &indstats[i], vacrelstats, vac_strategy);
+                lazy_vacuum_index(Irel[i], &indstats[i], vacrelstats, vac_strategy, onerel);
             }
             /* Remove tuples from heap */
             lazy_vacuum_all_heap(onerel, vacrelstats);
@@ -1707,7 +1708,7 @@ static IndexBulkDeleteResult** lazy_scan_heap(
         for (i = 0; i < nindexes; i++) {
             if (!RelationIsCrossBucketIndex(Irel[i])) {
                 vacuum_log_cleanup_info(Irel[i], vacrelstats);
-                lazy_vacuum_index(Irel[i], &indstats[i], vacrelstats, vac_strategy);
+                lazy_vacuum_index(Irel[i], &indstats[i], vacrelstats, vac_strategy, onerel);
             }
         }
         vacrelstats->num_index_scans++;
@@ -1959,7 +1960,7 @@ static bool lazy_check_needs_freeze(Buffer buf)
  *		vacrelstats->dead_items_info.dead_items, and update running statistics.
  */
 void lazy_vacuum_index(Relation indrel, IndexBulkDeleteResult **stats, const LVRelStats *vacrelstats,
-    BufferAccessStrategy vacStrategy)
+    BufferAccessStrategy vacStrategy, Relation heaprel)
 {
     IndexVacuumInfo ivinfo;
     PGRUsage ru0;
@@ -1974,6 +1975,7 @@ void lazy_vacuum_index(Relation indrel, IndexBulkDeleteResult **stats, const LVR
     ivinfo.num_heap_tuples = vacrelstats->old_rel_tuples;
     ivinfo.strategy = vacStrategy;
     ivinfo.invisibleParts = NULL;
+    ivinfo.heaprel = heaprel;
 
     /* Do bulk deletion */
     if (RelationIsCrossBucketIndex(indrel)) {
@@ -2010,6 +2012,7 @@ extern IndexBulkDeleteResult *lazy_cleanup_index(Relation indrel, IndexBulkDelet
     ivinfo.num_heap_tuples = vacrelstats->new_rel_tuples;
     ivinfo.strategy = vac_strategy;
     ivinfo.invisibleParts = NULL;
+    ivinfo.heaprel = NULL;
     stats = index_vacuum_cleanup(&ivinfo, stats);
     if (stats != NULL) {
         ereport(elevel,

@@ -4140,6 +4140,7 @@ static void GPICleanInvisibleIndex(Relation indrel, IndexBulkDeleteResult **stat
     ivinfo.num_heap_tuples = indrel->rd_rel->reltuples;
     ivinfo.strategy = vac_strategy;
     ivinfo.invisibleParts = NULL;
+    ivinfo.heaprel = NULL;
 
     VacStates* pvacStates = (VacStates*)palloc0(sizeof(VacStates));
     pvacStates->invisiblePartOids = invisibleParts;
@@ -4249,6 +4250,7 @@ static void UstoreVacuumMainPartitionGPIs(Relation onerel, const VacuumStmt* vac
         ivinfo.num_heap_tuples = -1;
         ivinfo.strategy = vac_strategy;
         ivinfo.invisibleParts = invisibleParts;
+        ivinfo.heaprel = NULL;
 
         /* Cleanup process of index */
         index_bulk_delete(&ivinfo, NULL, NULL, NULL);

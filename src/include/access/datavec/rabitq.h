@@ -1,3 +1,25 @@
+/*
+ * Copyright (c) 2025 Huawei Technologies Co.,Ltd.
+ *
+ * openGauss is licensed under Mulan PSL v2.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *
+ *          http://license.coscl.org.cn/MulanPSL2
+ *
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ * -------------------------------------------------------------------------
+ *
+ * rabitq.h
+ *
+ * IDENTIFICATION
+ *        src/include/access/datavec/rabitq.h
+ *
+ * -------------------------------------------------------------------------
+ */
 #ifndef RABITQ_H
 #define RABITQ_H
 
@@ -55,6 +77,7 @@ typedef struct RabitqInsertOnDiskParams {
     HeapTuple heapTuple;
     IndexInfo *indexInfo;
     VectorTransform* vtrans;
+    bool vacuum;
 } RabitqInsertOnDiskParams;
 
 typedef struct RabitqQueryParams {
@@ -72,6 +95,10 @@ typedef struct RabitqQueryParams {
 #define rbqCodeSize(d, sq8) MAXALIGN(sizeof(FactorData) + (d + 7) / 8 + (sq8 ? d : 0))
 #define getRefineCode(ptr, offset) &(((RabitqVector *)ptr)->data[offset])
 #define rbqQuerySize(d, qb) MAXALIGN(sizeof(QueryFactorData) + ((d + 7) / 8) * qb)
+
+#define RBQ_BUILD_NORMAL 1
+#define RBQ_BUILD_DELAY 2
+#define RBQ_BUILD_AFTER_DELAY 3
 
 void ComputeVectorRBQCode(int dim, float *vec, RabitqVector *rbqVec, float *centroid, int funcType);
 void SetRBQQuery(int dim, int qb, float *vec, QueryRabitqVector *qrbqVec, float *centroid, int funcType);

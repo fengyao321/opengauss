@@ -624,6 +624,19 @@ Datum vector_to_varchar(PG_FUNCTION_ARGS)
     PG_RETURN_POINTER(result);
 }
 
+Vector *Halfvec2Vector(Datum halfv)
+{
+    if (halfv == NULL) {
+        ereport(ERROR, (errmsg("halfvec is null.")));
+    }
+    HalfVector *vec = (HalfVector *)halfv;
+    Vector *result = InitVector(vec->dim);
+    for (int i = 0; i < vec->dim; i++) {
+        result->x[i] = HalfToFloat4(vec->x[i]);
+    }
+    return result;
+}
+
 /*
  * Convert half vector to vector
  */
@@ -632,17 +645,11 @@ Datum halfvec_to_vector(PG_FUNCTION_ARGS)
 {
     HalfVector *vec = PG_GETARG_HALFVEC_P(0);
     int32 typmod = PG_GETARG_INT32(1);
-    Vector *result;
 
     CheckDim(vec->dim);
     CheckExpectedDim(typmod, vec->dim);
 
-    result = InitVector(vec->dim);
-
-    for (int i = 0; i < vec->dim; i++) {
-        result->x[i] = HalfToFloat4(vec->x[i]);
-    }
-
+    Vector *result = Halfvec2Vector((Datum)vec);
     PG_RETURN_POINTER(result);
 }
 
@@ -1719,16 +1726,19 @@ void VectorInnerProductNY(size_t d, size_t ny, float *x, char *pqTable, Size sub
 }
 #endif
 
-#ifdef __aarch64__
-float VectorRbqDpPopcnt(int dim, int qb, uint8 *qx, uint8 *ex)
+float VectorRbqDpPopcnt(int dim, int qb, uint8_t *qx, uint8_t *ex)
 {
     int dim8b = (dim + 7) / 8;
-    int dim64b = (dim8b / 8) * 8;
-    int dim128b = (dim8b / 16) * 16;
     float distance = 0;
+
     for (int i = 0; i < qb; i++) {
-        uint8 *qxi = qx + i * dim8b;
+        uint8_t *qxi = qx + i * dim8b;
         int count = 0;
+
+#ifdef __aarch64__
+        int dim128b = (dim8b / 16) * 16;
+        int dim64b = (dim8b / 8) * 8;
+
         for (int offset = 0; offset < dim128b; offset += 16) {
             uint8x16_t v_qx = vld1q_u8(qxi + offset);
             uint8x16_t v_ex = vld1q_u8(ex + offset);
@@ -1737,85 +1747,49 @@ float VectorRbqDpPopcnt(int dim, int qb, uint8 *qx, uint8 *ex)
             uint16x8_t cnt16 = vpaddlq_u8(cnt8);
             count += vaddv_u16(vget_low_u16(cnt16)) + vaddv_u16(vget_high_u16(cnt16));
         }
+
         for (int offset = dim128b; offset < dim64b; offset += 8) {
+#else
+        int dim64b = (dim8b / 8) * 8;
+        for (int offset = 0; offset < dim64b; offset += 8) {
+#endif
             uint64_t qxj = *(uint64_t *)(qxi + offset);
             uint64_t exj = *(uint64_t *)(ex + offset);
             count += __builtin_popcountll(qxj & exj);
         }
+
         for (int offset = dim64b; offset < dim8b; offset++) {
-            uint8 qxj = *(qxi + offset);
-            uint8 exj = *(ex + offset);
+            uint8_t qxj = *(qxi + offset);
+            uint8_t exj = *(ex + offset);
             count += __builtin_popcount(qxj & exj);
         }
         distance += (count << i);
     }
     return distance;
-}
-#else
-float VectorRbqDpPopcnt(int dim, int qb, uint8 *qx, uint8 *ex)
-{
-    int dim8b = (dim + 7) / 8;
-    int dim64b = (dim8b / 8) * 8;
-    float distance = 0;
-    for (int i = 0; i < qb; i++) {
-        uint8 *qxi = qx + i * dim8b;
-        int count = 0;
-        for (int j = 0; j < dim64b; j += 8) {
-            uint64_t qxj = *(uint64_t *)(qxi + j);
-            uint64_t exj = *(uint64_t *)(ex + j);
-            count += __builtin_popcountll(qxj & exj);
-        }
-        for (int j = dim64b; j < dim8b; j++) {
-            uint8 qxj = *(qxi + j);
-            uint8 exj = *(ex + j);
-            count += __builtin_popcount(qxj & exj);
-        }
-        distance += (count << i);
-    }
-    return distance;
-}
-#endif
-
-void KacsWalk(float* data, uint64_t len)
-{
-    return;
-}
-
-void FlipSign(const uint8_t* matfht, float* data, uint64_t dim)
-{
-    return;
-}
-
-void VecRescale(float* data, uint64_t dim, float val)
-{
-    return;
-}
-
-void RotateOp(float* data, int idx, int dim, int step)
-{
-    return;
-}
-
-void FHTRotate(float* data, uint64_t dim)
-{
-    return;
 }
 
 void VectorEncodeSQ(int dim, float *vmin, float *vdiff, float *originVec, uint8 *code)
 {
+    if (vmin == NULL || vdiff == NULL || originVec == NULL || code == NULL) {
+        ereport(ERROR, (errmsg("During the SQ encoding process, the input parameter variable has nullptr.")));
+    }
+    const float eps = 1e-6f;
     for (int i = 0; i < dim; i++) {
         float xi = 0;
-        if (vdiff[i] != 0) {
+        if (fabsf(vdiff[i]) > eps) {
             xi = ((originVec[i] - vmin[i]) / vdiff[i]) * SQ_RANGE;
         }
         xi = xi < 0 ? 0 : xi;
         xi = xi > SQ_RANGE ? SQ_RANGE : xi;
-        code[i] = xi;
+        code[i] = (uint8)xi;
     }
 }
 
 void VectorDecodeSQ(int dim, float *vmin, float *vdiff, float *decodeVec, uint8 *code)
 {
+    if (vmin == NULL || vdiff == NULL || decodeVec == NULL || code == NULL) {
+        ereport(ERROR, (errmsg("During the SQ decoding process, the input parameter variable has nullptr.")));
+    }
     for (int i = 0; i < dim; i++) {
         float xi = (code[i] + 0.5f) / SQ_RANGE;
         decodeVec[i] = vmin[i] + xi * vdiff[i];
@@ -1946,7 +1920,7 @@ double vector_square(float* x, int dim)
 
     /* Auto-vectorized */
     for (int i = 0; i < dim; i++) {
-        square += (double)x[i] * (double)x[i];
+        square += (double)x[i] * x[i];
     }
 
     return square;
