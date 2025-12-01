@@ -23,6 +23,7 @@ test: test_ustore_undo_tool
 test: privileges
 test: AMHeap_logical_scan
 test: copy
+test: hnsw_rabitq_vector
 
 test: sqlbypass_partition
 test: sqlpatch_base

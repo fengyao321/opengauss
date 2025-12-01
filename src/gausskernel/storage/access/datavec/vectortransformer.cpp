@@ -235,7 +235,145 @@ void FhtTrain(VectorTransform* vtrans)
  */
 void FastWalshHadamardTransform16(float* x, float normalize)
 {
-    return;
+    float x0 = normalize * x[0];
+    float x1 = normalize * x[1];
+    float x2 = normalize * x[2];
+    float x3 = normalize * x[3];
+    float x4 = normalize * x[4];
+    float x5 = normalize * x[5];
+    float x6 = normalize * x[6];
+    float x7 = normalize * x[7];
+    float x8 = normalize * x[8];
+    float x9 = normalize * x[9];
+    float x10 = normalize * x[10];
+    float x11 = normalize * x[11];
+    float x12 = normalize * x[12];
+    float x13 = normalize * x[13];
+    float x14 = normalize * x[14];
+    float x15 = normalize * x[15];
+
+    // k = 1, k = 2
+    float t0 = x0 + x1;
+    x1 = x0 - x1;
+    x0 = t0;
+    float t1 = x2 + x3;
+    x3 = x2 - x3;
+    x2 = t1;
+    t0 = x0 + x2;
+    x2 = x0 - x2;
+    x0 = t0;
+    t1 = x1 + x3;
+    x3 = x1 - x3;
+    x1 = t1;
+
+    t0 = x4 + x5;
+    x5 = x4 - x5;
+    x4 = t0;
+    t1 = x6 + x7;
+    x7 = x6 - x7;
+    x6 = t1;
+    t0 = x4 + x6;
+    x6 = x4 - x6;
+    x4 = t0;
+    t1 = x5 + x7;
+    x7 = x5 - x7;
+    x5 = t1;
+
+    // k = 3
+    t0 = x0 + x4;
+    x4 = x0 - x4;
+    x0 = t0;
+    t1 = x1 + x5;
+    x5 = x1 - x5;
+    x1 = t1;
+    t0 = x2 + x6;
+    x6 = x2 - x6;
+    x2 = t0;
+    t1 = x3 + x7;
+    x7 = x3 - x7;
+    x3 = t1;
+
+    t0 = x8 + x9;
+    x9 = x8 - x9;
+    x8 = t0;
+    t1 = x10 + x11;
+    x11 = x10 - x11;
+    x10 = t1;
+    t0 = x8 + x10;
+    x10 = x8 - x10;
+    x8 = t0;
+    t1 = x9 + x11;
+    x11 = x9 - x11;
+    x9 = t1;
+
+    t0 = x12 + x13;
+    x13 = x12 - x13;
+    x12 = t0;
+    t1 = x14 + x15;
+    x15 = x14 - x15;
+    x14 = t1;
+    t0 = x12 + x14;
+    x14 = x12 - x14;
+    x12 = t0;
+    t1 = x13 + x15;
+    x15 = x13 - x15;
+    x13 = t1;
+
+    t0 = x8 + x12;
+    x12 = x8 - x12;
+    x8 = t0;
+    t1 = x9 + x13;
+    x13 = x9 - x13;
+    x9 = t1;
+    t0 = x10 + x14;
+    x14 = x10 - x14;
+    x10 = t0;
+    t1 = x11 + x15;
+    x15 = x11 - x15;
+    x11 = t1;
+
+    // k = 4
+    t0 = x0 + x8;
+    x8 = x0 - x8;
+    x0 = t0;
+    t1 = x1 + x9;
+    x9 = x1 - x9;
+    x1 = t1;
+    t0 = x2 + x10;
+    x10 = x2 - x10;
+    x2 = t0;
+    t1 = x3 + x11;
+    x11 = x3 - x11;
+    x3 = t1;
+    t0 = x4 + x12;
+    x12 = x4 - x12;
+    x4 = t0;
+    t1 = x5 + x13;
+    x13 = x5 - x13;
+    x5 = t1;
+    t0 = x6 + x14;
+    x14 = x6 - x14;
+    x6 = t0;
+    t1 = x7 + x15;
+    x15 = x7 - x15;
+    x7 = t1;
+
+    x[0] = x0;
+    x[1] = x1;
+    x[2] = x2;
+    x[3] = x3;
+    x[4] = x4;
+    x[5] = x5;
+    x[6] = x6;
+    x[7] = x7;
+    x[8] = x8;
+    x[9] = x9;
+    x[10] = x10;
+    x[11] = x11;
+    x[12] = x12;
+    x[13] = x13;
+    x[14] = x14;
+    x[15] = x15;
 }
 
 

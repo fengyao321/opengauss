@@ -383,7 +383,7 @@ static void RepairGraph(HnswVacuumState *vacuumstate)
 
             if (vacuumstate->enableRabitQ) {
                 RabitqInsertOnDiskParams *rbqDiskParams = vacuumstate->rbqDiskParams;
-                float *eRbqDiskData = HnswGetVectorFromHeap(rbqDiskParams->heap, &element->heaptids[0],
+                float *eRbqDiskData = HnswGetVectorFromHeap(rbqDiskParams->heap, &etup->heaptids[0],
                                                             rbqDiskParams->indexInfo, rbqDiskParams->heapTuple,
                                                             vacuumstate->procinfo, rbqDiskParams->normprocinfo,
                                                             rbqDiskParams->collation);
