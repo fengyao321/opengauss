@@ -27,6 +27,8 @@
 
 #define DEFAULT_TARGET_ROWS 300
 
+#define TUPLE_NUM 100
+
 #define IS_HALFVEC(oid) (oid == HALF_L2_FUNC_OID || oid == HALF_IP_FUNC_OID)
 
 enum RefineType {

@@ -404,9 +404,12 @@ openGauss支持以下操作系统：
 | numactl-devel| 2.0.12-2.0.16      |
 | unixODBC-devel| 2.3.1-2.3.9      |
 | java-1.8.0-openjdk-devel| 1.8     |
+| openblas-devel| 0.3.3及以上     |
+
+注意：openblas-devel的头文件安装在/usr/include下，一般是默认路径
 
 ```shell
-yum install libaio-devel flex bison ncurses-devel glibc-devel patch readline-devel libedit-devel libxml2-devel lz4-devel numactl-devel unixODBC-devel java-1.8.0-openjdk-devel
+yum install libaio-devel flex bison ncurses-devel glibc-devel patch readline-devel libedit-devel libxml2-devel lz4-devel numactl-devel unixODBC-devel java-1.8.0-openjdk-devel openblas-devel
 ### centos中安装lsb_release
 yum install redhat-lsb-core
 ### openEuler安装lsb_release
