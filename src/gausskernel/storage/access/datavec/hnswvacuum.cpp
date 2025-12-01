@@ -29,6 +29,7 @@
 #include "access/datavec/hnsw.h"
 #include "storage/buf/bufmgr.h"
 #include "storage/lmgr.h"
+#include "catalog/index.h"
 #include "utils/memutils.h"
 
 /*
@@ -202,6 +203,8 @@ static void RepairGraphElement(HnswVacuumState *vacuumstate, HnswElement element
     HnswNeighborTuple ntup = vacuumstate->ntup;
     Size ntupSize = HNSW_NEIGHBOR_TUPLE_SIZE(element->level, m);
     char *base = NULL;
+    int funcType = -1;
+    float *centroid = NULL;
 
     /* Skip if element is entry point */
     if (entryPoint != NULL && element->blkno == entryPoint->blkno && element->offno == entryPoint->offno) {
@@ -212,10 +215,16 @@ static void RepairGraphElement(HnswVacuumState *vacuumstate, HnswElement element
     HnswInitNeighbors(base, element, m, NULL);
     element->heaptidsLength = 0;
 
+    if (vacuumstate->enableRabitQ) {
+        funcType = vacuumstate->rbqDiskParams->funcType;
+        centroid = index->rbqOther;
+        vacuumstate->rbqDiskParams->originInsertVec = (Datum)HnswPtrAccess(NULL, element->value);
+    }
+
     /* Find neighbors for element, skipping itself */
     HnswFindElementNeighbors(base, element, entryPoint, index, procinfo, collation,
-                             m, efConstruction, true, false, NULL, false, -1, NULL, NULL); // todo wjy 最后两个参数为了编译通过临时设为false
-
+                             m, efConstruction, true, false, NULL, vacuumstate->enableRabitQ,
+                             funcType, centroid, vacuumstate->rbqDiskParams);
     /* Zero memory for each element */
     MemSet(ntup, 0, HNSW_TUPLE_ALLOC_SIZE);
 
@@ -237,7 +246,8 @@ static void RepairGraphElement(HnswVacuumState *vacuumstate, HnswElement element
     UnlockReleaseBuffer(buf);
 
     /* Update neighbors */
-    HnswUpdateNeighborsOnDisk(index, procinfo, collation, element, m, true, false, false, NULL);// todo wjy 最后两个参数为了编译通过临时设为false
+    HnswUpdateNeighborsOnDisk(index, procinfo, collation, element, m, true, false,
+                              vacuumstate->enableRabitQ, vacuumstate->rbqDiskParams);
 }
 
 /*
@@ -262,7 +272,8 @@ static void RepairGraphEntryPoint(HnswVacuumState *vacuumstate)
         LockPage(index, HNSW_UPDATE_LOCK, ShareLock);
 
         /* Load element */
-        HnswLoadElement(highestPoint, NULL, NULL, index, vacuumstate->procinfo, vacuumstate->collation, true, NULL, false, NULL, NULL);
+        HnswLoadElement(highestPoint, NULL, NULL, index, vacuumstate->procinfo, vacuumstate->collation,
+                        true, NULL, vacuumstate->enableRabitQ, NULL, vacuumstate->rbqDiskParams);
 
         /* Repair if needed */
         if (NeedsUpdated(vacuumstate, highestPoint))
@@ -295,7 +306,8 @@ static void RepairGraphEntryPoint(HnswVacuumState *vacuumstate)
              * is outdated, this can remove connections at higher levels in
              * the graph until they are repaired, but this should be fine.
              */
-            HnswLoadElement(entryPoint, NULL, NULL, index, vacuumstate->procinfo, vacuumstate->collation, true, NULL, false, NULL, NULL);
+            HnswLoadElement(entryPoint, NULL, NULL, index, vacuumstate->procinfo, vacuumstate->collation,
+                            true, NULL, vacuumstate->enableRabitQ, NULL, vacuumstate->rbqDiskParams);
 
             if (NeedsUpdated(vacuumstate, entryPoint)) {
                 /* Reset neighbors from previous update */
@@ -356,6 +368,7 @@ static void RepairGraph(HnswVacuumState *vacuumstate)
         for (offno = FirstOffsetNumber; offno <= maxoffno; offno = OffsetNumberNext(offno)) {
             HnswElementTuple etup = (HnswElementTuple)PageGetItem(page, PageGetItemId(page, offno));
             HnswElement element;
+            Vector *eRbqDiskVec = NULL;
 
             /* Skip neighbor tuples */
             if (!HnswIsElementTuple(etup))
@@ -367,7 +380,21 @@ static void RepairGraph(HnswVacuumState *vacuumstate)
 
             /* Create an element */
             element = HnswInitElementFromBlock(blkno, offno);
-            HnswLoadElementFromTuple(element, etup, false, true, NULL); // todo wjy
+
+            if (vacuumstate->enableRabitQ) {
+                RabitqInsertOnDiskParams *rbqDiskParams = vacuumstate->rbqDiskParams;
+                float *eRbqDiskData = HnswGetVectorFromHeap(rbqDiskParams->heap, &element->heaptids[0],
+                                                            rbqDiskParams->indexInfo, rbqDiskParams->heapTuple,
+                                                            vacuumstate->procinfo, rbqDiskParams->normprocinfo,
+                                                            rbqDiskParams->collation);
+                int dim = rbqDiskParams->vtrans->dim;
+                eRbqDiskVec = InitVector(dim);
+                Size vecSize = dim * sizeof(float);
+                errno_t rc =  memcpy_s(eRbqDiskVec->x, vecSize, eRbqDiskData, vecSize);
+                securec_check(rc, "\0", "\0");
+            }
+
+            HnswLoadElementFromTuple(element, etup, false, true, (Datum)eRbqDiskVec);
 
             elements = lappend(elements, element);
         }
@@ -560,6 +587,10 @@ static void InitVacuumState(HnswVacuumState *vacuumstate, IndexVacuumInfo *info,
     Relation index = info->index;
     uint16 pqTableNblk;
     uint16 pqDisTableNblk;
+    uint16 matrixNblk;
+    uint16 otherNblk;
+    float *centroid;
+    int dim = TupleDescAttr(index->rd_att, 0)->atttypmod;
 
     if (stats == NULL)
         stats = (IndexBulkDeleteResult *)palloc0(sizeof(IndexBulkDeleteResult));
@@ -578,8 +609,36 @@ static void InitVacuumState(HnswVacuumState *vacuumstate, IndexVacuumInfo *info,
 
     /* Get m from metapage */
     HnswGetMetaPageInfo(index, &vacuumstate->m, NULL);
+
+    RabitQConfig *rbqConfig = InitRbqConfigOnDisk(index, &vacuumstate->enableRabitQ, &centroid, dim);
+
+    if (vacuumstate->enableRabitQ) {
+        if (info->heaprel == NULL) {
+            ereport(ERROR, (errmsg("HNSW RabitQ bulkdelete need heap relation.")));
+        }
+        RabitqInsertOnDiskParams *params = (RabitqInsertOnDiskParams *)palloc(sizeof(RabitqInsertOnDiskParams));
+        params->heap = info->heaprel;
+        params->normprocinfo = HnswOptionalProcInfo(index, HNSW_NORM_PROC);
+        params->collation = vacuumstate->collation;
+        params->funcType = GetFunctionType(vacuumstate->procinfo, params->normprocinfo);
+        params->heapTuple = (HeapTupleData *)heaptup_alloc(BLCKSZ);
+        params->indexInfo = BuildIndexInfo(index);
+        params->vtrans = rbqConfig->vtrans;
+        params->vacuum = true;
+        vacuumstate->rbqDiskParams = params;
+        if (rbqConfig->sq != NULL) {
+            pfree(rbqConfig->sq);
+        }
+        pfree(rbqConfig);
+    } else {
+        vacuumstate->rbqDiskParams = NULL;
+    }
+
     HnswGetPQInfoFromMetaPage(index, &pqTableNblk, NULL, &pqDisTableNblk, NULL);
-    vacuumstate->hnswHeadBlkno = HNSW_CHUNK_START_BLKNO + pqTableNblk + pqDisTableNblk;
+    HnswGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, &matrixNblk,
+                               NULL, &otherNblk, NULL, NULL, NULL);
+    vacuumstate->hnswHeadBlkno = HNSW_CHUNK_START_BLKNO + pqTableNblk + pqDisTableNblk +
+                                 matrixNblk + otherNblk;
 
     /* Create hash table */
     vacuumstate->deleted = tidhash_create(CurrentMemoryContext, 256, NULL);
@@ -593,6 +652,12 @@ static void FreeVacuumState(HnswVacuumState *vacuumstate)
     tidhash_destroy(vacuumstate->deleted);
     FreeAccessStrategy(vacuumstate->bas);
     pfree(vacuumstate->ntup);
+    if (vacuumstate->enableRabitQ) {
+        pfree(vacuumstate->rbqDiskParams->heapTuple);
+        pfree(vacuumstate->rbqDiskParams->indexInfo);
+        pfree(vacuumstate->rbqDiskParams->vtrans);
+        pfree(vacuumstate->rbqDiskParams);
+    }
     MemoryContextDelete(vacuumstate->tmpCtx);
 }
 

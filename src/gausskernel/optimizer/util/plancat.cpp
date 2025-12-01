@@ -674,10 +674,10 @@ void get_relation_info(PlannerInfo* root, RangeTblEntry* rte, RelOptInfo* rel)
 
             /* If the rabitq index built first has not been trained, ignore */
             if (indexRelation->rd_rel->relam == HNSW_AM_OID) {
-                bool rbqDelay;
+                int rbqDelayState;
                 HnswGetRbqInfoFromMetaPage(indexRelation, NULL, NULL, NULL, NULL, NULL, NULL,
-                                           NULL, NULL, &rbqDelay, NULL);
-                if (rbqDelay) {
+                                           NULL, NULL, &rbqDelayState, NULL);
+                if (rbqDelayState == RBQ_BUILD_DELAY) {
                     index_close(indexRelation, NoLock);
                     continue;
                 }
@@ -750,7 +750,7 @@ void get_relation_info(PlannerInfo* root, RangeTblEntry* rte, RelOptInfo* rel)
             info->amsearchnulls = indexRelation->rd_am->amsearchnulls;
             info->amhasgettuple = OidIsValid(indexRelation->rd_am->amgettuple);
             info->amhasgetbitmap = OidIsValid(indexRelation->rd_am->amgetbitmap);
-            info->isAnnIndex = (info->relam == IVFFLAT_AM_OID || info->relam == HNSW_AM_OID || info->relam == DISKANN_AM_OID);
+            info->isAnnIndex = (info->relam == HNSW_AM_OID || info->relam == IVFFLAT_AM_OID || info->relam == DISKANN_AM_OID);
 
             /*
              * Fetch the ordering information for the index, if any.

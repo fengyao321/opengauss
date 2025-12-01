@@ -155,6 +155,8 @@ typedef union {
 #define PQ_ENV_PATH "DATAVEC_PQ_LIB_PATH"
 #define PQ_SO_NAME "libkvecturbo.so"
 
+#define HNSW_RABITQ_MAX_REORDER 2000000000
+
 #define HNSW_MAX_SIZE \
     (BLCKSZ - MAXALIGN(SizeOfPageHeaderData) - MAXALIGN(sizeof(HnswPageOpaqueData)) - sizeof(ItemIdData))
 #define HNSW_TUPLE_ALLOC_SIZE BLCKSZ
@@ -490,7 +492,8 @@ typedef struct HnswBuildState {
 
     /* RabitQ info */
     bool enableRabitQ;
-    bool rbqDelay;
+    int rbqDelayState;
+    int64 rbqDelayBuildRows;
     float *centroid;
     RabitQConfig *rbqConfig;
 
@@ -527,7 +530,7 @@ typedef struct HnswMetaPageData {
     /* RabitQ info */
     bool enableRabitQ;
     bool useFHT;
-    bool rbqDelay;
+    int rbqDelayState;
     int64 rbqInsertRows;
     uint16 reOffset;
     uint16 matrixNblk;
@@ -673,6 +676,10 @@ typedef struct HnswVacuumState {
     HnswNeighborTuple ntup;
     HnswElementData highestPoint;
 
+    /* RabitQ */
+    bool enableRabitQ;
+    RabitqInsertOnDiskParams *rbqDiskParams;
+
     /* Memory */
     MemoryContext tmpCtx;
 } HnswVacuumState;
@@ -763,11 +770,13 @@ int GetPQDistance(const uint8 *basecode, const uint8 *querycode, const PQParams 
 void InitPQParamsOnDisk(PQParams *params, Relation index, FmgrInfo *procinfo, int dim, bool *enablePQ, bool trymmap);
 void HnswGetRbqInfoFromMetaPage(Relation index, bool *enableRabitQ, bool *useFHT, uint16 *reOffset,
                                 RefineType *reType, uint16 *matrixNblk, uint32 *matrixSize,
-                                uint16 *otherNblk, uint32 *otherSize, bool *rbqDelay, int64 *rbqInsertRows);
+                                uint16 *otherNblk, uint32 *otherSize, int *rbqDelayState, int64 *rbqInsertRows);
 void FlushChunkInfoInternal(Relation index, char* table, BlockNumber startBlkno, uint16 nblks, uint32 totalSize);
 RabitQConfig *InitRbqConfigOnDisk(Relation index, bool *enableRabitQ, float **centroid, int dim);
+float *HnswGetVectorFromHeap(Relation heap, ItemPointer tid, IndexInfo *indexInfo, HeapTuple tuple,
+                             FmgrInfo *procinfo, FmgrInfo *normprocinfo, Oid collation);
 void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildState *buildstate,
-                       ForkNumber forkNum);
+                       ForkNumber forkNum, bool insert);
 
 Datum hnswhandler(PG_FUNCTION_ARGS);
 Datum hnswbuild(PG_FUNCTION_ARGS);
