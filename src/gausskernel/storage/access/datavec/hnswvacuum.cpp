@@ -367,7 +367,7 @@ static void RepairGraph(HnswVacuumState *vacuumstate)
 
             /* Create an element */
             element = HnswInitElementFromBlock(blkno, offno);
-            HnswLoadElementFromTuple(element, etup, false, true, NULL, NULL); // todo wjy
+            HnswLoadElementFromTuple(element, etup, false, true, NULL); // todo wjy
 
             elements = lappend(elements, element);
         }

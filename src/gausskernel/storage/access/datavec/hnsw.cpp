@@ -91,7 +91,9 @@ static bytea *hnswoptions_internal(Datum reloptions, bool validate)
         {"pq_ksub", RELOPT_TYPE_INT, offsetof(HnswOptions, pqKsub)},
         {"use_mmap", RELOPT_TYPE_BOOL, offsetof(HnswOptions, useMmap)},
         {"enable_rabitq", RELOPT_TYPE_BOOL, offsetof(HnswOptions, enableRabitQ)},
-        {"rabitq_fht", RELOPT_TYPE_BOOL, offsetof(HnswOptions, rabitqFHT)}};
+        {"rabitq_fht", RELOPT_TYPE_BOOL, offsetof(HnswOptions, rabitqFHT)},
+        {"rabitq_refine_type", RELOPT_TYPE_STRING, offsetof(HnswOptions, rabitqRT)},
+    };
 
     relopt_value *options;
     int numoptions;

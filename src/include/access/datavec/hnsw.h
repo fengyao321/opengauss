@@ -368,7 +368,13 @@ typedef struct HnswOptions {
     int pqKsub;         /* number of centroids for each subquantizer */
     bool enableRabitQ;
     bool rabitqFHT;     /* use FHT Matrix or Random Orthogonal Matrix */
+    char *rabitqRT;     /* whether to rerank, and the type */
 } HnswOptions;
+
+#define HnswOptionsGetStringData(_basePtr, _memberName, _defaultVal)                    \
+    (((_basePtr) && (((HnswOptions*)(_basePtr))->_memberName))                          \
+            ? (((char*)(_basePtr) + *(int*)&(((HnswOptions*)(_basePtr))->_memberName))) \
+            : (_defaultVal))
 
 typedef struct HnswGraph {
     /* Graph state */
@@ -484,6 +490,7 @@ typedef struct HnswBuildState {
 
     /* RabitQ info */
     bool enableRabitQ;
+    bool rbqDelay;
     float *centroid;
     RabitQConfig *rbqConfig;
 
@@ -520,9 +527,14 @@ typedef struct HnswMetaPageData {
     /* RabitQ info */
     bool enableRabitQ;
     bool useFHT;
+    bool rbqDelay;
+    int64 rbqInsertRows;
+    uint16 reOffset;
     uint16 matrixNblk;
     uint32 matrixSize;
-    float centroid[FLEXIBLE_ARRAY_MEMBER];
+    RefineType reType;
+    uint16 otherNblk;
+    uint32 otherSize; /* centroid + (min + diff) if reType == SQ8 */
 } HnswMetaPageData;
 
 typedef HnswMetaPageData *HnswMetaPage;
@@ -689,6 +701,7 @@ int HnswGetPqM(Relation index);
 int HnswGetPqKsub(Relation index);
 bool HnswGetEnableRabitQ(Relation index);
 bool HnswGetUseFHT(Relation index);
+RefineType HnswGetRefineType(Relation index);
 FmgrInfo *HnswOptionalProcInfo(Relation index, uint16 procnum);
 Datum HnswNormValue(const HnswTypeInfo *typeInfo, Oid collation, Datum value);
 bool HnswCheckNorm(FmgrInfo *procinfo, Oid collation, Datum value);
@@ -714,6 +727,7 @@ HnswCandidate *HnswEntryCandidate(char *base, HnswElement em, Datum q, Relation 
                                   bool enablePQ = false, PQSearchInfo *pqinfo = NULL);
 void HnswUpdateMetaPage(Relation index, int updateEntry, HnswElement entryPoint, BlockNumber insertPage,
                         ForkNumber forkNum, bool building);
+void HnswUpdateMetaPageRbq(Relation index, ForkNumber forkNum, bool updateDelay);
 void HnswSetNeighborTuple(char *base, HnswNeighborTuple ntup, HnswElement e, int m);
 void HnswAddHeapTid(HnswElement element, ItemPointer heaptid);
 void HnswInitNeighbors(char *base, HnswElement element, int m, HnswAllocator *alloc);
@@ -721,7 +735,7 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
                            bool building, Relation heap);
 void HnswUpdateNeighborsOnDisk(Relation index, FmgrInfo *procinfo, Oid collation, HnswElement e, int m,
                                bool checkExisting, bool building, bool enableRabitQ, RabitqInsertOnDiskParams *rbqDiskParams);
-void HnswLoadElementFromTuple(HnswElement element, HnswElementTuple etup, bool loadHeaptids, bool loadVec, Datum eRbqDiskVec, bool *store);
+void HnswLoadElementFromTuple(HnswElement element, HnswElementTuple etup, bool loadHeaptids, bool loadVec, Datum eRbqDiskVec);
 bool HnswLoadElement(HnswElement element, float *distance, Datum *q, Relation index, FmgrInfo *procinfo, Oid collation,
                      bool loadVec, float *maxDistance, bool enableRabitQ, RabitqQueryParams *rbqParams,
                      RabitqInsertOnDiskParams *rbqDiskParams, IndexScanDesc scan = NULL, bool enablePQ = false,
@@ -747,10 +761,13 @@ int GetPQDistanceTableAdc(float *vector, const PQParams *params, float *pqDistan
 int GetPQDistance(const uint8 *basecode, const uint8 *querycode, const PQParams *params,
                   const float *pqDistanceTable, float *pqDistance);
 void InitPQParamsOnDisk(PQParams *params, Relation index, FmgrInfo *procinfo, int dim, bool *enablePQ, bool trymmap);
-void HnswGetRbqInfoFromMetaPage(Relation index, bool *enableRabitQ, bool *useFHT, uint16 *matrixNblk,
-                                uint32 *matrixSize, float *centroid, int dim);
+void HnswGetRbqInfoFromMetaPage(Relation index, bool *enableRabitQ, bool *useFHT, uint16 *reOffset,
+                                RefineType *reType, uint16 *matrixNblk, uint32 *matrixSize,
+                                uint16 *otherNblk, uint32 *otherSize, bool *rbqDelay, int64 *rbqInsertRows);
 void FlushChunkInfoInternal(Relation index, char* table, BlockNumber startBlkno, uint16 nblks, uint32 totalSize);
-RabitQConfig *InitRbqConfigOnDisk(Relation index, bool *enableRabitQ, float *centroid, int dim);
+RabitQConfig *InitRbqConfigOnDisk(Relation index, bool *enableRabitQ, float **centroid, int dim);
+void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildState *buildstate,
+                       ForkNumber forkNum);
 
 Datum hnswhandler(PG_FUNCTION_ARGS);
 Datum hnswbuild(PG_FUNCTION_ARGS);

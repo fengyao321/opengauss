@@ -24,6 +24,7 @@
 #include "access/tableam.h"
 #include "access/sysattr.h"
 #include "access/transam.h"
+#include "access/datavec/hnsw.h"
 #include "catalog/catalog.h"
 #include "catalog/pg_partition_fn.h"
 #include "catalog/pg_statistic.h"
@@ -671,6 +672,18 @@ void get_relation_info(PlannerInfo* root, RangeTblEntry* rte, RelOptInfo* rel)
                 continue;
             }
 
+            /* If the rabitq index built first has not been trained, ignore */
+            if (indexRelation->rd_rel->relam == HNSW_AM_OID) {
+                bool rbqDelay;
+                HnswGetRbqInfoFromMetaPage(indexRelation, NULL, NULL, NULL, NULL, NULL, NULL,
+                                           NULL, NULL, &rbqDelay, NULL);
+                if (rbqDelay) {
+                    index_close(indexRelation, NoLock);
+                    continue;
+                }
+            }
+
+
             /*
              * If the index is valid, but cannot yet be used, ignore it; but
              * mark the plan we are generating as transient. See
@@ -737,7 +750,7 @@ void get_relation_info(PlannerInfo* root, RangeTblEntry* rte, RelOptInfo* rel)
             info->amsearchnulls = indexRelation->rd_am->amsearchnulls;
             info->amhasgettuple = OidIsValid(indexRelation->rd_am->amgettuple);
             info->amhasgetbitmap = OidIsValid(indexRelation->rd_am->amgetbitmap);
-            info->isAnnIndex = (info->relam == HNSW_AM_OID || info->relam == IVFFLAT_AM_OID || info->relam == DISKANN_AM_OID);
+            info->isAnnIndex = (info->relam == IVFFLAT_AM_OID || info->relam == HNSW_AM_OID || info->relam == DISKANN_AM_OID);
 
             /*
              * Fetch the ordering information for the index, if any.

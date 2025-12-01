@@ -905,6 +905,7 @@ typedef struct AnnIndexScan {
     double selectivity;
     bool is_partial;
     double annCount;
+    int64 limitCount;
 } AnnIndexScan;
 
 /* ----------------
