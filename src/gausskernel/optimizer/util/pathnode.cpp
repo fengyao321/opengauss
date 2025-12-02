@@ -1257,6 +1257,12 @@ static void set_scan_hint(Path* new_path, HintState* hstate)
             scanHint = find_scan_hint(hstate, new_path->parent->relids, HINT_KEYWORD_INDEXONLYSCAN);
             break;
         }
+#ifdef ENABLE_HTAP
+        case T_IMCStoreScan: {
+            scanHint = find_scan_hint(hstate, new_path->parent->relids, HINT_KEYWORD_IMCSSCAN);
+            break;
+        }
+#endif
         default:
             break;
     }

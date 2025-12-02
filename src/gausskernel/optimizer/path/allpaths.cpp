@@ -137,15 +137,34 @@ bool CheckRelEnableImcstoreScan(Oid relOid, Bitmapset *scanAttrs)
     return true;
 }
 
-bool CheckPartitionsEnableImcsScan(Oid relOid, Bitmapset *scanAttrs)
+bool CheckPartitionsEnableImcsScan(Oid relOid, PruningResult *pruningResult, Bitmapset *scanAttrs)
 {
     Oid partitionOid = InvalidOid;
     Relation rel = NULL;
     ListCell* partOidCell = NULL;
+    const static int BMS_END_MEMBER = -2;
 
     /* get oids of all partitions */
     rel = heap_open(relOid, AccessShareLock);
-    List* partitionOidList = relationGetPartitionOidList(rel);
+    List* partitionOidList = NIL;
+    if (PruningResultIsSubset(pruningResult)) {
+        PartitionMap* map = rel->partMap;
+        Bitmapset* unionResult =
+            bms_union(pruningResult->bm_rangeSelectedPartitions, pruningResult->intervalSelectedPartitions);
+        Oid partitionId = InvalidOid;
+        for (int cur = bms_first_member(unionResult); cur != BMS_END_MEMBER; cur = bms_next_member(unionResult, cur)) {
+            if (map->type == PART_TYPE_LIST) {
+                partitionId = ((ListPartitionMap*)map)->listElements[cur].partitionOid;
+            } else if (map->type == PART_TYPE_HASH) {
+                partitionId = ((HashPartitionMap*)map)->hashElements[cur].partitionOid;
+            } else {
+                partitionId = ((RangePartitionMap*)map)->rangeElements[cur].partitionOid;
+            }
+            partitionOidList = lappend_oid(partitionOidList, partitionId);
+        }
+    } else {
+        partitionOidList = relationGetPartitionOidList(rel);
+    }
     heap_close(rel, AccessShareLock);
 
     /* check all partitions */
@@ -188,7 +207,7 @@ bool CheckEnableImcsScan(RelOptInfo *rel, RangeTblEntry *rte)
     }
 
     /* partitioned table, and scan all partitions, check all parts */
-    return CheckPartitionsEnableImcsScan(rte->relid, scanAttrs);
+    return CheckPartitionsEnableImcsScan(rte->relid, rel->pruning_result, scanAttrs);
 }
 
 void try_add_imcstorescan_path(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte, int dop, bool can_parallel)
@@ -204,9 +223,13 @@ void try_add_imcstorescan_path(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry
     if (root->parse->commandType != CMD_SELECT) {
         return;
     }
-    if (!u_sess->attr.attr_sql.enable_imcsscan) {
+
+    List* hint = NIL;
+
+    hint = find_specific_scan_hint(root->parse->hintState, rel->relids, HINT_KEYWORD_IMCSSCAN);
+    if (!u_sess->attr.attr_sql.enable_imcsscan && hint == NIL)
         return;
-    }
+    list_free_ext(hint);
 
     if (!CheckEnableImcsScan(rel, rte)) {
         return;
