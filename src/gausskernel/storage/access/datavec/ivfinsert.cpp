@@ -87,13 +87,9 @@ static void FindInsertPage(Relation index, Datum *values, BlockNumber *insertPag
 
             list = (IvfflatList)PageGetItem(cpage, PageGetItemId(cpage, offno));
 
-            if (enableRabitQ) {
-                distance =
-                    DatumGetFloat8(FunctionCall2Coll(procinfo, collation, val, PointerGetDatum(&list->center)));
-            } else {
-                distance =
-                    DatumGetFloat8(FunctionCall2Coll(procinfo, collation, values[0], PointerGetDatum(&list->center)));
-            }
+            distance =
+                    DatumGetFloat8(FunctionCall2Coll(procinfo, collation, enableRabitQ ? val : values[0],
+                    PointerGetDatum(&list->center)));
             if (distance < minDistance || !BlockNumberIsValid(*insertPage)) {
                 *insertPage = list->insertPage;
                 listInfo->blkno = nextblkno;

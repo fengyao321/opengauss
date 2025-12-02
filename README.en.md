@@ -407,9 +407,12 @@ The software dependencies are as follows.
 | zstd,zstd-devel| 1.55      |
 | java-1.8.0-openjdk-devel| 1.8     |
 | openssl-devel| 1.1.1m     |
+| openblas-devel| 0.3.3 or later   |
+
+Note: The header files for openblas-devel are installed in /usr/include, which is typically the default path.
 
 ```shell
-yum install libaio-devel flex bison ncurses-devel glibc-devel patch readline-devel jemalloc-devel libcgroup-devel libcurl-devel libedit-devel libxml2-devel lz4-devel numactl-devel unixODBC-devel zstd zstd-devel java-1.8.0-openjdk-devel openssl-devel
+yum install libaio-devel flex bison ncurses-devel glibc-devel patch readline-devel jemalloc-devel libcgroup-devel libcurl-devel libedit-devel libxml2-devel lz4-devel numactl-devel unixODBC-devel zstd zstd-devel java-1.8.0-openjdk-devel openssl-devel openblas-devel
 ### lsb_release installed in CentOS
 yum install redhat-lsb-core
 ### lsb_release installed in openEuler
