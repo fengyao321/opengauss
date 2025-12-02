@@ -280,6 +280,10 @@ bool hnswgettuple_internal(IndexScanDesc scan, ScanDirection dir)
         value = GetScanValue(scan);
 
         if (so->enableRabitQ) {
+            if (t_thrd.proc->workingVersionNum < RABITQ_VERSION_NUM) {
+                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("Before RABITQ_VERSION_NUM VERSION NUM %u, we do not support rabitq.", RABITQ_VERSION_NUM)));
+            }
             if (CanUseMmap(scan->indexRelation)) {
                 ereport(ERROR, (errmsg("HNSW_RABITQ dose not support mmap.")));
             }

@@ -1,0 +1,97 @@
+create database test;
+\c test
+create table tableStandard (id int, val vector(100));
+do $$
+declare
+    vector_dim int := 100; -- 自定义向量的维度
+    vector_value float[];
+    record_num int := 3000; -- 自定义插入的记录数量
+    i int;
+    j int;
+begin
+    for j in 1..record_num loop
+    for i in 1..vector_dim loop
+        vector_value[i] :=  ROUND(RANDOM() * 100, 2); -- 使用随机数填充向量
+    end loop;
+    insert into tableStandard values (j, vector_value);
+    end loop;
+end $$;
+CREATE OR REPLACE FUNCTION explain_analyze_filtered(query text)
+RETURNS SETOF text AS $$
+DECLARE
+    plan_line text;
+BEGIN
+    -- 执行 EXPLAIN ANALYZE 并循环读取结果行
+    FOR plan_line IN EXECUTE 'EXPLAIN ANALYZE ' || query LOOP
+        -- 过滤掉时间相关行
+        IF plan_line !~* '(Execution Time:|Planning Time:|JIT Time:|Total runtime:|actual Time)' THEN
+            RETURN NEXT plan_line;
+        END IF;
+    END LOOP;
+    RETURN;
+END $$ LANGUAGE plpgsql;
+-- 1 先导入数据，再创建索引
+create table tablevector (id int, val vector(100));
+insert into tablevector select * from tableStandard;
+-- cosine + sq8 + rom
+CREATE INDEX idx_vectors_cosine ON tablevector USING hnsw (val vector_cosine_ops) WITH (m = 4, ef_construction = 10, enable_rabitq = on,rabitq_refine_type = 'sq8');
+-- l2 + fp32 + fht
+CREATE INDEX idx_vectors_l2 ON tablevector USING hnsw (val vector_l2_ops) WITH (m = 4, ef_construction = 10, enable_rabitq = on,rabitq_refine_type = 'fp32', rabitq_fht=on);
+-- ip + none + rom
+CREATE INDEX idx_vectors_ip ON tablevector USING hnsw (val vector_ip_ops) WITH (m = 4, ef_construction = 10, enable_rabitq = on,rabitq_refine_type = 'none');
+select explain_analyze_filtered('SELECT /*+ indexscan(tablevector idx_vectors_cosine) */ id FROM tablevector ORDER BY val <=> array_fill(1,array[100])::vector limit 3;');
+                                                                                                            explain_analyze_filtered                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [Bypass]
+         Order By: (val <=> '[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]'::vector)
+(2 rows)
+
+select explain_analyze_filtered('SELECT /*+ indexscan(tablevector idx_vectors_l2) */ id FROM tablevector ORDER BY val <-> array_fill(1,array[100])::vector limit 3;');
+                                                                                                            explain_analyze_filtered                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [Bypass]
+         Order By: (val <-> '[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]'::vector)
+(2 rows)
+
+select explain_analyze_filtered('SELECT /*+ indexscan(tablevector idx_vectors_ip) */ id FROM tablevector ORDER BY val <#> array_fill(1,array[100])::vector limit 3;');
+                                                                                                            explain_analyze_filtered                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [Bypass]
+         Order By: (val <#> '[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]'::vector)
+(2 rows)
+
+-- 2 先创建索引，再导入数据
+drop table tablevector;
+create table tablevector (id int, val vector(100));
+-- cosine + sq8 + rom
+CREATE INDEX idx_vectors_cosine ON tablevector USING hnsw (val vector_cosine_ops) WITH (m = 4, ef_construction = 10, enable_rabitq = on,rabitq_refine_type = 'sq8');
+-- l2 + fp32 + fht
+CREATE INDEX idx_vectors_l2 ON tablevector USING hnsw (val vector_l2_ops) WITH (m = 4, ef_construction = 10, enable_rabitq = on,rabitq_refine_type = 'fp32', rabitq_fht=on);
+-- ip + none + rom
+CREATE INDEX idx_vectors_ip ON tablevector USING hnsw (val vector_ip_ops) WITH (m = 4, ef_construction = 10, enable_rabitq = on,rabitq_refine_type = 'none');
+insert into tablevector select * from tableStandard;
+select explain_analyze_filtered('SELECT /*+ indexscan(tablevector idx_vectors_cosine) */ id FROM tablevector ORDER BY val <=> array_fill(1,array[100])::vector limit 3;');
+                                                                                                            explain_analyze_filtered                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [Bypass]
+         Order By: (val <=> '[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]'::vector)
+(2 rows)
+
+set rbq_query_bits=4;
+select explain_analyze_filtered('SELECT /*+ indexscan(tablevector idx_vectors_l2) */ id FROM tablevector ORDER BY val <-> array_fill(1,array[100])::vector limit 3;');
+                                                                                                            explain_analyze_filtered                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [Bypass]
+         Order By: (val <-> '[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]'::vector)
+(2 rows)
+
+set rbq_query_bits=8;
+select explain_analyze_filtered('SELECT /*+ indexscan(tablevector idx_vectors_ip) */ id FROM tablevector ORDER BY val <#> array_fill(1,array[100])::vector limit 3;');
+                                                                                                            explain_analyze_filtered                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [Bypass]
+         Order By: (val <#> '[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]'::vector)
+(2 rows)
+
+\c regression
+drop database test;

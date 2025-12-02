@@ -914,6 +914,7 @@ void GetTupleFromHeap(Relation relation, ItemPointer tid, HeapTuple tuple)
     tuple->t_self = *tid;
 
     if (heap_fetch(relation, SnapshotAny, tuple, &user_buf, false, NULL)) {
+        tuple->tupTableType = HEAP_TUPLE;
         ReleaseBuffer(user_buf);
     } else {
         ereport(ERROR, (errcode(ERRCODE_SYSTEM_ERROR), errmsg("The tuple is not found"),
