@@ -59,7 +59,7 @@ static void GetScanLists(IndexScanDesc scan, Datum value)
     uint16 pqTableNblk;
     uint32 pqDisTableNblk;
     IvfGetPQInfoFromMetaPage(scan->indexRelation, &pqTableNblk, NULL, &pqDisTableNblk, NULL);
-    BlockNumber nextblkno = IVFPQTABLE_START_BLKNO + pqTableNblk + pqDisTableNblk;
+    BlockNumber nextblkno = IVFFLAT_CHUNK_START_BLKNO + pqTableNblk + pqDisTableNblk;
     int listId = 0;
 
     double maxDistance = DBL_MAX;

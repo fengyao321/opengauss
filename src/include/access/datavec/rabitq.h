@@ -95,6 +95,7 @@ typedef struct RabitqQueryParams {
 #define rbqCodeSize(d, sq8) MAXALIGN(sizeof(FactorData) + (d + 7) / 8 + (sq8 ? d : 0))
 #define getRefineCode(ptr, offset) &(((RabitqVector *)ptr)->data[offset])
 #define rbqQuerySize(d, qb) MAXALIGN(sizeof(QueryFactorData) + ((d + 7) / 8) * qb)
+#define rbqDataSize(d, sq8) rbqCodeSize(d, sq8) - sizeof(FactorData)
 
 #define RBQ_BUILD_NORMAL 1
 #define RBQ_BUILD_DELAY 2

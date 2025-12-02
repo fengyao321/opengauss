@@ -36,15 +36,32 @@
 /*
  * Find the list that minimizes the distance function
  */
-static void FindInsertPage(Relation index, Datum *values, BlockNumber *insertPage, ListInfo *listInfo)
+static void FindInsertPage(Relation index, Datum *values, BlockNumber *insertPage, ListInfo *listInfo,
+    bool enableRabitQ, VectorTransform *vtrans, float **centroid)
 {
     double minDistance = DBL_MAX;
     uint16 pqTableNblk;
     uint32 pqDisTableNblk;
+    uint16 matrixNblk;
+    uint16 otherNblk;
     IvfGetPQInfoFromMetaPage(index, &pqTableNblk, NULL, &pqDisTableNblk, NULL);
-    BlockNumber nextblkno = IVFPQTABLE_START_BLKNO + pqTableNblk + pqDisTableNblk;
+    IvfflatGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, &matrixNblk,
+                        NULL, &otherNblk, NULL, NULL, NULL);
+    BlockNumber nextblkno = IVFFLAT_CHUNK_START_BLKNO + pqTableNblk + pqDisTableNblk + matrixNblk + otherNblk;
     FmgrInfo *procinfo;
     Oid collation;
+    
+    Vector *transValue = NULL;
+    Datum val = NULL;
+    if (enableRabitQ) {
+        transValue = InitVector(vtrans->dim);
+        if (vtrans->type == RANDOM_ORTHOGONAL) {
+            RomTransform(vtrans, ((Vector *)DatumGetPointer(values[0]))->x, transValue->x);
+        } else {
+            FhtTransform(vtrans, ((Vector *)DatumGetPointer(values[0]))->x, transValue->x);
+        }
+        val = (Datum)transValue;
+    }
 
     /* Avoid compiler warning */
     listInfo->blkno = nextblkno;
@@ -69,13 +86,20 @@ static void FindInsertPage(Relation index, Datum *values, BlockNumber *insertPag
             double distance;
 
             list = (IvfflatList)PageGetItem(cpage, PageGetItemId(cpage, offno));
-            distance =
-                DatumGetFloat8(FunctionCall2Coll(procinfo, collation, values[0], PointerGetDatum(&list->center)));
+
+            if (enableRabitQ) {
+                distance =
+                    DatumGetFloat8(FunctionCall2Coll(procinfo, collation, val, PointerGetDatum(&list->center)));
+            } else {
+                distance =
+                    DatumGetFloat8(FunctionCall2Coll(procinfo, collation, values[0], PointerGetDatum(&list->center)));
+            }
             if (distance < minDistance || !BlockNumberIsValid(*insertPage)) {
                 *insertPage = list->insertPage;
                 listInfo->blkno = nextblkno;
                 listInfo->offno = offno;
                 minDistance = distance;
+                *centroid = list->center.x;
             }
         }
 
@@ -190,6 +214,11 @@ static void InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
     BlockNumber originalInsertPage;
     PQParams params;
     bool enablePQ;
+    bool enableRabitQ;
+    bool useFHT;
+    RabitQConfig *rbqConfig = NULL;
+    float *centroid = NULL;
+
     bool byResidual;
     uint16 pqcodeSize;
     int dim = TupleDescAttr(index->rd_att, 0)->atttypmod;
@@ -209,18 +238,67 @@ static void InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
         value = IvfflatNormValue(typeInfo, collation, value);
     }
 
+    rbqConfig = IvfInitRbqConfigOnDisk(index, &enableRabitQ, dim);
+    Size rbqvecsize = enableRabitQ ? MAXALIGN(sizeof(FactorData)) : 0;
+    VectorTransform *vtrans = NULL;
+    Vector *transValue = NULL;
+    if (enableRabitQ) {
+        vtrans = rbqConfig->vtrans;
+        transValue = InitVector(dim);
+        if (vtrans->type == RANDOM_ORTHOGONAL) {
+            RomTransform(vtrans, ((Vector *)DatumGetPointer(value))->x, transValue->x);
+        } else {
+            FhtTransform(vtrans, ((Vector *)DatumGetPointer(value))->x, transValue->x);
+        }
+    }
+
     /* Ensure index is valid */
     IvfflatGetMetaPageInfo(index, NULL, NULL);
 
     InitPQParamsOnDisk(index, &params, dim, &enablePQ, &byResidual, &pqcodeSize);
 
     /* Find the insert page - sets the page and list info */
-    FindInsertPage(index, values, &insertPage, &listInfo);
+    FindInsertPage(index, values, &insertPage, &listInfo, enableRabitQ, vtrans, &centroid);
     Assert(BlockNumberIsValid(insertPage));
     originalInsertPage = insertPage;
 
+    RabitqVector *rbqVec = NULL;
+    if (enableRabitQ) {
+        bool refineSQ8 = rbqConfig->reType == SQ8;
+        if (refineSQ8) {
+            /* Calculate origin vector's SQ8 */
+            rbqVec = (RabitqVector *)palloc(rbqCodeSize(dim, true));
+            ScalarQuantizer *sq = rbqConfig->sq;
+            VectorEncodeSQ(dim, sq->trained, sq->trained + dim, ((Vector *)DatumGetPointer(value))->x,
+                                getRefineCode(rbqVec, rbqConfig->reOffset));
+        } else {
+            rbqVec = (RabitqVector *)palloc(rbqCodeSize(dim, false));
+        }
+
+        FmgrInfo *procinfo = index_getprocinfo(index, 1, IVFFLAT_DISTANCE_PROC);
+        FmgrInfo *normprocinfo = IvfflatOptionalProcInfo(index, IVFFLAT_NORM_PROC);
+        int funcType = GetFunctionType(procinfo, normprocinfo);
+        ComputeVectorRBQCode(dim, transValue->x, rbqVec, centroid, funcType);
+        
+        bytea *rbqdata = (bytea *)palloc(rbqDataSize(dim, refineSQ8) + VARHDRSZ);
+        SET_VARSIZE(rbqdata, rbqDataSize(dim, refineSQ8) + VARHDRSZ);
+
+        errno_t rc = memcpy_s(VARDATA(rbqdata), rbqDataSize(dim, refineSQ8),
+            rbqVec->data, rbqDataSize(dim, refineSQ8));
+        securec_check(rc, "\0", "\0");
+
+        TupleDesc rbqTupdesc = CreateTemplateTupleDesc(1, false);
+        TupleDescInitEntry(rbqTupdesc, (AttrNumber)1, "rbqdata", BYTEAOID, -1, 0);
+        Datum data = PointerGetDatum(rbqdata);
+        rbqTupdesc->attrs[0].attrelid = RelationGetDescr(index)->attrs[0].attrelid;
+        rbqTupdesc->attrs[0].attstorage = 'p';
+
+        itup = index_form_tuple(rbqTupdesc, &data, isnull);
+    } else {
+        itup = index_form_tuple(RelationGetDescr(index), &value, isnull);
+    }
+
     /* Form tuple */
-    itup = index_form_tuple(RelationGetDescr(index), &value, isnull);
     itup->t_tid = *heap_tid;
 
     /* Get tuple size */
@@ -235,7 +313,7 @@ static void InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
 
         state = GenericXLogStart(index);
         page = GenericXLogRegisterBuffer(state, buf, 0);
-        if (PageGetFreeSpace(page) >= itemsz + MAXALIGN(pqcodeSize)) {
+        if (PageGetFreeSpace(page) >= itemsz + MAXALIGN(pqcodeSize) + rbqvecsize) {
             break;
         }
 
@@ -300,6 +378,14 @@ static void InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
         securec_check_c(rc, "\0", "\0");
     }
 
+    if (enableRabitQ) {
+        FactorData *ptr = &(rbqVec->fac);
+        ((PageHeader)page)->pd_upper -= rbqvecsize;
+        errno_t rc = memcpy_s(
+            ((char *)page) + ((PageHeader)page)->pd_upper, rbqvecsize, (char *)ptr, rbqvecsize);
+        securec_check_c(rc, "\0", "\0");
+    }
+
     /* Add to next offset */
     if (PageAddItem(page, (Item)itup, itemsz, InvalidOffsetNumber, false, false) == InvalidOffsetNumber)
         elog(ERROR, "failed to add index item to \"%s\"", RelationGetRelationName(index));
@@ -331,6 +417,36 @@ bool ivfflatinsert_internal(Relation index, Datum *values, const bool *isnull, I
     /* Skip nulls */
     if (isnull[0]) {
         return false;
+    }
+
+    int rbqDelayState;
+    int64 insertedRows;
+    IvfflatGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, NULL, NULL,
+                               NULL, NULL, &rbqDelayState, &insertedRows);
+    if (rbqDelayState == RBQ_BUILD_DELAY) {
+        LockPage(index, IVFFLAT_METAPAGE_BLKNO, ExclusiveLock);
+        int rbqDelayStateCheck;
+        IvfflatGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, NULL, NULL,
+                               NULL, NULL, &rbqDelayStateCheck, NULL);
+        if (rbqDelayStateCheck == RBQ_BUILD_DELAY) {
+            int64 sampleRows = u_sess->datavec_ctx.rbq_sample_rows;
+            if (insertedRows + 1 < sampleRows) {
+                IvfUpdateMetaPageRbq(index, MAIN_FORKNUM, false);
+            } else if (insertedRows + 1 == sampleRows) {
+                IvfUpdateMetaPageRbq(index, MAIN_FORKNUM, true);
+                IvfflatBuildState buildstate;
+                IndexInfo *indexInfo = BuildIndexInfo(index);
+                BuildIndex(heap, index, indexInfo, &buildstate, MAIN_FORKNUM, true);
+                ereport(LOG, (errmsg("The amount of data in the heap table is equal to rbq_sample_rows,"
+                    "build Ivfflat RabitQ index.")));
+            } else {
+                ereport(ERROR, (errmsg("The amount of data in the heap table is greater than rbq_sample_rows,"
+                    "but the state of rbqDelay has not changed.")));
+            }
+            UnlockPage(index, IVFFLAT_METAPAGE_BLKNO, ExclusiveLock);
+            return false;
+        }
+        UnlockPage(index, IVFFLAT_METAPAGE_BLKNO, ExclusiveLock);
     }
 
     /*

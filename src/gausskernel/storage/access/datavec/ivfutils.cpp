@@ -25,6 +25,7 @@
 #include "access/generic_xlog.h"
 #include "access/datavec/bitvec.h"
 #include "catalog/pg_type.h"
+#include "catalog/index.h"
 #include "fmgr.h"
 #include "access/datavec/halfutils.h"
 #include "access/datavec/halfvec.h"
@@ -224,7 +225,7 @@ char* IVFPQLoadPQtable(Relation index)
 
     for (uint16 i = 0; i < nblks; i++) {
         curFlushSize = (i == nblks - 1) ? (pqTableSize - i * CHUNK_STORAGE_SIZE) : CHUNK_STORAGE_SIZE;
-        buf = ReadBuffer(index, IVFPQTABLE_START_BLKNO + i);
+        buf = ReadBuffer(index, IVFFLAT_CHUNK_START_BLKNO + i);
         LockBuffer(buf, BUFFER_LOCK_SHARE);
         page = BufferGetPage(buf);
         errno_t err = memcpy_s(pqTable + i * CHUNK_STORAGE_SIZE, curFlushSize,
@@ -248,7 +249,7 @@ float* IVFPQLoadPQDisTable(Relation index)
     IvfGetPQInfoFromMetaPage(index, &pqTableNblk, NULL, &nblks, &pqDisTableSize);
     disTable = (float*)palloc0(pqDisTableSize);
 
-    BlockNumber startBlkno = IVFPQTABLE_START_BLKNO + pqTableNblk;
+    BlockNumber startBlkno = IVFFLAT_CHUNK_START_BLKNO + pqTableNblk;
     for (uint32 i = 0; i < nblks; i++) {
         curFlushSize = (i == nblks - 1) ? (pqDisTableSize - i * CHUNK_STORAGE_SIZE) : CHUNK_STORAGE_SIZE;
         buf = ReadBuffer(index, startBlkno + i);
@@ -381,6 +382,7 @@ const IvfflatTypeInfo *IvfflatGetTypeInfo(Relation index)
         static const IvfflatTypeInfo typeInfo = {.maxDimensions = IVFFLAT_MAX_DIM,
                                                  .supportNPU = true,
                                                  .supportPQ = true,
+                                                 .supportRabitQ = true,
                                                  .normalize = l2_normalize,
                                                  .itemSize = VectorItemSize,
                                                  .updateCenter = VectorUpdateCenter,
@@ -398,6 +400,7 @@ Datum ivfflat_halfvec_support(PG_FUNCTION_ARGS)
     static const IvfflatTypeInfo typeInfo = {.maxDimensions = IVFFLAT_MAX_DIM * 2,
                                              .supportNPU = false,
                                              .supportPQ = false,
+                                             .supportRabitQ = false,
                                              .normalize = halfvec_l2_normalize,
                                              .itemSize = HalfvecItemSize,
                                              .updateCenter = HalfvecUpdateCenter,
@@ -412,6 +415,7 @@ Datum ivfflat_bit_support(PG_FUNCTION_ARGS)
     static const IvfflatTypeInfo typeInfo = {.maxDimensions = IVFFLAT_MAX_DIM * 32,
                                              .supportNPU = false,
                                              .supportPQ = false,
+                                             .supportRabitQ = false,
                                              .normalize = NULL,
                                              .itemSize = BitItemSize,
                                              .updateCenter = BitUpdateCenter,
@@ -520,7 +524,7 @@ int IvfGetByResidual(Relation index)
     return IVFPQ_DEFAULT_RESIDUAL;
 }
 
-void IvfFlushPQInfoInternal(Relation index, char* table, BlockNumber startBlkno, uint32 nblks, uint64 totalSize)
+void IvfFlushChunkInfoInternal(Relation index, char* table, BlockNumber startBlkno, uint32 nblks, uint64 totalSize)
 {
     Buffer buf;
     Page page;
@@ -534,7 +538,7 @@ void IvfFlushPQInfoInternal(Relation index, char* table, BlockNumber startBlkno,
         buf = ReadBufferExtended(index, MAIN_FORKNUM, startBlkno + i, RBM_NORMAL, NULL);
         LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
         state = GenericXLogStart(index);
-        page = GenericXLogRegisterBuffer(state, buf, 0);
+        page = GenericXLogRegisterBuffer(state, buf, GENERIC_XLOG_FULL_IMAGE);
         errno_t err = memcpy_s(PageGetContents(page), curFlushSize,
                                table + i * CHUNK_STORAGE_SIZE, curFlushSize);
         securec_check(err, "\0", "\0");
@@ -561,10 +565,222 @@ void IvfFlushPQInfo(IvfflatBuildState *buildstate)
     IvfGetPQInfoFromMetaPage(index, &pqTableNblk, &pqTableSize, &pqPrecomputeTableNblk, &pqPrecomputeTableSize);
 
     /* Flush pq table */
-    IvfFlushPQInfoInternal(index, pqTable, IVF_PQTABLE_START_BLKNO, pqTableNblk, pqTableSize);
+    IvfFlushChunkInfoInternal(index, pqTable, IVF_PQTABLE_START_BLKNO, pqTableNblk, pqTableSize);
     if (buildstate->byResidual && buildstate->params->funcType != DIS_IP) {
         /* Flush pq distance table */
-        IvfFlushPQInfoInternal(index, (char*)preComputeTable,
+        IvfFlushChunkInfoInternal(index, (char*)preComputeTable,
                                IVF_PQTABLE_START_BLKNO + pqTableNblk, pqPrecomputeTableNblk, pqPrecomputeTableSize);
     }
+}
+
+/*
+ * Get whether to enable RabitQ
+ */
+bool IvfGetEnableRabitQ(Relation index)
+{
+    IvfflatOptions *opts = (IvfflatOptions *)index->rd_options;
+
+    if (opts) {
+        return opts->enableRabitQ;
+    }
+
+    return GENERIC_DEFAULT_ENABLE_RABITQ;
+}
+
+/*
+ * Get whether to enable FHT Matrix
+ */
+bool IvfGetUseFHT(Relation index)
+{
+    IvfflatOptions *opts = (IvfflatOptions *)index->rd_options;
+
+    if (opts) {
+        return opts->rabitqFHT;
+    }
+
+    return GENERIC_DEFAULT_USE_FHT;
+}
+
+/*
+ * Get refine type
+ */
+RefineType IvfGetRefineType(Relation index)
+{
+    IvfflatOptions *opts = (IvfflatOptions *)index->rd_options;
+
+    if (opts) {
+        char *rrt = (char *)IvfflatOptionsGetStringData(opts, rabitqRT, RABITQ_REFINE_TYPE_SQ8);
+        if (pg_strcasecmp(rrt, RABITQ_REFINE_TYPE_SQ8) == 0) {
+            return SQ8;
+        } else if (pg_strcasecmp(rrt, RABITQ_REFINE_TYPE_FP32) == 0) {
+            return FP32;
+        } else if (pg_strcasecmp(rrt, RABITQ_REFINE_TYPE_NONE) == 0) {
+            return NotRefine;
+        }
+    }
+
+    return GENERIC_DEFAULT_REFINE_TYPE;
+}
+
+/*
+* Get the info related to RabitQ in metapage
+*/
+void IvfflatGetRbqInfoFromMetaPage(Relation index, bool *enableRabitQ, bool *useFHT, uint16 *reOffset,
+                                RefineType *reType, uint16 *matrixNblk, uint32 *matrixSize,
+                                uint16 *otherNblk, uint32 *otherSize, int *rbqDelayState, int64 *rbqInsertRows)
+{
+    Buffer buf;
+    Page page;
+
+    buf = ReadBuffer(index, IVFFLAT_METAPAGE_BLKNO);
+    LockBuffer(buf, BUFFER_LOCK_SHARE);
+    page = BufferGetPage(buf);
+
+    IvfflatMetaPage metap = IvfflatPageGetMeta(page);
+    if (unlikely(metap->magicNumber != IVFFLAT_MAGIC_NUMBER)) {
+        UnlockReleaseBuffer(buf);
+        elog(ERROR, "ivfflat index is not valid");
+    }
+
+    if (enableRabitQ != NULL) {
+        *enableRabitQ = metap->enableRabitQ;
+    }
+    if (useFHT != NULL) {
+        *useFHT = metap->useFHT;
+    }
+    if (reOffset != NULL) {
+        *reOffset = metap->reOffset;
+    }
+    if (matrixNblk != NULL) {
+        *matrixNblk = metap->matrixNblk;
+    }
+    if (matrixSize != NULL) {
+        *matrixSize = metap->matrixSize;
+    }
+    if (reType != NULL) {
+        *reType = metap->reType;
+    }
+    if (otherNblk != NULL) {
+        *otherNblk = metap->otherNblk;
+    }
+    if (otherSize != NULL) {
+        *otherSize = metap->otherSize;
+    }
+    if (rbqDelayState != NULL) {
+        *rbqDelayState = metap->rbqDelayState;
+    }
+    if (rbqInsertRows != NULL) {
+        *rbqInsertRows = metap->rbqInsertRows;
+    }
+
+    UnlockReleaseBuffer(buf);
+}
+
+FactorData *LoadRbqData(IndexTuple itup)
+{
+    return (FactorData *)((char *)itup + MAXALIGN(IndexTupleSize(itup)));
+}
+
+void* IvfLoadRbq(Relation index, uint16 startBlkNo, uint16 nblk, uint32 size)
+{
+    Buffer buf;
+    Page page;
+    uint32 curFlushSize;
+    void *rbq = (void *)palloc0(size);
+
+    for (uint16 i = 0; i < nblk; i++) {
+        curFlushSize = (i == nblk - 1) ? (size - i * CHUNK_STORAGE_SIZE) : CHUNK_STORAGE_SIZE;
+        buf = ReadBuffer(index, startBlkNo + i);
+        LockBuffer(buf, BUFFER_LOCK_SHARE);
+        page = BufferGetPage(buf);
+        errno_t err = memcpy_s((char *)rbq + i * CHUNK_STORAGE_SIZE, curFlushSize,
+                               PageGetContents(page), curFlushSize);
+        securec_check(err, "\0", "\0");
+        UnlockReleaseBuffer(buf);
+    }
+    return rbq;
+}
+
+RabitQConfig *IvfInitRbqConfigOnDisk(Relation index, bool *enableRabitQ, int dim)
+{
+    uint16 matrixNblk;
+    uint32 matrixSize;
+    uint16 otherNblk;
+    uint32 otherSize;
+    bool useFHT;
+    uint16 reOffset;
+    RefineType reType;
+
+    IvfflatGetRbqInfoFromMetaPage(index, enableRabitQ, &useFHT, &reOffset, &reType, &matrixNblk,
+                               &matrixSize, &otherNblk, &otherSize, NULL, NULL);
+
+    if (!enableRabitQ) {
+        return NULL;
+    }
+    if (index->rbqMatrix == NULL) {
+        MemoryContext oldcxt = MemoryContextSwitchTo(index->rd_indexcxt);
+        void *rbq = IvfLoadRbq(index, IVFFLAT_CHUNK_START_BLKNO, matrixNblk, matrixSize);
+        if (useFHT) {
+            FastRotation *fr = FhtDeserialize(rbq);
+            index->rbqMatrix = (void *)fr;
+            pfree(rbq);
+        } else {
+            index->rbqMatrix = rbq;
+        }
+        (void)MemoryContextSwitchTo(oldcxt);
+    }
+    if (index->rbqOther == NULL) {
+        MemoryContext oldcxt = MemoryContextSwitchTo(index->rd_indexcxt);
+        index->rbqOther = (float *)IvfLoadRbq(index, IVFFLAT_CHUNK_START_BLKNO + matrixNblk,
+                          otherNblk, otherSize);
+        (void)MemoryContextSwitchTo(oldcxt);
+    }
+ 
+    RabitQConfig *rbqConfig = (RabitQConfig *)palloc(sizeof(RabitQConfig));
+    rbqConfig->FHT = useFHT;
+    rbqConfig->reOffset = reOffset;
+    rbqConfig->reType = reType;
+    if (reType == SQ8) {
+        rbqConfig->sq = (ScalarQuantizer *)palloc(sizeof(ScalarQuantizer));
+        rbqConfig->sq->dim = dim;
+        rbqConfig->sq->trained = index->rbqOther;
+        rbqConfig->sq->decodeVec = InitVector(dim);
+    } else {
+        rbqConfig->sq = NULL;
+    }
+    VectorTransform *vtrans = (VectorTransform *)palloc(sizeof(VectorTransform));
+    rbqConfig->vtrans = vtrans;
+    vtrans->dim = dim;
+    if (useFHT) {
+        vtrans->type = FAST_HTRANSFORM;
+        vtrans->fastRotation = (FastRotation *)index->rbqMatrix;
+    } else {
+        vtrans->type = RANDOM_ORTHOGONAL;
+        vtrans->matrix = (float *)index->rbqMatrix;
+    }
+    return rbqConfig;
+}
+
+/*
+ * Update the metapage about RabitQ
+ */
+void IvfUpdateMetaPageRbq(Relation index, ForkNumber forkNum, bool updateDelay)
+{
+    Buffer buf;
+    Page page;
+    GenericXLogState *state;
+
+    buf = ReadBufferExtended(index, forkNum, IVFFLAT_METAPAGE_BLKNO, RBM_NORMAL, NULL);
+    LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
+    state = GenericXLogStart(index);
+    page = GenericXLogRegisterBuffer(state, buf, 0);
+
+    IvfflatMetaPage metap = IvfflatPageGetMeta(page);
+    metap->rbqInsertRows += 1;
+    if (updateDelay) {
+        metap->rbqDelayState = RBQ_BUILD_AFTER_DELAY;
+    }
+
+    GenericXLogFinish(state);
+    UnlockReleaseBuffer(buf);
 }
