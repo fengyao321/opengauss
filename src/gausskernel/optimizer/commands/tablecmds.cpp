@@ -6998,8 +6998,9 @@ void RenameRelationInternal(Oid myrelid, const char* newrelname, char* newschema
               errcause("The function is not implemented."), erraction("Create a new table to replace it."))));
     }
 
-    if (OBJECT_IS_SEQUENCE(targetrelation->rd_rel->reltype)|| RELKIND_IS_SEQUENCE(targetrelation->rd_rel->relkind)) {
-        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("RENAME SEQUENCE is not yet supported.")));
+    if (DB_IS_CMPT(D_FORMAT) &&
+        RELKIND_IS_SEQUENCE(RelationGetRelkind(targetrelation))) {
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("ALTER SEQUENCE ... RENAME not supported in D-format.")));
     }
 
     /* We allow to alter global temp table only this session use it */

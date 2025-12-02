@@ -1,0 +1,14 @@
+create schema alter_sequence;
+set current_schema = alter_sequence;
+create table identity_t1(id int IDENTITY, bookname NVARCHAR(50), author NVARCHAR(50));
+NOTICE:  CREATE TABLE will create implicit sequence "identity_t1_id_seq_identity" for serial column "identity_t1.id"
+create sequence s1;
+-- alter sequence name not supported
+alter sequence identity_t1_id_seq_identity rename to identity_t1_id_seq_identity1;
+ERROR:  ALTER SEQUENCE ... RENAME not supported in D-format.
+alter sequence s1 rename to s2;
+ERROR:  ALTER SEQUENCE ... RENAME not supported in D-format.
+drop schema alter_sequence cascade;
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table identity_t1
+drop cascades to sequence s1

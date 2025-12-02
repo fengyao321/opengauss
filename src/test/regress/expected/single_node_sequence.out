@@ -181,30 +181,33 @@ DROP SEQUENCE sequence_test;
 -- renaming sequences
 CREATE SEQUENCE foo_seq;
 ALTER TABLE foo_seq RENAME TO foo_seq_new;
-ERROR:  RENAME SEQUENCE is not yet supported.
 SELECT * FROM foo_seq_new;
-ERROR:  relation "foo_seq_new" does not exist on datanode1
-LINE 1: SELECT * FROM foo_seq_new;
-                      ^
+ sequence_name | last_value | start_value | increment_by |      max_value      | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+---------------------+-----------+-------------+---------+-----------+-----------+------
+ foo_seq       |          1 |           1 |            1 | 9223372036854775807 |         1 |           1 |       0 | f         | f         |    0
+(1 row)
+
 SELECT nextval('foo_seq_new');
-ERROR:  relation "foo_seq_new" does not exist
-LINE 1: SELECT nextval('foo_seq_new');
-                       ^
-CONTEXT:  referenced column: nextval
+ nextval 
+---------
+       1
+(1 row)
+
 SELECT nextval('foo_seq_new');
-ERROR:  relation "foo_seq_new" does not exist
-LINE 1: SELECT nextval('foo_seq_new');
-                       ^
-CONTEXT:  referenced column: nextval
+ nextval 
+---------
+       2
+(1 row)
+
 SELECT * FROM foo_seq_new;
-ERROR:  relation "foo_seq_new" does not exist on datanode1
-LINE 1: SELECT * FROM foo_seq_new;
-                      ^
+ sequence_name | last_value | start_value | increment_by |      max_value      | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+---------------------+-----------+-------------+---------+-----------+-----------+------
+ foo_seq       |          2 |           1 |            1 | 9223372036854775807 |         1 |           1 |      31 | f         | t         |    0
+(1 row)
+
 DROP SEQUENCE foo_seq_new;
-ERROR:  sequence "foo_seq_new" does not exist
 -- renaming serial sequences
 ALTER TABLE serialtest_f2_seq RENAME TO serialtest_f2_foo;
-ERROR:  RENAME SEQUENCE is not yet supported.
 INSERT INTO serialTest VALUES ('more');
 SELECT * FROM serialTest;
   f1   | f2  

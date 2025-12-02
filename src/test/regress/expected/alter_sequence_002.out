@@ -1,0 +1,84 @@
+DROP SCHEMA IF EXISTS test_alter_seq_sche_02 CASCADE;
+NOTICE:  schema "test_alter_seq_sche_02" does not exist, skipping
+CREATE SCHEMA test_alter_seq_sche_02;
+SET CURRENT_SCHEMA TO test_alter_seq_sche_02;
+CREATE SEQUENCE seqa;
+CREATE SEQUENCE seqb;
+SELECT NEXTVAL('seqa');
+ nextval 
+---------
+       1
+(1 row)
+
+-- error
+ALTER SEQUENCE seqa RENAME TO seqb;
+ERROR:  relation "seqb" already exists
+ALTER SEQUENCE seqa RENAME TO seqa1;
+SELECT NEXTVAL('seqa');
+ERROR:  relation "seqa" does not exist
+LINE 1: SELECT NEXTVAL('seqa');
+                       ^
+CONTEXT:  referenced column: nextval
+-- state of sequence
+SELECT NEXTVAL('seqa1');
+ nextval 
+---------
+       2
+(1 row)
+
+SELECT sequence_name, start_value, increment_by, max_value, min_value FROM seqa;
+ERROR:  relation "seqa" does not exist on datanode1
+LINE 1: ..., start_value, increment_by, max_value, min_value FROM seqa;
+                                                                  ^
+SELECT sequence_name, start_value, increment_by, max_value, min_value FROM seqa1;
+ sequence_name | start_value | increment_by |      max_value      | min_value 
+---------------+-------------+--------------+---------------------+-----------
+ seqa          |           1 |            1 | 9223372036854775807 |         1
+(1 row)
+
+DROP SEQUENCE seqa1;
+DROP SEQUENCE seqb;
+-- serial, internal sequence
+CREATE TABLE t1 (a serial, b int);
+NOTICE:  CREATE TABLE will create implicit sequence "t1_a_seq" for serial column "t1.a"
+INSERT INTO t1 (b) VALUES (1);
+ALTER SEQUENCE t1_a_seq RENAME to a_seq1;
+-- sequence_name: a_seq1
+SELECT sequence_name, start_value, increment_by, max_value, min_value FROM a_seq1;
+ sequence_name | start_value | increment_by |      max_value      | min_value 
+---------------+-------------+--------------+---------------------+-----------
+ t1_a_seq      |           1 |            1 | 9223372036854775807 |         1
+(1 row)
+
+INSERT INTO t1 (b) VALUES (1);
+SELECT a, b FROM t1 order by a;
+ a | b 
+---+---
+ 1 | 1
+ 2 | 1
+(2 rows)
+
+-- copy serial success
+CREATE TABLE t2 (like t1 INCLUDING DEFAULTS);
+NOTICE:  CREATE TABLE will create implicit sequence "t2_a_seq" for serial column "t2.a"
+\d+ t2;
+                                    Table "test_alter_seq_sche_02.t2"
+ Column |  Type   |                   Modifiers                    | Storage | Stats target | Description 
+--------+---------+------------------------------------------------+---------+--------------+-------------
+ a      | integer | not null default nextval('t2_a_seq'::regclass) | plain   |              | 
+ b      | integer |                                                | plain   |              | 
+Has OIDs: no
+Options: orientation=row, compression=no
+
+INSERT INTO t2 (b) VALUES (1);
+INSERT INTO t2 (b) VALUES (1);
+SELECT a, b FROM t1 order by a;
+ a | b 
+---+---
+ 1 | 1
+ 2 | 1
+(2 rows)
+
+DROP TABLE t1;
+DROP TABLE t2;
+DROP SCHEMA test_alter_seq_sche_02 CASCADE;

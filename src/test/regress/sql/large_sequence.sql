@@ -140,22 +140,22 @@ DROP LARGE SEQUENCE S CASCADE;
 -- alter sequence
 CREATE LARGE SEQUENCE foo;
 
--- rename not supported
+-- rename supported
 ALTER LARGE SEQUENCE foo RENAME TO bar;
 
 SELECT * FROM foo;
 
 -- alter maxvalue - ok
-ALTER LARGE SEQUENCE foo MAXVALUE 1000;
+ALTER LARGE SEQUENCE bar MAXVALUE 1000;
 
 -- alter owner role -ok
 CREATE ROLE role_foo PASSWORD '!@#123qwe';
-ALTER LARGE SEQUENCE foo OWNER TO role_foo;
+ALTER LARGE SEQUENCE bar OWNER TO role_foo;
 
 -- alter owner column - fail if owners are different
 CREATE TABLE tab_foo (a bigint);
-ALTER LARGE SEQUENCE foo OWNED BY tab_foo.a;
-DROP LARGE SEQUENCE IF EXISTS foo;
+ALTER LARGE SEQUENCE bar OWNED BY tab_foo.a;
+DROP LARGE SEQUENCE IF EXISTS bar;
 CREATE LARGE SEQUENCE foo;
 ALTER LARGE SEQUENCE IF EXISTS foo OWNED BY tab_foo.a;
 
