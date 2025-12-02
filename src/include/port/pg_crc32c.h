@@ -54,10 +54,11 @@ extern uint32 pg_crc32c_hardware(uint32 crc, const void* data, Size len);
 }
 #endif
 
+extern pg_crc32c pg_comp_crc32c_armv8(pg_crc32c crc, const void* data, size_t len);
 /* Accumulate some (more) bytes into a CRC */
 #define COMP_CRC32C(crc, data, len)                                                  \
     do {                                                                             \
-        (crc) = pg_crc32c_hardware((uint32)(crc), (const void*)(data), (Size)(len)); \
+        (crc) = pg_comp_crc32c_armv8((uint32)(crc), (const void*)(data), (Size)(len)); \
     } while (0)
 
 #define FIN_CRC32C(crc) ((crc) ^= 0xFFFFFFFF)

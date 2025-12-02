@@ -65,8 +65,7 @@ OBJS_SRV = $(OBJS:%.o=%_srv.o)
 
 AARCH64_CRC_OBJ =
 ifeq "${host_cpu}" "aarch64"
-  AARCH64_CRC_OBJ = crc32_arm_parallel.o
-  OBJS += $(AARCH64_CRC_OBJ)
+  OBJS += pg_crc32c_armv8.o
 endif
 
 OBJS_TOOL = fls.o strlcat.o strlcpy.o getpeereid.o chklocale.o dirmod.o erand48.o exec.o inet_net_ntop.o \
@@ -101,17 +100,15 @@ libpgport.a: $(OBJS)
 # thread.o needs PTHREAD_CFLAGS (but thread_srv.o does not)
 thread.o: CFLAGS+=$(PTHREAD_CFLAGS)
 
-crc32_arm_parallel.o: crc32_arm_parallel.S
-	$(CC) $(CPPFLAGS) $(CFLAGS) -march=armv8-a+crc+crypto -o $@ -c $^
-
-
-crc32_arm_parallel_srv.o: crc32_arm_parallel.S
-	$(CC) $(CPPFLAGS) $(CFLAGS) -march=armv8-a+crc+crypto -o $@ -c $^
-
 # pg_crc32c_sse42.o and its _srv.o version need CFLAGS_SSE42
 CFLAGS_SSE42=-msse4.2
 pg_crc32c_sse42.o: CFLAGS+=$(CFLAGS_SSE42)
 pg_crc32c_sse42_srv.o: CFLAGS+=$(CFLAGS_SSE42)
+
+# pg_crc32c_armv8.o and its _srv.o version need CFLAGS_ARMV8_CRC
+CFLAGS_ARMV8_CRC=-march=armv8-a+crc+crypto
+pg_crc32c_armv8.o: CPPFLAGS+=$(CFLAGS_ARMV8_CRC)
+pg_crc32c_armv8_srv.o: CPPFLAGS+=$(CFLAGS_ARMV8_CRC)
 
 #
 # Server versions of object files

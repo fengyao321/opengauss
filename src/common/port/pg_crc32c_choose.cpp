@@ -32,20 +32,13 @@
 
 #if defined(__aarch64__) && defined(__GNUC__)
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-extern int crc32_arm(const void* buffer, unsigned int length, int seed);
+/* Forward declaration of the ARMv8 C++ implementation */
+pg_crc32c pg_comp_crc32c_armv8(pg_crc32c crc, const void* data, size_t len);
 
 uint32 pg_crc32c_hardware(uint32 crc, const void* data, Size len)
 {
-    return (uint32)crc32_arm(data, len, crc);
+    return (uint32)pg_comp_crc32c_armv8(crc, data, len);
 }
-
-#ifdef __cplusplus
-}
-#endif
 
 #else
 

@@ -10,6 +10,7 @@ execute_process(
     COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/getpeereid.cpp ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/getpeereid.cpp
     COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/pg_crc32c_sse42.cpp ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/pg_crc32c_sse42.cpp
     COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/pg_crc32c_sb8.cpp ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/pg_crc32c_sb8.cpp
+    COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/pg_crc32c_armv8.cpp ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/pg_crc32c_armv8.cpp
     COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/pg_crc32c_choose.cpp ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/pg_crc32c_choose.cpp
     COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/chklocale.cpp ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/chklocale.cpp
     COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/dirmod.cpp ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/dirmod.cpp
@@ -37,7 +38,6 @@ execute_process(
     COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/gs_syscall_lock.cpp ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/gs_syscall_lock.cpp
     COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/gs_system.cpp ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/gs_system.cpp
     COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/cipher.cpp ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/cipher.cpp
-    COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/crc32_arm_parallel.S ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/crc32_arm_parallel.S
 )
 
 execute_process(
@@ -52,7 +52,7 @@ list(APPEND TGT_port_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/getpeereid.cpp 
     ${CMAKE_CURRENT_SOURCE_DIR}/pg_crc32c_sse42.cpp 
     ${CMAKE_CURRENT_SOURCE_DIR}/pg_crc32c_sb8.cpp 
-    ${CMAKE_CURRENT_SOURCE_DIR}/pg_crc32c_choose.cpp 
+    ${CMAKE_CURRENT_SOURCE_DIR}/pg_crc32c_choose.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/chklocale.cpp 
     ${CMAKE_CURRENT_SOURCE_DIR}/dirmod.cpp 
     ${CMAKE_CURRENT_SOURCE_DIR}/erand48.cpp 
@@ -87,7 +87,7 @@ list(APPEND TGT_port_SRC
 # aarch64
 if("${BUILD_TUPLE}" STREQUAL "aarch64")
     list(REMOVE_ITEM TGT_port_SRC ${CMAKE_CURRENT_SOURCE_DIR}/pg_crc32c_sb8.cpp ${CMAKE_CURRENT_SOURCE_DIR}/pg_crc32c_sse42.cpp)
-    set(TGT_crc32_arm_parallel_SRC ${CMAKE_CURRENT_SOURCE_DIR}/crc32_arm_parallel.S)
+    list(APPEND TGT_port_SRC ${CMAKE_CURRENT_SOURCE_DIR}/pg_crc32c_armv8.cpp)
 endif()
 
 if("${BUILD_TUPLE}" STREQUAL "loongarch64")
@@ -104,15 +104,10 @@ SET(TGT_pgport_INC
 enable_language(CXX ASM)
 set(pgport_DEF_OPTIONS -DFRONTEND ${MACRO_OPTIONS})
 set(pgport_COMPILE_OPTIONS ${OPTIMIZE_OPTIONS} ${OS_OPTIONS} ${PROTECT_OPTIONS} ${WARNING_OPTIONS} ${LIB_SECURE_OPTIONS} ${CHECK_OPTIONS} -fstack-protector-all)
-add_static_libtarget(pgport TGT_port_SRC TGT_pgport_INC "${pgport_DEF_OPTIONS}" "${pgport_COMPILE_OPTIONS}")
 if("${BUILD_TUPLE}" STREQUAL "aarch64")
-    set(pgport_crc32_COMPILE_OPTIONS ${pgport_COMPILE_OPTIONS} -march=armv8-a+crc+crypto)
-    add_static_objtarget(pgport_crc32 TGT_crc32_arm_parallel_SRC TGT_pgport_INC "${pgport_DEF_OPTIONS}" "${pgport_crc32_COMPILE_OPTIONS}" "")
-    add_dependencies(pgport_static pgport_crc32)
-    add_custom_command(TARGET pgport_static POST_BUILD
-        COMMAND /usr/bin/ar rs ${CMAKE_BINARY_DIR}/lib/libpgport.a ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/pgport_crc32.dir/crc32_arm_parallel.S.o
-    )
+    set(pgport_COMPILE_OPTIONS ${pgport_COMPILE_OPTIONS} -march=armv8-a+crc+crypto)
 endif()
+add_static_libtarget(pgport TGT_port_SRC TGT_pgport_INC "${pgport_DEF_OPTIONS}" "${pgport_COMPILE_OPTIONS}")
 enable_language(CXX)
 install(TARGETS pgport_static ARCHIVE DESTINATION lib)
 set(TGT_port_pgsleep_SRC ${PROJECT_SRC_DIR}/common/port/pgsleep.cpp)
@@ -160,7 +155,7 @@ list(APPEND TGT_pgport_srv_SRC
 # aarch64
 if("${BUILD_TUPLE}" STREQUAL "aarch64")
     list(REMOVE_ITEM TGT_pgport_srv_SRC ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/pg_crc32c_sb8.cpp ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/pg_crc32c_sse42.cpp)
-    set(TGT_crc32_arm_parallel_srv_SRC ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/crc32_arm_parallel.S)
+    list(APPEND TGT_pgport_srv_SRC ${CMAKE_CURRENT_SOURCE_DIR}/port_srv/pg_crc32c_armv8.cpp)
 endif()
 
 if("${BUILD_TUPLE}" STREQUAL "loongarch64")
@@ -178,15 +173,10 @@ set(port_srv_DEF_OPTIONS ${MACRO_OPTIONS})
 set(port_srv_COMPILE_OPTIONS ${OPTIMIZE_OPTIONS} ${OS_OPTIONS} ${PROTECT_OPTIONS} ${WARNING_OPTIONS} ${LIB_SECURE_OPTIONS} ${CHECK_OPTIONS} -fstack-protector-all)
 list(REMOVE_ITEM port_srv_DEF_OPTIONS -D_POSIX_PTHREAD_SEMANTICS -D_REENTRANT -D_THREAD_SAFE)
 list(REMOVE_ITEM port_srv_COMPILE_OPTIONS -pthread -fstack-protector)
-add_static_libtarget(pgport_srv TGT_pgport_srv_SRC TGT_pgport_srv_INC "${port_srv_DEF_OPTIONS}" "${port_srv_COMPILE_OPTIONS}")
 if("${BUILD_TUPLE}" STREQUAL "aarch64")
-    set(pgport_srv_crc32_COMPILE_OPTIONS ${port_srv_COMPILE_OPTIONS} -march=armv8-a+crc+crypto)
-    add_static_objtarget(pgport_srv_crc32 TGT_crc32_arm_parallel_srv_SRC TGT_pgport_srv_INC "${port_srv_DEF_OPTIONS}" "${pgport_srv_crc32_COMPILE_OPTIONS}" "")
-    add_dependencies(pgport_srv_static pgport_srv_crc32)
-    add_custom_command(TARGET pgport_srv_static POST_BUILD
-        COMMAND /usr/bin/ar rs ${CMAKE_BINARY_DIR}/lib/libpgport_srv.a ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/pgport_srv_crc32.dir/port_srv/crc32_arm_parallel.S.o
-    )
+    set(port_srv_COMPILE_OPTIONS ${port_srv_COMPILE_OPTIONS} -march=armv8-a+crc+crypto)
 endif()
+add_static_libtarget(pgport_srv TGT_pgport_srv_SRC TGT_pgport_srv_INC "${port_srv_DEF_OPTIONS}" "${port_srv_COMPILE_OPTIONS}")
 enable_language(CXX)
 install(TARGETS pgport_srv_static ARCHIVE DESTINATION lib)
 
