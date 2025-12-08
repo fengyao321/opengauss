@@ -72,12 +72,10 @@ typedef struct RabitqInsertOnDiskParams {
     Relation heap;
     FmgrInfo *normprocinfo;
     Oid collation;
-    Datum originInsertVec;
     int funcType;
     HeapTuple heapTuple;
     IndexInfo *indexInfo;
     VectorTransform* vtrans;
-    bool vacuum;
 } RabitqInsertOnDiskParams;
 
 typedef struct RabitqQueryParams {
