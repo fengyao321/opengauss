@@ -160,6 +160,11 @@ LIBS += -llz4
 LIBS += -lcjson
 
 ##########################################################################
+# append text-splitter for text chunking
+############################################################################
+LIBS += -ltext_splitter_ffi
+
+##########################################################################
 # append xgboost for xgboost algorithm : libxgboost.so attached by dlopen
 ############################################################################
 #LIBS += -L$(XGBOOST_LIB_PATH) -lxgboost 
@@ -290,6 +295,10 @@ endif
   # append cjson for json parser in c: cjson
   LDFLAGS += -L$(CJSON_LIB_PATH)
   CXXFLAGS+= -I$(CJSON_INCLUDE_PATH)
+
+  # append text-splitter for text chunking
+  LDFLAGS += -L$(TEXT_SPLITTER_LIB_PATH)
+  CXXFLAGS+= -I$(TEXT_SPLITTER_INCLUDE_PATH)
 
 ifeq ($(with_obs), yes)
   CXXFLAGS+= -I$(LIBOBS_INCLUDE_PATH)
@@ -628,6 +637,7 @@ endif
 	cp -d $(ZLIB_LIB_PATH)/libz* '$(DESTDIR)$(libdir)/'
 	cp -d $(XGBOOST_LIB_PATH)/libxgboost* '$(DESTDIR)$(libdir)/'
 	cp -d $(CJSON_LIB_PATH)/libcjson* '$(DESTDIR)$(libdir)/'
+	cp -d $(TEXT_SPLITTER_LIB_PATH)/libtext_splitter_ffi* '$(DESTDIR)$(libdir)/'
 
 ifneq ($(with_openeuler_os), yes)
 ifeq ($(enable_lite_mode), no)

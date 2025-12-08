@@ -32,12 +32,22 @@ AS 'ogai_rerank';
 
 COMMENT ON FUNCTION pg_catalog.ogai_rerank(text, text[], text) IS 'return the rerank results of documents for query';
 
-DO $$ BEGIN
-IF NOT EXISTS(SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = 'ogai') THEN
-    CREATE SCHEMA ogai;
-    GRANT USAGE ON SCHEMA ogai TO PUBLIC;
-END IF;
-END $$;
+DROP FUNCTION IF EXISTS pg_catalog.ogai_chunk(text, integer, integer) CASCADE;
+SET LOCAL inplace_upgrade_next_system_object_oids=IUO_PROC, 8925;
+CREATE OR REPLACE FUNCTION pg_catalog.ogai_chunk(
+    documents text,
+    max_chunk_size integer,
+    max_chunk_overlap integer
+)
+    RETURNS TABLE(chunk_id integer, chunk text)
+    LANGUAGE internal
+    NOT FENCED NOT SHIPPABLE
+AS 'ogai_chunk';
+
+COMMENT ON FUNCTION pg_catalog.ogai_chunk(text, integer, integer) IS 'return the chunks results of documents with overlap';
+
+CREATE SCHEMA IF NOT EXISTS ogai;
+GRANT USAGE ON SCHEMA ogai TO PUBLIC;
 
 DO $$ BEGIN
 IF NOT EXISTS(SELECT 1 FROM pg_catalog.pg_type WHERE typname = 'model_provider_type' AND typnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'ogai')) THEN

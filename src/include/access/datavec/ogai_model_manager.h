@@ -31,6 +31,7 @@
 #include "access/datavec/vector.h"
 #include "access/datavec/ogai_qwen.h"
 #include "access/datavec/ogai_ollama.h"
+#include "access/datavec/ogai_openai.h"
 #include "access/datavec/ogai_model_framework.h"
 
 typedef EmbeddingClient* (*EmbeddingClientCreator)(ModelConfig*);

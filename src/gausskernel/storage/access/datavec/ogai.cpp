@@ -27,6 +27,7 @@
 #include "utils/elog.h"
 #include "access/datavec/ogai_model_framework.h"
 #include "access/datavec/ogai_model_manager.h"
+#include "access/datavec/ogai_textsplitter_wrapper.h"
 #include "access/datavec/vector.h"
 #include "access/datavec/ogai.h"
 
@@ -167,3 +168,76 @@ Datum ogai_rerank(PG_FUNCTION_ARGS)
     }
 }
 
+Datum ogai_chunk(PG_FUNCTION_ARGS)
+{
+    FuncCallContext* funcctx;
+
+    if (SRF_IS_FIRSTCALL()) {
+        MemoryContext oldcontext;
+        TupleDesc tupdesc = NULL;
+
+        funcctx = SRF_FIRSTCALL_INIT();
+        oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+        tupdesc = CreateTemplateTupleDesc(2, false, TableAmHeap);
+        TupleDescInitEntry(tupdesc, (AttrNumber)1, "chunk_id", INT4OID, -1, 0);
+        TupleDescInitEntry(tupdesc, (AttrNumber)2, "chunk", TEXTOID, -1, 0);
+
+        char* document = text_to_cstring(DatumGetVarCharPP(PG_GETARG_DATUM(0)));
+        int maxChunkSize = PG_GETARG_INT32(1);
+
+        int maxChunkOverlap = 0;
+        if (PG_NARGS() > 2 && !PG_ARGISNULL(2)) {
+            maxChunkOverlap = PG_GETARG_INT32(2);
+        }
+
+        if (maxChunkSize <= 0) {
+            MemoryContextSwitchTo(oldcontext);
+            ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("maxChunkSize must be greater than 0")));
+        }
+
+        if (maxChunkOverlap < 0 || maxChunkOverlap >= maxChunkSize) {
+            MemoryContextSwitchTo(oldcontext);
+            ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("maxChunkOverlap must be between 0 and maxChunkSize")));
+        }
+
+        TextSplitterWrapper splitter(maxChunkSize, maxChunkOverlap);
+        ChunkResult* returnChunksResult = splitter.split(document);
+
+        if (returnChunksResult == NULL || returnChunksResult->chunkNum == 0) {
+            MemoryContextSwitchTo(oldcontext);
+            ereport(ERROR,
+                (errcode(ERRCODE_EXTERNAL_ROUTINE_EXCEPTION),
+                 errmsg("failed to split document into chunks")));
+        }
+
+        funcctx->user_fctx = returnChunksResult;
+        funcctx->max_calls = returnChunksResult->chunkNum;
+        funcctx->tuple_desc = BlessTupleDesc(tupdesc);
+
+        MemoryContextSwitchTo(oldcontext);
+    }
+
+    funcctx = SRF_PERCALL_SETUP();
+    if (funcctx->call_cntr < funcctx->max_calls) {
+        Datum values[2];
+        bool nulls[2] = {false, false};
+
+        ChunkResult* ctx = (ChunkResult*) funcctx->user_fctx;
+        Chunk* chunk = &ctx->chunks[funcctx->call_cntr];
+
+        values[0] = Int32GetDatum(funcctx->call_cntr);
+        values[1] = CStringGetTextDatum(chunk->chunk);
+
+        HeapTuple tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+        Datum result = HeapTupleGetDatum(tuple);
+
+        SRF_RETURN_NEXT(funcctx, result);
+    }
+
+    SRF_RETURN_DONE(funcctx);
+}

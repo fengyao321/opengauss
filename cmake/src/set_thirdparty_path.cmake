@@ -41,6 +41,7 @@ set(BUILDTOOLS_PATH ${3RD_PATH}/buildtools)
 set(COMPONENT_PATH ${3RD_PATH}/kernel/component)
 
 set(CJSON_HOME ${DEPENDENCY_PATH}/cjson/${SUPPORT_LLT})
+set(TEXT_SPLITTER_HOME ${DEPENDENCY_PATH}/text-splitter/${SUPPORT_LLT})
 set(EVENT_HOME ${DEPENDENCY_PATH}/event/${LIB_UNIFIED_SUPPORT})
 if("${VERSION_TYPE}" STREQUAL "debug" OR "${VERSION_TYPE}" STREQUAL "memcheck")
     set(JEMALLOC_HOME ${DEPENDENCY_PATH}/jemalloc/debug${JEMALLOC_SUPPORT_LLT})
@@ -103,6 +104,12 @@ set(BOOST_LIB_PATH ${BOOST_HOME}/lib)
 #############################################################################
 set(CJSON_INCLUDE_PATH ${CJSON_HOME}/include)
 set(CJSON_LIB_PATH ${CJSON_HOME}/lib)
+
+#############################################################################
+# text-splitter component
+##########
+set(TEXT_SPLITTER_INCLUDE_PATH ${TEXT_SPLITTER_HOME}/include)
+set(TEXT_SPLITTER_LIB_PATH ${TEXT_SPLITTER_HOME}/lib)
 
 #############################################################################
 # etcd component

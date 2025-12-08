@@ -301,7 +301,7 @@ set(gaussdb_LINK_OPTIONS ${BIN_LINK_OPTIONS} ${HOTPATCH_ATOMIC_LDS} ${OPENBLAS_L
 set(gaussdb_LINK_DIRS "")
 message("******${gaussdb_server_lib}******")
 set(gaussdb_DEPEND_LIST config_static pgport_srv_static alarmclient_static plpgsql_static pq_static)
-set(gaussdb_LINK_LIBS libconfig.a libpgport_srv.a libalarmclient.a libpq.a libplpgsql.a -l${SECURE_C_CHECK})
+set(gaussdb_LINK_LIBS libconfig.a libpgport_srv.a libalarmclient.a libpq.a libplpgsql.a -l${SECURE_C_CHECK} -ltext_splitter_ffi)
 if(NOT "${ENABLE_LITE_MODE}" STREQUAL "ON")
     if("${ENABLE_MULTIPLE_NODES}" STREQUAL "ON" OR "${ENABLE_PRIVATEGAUSS}" STREQUAL "ON")
         list(APPEND gaussdb_LINK_LIBS ${gaussdb_server_lib} libhotpatchclient.a)
@@ -344,6 +344,7 @@ include_directories(
     ${LIBHOTPATCH_INCLUDE_PATH}
     ${LZ4_INCLUDE_PATH}
     ${CJSON_INCLUDE_PATH}
+    ${TEXT_SPLITTER_INCLUDE_PATH}
     ${JEMALLOC_INCLUDE_PATH}
     ${ZSTD_INCLUDE_PATH}
     ${DCF_INCLUDE_PATH}
@@ -382,6 +383,7 @@ list(APPEND gaussdb_LINK_DIRS
     ${ZLIB_LIB_PATH}
     ${LZ4_LIB_PATH}
     ${CJSON_LIB_PATH}
+    ${TEXT_SPLITTER_LIB_PATH}
     ${JEMALLOC_LIB_PATH}
     ${ZSTD_LIB_PATH}
     ${LIBCGROUP_LIB_PATH}
