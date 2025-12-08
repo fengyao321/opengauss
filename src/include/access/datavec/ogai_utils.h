@@ -29,9 +29,10 @@
 #include "keymgr/comm/security_utils.h"
 #include "keymgr/comm/security_http.h"
 #include "keymgr/comm/security_httpscan.h"
+#include "access/datavec/ogai_model_framework.h"
 
 #define OGAI_ERROR_BUF_SZ 4096
 
-HttpMgr* GetHttpMgr(KmErr* errBuf, const char* url, const char* apiKey);
+HttpMgr* GetHttpMgr(KmErr* errBuf, const char* url, const char* apiKey, ModelProvider provider);
 
 #endif // OGAI_UTILS_H
