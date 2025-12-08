@@ -48,7 +48,7 @@ static ResAction action_get(const char *buf, size_t bufsz)
     }
 }
 
-#define RESBODY_BUF_SZ 4096
+#define RESBODY_BUF_SZ (600 * 1024)
 /*
  * remain[i] : if copy field in http response
  *      if 1: copy, and store in http->resscan
