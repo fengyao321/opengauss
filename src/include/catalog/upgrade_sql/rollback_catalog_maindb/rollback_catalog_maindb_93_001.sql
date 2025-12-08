@@ -29,7 +29,7 @@ $$SELECT
   CASE WHEN $2 = -1 /* default typmod */
        THEN null::integer
        WHEN $1 IN (1042, 1043, 3969) /* char, varchar ,nvarchar2*/
-       THEN $2 - 4
+       THEN ($2 - 4)::integer
        WHEN $1 IN (1560, 1562) /* bit, varbit */
        THEN $2
        ELSE null::integer

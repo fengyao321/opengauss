@@ -988,13 +988,15 @@ other			.
 					while (nchars > 1 &&
 						   (yytext[nchars-1] == '+' ||
 							yytext[nchars-1] == '-' ||
-							(DB_IS_CMPT(D_FORMAT) && yytext[nchars -1] == '@')))
+							(DISABLE_ABS && yytext[nchars -1] == '@')))
 					{
 						int		ic;
 
 						for (ic = nchars-2; ic >= 0; ic--)
 						{
-							if (strchr("~!#^&|`?%@", yytext[ic]))
+							if (strchr("~!#^&|`?%", yytext[ic]))
+								break;
+							else if (yytext[ic] == '@' && DISABLE_ABS)
 								break;
 						}
 						if (ic >= 0)

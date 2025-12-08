@@ -229,6 +229,9 @@ extern bool contain_backend_version(uint32 version_number);
 #define ENABLE_ABS ((u_sess->utils_cxt.d_format_behavior_compat_flags & \
         D_FORMAT_OPT_ENABLE_ABS) && u_sess->attr.attr_sql.sql_compatibility == D_FORMAT)
 
+#define DISABLE_ABS (!(u_sess->utils_cxt.d_format_behavior_compat_flags & \
+        D_FORMAT_OPT_ENABLE_ABS) && u_sess->attr.attr_sql.sql_compatibility == D_FORMAT)
+
 #define OPT_DISPLAY_LEADING_ZERO (1LL << 0)
 #define OPT_END_MONTH_CALCULATE  (1LL << 1)
 #define OPT_COMPAT_ANALYZE_SAMPLE (1LL << 2)
