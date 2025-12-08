@@ -136,6 +136,7 @@ set(gaussdb_objects
     $<TARGET_OBJECTS:gausskernel_security_iprange>
     $<TARGET_OBJECTS:gausskernel_security_query_anomaly>
     $<TARGET_OBJECTS:gausskernel_security_gs_policy>
+    $<TARGET_OBJECTS:gausskernel_security_keymgr>
     $<TARGET_OBJECTS:gausskernel_storage_access_cbtree>
     $<TARGET_OBJECTS:gausskernel_storage_access_common>
     $<TARGET_OBJECTS:gausskernel_security_gs_ledger>
