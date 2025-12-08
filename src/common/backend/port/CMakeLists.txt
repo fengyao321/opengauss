@@ -8,7 +8,7 @@ execute_process(
 )
 
 execute_process(
-    COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/dynloader/linux.h ${PROJECT_SRC_DIR}/include/dynloader.h
+    COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/dynloader/linux.h ${PROJECT_SRC_DIR}/include/dynloader.h
 )
 
 list(APPEND TGT_port_SRC

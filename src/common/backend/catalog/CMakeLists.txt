@@ -27,7 +27,7 @@ set(catalog_perl "${PROJECT_SRC_DIR}/common/backend/catalog|||perl -I ${PROJECT_
 add_cmd_gen_when_configure(perl_target catalog_perl)
 
 execute_process(
-    COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/schemapg.h  ${PROJECT_SRC_DIR}/include/catalog/schemapg.h
+    COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/schemapg.h  ${PROJECT_SRC_DIR}/include/catalog/schemapg.h
 )
 
 AUX_SOURCE_DIRECTORY(${CMAKE_CURRENT_SOURCE_DIR} TGT_catalog_SRC)

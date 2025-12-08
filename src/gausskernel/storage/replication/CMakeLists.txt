@@ -34,8 +34,8 @@ set(replication_cmd_src
 add_cmd_gen_when_configure(flex_target replication_cmd_src)
 
 execute_process(
-    COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/repl_gram.hpp ${PROJECT_SRC_DIR}/include/replication/repl_gram.hpp
-    COMMAND ln -fs ${CMAKE_CURRENT_SOURCE_DIR}/syncrep_gram.hpp ${PROJECT_SRC_DIR}/include/replication/syncrep_gram.hpp
+    COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/repl_gram.hpp ${PROJECT_SRC_DIR}/include/replication/repl_gram.hpp
+    COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/syncrep_gram.hpp ${PROJECT_SRC_DIR}/include/replication/syncrep_gram.hpp
 )
 
 set(TGT_replication_SRC
