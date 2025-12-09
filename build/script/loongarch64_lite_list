@@ -19,6 +19,7 @@
 ./bin/gs_retrieve
 ./bin/openssl
 ./share/postgresql/db4ai
+./share/postgresql/ogai
 ./share/postgresql/snowball_create.sql
 ./share/postgresql/pg_hba.conf.sample
 ./share/postgresql/gs_gazelle.conf.sample

@@ -58,6 +58,7 @@
 ./etc/kerberos/mppdb-site.xml
 ./share/postgresql/tmp/udstools.py
 ./share/postgresql/db4ai
+./share/postgresql/ogai
 ./share/postgresql/snowball_create.sql
 ./share/postgresql/pg_hba.conf.sample
 ./share/postgresql/gs_gazelle.conf.sample

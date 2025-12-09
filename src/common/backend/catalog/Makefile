@@ -113,6 +113,8 @@ install-data: $(BKIFILES) installdirs
 	$(INSTALL_DATA) $(srcdir)/pg_cast_oid.txt '$(DESTDIR)$(datadir)/pg_cast_oid.txt'
 	$(MKDIR_P) '$(DESTDIR)$(datadir)/db4ai/snapshots'
 	$(INSTALL_DATA) $(srcdir)/../../../gausskernel/dbmind/db4ai/snapshots/* '$(DESTDIR)$(datadir)/db4ai/snapshots'
+	$(MKDIR_P) '$(DESTDIR)$(datadir)/ogai'
+	$(INSTALL_DATA) $(srcdir)/../../../gausskernel/storage/access/datavec/ogai_sql/*.sql '$(DESTDIR)$(datadir)/ogai'
 else
 install-data: $(BKIFILES) installdirs
 	$(INSTALL_DATA) $(call vpathsearch,postgres.bki) '$(DESTDIR)$(datadir)/postgres.bki'
@@ -125,6 +127,8 @@ install-data: $(BKIFILES) installdirs
 	$(INSTALL_DATA) $(srcdir)/pg_cast_oid.txt '$(DESTDIR)$(datadir)/pg_cast_oid.txt'
 	$(MKDIR_P) '$(DESTDIR)$(datadir)/db4ai/snapshots'
 	$(INSTALL_DATA) $(srcdir)/../../../gausskernel/dbmind/db4ai/snapshots/* '$(DESTDIR)$(datadir)/db4ai/snapshots'
+	$(MKDIR_P) '$(DESTDIR)$(datadir)/ogai'
+	$(INSTALL_DATA) $(srcdir)/../../../gausskernel/storage/access/datavec/ogai_sql/*.sql '$(DESTDIR)$(datadir)/ogai'
 endif
 endif
 
