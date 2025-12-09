@@ -14,6 +14,7 @@ OBJS = bitutils.o hnsw.o hnswbuild.o hnswdelete.o hnswinsert.o hnswscan.o hnswut
        ivfbuild.o ivfflat.o ivfinsert.o ivfkmeans.o ivfscan.o ivfutils.o ivfvacuum.o vecindex.o \
 	   utils.o hnswadaptor.o ivfadaptor.o bm25.o bm25build.o bm25scan.o bm25utils.o bm25vacuum.o ivfnpuadaptor.o \
 	   pg_prng.o diskann.o diskannbuild.o diskannscan.o diskannutils.o diskanndelete.o common_parallel.o \
-      vectortransformer.o rabitq.o scalarquantizer.o ogai_model_framework.o ogai_model_manager.o ogai_ollama.o ogai_qwen.o ogai_utils.o ogai.o ogai_openai.o
+       vectortransformer.o rabitq.o scalarquantizer.o ogai_model_framework.o ogai_model_manager.o ogai_qwen.o \
+       ogai_utils.o ogai.o ogai_ollama.o ogai_openai.o
 
 include $(top_srcdir)/src/gausskernel/common.mk

@@ -139,6 +139,90 @@ static void SetModelConfigFromDB(ModelConfig* config, const char* modelKey)
     SPI_finish();
 }
 
+
+static void AsyncSetModelConfigFromDB(
+    ModelConfig* config, const char* modelKey)
+{
+    char query[1024];
+    int ret;
+    int nrows = 0;
+    HeapTuple tuple;
+    MemoryContext originCtx = CurrentMemoryContext;
+
+    errno_t nRet = snprintf_s(query, sizeof(query), sizeof(query) - 1,
+                 "SELECT model_name, model_provider, api_key, url "
+                 "FROM ogai.model_sources WHERE model_key = $1");
+    securec_check_ss_c(nRet, "", "");
+    Datum params[1];
+    Oid paramtypes[1] = {TEXTOID};
+    params[0] = CStringGetTextDatum(modelKey);
+    ret = SPI_execute_with_args(query,
+                                1,
+                                paramtypes,
+                                params,
+                                NULL,
+                                true,
+                                0,
+								NULL,
+								NULL);
+    if (ret != SPI_OK_SELECT)
+        elog(ERROR, "SPI_exec failed: %d", ret);
+
+    nrows = SPI_processed;
+
+    if (nrows != 1) {
+        ereport(ERROR, (errcode(ERRCODE_TOO_MANY_ROWS),
+        	errmsg("unexpected records found for model_key: %s, count: %d", modelKey, nrows)));
+    }
+
+    tuple = SPI_tuptable->vals[0];
+    char* modelName = SPI_getvalue(tuple, SPI_tuptable->tupdesc, 1);
+    char* modelProvider = SPI_getvalue(tuple, SPI_tuptable->tupdesc, 2);
+    char* apiKey = SPI_getvalue(tuple, SPI_tuptable->tupdesc, 3);
+    char* url = SPI_getvalue(tuple, SPI_tuptable->tupdesc, 4);
+	
+    if (modelName == NULL) {
+        ereport(ERROR,
+                (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
+                 errmsg("model_name cannot be NULL for model_key: %s", modelKey)));
+    }
+	
+    if (modelProvider == NULL) {
+        ereport(ERROR,
+                (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
+                 errmsg("model_provider cannot be NULL for model_key: %s", modelKey)));
+    }
+	
+    if (url == NULL) {
+        ereport(ERROR,
+                (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
+                 errmsg("url cannot be NULL for model_key: %s", modelKey)));
+    }
+
+    MemoryContext spiCtx = MemoryContextSwitchTo(originCtx);
+	
+    config->modelName = pstrdup(modelName);
+    if (pg_strcasecmp(modelProvider, "openai") == 0) {
+        config->provider = PROVIDER_OPENAI;
+    } else if (pg_strcasecmp(modelProvider, "qwen") == 0) {
+        config->provider = PROVIDER_QWEN;
+    } else if (pg_strcasecmp(modelProvider, "ollama") == 0) {
+        config->provider = PROVIDER_OLLAMA;
+    } else if (pg_strcasecmp(modelProvider, "onnx") == 0) {
+        config->provider = PROVIDER_ONNX;
+    } else {
+        MemoryContextSwitchTo(spiCtx);
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("unknown provider: %s for model_key: %s", modelProvider, modelKey)));
+    }
+	
+    config->apiKey = apiKey ? pstrdup(apiKey) : NULL;
+    config->baseUrl = pstrdup(url);
+    MemoryContextSwitchTo(spiCtx);
+}
+
+
 void GenerateModelConfig(ModelConfig* config, const char* modelKey)
 {
     if (config == NULL || modelKey == NULL) {
@@ -148,6 +232,17 @@ void GenerateModelConfig(ModelConfig* config, const char* modelKey)
     }
 	
     SetModelConfigFromDB(config, modelKey);
+}
+
+void AsyncGenerateModelConfig(ModelConfig* config, const char* modelKey)
+{
+    if (config == NULL || modelKey == NULL) {
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("model config or model_key cannot be NULL")));
+    }
+	
+    AsyncSetModelConfigFromDB(config, modelKey);
 }
 
 EmbeddingClient* CreateEmbeddingClient(ModelConfig* config)
