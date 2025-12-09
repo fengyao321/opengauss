@@ -679,6 +679,7 @@ typedef struct HnswVacuumState {
     /* RabitQ */
     bool enableRabitQ;
     RabitqInsertOnDiskParams *rbqDiskParams;
+    Size rbqcodesSize;
 
     /* Memory */
     MemoryContext tmpCtx;
@@ -726,7 +727,7 @@ HnswElement HnswInitElement(char *base, ItemPointer tid, int m, double ml, int m
 HnswElement HnswInitElementFromBlock(BlockNumber blkno, OffsetNumber offno);
 void HnswFindElementNeighbors(char *base, HnswElement element, HnswElement entryPoint, Relation index,
                               FmgrInfo *procinfo, Oid collation, int m, int efConstruction, bool existing,
-                              bool enablePQ, PQParams *params, bool enableRabitQ, int funcType, float *centroid,
+                              bool enablePQ, PQParams *params, bool enableRabitQ,
                               RabitqInsertOnDiskParams *rbqDiskParams);
 HnswCandidate *HnswEntryCandidate(char *base, HnswElement em, Datum q, Relation rel, FmgrInfo *procinfo, Oid collation,
                                   bool loadVec, bool enableRabitQ, RabitqQueryParams *rbqQueryParams,
@@ -773,8 +774,9 @@ void HnswGetRbqInfoFromMetaPage(Relation index, bool *enableRabitQ, bool *useFHT
                                 uint16 *otherNblk, uint32 *otherSize, int *rbqDelayState, int64 *rbqInsertRows);
 void FlushChunkInfoInternal(Relation index, char* table, BlockNumber startBlkno, uint16 nblks, uint32 totalSize);
 RabitQConfig *InitRbqConfigOnDisk(Relation index, bool *enableRabitQ, float **centroid, int dim);
-float *HnswGetVectorFromHeap(Relation heap, ItemPointer tid, IndexInfo *indexInfo, HeapTuple tuple,
-                             FmgrInfo *procinfo, FmgrInfo *normprocinfo, Oid collation);
+Datum HnswGetVectorFromHeap(Relation heap, ItemPointer heaptids, IndexInfo *indexInfo, HeapTuple tuple,
+                             FmgrInfo *procinfo, FmgrInfo *normprocinfo, Oid collation, Buffer* userbuf);
+void HnswComputeVectorRBQCode(HnswElement element, Vector *transformedVec, float *centroid, int funcType, char *base);
 void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildState *buildstate,
                        ForkNumber forkNum, bool insert);
 

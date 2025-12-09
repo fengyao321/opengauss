@@ -627,7 +627,6 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
     RabitqInsertOnDiskParams rbqDiskParams;
     RabitQConfig *rbqConfig = NULL;
     int dim = TupleDescAttr(index->rd_att, 0)->atttypmod;
-    int funcType = -1;
     float *centroid = NULL;
 
     /*
@@ -645,8 +644,9 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
 
     rbqConfig = InitRbqConfigOnDisk(index, &enableRabitQ, &centroid, dim);
     if (enableRabitQ) {
+        Datum vecVal = value;
         if (IS_HALFVEC(procinfo->fn_oid)) {
-            value = (Datum)Halfvec2Vector(value);
+            vecVal = (Datum)Halfvec2Vector(value);
         }
         Pointer rbqPtr;
         if (rbqConfig->reType == SQ8) {
@@ -654,7 +654,7 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
             rbqPtr = (Pointer)HnswAlloc(NULL, rbqCodeSize(dim, true));
             ScalarQuantizer *sq = rbqConfig->sq;
             int dim = sq->dim;
-            VectorEncodeSQ(dim, sq->trained, sq->trained + dim, ((Vector *)DatumGetPointer(value))->x,
+            VectorEncodeSQ(dim, sq->trained, sq->trained + dim, ((Vector *)DatumGetPointer(vecVal))->x,
                                 getRefineCode(rbqPtr, rbqConfig->reOffset));
         } else {
             rbqPtr = (Pointer)HnswAlloc(NULL, rbqCodeSize(dim, false));
@@ -665,23 +665,22 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
         VectorTransform *vtrans = rbqConfig->vtrans;
         Vector *transValue = InitVector(dim);
         if (vtrans->type == RANDOM_ORTHOGONAL) {
-            RomTransform(vtrans, ((Vector *)DatumGetPointer(value))->x, transValue->x);
+            RomTransform(vtrans, ((Vector *)DatumGetPointer(vecVal))->x, transValue->x);
         } else {
-            FhtTransform(vtrans, ((Vector *)DatumGetPointer(value))->x, transValue->x);
+            FhtTransform(vtrans, ((Vector *)DatumGetPointer(vecVal))->x, transValue->x);
         }
         FmgrInfo *normprocinfo = HnswOptionalProcInfo(index, HNSW_NORM_PROC);
-        funcType = GetFunctionType(procinfo, normprocinfo);
+        int funcType = GetFunctionType(procinfo, normprocinfo);
+
+        HnswComputeVectorRBQCode(element, transValue, centroid, funcType, base);
 
         (&rbqDiskParams)->heap = heap;
         (&rbqDiskParams)->normprocinfo = normprocinfo;
         (&rbqDiskParams)->collation = collation;
         (&rbqDiskParams)->vtrans = vtrans;
-        (&rbqDiskParams)->originInsertVec = value;
         (&rbqDiskParams)->funcType = funcType;
         (&rbqDiskParams)->heapTuple = (HeapTupleData *)heaptup_alloc(BLCKSZ);
         (&rbqDiskParams)->indexInfo = BuildIndexInfo(index);
-        (&rbqDiskParams)->vacuum = false;
-        value = (Datum)transValue;
     }
 
     HnswPtrStore(base, element->value, DatumGetPointer(value));
@@ -710,7 +709,7 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
 
     /* Find neighbors for element */
     HnswFindElementNeighbors(base, element, entryPoint, index, procinfo, collation, m, efConstruction,
-                             false, enablePQ, &params, enableRabitQ, funcType, centroid, &rbqDiskParams);
+                             false, enablePQ, &params, enableRabitQ, &rbqDiskParams);
 
     /* Update graph on disk */
     UpdateGraphOnDisk(index, procinfo, collation, element, m, efConstruction, entryPoint, building,
@@ -789,13 +788,14 @@ bool hnswinsert_internal(Relation index, Datum *values, bool *isnull, ItemPointe
     if (rbqDelayState == RBQ_BUILD_DELAY) {
         LockPage(index, HNSW_UPDATE_LOCK, ExclusiveLock);
         int rbqDelayStateCheck;
+        int64 insertedRowsCheck;
         HnswGetRbqInfoFromMetaPage(index, NULL, NULL, NULL, NULL, NULL, NULL,
-                               NULL, NULL, &rbqDelayStateCheck, NULL);
+                               NULL, NULL, &rbqDelayStateCheck, &insertedRowsCheck);
         if (rbqDelayStateCheck == RBQ_BUILD_DELAY) {
             int64 sampleRows = u_sess->datavec_ctx.rbq_sample_rows;
-            if (insertedRows + 1 < sampleRows) {
+            if (insertedRowsCheck + 1 < sampleRows) {
                 HnswUpdateMetaPageRbq(index, MAIN_FORKNUM, false);
-            } else if (insertedRows + 1 == sampleRows){
+            } else if (insertedRowsCheck + 1 == sampleRows) {
                 HnswUpdateMetaPageRbq(index, MAIN_FORKNUM, true);
                 HnswBuildState buildstate;
                 IndexInfo *indexInfo = BuildIndexInfo(index);
