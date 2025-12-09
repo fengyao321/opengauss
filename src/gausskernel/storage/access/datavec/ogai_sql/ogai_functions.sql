@@ -814,3 +814,94 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY INVOKER;
 
+
+CREATE OR REPLACE FUNCTION ogai.rag(
+    p_user_question   TEXT,
+    p_task_name       TEXT,
+    p_reranker_model  TEXT,
+    p_chat_model      TEXT,
+    p_rerank_limit    INTEGER DEFAULT 5,
+    p_search_limit    INTEGER DEFAULT 20
+)
+RETURNS TEXT AS $$
+DECLARE
+    v_task_record ogai.vectorize_tasks%ROWTYPE;
+    v_search_result JSONB;
+    v_raw_docs TEXT[] := '{}';
+    v_reranked RECORD;
+    v_top_docs TEXT[] := '{}';
+    v_context TEXT := '';
+    v_final_prompt TEXT;
+    v_answer TEXT;
+BEGIN
+    -- 参数校验
+    IF p_search_limit <= 0 THEN
+        RAISE EXCEPTION 'p_search_limit must be positive';
+    END IF;
+    IF p_rerank_limit <= 0 THEN
+        RAISE EXCEPTION 'p_rerank_limit must be positive';
+    END IF;
+
+    -- 获取任务信息
+    BEGIN
+        SELECT * INTO STRICT v_task_record
+        FROM ogai.vectorize_tasks
+        WHERE task_name = p_task_name;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE EXCEPTION 'Task not found: %', p_task_name;
+        WHEN TOO_MANY_ROWS THEN
+            RAISE EXCEPTION 'Multiple tasks found with name: %', p_task_name;
+    END;
+
+    -- 向量搜索
+    FOR v_search_result IN
+        SELECT result_record
+        FROM ogai.search(p_task_name, p_user_question, '', p_search_limit, '')
+    LOOP
+        IF v_search_result IS NULL THEN
+            CONTINUE;
+        END IF;
+
+        IF v_task_record.method = 'append' THEN
+            IF v_search_result ? v_task_record.src_col THEN
+                v_raw_docs := array_append(v_raw_docs, v_search_result->>v_task_record.src_col);
+            END IF;
+        ELSE
+            IF v_search_result ? 'chunk_text' THEN
+                v_raw_docs := array_append(v_raw_docs, v_search_result->>'chunk_text');
+            END IF;
+        END IF;
+    END LOOP;
+
+    IF array_length(v_raw_docs, 1) IS NULL OR array_length(v_raw_docs, 1) = 0 THEN
+        RETURN ogai_generate(p_user_question, p_chat_model);
+    END IF;
+
+    -- 重排序
+    FOR v_reranked IN
+        SELECT document
+        FROM ogai_rerank(p_user_question, v_raw_docs, p_reranker_model)
+        ORDER BY rerank_score DESC
+        LIMIT p_rerank_limit
+    LOOP
+        v_top_docs := array_append(v_top_docs, v_reranked.document);
+    END LOOP;
+
+    -- 拼接上下文
+    SELECT string_agg(doc, E'\n\n---\n\n') INTO v_context
+    FROM unnest(v_top_docs) AS t(doc);
+
+    -- 构造最终 prompt
+    v_final_prompt := format(
+        '基于以下参考资料回答问题。如果资料不相关，请仅根据常识回答。\n\n参考资料：\n%s\n\n问题：%s',
+        v_context,
+        p_user_question
+    );
+
+    -- 调用大模型生成答案
+    v_answer := ogai_generate(v_final_prompt, p_chat_model);
+
+    RETURN v_answer;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER;

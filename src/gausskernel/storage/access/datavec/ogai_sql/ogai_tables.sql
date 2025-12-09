@@ -35,7 +35,7 @@ GRANT USAGE ON TYPE ogai.model_provider_type TO PUBLIC;
 
 CREATE TABLE IF NOT EXISTS ogai.model_sources
 (
-    id BIGINT UNIQUE,
+    id BIGSERIAL PRIMARY KEY,
     model_key   TEXT NOT NULL,
     model_name  TEXT NOT NULL,
     model_provider ogai.model_provider_type NOT NULL,
@@ -63,7 +63,7 @@ GRANT USAGE ON TYPE ogai.table_method TO PUBLIC;
 
 CREATE TABLE IF NOT EXISTS ogai.vectorize_tasks
 (
-    task_id BIGINT UNIQUE,
+    task_id BIGSERIAL PRIMARY KEY,
     task_name TEXT NOT NULL,
     type ogai.task_type NOT NULL,
     index_type TEXT NOT NULL,
@@ -94,9 +94,11 @@ GRANT USAGE ON TYPE ogai.queue_status TO PUBLIC;
 CREATE TABLE IF NOT EXISTS ogai.vectorize_queue
 (
     msg_id BIGSERIAL UNIQUE,
-    message JSON NOT NULL,
+    task_id integer,
+    pk_value integer,
     status ogai.queue_status NOT NULL DEFAULT 'ready',
     vt TIMESTAMP NOT NULL,
+    fail_reason TEXT DEFAULT NULL,
     create_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     update_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     retry_count integer DEFAULT 0,
