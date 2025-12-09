@@ -64,6 +64,7 @@ ifneq ($(with_openeuler_os), yes)
 	cp $(LIBOPENSSL_LIB_PATH)/libssl.so* '$(DESTDIR)$(libdir)/'
 	cp $(LIBOPENSSL_LIB_PATH)/libcrypto.so* '$(DESTDIR)$(libdir)/'
 endif
+	cp -d $(TEXT_SPLITTER_LIB_PATH)/libtext_splitter_ffi* '$(DESTDIR)$(libdir)/'
 ifeq (,$(with_system_tzdata))
 	$(ZIC) -d '$(DESTDIR)$(datadir)/timezone' -p '$(POSIXRULES)' $(TZDATAFILES)
 endif

@@ -105,6 +105,13 @@ LIBS += -lcjson
 LDFLAGS += -L$(CJSON_LIB_PATH)
 CXXFLAGS += -I$(CJSON_INCLUDE_PATH)
 
+##############################################################################
+# text-splitter component
+###############################################################################
+LIBS += -ltext_splitter_ffi
+LDFLAGS += -L$(TEXT_SPLITTER_LIB_PATH)
+CXXFLAGS += -I$(TEXT_SPLITTER_INCLUDE_PATH)
+
 #############################################################################
 # PLJava component
 ###############################################################################
@@ -435,6 +442,7 @@ endif
 	cp -d $(LZ4_LIB_PATH)/liblz4* '$(DESTDIR)$(libdir)/'
 	cp -d $(XGBOOST_LIB_PATH)/libxgboost* '$(DESTDIR)$(libdir)/'
 	cp -d $(CJSON_LIB_PATH)/libcjson* '$(DESTDIR)$(libdir)/'
+	cp -d $(TEXT_SPLITTER_LIB_PATH)/libtext_splitter_ffi* '$(DESTDIR)$(libdir)/'
 ifneq ($(host_cpu), loogarch64)
 	cp $(PLJAVA_LIB_PATH)/* '$(DESTDIR)$(libdir)/'
 	cp $(PLJAVA_JAR_PATH)/$(JARPLJAVA) '$(DESTDIR)$(pkglibdir)/java/'

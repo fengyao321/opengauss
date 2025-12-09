@@ -29,7 +29,11 @@
 #include "access/datavec/ogai_model_manager.h"
 
 static ProviderClientCreators providerCreators[] = {
-    [PROVIDER_OPENAI] = {NULL, NULL, NULL},
+    [PROVIDER_OPENAI] = {
+        .createEmbedding = CreateOpenAIEmbeddingClient,
+        .createGenerate = CreateOpenAIGenerateClient,
+        .createRerank = CreateOpenAIRerankClient
+    },
     [PROVIDER_QWEN] = {
         .createEmbedding = CreateQwenEmbeddingClient,
         .createGenerate = CreateQwenGenerateClient,

@@ -750,6 +750,7 @@
 ./lib/libz.so*
 ./lib/libcjson.so*
 ./lib/libcjson_utils.so*
+./lib/libtext_splitter_ffi.so*
 ./lib/libstdc++.so.6
 ./lib/libgcc_s.so.1
 ./lib/libgomp.so*

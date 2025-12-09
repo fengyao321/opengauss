@@ -546,6 +546,13 @@ CJSON_INCLUDE_PATH = $(CJSON_HOME)/include
 CJSON_LIB_PATH = $(CJSON_HOME)/lib
 
 #############################################################################
+# text-splitter component
+#############################################################################
+TEXT_SPLITTER_HOME = $(with_3rd)/kernel/dependency/text-splitter/comm
+TEXT_SPLITTER_INCLUDE_PATH = $(TEXT_SPLITTER_HOME)/include
+TEXT_SPLITTER_LIB_PATH = $(TEXT_SPLITTER_HOME)/lib
+
+#############################################################################
 # kerberos component
 #############################################################################
 KERBEROS_BIN_PATH = $(KERBEROS_HOME)/bin
@@ -935,6 +942,9 @@ LDOUT = -o
 RANLIB = @RANLIB@
 WINDRES = @WINDRES@
 X = @EXEEXT@
+
+LDFLAGS += -L$(with_3rd)/kernel/dependency/text-splitter/comm/lib
+LIBS += -ltext_splitter_ffi
 
 ifeq ($(with_3rd), NONE)
   LIBTINFO_HOME = $(top_builddir)/$(BINARYPATH)/ncurses/comm
