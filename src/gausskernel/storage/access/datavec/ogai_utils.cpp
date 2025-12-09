@@ -21,11 +21,15 @@
  * ---------------------------------------------------------------------------------------
  */
 
+#include <curl/curl.h>
 #include "postgres.h"
 #include "keymgr/comm/security_error.h"
 #include "access/datavec/ogai_utils.h"
 
-HttpMgr* GetHttpMgr(KmErr* errBuf, const char* url, const char* apiKey)
+#define OLLAMA_TIMEOUT 300
+#define OLLAMA_CONNECT_TIMEOUT 10
+
+HttpMgr* GetHttpMgr(KmErr* errBuf, const char* url, const char* apiKey, ModelProvider provider)
 {
     HttpMgr* httpMgr = NULL;
     /* remain resbody */
@@ -38,6 +42,13 @@ HttpMgr* GetHttpMgr(KmErr* errBuf, const char* url, const char* apiKey)
         return NULL;
     }
     httpmgr_set_req_line(httpMgr, url, CURLOPT_POST, NULL);
+    
+    if (provider == PROVIDER_OLLAMA) {
+        httpMgr->timeout = OLLAMA_TIMEOUT;
+        curl_easy_setopt(httpMgr->client, CURLOPT_TIMEOUT, httpMgr->timeout);
+        curl_easy_setopt(httpMgr->client, CURLOPT_CONNECTTIMEOUT, OLLAMA_CONNECT_TIMEOUT);
+    }
+    
     if (apiKey) {
         int authLen = strlen("Authorization: Bearer ") + strlen(apiKey) + 1;
         char* auth = (char *)km_alloc(authLen);

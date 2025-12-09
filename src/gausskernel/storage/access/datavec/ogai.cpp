@@ -72,7 +72,98 @@ Datum ogai_generate(PG_FUNCTION_ARGS)
 
 Datum ogai_rerank(PG_FUNCTION_ARGS)
 {
-    Datum result = NULL;
-    return result;
+    FuncCallContext  *funcctx;
+    if (SRF_IS_FIRSTCALL()) {
+        MemoryContext oldcontext;
+        Datum      *elements;
+        bool       *nulls;
+        int         numDocs;
+        TupleDesc tupdesc = NULL;
+
+        funcctx = SRF_FIRSTCALL_INIT();
+        oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+        tupdesc = CreateTemplateTupleDesc(3, false, TableAmHeap);
+        TupleDescInitEntry(tupdesc, (AttrNumber)1, "origin_index", INT4OID, -1, 0);
+        TupleDescInitEntry(tupdesc, (AttrNumber)2, "document", TEXTOID, -1, 0);
+        TupleDescInitEntry(tupdesc, (AttrNumber)3, "rerank_score", FLOAT8OID, -1, 0);
+
+        char *query = text_to_cstring(DatumGetVarCharPP(PG_GETARG_DATUM(0)));
+        ArrayType *arr = PG_GETARG_ARRAYTYPE_P(1);
+        char *model = text_to_cstring(DatumGetVarCharPP(PG_GETARG_DATUM(2)));
+
+        if (ARR_NDIM(arr) != 1) {
+            MemoryContextSwitchTo(oldcontext);
+            ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("array must be 1-dimensional")));
+        }
+
+        deconstruct_array(arr, TEXTOID, -1, false, 'i',
+                          &elements, &nulls, &numDocs);
+
+        if (numDocs == 0) {
+            MemoryContextSwitchTo(oldcontext);
+            ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("document array cannot be empty")));
+        }
+
+        OGAIString *docArray = (OGAIString*) palloc(sizeof(OGAIString) * numDocs);
+        for (int i = 0; i < numDocs; i++) {
+            if (nulls[i]) {
+                MemoryContextSwitchTo(oldcontext);
+                ereport(ERROR,
+                    (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                     errmsg("null document at index %d", i)));
+            }
+            docArray[i] = text_to_cstring(DatumGetVarCharPP(elements[i]));
+        }
+
+        InputDocuments input_docs = { .docArray = docArray, .docCount = numDocs };
+
+        ModelConfig config;
+        GenerateModelConfig(&config, model);
+        RerankClient *client = CreateRerankClient(&config);
+        if (!client) {
+            MemoryContextSwitchTo(oldcontext);
+            ereport(ERROR,
+                (errcode(ERRCODE_EXTERNAL_ROUTINE_EXCEPTION),
+                 errmsg("failed to create rerank client for model: %s", model)));
+        }
+
+        RerankResults *results = client->Rerank(query, &input_docs);
+        if (!results) {
+            MemoryContextSwitchTo(oldcontext);
+            ereport(ERROR,
+                (errcode(ERRCODE_EXTERNAL_ROUTINE_EXCEPTION),
+                 errmsg("failed to rerank documents")));
+        }
+
+        funcctx->user_fctx = results;
+        funcctx->max_calls = results->docCount;
+        funcctx->tuple_desc = BlessTupleDesc(tupdesc);
+        MemoryContextSwitchTo(oldcontext);
+    }
+
+    funcctx = SRF_PERCALL_SETUP();
+    if (funcctx->call_cntr < funcctx->max_calls) {
+        Datum values[3];
+        bool nulls[3] = {false, false, false};
+
+        RerankResults *results = (RerankResults*) funcctx->user_fctx;
+        RerankDocument *doc = &results->documents[funcctx->call_cntr];
+
+        values[0] = Int32GetDatum(doc->originIndex);
+        values[1] = CStringGetTextDatum(doc->document);
+        values[2] = Float8GetDatum(doc->rerankScore);
+
+        HeapTuple tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+        Datum result = HeapTupleGetDatum(tuple);
+
+        SRF_RETURN_NEXT(funcctx, result);
+    } else {
+        SRF_RETURN_DONE(funcctx);
+    }
 }
 

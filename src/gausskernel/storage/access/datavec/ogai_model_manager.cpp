@@ -35,7 +35,11 @@ static ProviderClientCreators providerCreators[] = {
         .createGenerate = CreateQwenGenerateClient,
         .createRerank = CreateQwenRerankClient
     },
-    [PROVIDER_OLLAMA] = {NULL, NULL, NULL},
+    [PROVIDER_OLLAMA] = {
+        .createEmbedding = CreateOllamaEmbeddingClient,
+        .createGenerate = CreateOllamaGenerateClient,
+        .createRerank = CreateOllamaRerankClient
+    },
     [PROVIDER_ONNX] = {NULL, NULL, NULL},
 };
 
