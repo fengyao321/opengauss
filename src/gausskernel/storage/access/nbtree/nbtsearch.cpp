@@ -1102,6 +1102,7 @@ bool _bt_first(IndexScanDesc scan, ScanDirection dir)
     /*
      * Now load data from the first page of the scan.
      */
+    so->firstPage = true;
     if (!_bt_readpage(scan, dir, offnum)) {
         /*
          * There's no actually-matching data on this page.  Try to advance to
@@ -1228,6 +1229,8 @@ static bool _bt_readpage(IndexScanDesc scan, ScanDirection dir, OffsetNumber off
     Oid partOid = InvalidOid;
     Oid heapOid = IndexScanGetPartHeapOid(scan);
     int2 bucketid = InvalidBktId;
+    bool		continuescanPrechecked;
+    bool		haveFirstMatch = false;
 
     tupdesc = RelationGetDescr(scan->indexRelation);
     PartitionOidAttr = IndexRelationGetNumberOfAttributes(scan->indexRelation);
@@ -1265,6 +1268,37 @@ static bool _bt_readpage(IndexScanDesc scan, ScanDirection dir, OffsetNumber off
     /* initialize tuple workspace to empty */
     so->currPos.nextTupleOffset = 0;
 
+    /*
+     * Prechecking the value of the continuescan flag for the last item on the
+     * page (for backwards scan it will be the first item on a page).  If we
+     * observe it to be true, then it should be true for all other items. This
+     * allows us to do significant optimizations in the _bt_checkkeys()
+     * function for all the items on the page.
+     *
+     *
+     * With the forward scan, we do this check for the last item on the page
+     * instead of the high key.  It's relatively likely that the most
+     * significant column in the high key will be different from the
+     * corresponding value from the last item on the page.  So checking with
+     * the last item on the page would give a more precise answer.
+     *
+     * We skip this for the first page in the scan to evade the possible
+     * slowdown of the point queries.
+     */
+    if (!so->firstPage && minoff < maxoff) {
+        OffsetNumber lastoff = ScanDirectionIsForward(dir) ? maxoff : minoff;
+        /*
+    	   * Do the precheck.  Note that we pass the pointer to the
+    	   * 'continuescanPrechecked' to the 'continuescan' argument. That will
+   		   * set flag to true if all required keys are satisfied and false
+   		   * otherwise.
+   		   */
+        (void )_bt_checkkeys(scan, page, lastoff, dir,
+                      &continuescanPrechecked, false, false);
+    } else {
+   	    so->firstPage = false;
+   	    continuescanPrechecked = false;
+   	}
     if (ScanDirectionIsForward(dir)) {
         /* load items[] in ascending order */
         itemIndex = 0;
@@ -1272,8 +1306,9 @@ static bool _bt_readpage(IndexScanDesc scan, ScanDirection dir, OffsetNumber off
         offnum = Max(offnum, minoff);
 
         while (offnum <= maxoff) {
-            itup = _bt_checkkeys(scan, page, offnum, dir, &continuescan);
+            itup = _bt_checkkeys(scan, page, offnum, dir, &continuescan, continuescanPrechecked, haveFirstMatch);
             if (itup != NULL) {
+                haveFirstMatch = true;
                 if (!btree_tuple_is_posting(itup)) {
                     /* Get partition oid for global partition index. */
                     partOid = scan->xs_want_ext_oid ? index_getattr_tableoid(scan->indexRelation, itup) : heapOid;
@@ -1302,6 +1337,25 @@ static bool _bt_readpage(IndexScanDesc scan, ScanDirection dir, OffsetNumber off
             offnum = OffsetNumberNext(offnum);
         }
 
+      	/*
+    	   * We don't need to visit page to the right when the high key
+    	   * indicates that no more matches will be found there.
+    	   *
+    	   * Checking the high key like this works out more often than you might
+    	   * think.  Leaf page splits pick a split point between the two most
+    	   * dissimilar tuples (this is weighed against the need to evenly share
+    	   * free space).  Leaf pages with high key attribute values that can
+    	   * only appear on non-pivot tuples on the right sibling page are
+    	   * common.
+    	   */
+        if (continuescan && !P_RIGHTMOST(opaque)) {
+            (void) _bt_checkkeys(scan, page, P_HIKEY, dir, &continuescan, false, false);
+        }
+
+        if (!continuescan) {
+            so->currPos.moreRight = false;
+        }
+
         Assert(itemIndex <= MAX_TIDS_PER_BTREE_PAGE);
         so->currPos.firstItem = 0;
         so->currPos.lastItem = itemIndex - 1;
@@ -1313,9 +1367,10 @@ static bool _bt_readpage(IndexScanDesc scan, ScanDirection dir, OffsetNumber off
         offnum = Min(offnum, maxoff);
 
         while (offnum >= minoff) {
-            itup = _bt_checkkeys(scan, page, offnum, dir, &continuescan);
+            itup = _bt_checkkeys(scan, page, offnum, dir, &continuescan, continuescanPrechecked, haveFirstMatch);
 
             if (itup != NULL) {
+                haveFirstMatch = true;
                 if (!btree_tuple_is_posting(itup)) {
                     partOid = scan->xs_want_ext_oid ? index_getattr_tableoid(scan->indexRelation, itup) : heapOid;
                     bucketid =
@@ -1894,6 +1949,7 @@ static bool _bt_endpoint(IndexScanDesc scan, ScanDirection dir)
     /*
      * Now load data from the first page of the scan.
      */
+    so->firstPage = true;
     if (!_bt_readpage(scan, dir, start)) {
         /*
          * There's no actually-matching data on this page.  Try to advance to
