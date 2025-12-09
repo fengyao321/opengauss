@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 Huawei Technologies Co.,Ltd.
+ *
+ * openGauss is licensed under Mulan PSL v2.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *
+ *          http://license.coscl.org.cn/MulanPSL2
+ *
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ * ---------------------------------------------------------------------------------------
+ *
+ * ogai_functions.sql
+ *
+ * IDENTIFICATION
+ *        src/gausskernel/storage/access/datavec/ogai_sql/ogai_functions.sql
+ *
+ * ---------------------------------------------------------------------------------------
+ */
+
 CREATE OR REPLACE FUNCTION ogai.vectorize_trigger_handle(
     p_content TEXT,
     p_embed_model TEXT,
@@ -69,11 +92,21 @@ END IF;
 END IF;
     -- 异步模式：写入队列
 ELSE
-        INSERT INTO ogai.vectorize_queue (message, status, vt)
-        VALUES (json_build_array(
-            p_task_name,
-            json_build_array(p_pk_value)
-        )::TEXT, 'ready', CURRENT_TIMESTAMP);
+        DECLARE
+            v_task_id BIGINT;
+        BEGIN
+            -- 获取任务ID
+            SELECT task_id INTO v_task_id
+            FROM ogai.vectorize_tasks
+            WHERE task_name = p_task_name AND owner_name = CURRENT_USER;
+
+            -- 插入队列记录：task_id和pk_value
+            INSERT INTO ogai.vectorize_queue (task_id, pk_value, status, vt)
+            VALUES (v_task_id, p_pk_value::INTEGER, 'ready', CURRENT_TIMESTAMP);
+            
+            -- 通知后台处理
+            PERFORM ogai_notify();
+        END;
 END IF;
 END;
 $$ LANGUAGE plpgsql;
@@ -312,18 +345,20 @@ END IF;
 END IF;
 END IF;
 
-    -- 6. 同步任务：处理向量转换
+    -- 6. 根据任务类型处理数据
     v_src_query := format(
         'SELECT %I AS pk, %I AS content FROM %I.%I',
         p_primary_key, p_src_col, p_src_schema, p_src_table
     );
 
-FOR v_row IN EXECUTE v_src_query LOOP
-BEGIN
+    IF p_task_type = 'sync' THEN
+        -- 同步任务：处理向量转换
+        FOR v_row IN EXECUTE v_src_query LOOP
+        BEGIN
             IF v_row.content IS NULL THEN
                 v_error := v_error || format('Row %s skipped due to null content; ', v_row.pk);
-CONTINUE;
-END IF;
+                CONTINUE;
+            END IF;
 
             IF p_table_method = 'append' THEN
                 -- 追加模式：更新原表的向量列
@@ -331,44 +366,60 @@ END IF;
                     'UPDATE %I.%I SET %I = ogai_embedding($1, $2, $3) WHERE %I = $4',
                     p_src_schema, p_src_table, v_vector_col, p_primary_key
                 ) USING v_row.content, p_embed_model, p_dim, v_row.pk;
-ELSE
+            ELSE
                 -- 连接模式：插入或更新独立向量表
                 IF p_max_chunk_size > 0 THEN
                     -- 需要分块处理
                     DECLARE
-v_chunk_record RECORD;
+                        v_chunk_record RECORD;
                         v_chunk_id INTEGER := 1;
-BEGIN
-FOR v_chunk_record IN
-SELECT chunk FROM ogai_chunk(v_row.content, p_max_chunk_size, p_max_chunk_overlap)
-                      LOOP
-    EXECUTE format(
+                    BEGIN
+                        FOR v_chunk_record IN
+                            SELECT chunk FROM ogai_chunk(v_row.content, p_max_chunk_size, p_max_chunk_overlap)
+                        LOOP
+                            EXECUTE format(
                                 'INSERT INTO %I.%I (%I, chunk_id, chunk_text, ogai_embedding)
                                  VALUES ($1, $2, $3, ogai_embedding($4, $5, $6))',
                                 p_src_schema, p_src_table || '_vector', p_primary_key
                             ) USING v_row.pk, v_chunk_id, v_chunk_record.chunk,
                                     v_chunk_record.chunk, p_embed_model, p_dim;
-v_chunk_id := v_chunk_id + 1;
-END LOOP;
-END;
-ELSE
+                            v_chunk_id := v_chunk_id + 1;
+                        END LOOP;
+                    END;
+                ELSE
                     -- 不分块，只存储向量
                     EXECUTE format(
                         'INSERT INTO %I.%I (%I, ogai_embedding)
                          VALUES ($1, ogai_embedding($2, $3, $4))',
                         p_src_schema, p_src_table || '_vector', p_primary_key
                     ) USING v_row.pk, v_row.content, p_embed_model, p_dim;
-END IF;
-END IF;
+                END IF;
+            END IF;
 
             v_processed := v_processed + 1;
 
-EXCEPTION WHEN OTHERS THEN
+        EXCEPTION WHEN OTHERS THEN
             v_error_rows := array_append(v_error_rows, v_row.pk);
             v_error_msgs := array_append(v_error_msgs, format('Row %s error at %s: %s', v_row.pk, now(), SQLERRM));
-CONTINUE;
-END;
-END LOOP;
+            CONTINUE;
+        END;
+        END LOOP;
+    ELSE
+        -- 异步任务：将历史数据主键全部入队
+        -- 批量插入所有非空内容的主键到队列
+        EXECUTE format(
+            'INSERT INTO ogai.vectorize_queue (task_id, pk_value, status, vt)
+             SELECT $1, %I::INTEGER, ''ready'', CURRENT_TIMESTAMP
+             FROM %I.%I
+             WHERE %I IS NOT NULL',
+            p_primary_key, p_src_schema, p_src_table, p_src_col
+        ) USING v_task_id;
+
+        GET DIAGNOSTICS v_processed = ROW_COUNT;
+
+        -- 通知后台worker处理
+        PERFORM ogai_notify();
+    END IF;
 
     -- 7. 创建索引
     BEGIN
@@ -429,18 +480,26 @@ END LOOP;
     END;
 
     -- 8. 返回处理结果
-    IF array_length(v_error_rows, 1) IS NULL THEN
+    IF p_task_type = 'sync' THEN
+        -- 同步模式返回结果
+        IF array_length(v_error_rows, 1) IS NULL THEN
+            RETURN QUERY SELECT v_task_id, true, v_processed,
+                                format('Sync task completed with table: %s', p_src_table);
+        ELSE
+            -- 限制错误信息长度，防止返回值过大
+            v_error_summary := array_to_string(v_error_msgs, '; ');
+            IF length(v_error_summary) > 8192 THEN
+                v_error_summary := left(v_error_summary, 8192) || '... (truncated)';
+            END IF;
+            RETURN QUERY SELECT v_task_id, false, v_processed,
+                                'Partial errors: ' || v_error_summary;
+        END IF;
+    ELSE
+        -- 异步模式返回结果
         RETURN QUERY SELECT v_task_id, true, v_processed,
-                            format('Sync task completed with table: %s', p_src_table);
-ELSE
-        -- 限制错误信息长度，防止返回值过大
-        v_error_summary := array_to_string(v_error_msgs, '; ');
-        IF length(v_error_summary) > 8192 THEN
-            v_error_summary := left(v_error_summary, 8192) || '... (truncated)';
-END IF;
-RETURN QUERY SELECT v_task_id, false, v_processed,
-                        'Partial errors: ' || v_error_summary;
-END IF;
+                        format('Async task registered. Enqueued %s existing rows from %I.%I for background processing', 
+                               v_processed, p_src_schema, p_src_table);
+    END IF;
 END;
 $$ LANGUAGE plpgsql
 SECURITY INVOKER;
