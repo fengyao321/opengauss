@@ -1615,6 +1615,25 @@ typedef struct knl_t_undorecycler_context {
     bool is_recovery_in_progress;
 } knl_t_undorecycler_context;
 
+typedef struct knl_t_ogailauncher_context {
+    /* Flags set by signal handlers */
+    volatile sig_atomic_t got_SIGHUP;
+    volatile sig_atomic_t got_SIGUSR2;
+    volatile sig_atomic_t got_SIGTERM;
+
+    /* PID of launcher, valid only in worker while shutting down */
+    ThreadId OgaiLauncherPID;
+
+    struct OgaiWorkerShmemStruct *ogaiWorkerShmem;
+} knl_t_ogailauncher_context;
+
+typedef struct knl_t_ogaiworker_context {
+    /* Flags set by signal handlers */
+    volatile sig_atomic_t got_SIGHUP;
+    volatile sig_atomic_t got_SIGUSR2;
+    volatile sig_atomic_t got_SIGTERM;
+} knl_t_ogaiworker_context;
+
 typedef struct knl_t_rollback_requests_context {
     /* This hash holds all pending rollback requests */
     struct HTAB *rollback_requests_hash;
@@ -3651,6 +3670,8 @@ typedef struct knl_thrd_context {
     knl_t_undo_context undo_cxt;
     knl_t_undolauncher_context undolauncher_cxt;
     knl_t_undoworker_context undoworker_cxt;
+    knl_t_ogailauncher_context ogailauncher_cxt;
+    knl_t_ogaiworker_context ogaiworker_cxt;
     knl_t_undorecycler_context undorecycler_cxt;
     knl_u_ustore_context ustore_cxt;
     knl_t_rollback_requests_context rollback_requests_cxt;

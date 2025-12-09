@@ -46,6 +46,7 @@ typedef enum {
     PMSIGNAL_START_PAGE_WRITER,        /* start a new page writer thread */
     PMSIGNAL_START_THREADPOOL_WORKER,  /* start thread pool woker */
 	PMSIGNAL_START_UNDO_WORKER,        /* start a new undo worker */
+    PMSIGNAL_START_OGAI_WORKER,        /* start a new ogai worker */
     PMSIGNAL_START_RB_WORKER,          /* start a rbworker */
     PMSIGNAL_START_TXNSNAPWORKER,      /* start a snapcaputure worker */
     PMSIGNAL_START_LOGICAL_READ_WORKER,/* start logical read worker */

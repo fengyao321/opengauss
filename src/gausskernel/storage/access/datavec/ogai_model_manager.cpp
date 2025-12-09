@@ -141,7 +141,7 @@ static void SetModelConfigFromDB(ModelConfig* config, const char* modelKey)
 
 
 static void AsyncSetModelConfigFromDB(
-    ModelConfig* config, const char* modelKey)
+    ModelConfig* config, const char* modelKey, const char* ownerName)
 {
     char query[1024];
     int ret;
@@ -151,13 +151,16 @@ static void AsyncSetModelConfigFromDB(
 
     errno_t nRet = snprintf_s(query, sizeof(query), sizeof(query) - 1,
                  "SELECT model_name, model_provider, api_key, url "
-                 "FROM ogai.model_sources WHERE model_key = $1");
+                 "FROM ogai.model_sources "
+                 "WHERE model_key = $1 AND owner_name = $2;");
     securec_check_ss_c(nRet, "", "");
-    Datum params[1];
-    Oid paramtypes[1] = {TEXTOID};
+    Datum params[2];
+    Oid paramtypes[2] = {TEXTOID, TEXTOID};
     params[0] = CStringGetTextDatum(modelKey);
+    params[1] = CStringGetTextDatum(ownerName);
+    /* 2 means the sql above needs two input parameters */
     ret = SPI_execute_with_args(query,
-                                1,
+                                2,
                                 paramtypes,
                                 params,
                                 NULL,
@@ -234,15 +237,16 @@ void GenerateModelConfig(ModelConfig* config, const char* modelKey)
     SetModelConfigFromDB(config, modelKey);
 }
 
-void AsyncGenerateModelConfig(ModelConfig* config, const char* modelKey)
+void AsyncGenerateModelConfig(
+        ModelConfig* config, const char* modelKey, const char* ownerName)
 {
-    if (config == NULL || modelKey == NULL) {
+    if (config == NULL || modelKey == NULL || ownerName == NULL) {
         ereport(ERROR,
                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                  errmsg("model config or model_key cannot be NULL")));
     }
 	
-    AsyncSetModelConfigFromDB(config, modelKey);
+    AsyncSetModelConfigFromDB(config, modelKey, ownerName);
 }
 
 EmbeddingClient* CreateEmbeddingClient(ModelConfig* config)

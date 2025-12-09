@@ -110,22 +110,22 @@ static void OgaiWorkerFreeInfo(int code, Datum arg)
     int actualOgaiWorkers = MAX_OGAI_WORKERS;
 
     for (int i = 0; i < actualOgaiWorkers; i++) {
-        if (t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].pid == pid) {
+        if (t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].pid == pid) {
             idx = i;
-            t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].pid = INVALID_PID;
-            t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].dbid = InvalidOid;
-            t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].createdbTime = (TimestampTz)0;
+            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].pid = INVALID_PID;
+            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].dbid = InvalidOid;
+            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].createdbTime = (TimestampTz)0;
             break;
         }
     }
 
-    pg_atomic_sub_fetch_u32(&t_thrd.ogailauncher_cxt.OgaiWorkerShmem->active_ogai_workers, 1);
+    pg_atomic_sub_fetch_u32(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->active_ogai_workers, 1);
     return;
 }
 
 static void OgaiWorkerGetWork(OgaiWorkInfo ogaiwork)
 {
-    errno_t rc = memcpy_s(ogaiwork, sizeof(OgaiWorkInfoData), t_thrd.ogailauncher_cxt.OgaiWorkerShmem->createdb_request,
+    errno_t rc = memcpy_s(ogaiwork, sizeof(OgaiWorkInfoData), t_thrd.ogailauncher_cxt.ogaiWorkerShmem->createdb_request,
         sizeof(OgaiWorkInfoData));
     securec_check(rc, "\0", "\0");
 }
@@ -234,7 +234,7 @@ NON_EXEC_STATIC void OgaiWorkerMain()
     }
 
     /* Let the UndoLauncher know we have picked up the job and that we're active. */
-    pg_atomic_add_fetch_u32(&t_thrd.ogailauncher_cxt.OgaiWorkerShmem->active_ogai_workers, 1);
+    pg_atomic_add_fetch_u32(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->active_ogai_workers, 1);
 
     on_shmem_exit(OgaiWorkerFreeInfo, 0);
 
@@ -242,9 +242,9 @@ NON_EXEC_STATIC void OgaiWorkerMain()
     OgaiWorkerGetWork(&ogaiwork);
     
     for (int i = 0; i < actualOgaiWorkers; i++) {
-        if (t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].dbid == ogaiwork.dbid) {
-            t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].pid = gs_thread_self();
-            t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].createdbTime = GetCurrentTimestamp();
+        if (t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].dbid == ogaiwork.dbid) {
+            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].pid = gs_thread_self();
+            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].createdbTime = GetCurrentTimestamp();
             break;
         }
     }
@@ -288,11 +288,11 @@ shutdown:
         OgaiVectorProcessorDestroy();
         ogaiVectorProcessorInited = false;
     }
-    pg_atomic_sub_fetch_u32(&t_thrd.ogailauncher_cxt.OgaiWorkerShmem->active_ogai_workers, 1);
+    pg_atomic_sub_fetch_u32(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->active_ogai_workers, 1);
     for (int i = 0; i < actualOgaiWorkers; i++) {
-        if (t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].pid == gs_thread_self()) {
-            t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].pid = INVALID_PID;
-            t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].dbid = InvalidOid;
+        if (t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].pid == gs_thread_self()) {
+            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].pid = INVALID_PID;
+            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].dbid = InvalidOid;
             break;
         }
     }

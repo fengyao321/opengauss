@@ -204,6 +204,7 @@
 
 #include "access/twophase.h"
 #include "access/ustore/knl_undoworker.h"
+#include "access/datavec/ogai_worker.h"
 #include "alarm/alarm.h"
 #include "auditfuncs.h"
 #include "catalog/pg_type.h"
@@ -502,6 +503,7 @@ static void StartRbWorker(void);
 static void StartTxnSnapWorker(void);
 static void StartAutovacuumWorker(void);
 static void StartUndoWorker(void);
+static void StartOgaiWorker(void);
 static void StartApplyWorker(void);
 static ThreadId StartCatchupWorker(void);
 static void InitPostmasterDeathWatchHandle(void);
@@ -4494,6 +4496,12 @@ static int ServerLoop(void)
         }
 #endif
 
+        if (g_instance.attr.attr_storage.enable_async_ogai &&
+            g_instance.pid_cxt.OgaiLauncherPID == 0 &&
+            pmState == PM_RUN && !dummyStandbyMode) {
+            g_instance.pid_cxt.OgaiLauncherPID = initialize_util_thread(OGAI_LAUNCHER);
+        }
+
         /*
          * If we are doing upgrade and old version >= PUBLICATION_VERSION_NUM, we can launch applylauncer.
          * If we are doing upgrade and old version < PUBLICATION_VERSION_NUM, we can't launch applylauncer,
@@ -7493,6 +7501,9 @@ static void reaper(SIGNAL_ARGS)
 
             if (g_instance.attr.attr_storage.enable_ustore && g_instance.pid_cxt.GlobalStatsPID == 0 && !dummyStandbyMode)
                 g_instance.pid_cxt.GlobalStatsPID = initialize_util_thread(GLOBALSTATS_THREAD);
+
+            if (g_instance.attr.attr_storage.enable_async_ogai && g_instance.pid_cxt.UndoLauncherPID == 0 && !dummyStandbyMode)
+                g_instance.pid_cxt.OgaiLauncherPID = initialize_util_thread(OGAI_LAUNCHER);
 
 #ifndef ENABLE_MULTIPLE_NODES
             if ((u_sess->attr.attr_common.upgrade_mode == 0 ||
@@ -10746,6 +10757,13 @@ static void sigusr1_handler(SIGNAL_ARGS)
     }
 
     /* should not start a worker in shutdown or demotion procedure */
+    if (CheckPostmasterSignal(PMSIGNAL_START_OGAI_WORKER) &&
+        g_instance.status == NoShutdown &&
+        g_instance.demotion == NoDemote) {
+        StartOgaiWorker();
+    }
+
+    /* should not start a worker in shutdown or demotion procedure */
     if (CheckPostmasterSignal(PMSIGNAL_START_APPLY_WORKER) &&
         g_instance.status == NoShutdown &&
         g_instance.demotion == NoDemote) {
@@ -11704,6 +11722,66 @@ static void StartUndoWorker(void)
             bn->role = (knl_thread_role)0;
         } else
             ereport(LOG, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of memory")));
+    }
+
+}
+
+static void StartOgaiWorker(void)
+{
+    Backend* bn = NULL;
+
+    /*
+     * If not in condition to run a process, don't try, but handle it like a
+     * fork failure.  This does not normally happen, since the signal is only
+     * supposed to be sent by ogai launcher when it's OK to do it, but
+     * we have to check to avoid race-condition problems during DB state
+     * changes.
+     */
+    if (canAcceptConnections(false) == CAC_OK)
+    {
+        int slot = AssignPostmasterChildSlot();
+        if (slot < 1) {
+            ereport(ERROR, (errmsg("no free slots in PMChildFlags array")));
+        }
+
+        bn = AssignFreeBackEnd(slot);
+
+        if (bn != NULL)
+        {
+
+            /*
+             * Compute the cancel key that will be assigned to this session.
+             * We probably don't need cancel keys for workers, but
+             * we'd better have something random in the field to prevent
+             * unfriendly people from sending cancels to them.
+             */
+            t_thrd.proc_cxt.MyCancelKey = PostmasterRandom();
+            bn->cancel_key = t_thrd.proc_cxt.MyCancelKey;
+
+            /* OgaiWorkers need a child slot */
+            bn->child_slot = t_thrd.proc_cxt.MyPMChildSlot = slot;
+            bn->role = OGAI_WORKER;
+            bn->pid = initialize_util_thread(OGAI_WORKER, bn);
+            t_thrd.proc_cxt.MyPMChildSlot = 0;
+
+            if (bn->pid > 0) {
+                bn->is_autovacuum = true;
+                DLInitElem(&bn->elem, bn);
+                DLAddHead(g_instance.backend_list, &bn->elem);
+                /* all OK */
+                return;
+            }
+
+            /*
+             * fork failed, fall through to report -- actual error message was
+             * logged by initialize_util_thread
+             */
+            (void)ReleasePostmasterChildSlot(bn->child_slot);
+            bn->pid = 0;
+            bn->role = (knl_thread_role)0;
+        } else {
+            ereport(LOG, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of memory")));
+        }
     }
 
 }
@@ -15177,6 +15255,22 @@ int GaussDbThreadMain(knl_thread_arg* arg)
             UndoWorkerMain();
             proc_exit(0);
         } break;
+        
+        case OGAI_LAUNCHER: {
+            t_thrd.proc_cxt.MyPMChildSlot = AssignPostmasterChildSlot();
+            if (t_thrd.proc_cxt.MyPMChildSlot == -1) {
+                return STATUS_ERROR;
+            }
+            InitProcessAndShareMemory();
+            OgaiLauncherMain();
+            proc_exit(0);
+        } break;
+
+        case OGAI_WORKER: {
+            InitProcessAndShareMemory();
+            OgaiWorkerMain();
+            proc_exit(0);
+        } break;
 
         case GLOBALSTATS_THREAD: {
             t_thrd.proc_cxt.MyPMChildSlot = AssignPostmasterChildSlot();
@@ -15336,6 +15430,8 @@ static ThreadMetaData GaussdbThreadGate[] = {
     { GaussDbThreadMain<UNDO_RECYCLER>, UNDO_RECYCLER, "undorecycler", "undo recycler" },
     { GaussDbThreadMain<UNDO_LAUNCHER>, UNDO_LAUNCHER, "asyncundolaunch", "async undo launcher" },
     { GaussDbThreadMain<UNDO_WORKER>, UNDO_WORKER, "asyncundoworker", "async undo worker" },
+    { GaussDbThreadMain<OGAI_LAUNCHER>, OGAI_LAUNCHER, "asyncogailaunch", "async ogai launcher" },
+    { GaussDbThreadMain<OGAI_WORKER>, OGAI_WORKER, "asyncogaiworker", "async ogai worker" },
     { GaussDbThreadMain<CSNMIN_SYNC>, CSNMIN_SYNC, "csnminsync", "csnmin sync" },
     { GaussDbThreadMain<GLOBALSTATS_THREAD>, GLOBALSTATS_THREAD, "globalstats", "global stats" },
     { GaussDbThreadMain<BARRIER_CREATOR>, BARRIER_CREATOR, "barriercreator", "barrier creator" },

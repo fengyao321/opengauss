@@ -49,12 +49,13 @@
 
 /* Ogai task config */
 typedef struct {
-    char model_key[64];         /* embedding model key */
+    char model_key[64];          /* embedding model key */
     char src_schema[64];         /* source table schema */
     char src_table[64];          /* source table name */
     char src_col[64];            /* Name of the text column to be vectorized (input column) */
     char primary_key[64];        /* Primary key column name of the source table */
     char table_method[32];       /* Storage mode ("append" or "join") */
+    char owner_name[64];         /* owner of the task */
     int dim;                     /* Vector dimension (default: 1536) */
     int max_chunk_size;          /* Text chunk size (default: 1000) */
     int max_chunk_overlap;       /* Chunk overlap size (default: 200) */
@@ -117,7 +118,7 @@ static bool GetTaskConfig(
 
     nRet = snprintf_s(sql, sizeof(sql), sizeof(sql) - 1,
         "SELECT model_key, src_schema, src_table, src_col, primary_key, "
-        "method, dim, max_chunk_size, max_chunk_overlap "
+        "method, dim, max_chunk_size, max_chunk_overlap, owner_name "
         "FROM ogai.vectorize_tasks "
         "WHERE task_id = $1 LIMIT 1;");
     securec_check_ss_c(nRet, "", "");
@@ -292,6 +293,24 @@ static bool GetTaskConfig(
     /* get max_chunk_overlap default 200, 9 is the ninth result returned by the SQL statement */
     value = SPI_getvalue(tuple, tupdesc, 9);
     config->max_chunk_overlap = (value && strlen(value) > 0) ? atoi(value) : 200;
+
+    /* get owner_name, 10 is the fourth result returned by the SQL statement. */
+    value = SPI_getvalue(tuple, tupdesc, 10);
+    if (value == NULL || strlen(value) == 0) {
+        nRet = snprintf_s(failReason, failReasonLen, failReasonLen - 1,
+                 "Task configuration src_col is empty: task_id=%d", taskId);
+        securec_check_ss_c(nRet, "", "");
+        if (!hasTransaction) {
+            PopActiveSnapshot();
+            finish_xact_command();
+        }
+        MemoryContextSwitchTo(oldCtx);
+        MemoryContextDelete(tmpCtx);
+        return false;
+    }
+    nRet = strncpy_s(config->owner_name, sizeof(config->owner_name), value, sizeof(config->owner_name) - 1);
+    securec_check(nRet, "", "");
+    config->owner_name[sizeof(config->owner_name) - 1] = '\0';
 
     if (!hasTransaction) {
         PopActiveSnapshot();
@@ -469,7 +488,7 @@ static bool GenerateAndUpdateEmbedding(
         modelConfig.maxBatch = 1;
         
         /* Get model configuration (uses existing SPI connection, no duplicate connection) */
-        AsyncGenerateModelConfig(&modelConfig, config->model_key);
+        AsyncGenerateModelConfig(&modelConfig, config->model_key, config->owner_name);
         
         /* Create embedding client and generate vectors */
         EmbeddingClient* client = CreateEmbeddingClient(&modelConfig);
@@ -570,7 +589,7 @@ static bool GenerateAndUpdateEmbedding(
         ModelConfig modelConfig;
         modelConfig.dimension = config->dim;
         modelConfig.maxBatch = 1;
-        AsyncGenerateModelConfig(&modelConfig, config->model_key);
+        AsyncGenerateModelConfig(&modelConfig, config->model_key, config->owner_name);
         
         EmbeddingClient* client = CreateEmbeddingClient(&modelConfig);
         if (!client) {
@@ -801,7 +820,7 @@ static bool InitEnvAndQueryQueue(int *spiRc, MemoryContext oldCtx, MemoryContext
     nRet = snprintf_s(sql, sizeof(sql), sizeof(sql) - 1,
         "SELECT msg_id, task_id, pk_value, retry_count "
         "FROM ogai.vectorize_queue "
-        "WHERE status = 'ready' AND retry_count < %d "
+        "WHERE status != 'processing' AND retry_count < %d "
         "ORDER BY vt ASC LIMIT 10;",
         VECTOR_PROCESSOR_MAX_RETRY_COUNT);
     securec_check_ss_c(nRet, "", "");
@@ -811,8 +830,6 @@ static bool InitEnvAndQueryQueue(int *spiRc, MemoryContext oldCtx, MemoryContext
         PopActiveSnapshot();
         finish_xact_command();
         SPI_finish();
-        MemoryContextSwitchTo(oldCtx);
-        MemoryContextDelete(spiCtx);
         return false;
     }
     return true;
@@ -878,13 +895,17 @@ static void HandleEmbeddingGeneration(int64 msgId, int taskId, int pkValue, int 
             ereport(WARNING, (errmsg("Vector gen failed for msg_id=%ld: %s", msgId, failReason)));
             
             BeginInternalSubTransaction(NULL);
-            PG_TRY() {
+            PG_TRY();
+            {
                 UpdateQueueStatus(msgId, IsRetryable(*failType) ? "ready" : "failed", retryCount + 1, failReason);
                 ReleaseCurrentSubTransaction();
-            } PG_CATCH() {
+            }
+            PG_CATCH();
+            {
                 RollbackAndReleaseCurrentSubTransaction();
                 ereport(WARNING, (errmsg("Failed to update status for msg_id=%ld", msgId)));
-            } PG_END_TRY();
+            }
+            PG_END_TRY();
         }
     }
     PG_CATCH();
@@ -892,19 +913,23 @@ static void HandleEmbeddingGeneration(int64 msgId, int taskId, int pkValue, int 
         if (IsSubTransaction()) {
             RollbackAndReleaseCurrentSubTransaction();
         }
-        errno_t nRet = snprintf_s(failReason, reasonSize,
+        errno_t nRet = snprintf_s(failReason, reasonSize, reasonSize - 1,
                                 "Unexpected exception: msg_id=%ld, task_id=%d", msgId, taskId);
         securec_check_ss_c(nRet, "", "");
-        ereport(WARNING, (errmsg("%s", failReason)));
+        ereport(WARNING, (errmsg(failReason)));
         
         BeginInternalSubTransaction(NULL);
-        PG_TRY() {
+        PG_TRY();
+        {
             UpdateQueueStatus(msgId, "failed", retryCount + 1, failReason);
             ReleaseCurrentSubTransaction();
-        } PG_CATCH() {
+        }
+        PG_CATCH();
+        {
             RollbackAndReleaseCurrentSubTransaction();
             ereport(WARNING, (errmsg("Failed to update status in exception for msg_id=%ld", msgId)));
-        } PG_END_TRY();
+        }
+        PG_END_TRY();
     }
     PG_END_TRY();
 }

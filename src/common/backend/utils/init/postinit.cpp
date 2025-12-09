@@ -1697,6 +1697,60 @@ bool PostgresInitializer::InitUndoWorker()
     return databaseExists;
 }
 
+void PostgresInitializer::InitOgaiLauncher()
+{
+    InitThread();
+
+    InitSysCache();
+
+    /* Initialize stats collection --- must happen before first xact */
+    pgstat_initialize();
+
+    SetProcessExitCallback();
+
+    return;
+}
+
+
+bool PostgresInitializer::InitOgaiWorker()
+{
+    bool databaseExists = true;
+    InitThread();
+
+    InitSysCache();
+
+    /* Initialize stats collection --- must happen before first xact */
+    pgstat_initialize();
+
+    SetProcessExitCallback();
+
+    StartXact();
+
+    SetSuperUserStandalone();
+
+    CheckConnPermission();
+
+    HeapTuple tuple = GetDatabaseTupleByOid(m_dboid);
+    if (!HeapTupleIsValid(tuple)) {
+        m_dboid = InvalidOid;
+        m_indbname = (char*)pstrdup(DEFAULT_DATABASE);
+        databaseExists = false;
+    }
+
+    SetDatabase();
+
+    LoadSysCache();
+
+    InitPGXCPort();
+
+    InitSettings();
+
+    FinishInit();
+
+    AuditUserLogin();
+    return databaseExists;
+}
+
 void PostgresInitializer::InitAutoVacWorker()
 {
     InitThread();

@@ -33,4 +33,5 @@ Datum ogai_embedding(PG_FUNCTION_ARGS);
 Datum ogai_generate(PG_FUNCTION_ARGS);
 Datum ogai_rerank(PG_FUNCTION_ARGS);
 Datum ogai_chunk(PG_FUNCTION_ARGS);
-#endif // OGAI_H
+Datum ogai_notify(PG_FUNCTION_ARGS);
+#endif

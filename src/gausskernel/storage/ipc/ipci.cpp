@@ -29,6 +29,7 @@
 #include "catalog/storage_gtt.h"
 #include "access/ustore/undo/knl_uundoapi.h"
 #include "access/ustore/knl_undoworker.h"
+#include "access/datavec/ogai_worker.h"
 #include "access/ustore/knl_undorequest.h"
 #include "access/ondemand_extreme_rto/redo_utils.h"
 #include "commands/tablespace.h"
@@ -174,6 +175,7 @@ Size ComputeTotalSizeOfShmem()
         size = add_size(size, active_gtt_shared_hash_size());
         size = add_size(size, AsyncRollbackHashShmemSize());
         size = add_size(size, UndoWorkerShmemSize());
+        size = add_size(size, OgaiWorkerShmemSize());
         size = add_size(size, TxnSnapCapShmemSize());
         size = add_size(size, RbCleanerShmemSize());
 
@@ -396,6 +398,7 @@ void CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
     HaShmemInit();
     AsyncRollbackHashShmemInit();
     UndoWorkerShmemInit();
+    OgaiWorkerShmemInit();
     undo::InitUndoZoneLock();
     heartbeat_shmem_init();
     MatviewShmemInit();

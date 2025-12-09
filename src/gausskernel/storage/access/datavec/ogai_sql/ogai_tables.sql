@@ -107,3 +107,36 @@ CREATE TABLE IF NOT EXISTS ogai.vectorize_queue
 CREATE INDEX IF NOT EXISTS vectorize_queue_vt_idx ON ogai.vectorize_queue (vt);
 CREATE INDEX IF NOT EXISTS vectorize_queue_status_idx ON ogai.vectorize_queue (status);
 CREATE INDEX IF NOT EXISTS vectorize_queue_owner_name_idx ON ogai.vectorize_queue (owner_name);
+
+
+-- Enable Row Level Security on all tables
+ALTER TABLE ogai.model_sources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ogai.vectorize_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ogai.vectorize_queue ENABLE ROW LEVEL SECURITY;
+
+-- Create policies for model_sources table
+CREATE ROW LEVEL SECURITY POLICY model_sources_owner_policy ON ogai.model_sources
+    FOR ALL TO PUBLIC
+    USING (owner_name = CURRENT_USER);
+
+-- Create policies for vectorize_task table
+CREATE ROW LEVEL SECURITY POLICY vectorize_task_owner_policy ON ogai.vectorize_tasks
+    FOR ALL TO PUBLIC
+    USING (owner_name = CURRENT_USER);
+
+-- Create policies for vectorize_queue table
+CREATE ROW LEVEL SECURITY POLICY vectorize_queue_owner_policy ON ogai.vectorize_queue
+    FOR ALL TO PUBLIC
+    USING (owner_name = CURRENT_USER);
+
+-- Grant appropriate permissions
+GRANT SELECT, INSERT, UPDATE, DELETE ON ogai.model_sources TO PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ogai.vectorize_tasks TO PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ogai.vectorize_queue TO PUBLIC;
+
+GRANT USAGE, SELECT ON SEQUENCE ogai.model_sources_id_seq TO PUBLIC;
+GRANT USAGE, SELECT ON SEQUENCE ogai.vectorize_tasks_task_id_seq TO PUBLIC;
+GRANT USAGE, SELECT ON SEQUENCE ogai.vectorize_queue_msg_id_seq TO PUBLIC;
+
+GRANT CREATE ON SCHEMA ogai TO PUBLIC;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ogai TO PUBLIC;
