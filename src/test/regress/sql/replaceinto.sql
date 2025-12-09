@@ -197,5 +197,9 @@ replace into replace_segment_test values(7,'ddddd','ddddd');
 select * from replace_segment_test;
 
 drop table replace_segment_test;
+create table drop_column_t1 (a int, b int);
+alter table drop_column_t1 drop column b;
+replace into drop_column_t1 values (1);
+drop table drop_column_t1;
 \c postgres
 drop database db_replaceinto;

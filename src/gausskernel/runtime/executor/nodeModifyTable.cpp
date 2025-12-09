@@ -3374,6 +3374,11 @@ static void checkSequenceForReplace(Relation rel)
         char *nspname = get_namespace_name(rel->rd_rel->relnamespace);
         text *tbname;
         text *attname;
+
+        if (att_tup->attisdropped) {
+            continue;
+        }
+
         rc = memset_s(tableName, tableNameSize, 0, tableNameSize);
         securec_check(rc, "\0", "\0");
 
