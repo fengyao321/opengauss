@@ -2,6 +2,7 @@ SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0,
 
 SET search_path TO information_schema;
 
+SET skip_new_column_for_ruledef = true;
 
 DO $$
 DECLARE

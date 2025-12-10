@@ -2,6 +2,8 @@ DROP FUNCTION IF EXISTS pg_catalog.pg_relation_is_updatable(oid, bool);
 
 DROP FUNCTION IF EXISTS pg_catalog.pg_column_is_updatable(oid, int2, bool);
 
+SET skip_new_column_for_ruledef = true;
+
 SET search_path TO information_schema;
 CREATE OR REPLACE VIEW columns AS
     SELECT CAST(pg_catalog.current_database() AS sql_identifier) AS table_catalog,

@@ -1,6 +1,8 @@
 DROP VIEW IF EXISTS pg_catalog.pg_gtt_attached_pids;
 DROP FUNCTION IF EXISTS pg_catalog.pg_gtt_attached_pid(relid oid, OUT relid oid, OUT pid bigint, OUT sessionid bigint);
 
+SET skip_new_column_for_ruledef = true;
+
 SET LOCAL inplace_upgrade_next_system_object_oids=IUO_PROC, 3598;
 CREATE OR REPLACE FUNCTION pg_catalog.pg_gtt_attached_pid(relid oid, OUT relid oid, OUT pid bigint)
  RETURNS SETOF record
