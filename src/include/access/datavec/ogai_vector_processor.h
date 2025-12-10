@@ -35,7 +35,7 @@
  * @brief Initialize the vector processor (sets up SPI connection, checks dependent tables, etc.)
  * @return true if initialization succeeds; false if it fails (failure reason will be logged)
  */
-bool ogaiVectorProcessorInit();
+bool OgaiVectorProcessorInit();
 
 /**
  * @brief Scan and process the vectorization queue (core business logic)

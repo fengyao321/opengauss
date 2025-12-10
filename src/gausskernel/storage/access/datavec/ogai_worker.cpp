@@ -258,7 +258,7 @@ NON_EXEC_STATIC void OgaiWorkerMain()
     pgstat_report_appname("OgaiWorker");
     pgstat_report_activity(STATE_IDLE, NULL);
 
-    ogaiVectorProcessorInited = ogaiVectorProcessorInit();
+    ogaiVectorProcessorInited = OgaiVectorProcessorInit();
     if (!ogaiVectorProcessorInited) {
         ereport(ERROR, (errmsg("OgaiWorker: Vector processor initialization failed; worker thread exiting")));
         goto shutdown;

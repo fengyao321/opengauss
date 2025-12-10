@@ -2,6 +2,7 @@
 AUX_SOURCE_DIRECTORY(${CMAKE_CURRENT_SOURCE_DIR} TGT_datavec_SRC)
 list(REMOVE_ITEM TGT_datavec_SRC "${CMAKE_CURRENT_SOURCE_DIR}/ogai_launcher.cpp")
 list(REMOVE_ITEM TGT_datavec_SRC "${CMAKE_CURRENT_SOURCE_DIR}/ogai_worker.cpp")
+list(REMOVE_ITEM TGT_datavec_SRC "${CMAKE_CURRENT_SOURCE_DIR}/ogai_vector_processor.cpp")
 set(TGT_datavec_INC
         ${PROJECT_SRC_DIR}/include
         ${PROJECT_OPENGS_DIR}/contrib/jieba_tokenizer
