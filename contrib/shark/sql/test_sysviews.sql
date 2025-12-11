@@ -233,7 +233,7 @@ select name, s.nspname, po.relname, type, type_desc, is_ms_shipped, is_published
 from sys.all_objects o
 inner join pg_namespace s on o.schema_id = s.oid
 left join pg_class po on po.oid = parent_object_id
-where s.nspname = 'sys_view_test'
+where s.nspname = 'sys_view_test' and (name is null or name not like 'RI_ConstraintTrigger%')
 order by object_id;
 
 select name, s.nspname, po.relname, type, type_desc, is_ms_shipped, is_published, is_schema_published

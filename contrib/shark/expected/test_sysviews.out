@@ -454,6 +454,7 @@ drop table student;
  has_unchecked_assembly_data | bit(1)                      | 
  with_check_option           | bit(1)                      | 
  is_date_correlation_view    | bit(1)                      | 
+ is_tracked_by_cdc           | bit(1)                      | 
 
 \d sys.all_columns
                  View "sys.all_columns"
@@ -654,7 +655,7 @@ select name, s.nspname, po.relname, type, type_desc, is_ms_shipped, is_published
 from sys.all_objects o
 inner join pg_namespace s on o.schema_id = s.oid
 left join pg_class po on po.oid = parent_object_id
-where s.nspname = 'sys_view_test'
+where s.nspname = 'sys_view_test' and (name is null or name not like 'RI_ConstraintTrigger%')
 order by object_id;
            name            |    nspname    |  relname   | type |       type_desc        | is_ms_shipped | is_published | is_schema_published 
 ---------------------------+---------------+------------+------+------------------------+---------------+--------------+---------------------
@@ -663,7 +664,7 @@ order by object_id;
  t_index                   | sys_view_test |            | U    | USER_TABLE             | 0             | 0            | 0
  t_index_pkey              | sys_view_test | t_index    | PK   | PRIMARY_KEY_CONSTRAINT | 0             | 0            | 0
  t_foreign1                | sys_view_test |            | U    | USER_TABLE             | 0             | 0            | 0
-                           | sys_view_test | t_foreign1 | D    | DE                     | 0             | 0            | 0
+                           | sys_view_test | t_foreign1 | D    | DEFAULT                | 0             | 0            | 0
  t_foreign1_pkey           | sys_view_test | t_foreign1 | PK   | PRIMARY_KEY_CONSTRAINT | 0             | 0            | 0
  t_foreign2                | sys_view_test |            | U    | USER_TABLE             | 0             | 0            | 0
  t_foreign2_f_salary_check | sys_view_test | t_foreign2 | C    | CHECK_CONSTRAINT       | 0             | 0            | 0
@@ -676,15 +677,16 @@ order by object_id;
  mv_normal                 | sys_view_test |            | V    | VIEW                   | 0             | 0            | 0
  seq_order                 | sys_view_test |            | SO   | SEQUENCE_OBJECT        | 0             | 0            | 0
  t_orders                  | sys_view_test |            | U    | USER_TABLE             | 0             | 0            | 0
-                           | sys_view_test | t_orders   | D    | DE                     | 0             | 0            | 0
+                           | sys_view_test | t_orders   | D    | DEFAULT                | 0             | 0            | 0
  t_orders_pkey             | sys_view_test | t_orders   | PK   | PRIMARY_KEY_CONSTRAINT | 0             | 0            | 0
  syn_tbl                   | sys_view_test |            | SN   | SYNONYM                | 0             | 0            | 0
  t_tg_src                  | sys_view_test |            | U    | USER_TABLE             | 0             | 0            | 0
  t_tg_des                  | sys_view_test |            | U    | USER_TABLE             | 0             | 0            | 0
  tri_insert_func           | sys_view_test |            | FN   | SQL_SCALAR_FUNCTION    | 0             | 0            | 0
+ insert_trigger            | sys_view_test | t_tg_src   | TR   | SQL DML trigger        | 0             | 0            | 0
  test_sub                  | sys_view_test |            | FN   | SQL_SCALAR_FUNCTION    | 0             | 0            | 0
  test_sum                  | sys_view_test |            | P    | SQL_STORED_PROCEDURE   | 0             | 0            | 0
-(26 rows)
+(27 rows)
 
 select name, s.nspname, po.relname, type, type_desc, is_ms_shipped, is_published, is_schema_published
 from sys.objects o
@@ -698,7 +700,7 @@ order by object_id;
  t_index                   | sys_view_test |            | U    | USER_TABLE             | 0             | 0            | 0
  t_index_pkey              | sys_view_test | t_index    | PK   | PRIMARY_KEY_CONSTRAINT | 0             | 0            | 0
  t_foreign1                | sys_view_test |            | U    | USER_TABLE             | 0             | 0            | 0
-                           | sys_view_test | t_foreign1 | D    | DE                     | 0             | 0            | 0
+                           | sys_view_test | t_foreign1 | D    | DEFAULT                | 0             | 0            | 0
  t_foreign1_pkey           | sys_view_test | t_foreign1 | PK   | PRIMARY_KEY_CONSTRAINT | 0             | 0            | 0
  t_foreign2                | sys_view_test |            | U    | USER_TABLE             | 0             | 0            | 0
  t_foreign2_f_salary_check | sys_view_test | t_foreign2 | C    | CHECK_CONSTRAINT       | 0             | 0            | 0
@@ -711,7 +713,7 @@ order by object_id;
  mv_normal                 | sys_view_test |            | V    | VIEW                   | 0             | 0            | 0
  seq_order                 | sys_view_test |            | SO   | SEQUENCE_OBJECT        | 0             | 0            | 0
  t_orders                  | sys_view_test |            | U    | USER_TABLE             | 0             | 0            | 0
-                           | sys_view_test | t_orders   | D    | DE                     | 0             | 0            | 0
+                           | sys_view_test | t_orders   | D    | DEFAULT                | 0             | 0            | 0
  t_orders_pkey             | sys_view_test | t_orders   | PK   | PRIMARY_KEY_CONSTRAINT | 0             | 0            | 0
  syn_tbl                   | sys_view_test |            | SN   | Synonym                | 0             | 0            | 0
  t_tg_src                  | sys_view_test |            | U    | USER_TABLE             | 0             | 0            | 0

@@ -24,20 +24,22 @@ select distinct type, type_desc from sys.system_objects order by type;
  type |      type_desc       
 ------+----------------------
  AF   | AGGREGATE_FUNCTION
+ D    | DEFAULT
  FN   | SQL_SCALAR_FUNCTION
  P    | SQL_STORED_PROCEDURE
- U    | USER_TABLE
+ S    | SYSTEM_TABLE
  V    | VIEW
-(5 rows)
+(6 rows)
 
 select distinct schema_id from sys.system_objects order by schema_id;
  schema_id 
 -----------
         11
       4988
+     15248
      16386
      16480
-(4 rows)
+(5 rows)
 
 -- sys.all_views
 \d sys.all_views
@@ -186,8 +188,8 @@ select count(*) from sys.all_views v inner join pg_namespace s on v.schema_id = 
 
 select v.* from sys.views v inner join pg_namespace s on v.schema_id = s.oid
  where v.name = 'tables' and s.nspname = 'information_schema'; --empty
- name | object_id | principal_id | schema_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published | is_replicated | has_replication_filter | has_opaque_metadata | has_unchecked_assembly_data | with_check_option | is_date_correlation_view 
-------+-----------+--------------+-----------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------+---------------+------------------------+---------------------+-----------------------------+-------------------+--------------------------
+ name | object_id | principal_id | schema_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published | is_replicated | has_replication_filter | has_opaque_metadata | has_unchecked_assembly_data | with_check_option | is_date_correlation_view | is_tracked_by_cdc 
+------+-----------+--------------+-----------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------+---------------+------------------------+---------------------+-----------------------------+-------------------+--------------------------+-------------------
 (0 rows)
 
 select name, principal_id, parent_object_id, type, type_desc, create_date, modify_date, is_ms_shipped,
@@ -210,8 +212,8 @@ select count(*) from sys.all_views v inner join pg_namespace s on v.schema_id = 
 
 select v.* from sys.views v inner join pg_namespace s on v.schema_id = s.oid
   where v.name = 'columns' and s.nspname = 'information_schema'; --empty
- name | object_id | principal_id | schema_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published | is_replicated | has_replication_filter | has_opaque_metadata | has_unchecked_assembly_data | with_check_option | is_date_correlation_view 
-------+-----------+--------------+-----------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------+---------------+------------------------+---------------------+-----------------------------+-------------------+--------------------------
+ name | object_id | principal_id | schema_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published | is_replicated | has_replication_filter | has_opaque_metadata | has_unchecked_assembly_data | with_check_option | is_date_correlation_view | is_tracked_by_cdc 
+------+-----------+--------------+-----------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------+---------------+------------------------+---------------------+-----------------------------+-------------------+--------------------------+-------------------
 (0 rows)
 
 select name, principal_id, parent_object_id, type, type_desc, create_date, modify_date, is_ms_shipped,
