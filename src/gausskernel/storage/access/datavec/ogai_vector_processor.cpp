@@ -722,3 +722,330 @@ static bool UpdateQueueStatus(
     }
     return true;
 }
+
+static bool DeleteQueueRecord(int64 msgId)
+{
+    int spiRc = 0;
+    char sql[SQL_BUF_SIZE];
+    errno_t nRet = 0;
+    bool hasTransaction = IsTransactionState();
+    if (!hasTransaction) {
+        start_xact_command();
+        PushActiveSnapshot(GetTransactionSnapshot(false));
+    }
+    nRet = snprintf_s(sql, sizeof(sql), sizeof(sql) - 1,
+        "DELETE FROM ogai.vectorize_queue WHERE msg_id = $1;");
+    securec_check_ss_c(nRet, "", "");
+    Oid paramTypes[1] = {INT8OID};
+    SPIPlanPtr plan = SPI_prepare(sql, 1, paramTypes);
+    if (plan == NULL) {
+        ereport(WARNING, (errmsg("Failed to preprocess queue record deletion SQL: msg_id=%ld", msgId)));
+        if (!hasTransaction) {
+            PopActiveSnapshot();
+            finish_xact_command();
+        }
+        return false;
+    }
+
+    Datum params[1] = {Int64GetDatum(msgId)};
+    char paramNulls[1] = {' '};
+    spiRc = SPI_execute_plan(plan, params, paramNulls, false, 0);
+    SPI_freeplan(plan);
+
+    if (spiRc != SPI_OK_DELETE || SPI_processed == 0) {
+        ereport(WARNING, (errmsg("Failed to delete queue record: msg_id=%ld, return code=%d, rows affected=%d",
+            msgId, spiRc, SPI_processed)));
+        if (!hasTransaction) {
+            PopActiveSnapshot();
+            finish_xact_command();
+        }
+        return false;
+    }
+    ereport(DEBUG1, (errmsg("Successfully deleted queue record: msg_id=%ld", msgId)));
+    if (!hasTransaction) {
+        PopActiveSnapshot();
+        finish_xact_command();
+    }
+    return true;
+}
+
+static bool IsRetryable(OgaiFailType failType)
+{
+    switch (failType) {
+        case FAIL_TYPE_SPI_ERROR:
+        case FAIL_TYPE_SQL_EXEC_FAILED:
+        case FAIL_TYPE_EMBEDDING_GENERATE_FAILED:
+        case FAIL_TYPE_UNKNOWN:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/* Initialize environment and execute queue query */
+static bool InitEnvAndQueryQueue(int *spiRc, MemoryContext oldCtx, MemoryContext spiCtx)
+{
+    char sql[SQL_BUF_SIZE];
+    errno_t nRet;
+
+    *spiRc = SPI_connect();
+    if (*spiRc != SPI_OK_CONNECT) {
+        ereport(ERROR, (errmsg(
+                "Vector processor initialization failed: SPI connection failed (return code=%d)", *spiRc)));
+        return false;
+    }
+
+    start_xact_command();
+    PushActiveSnapshot(GetTransactionSnapshot(false));
+
+    nRet = snprintf_s(sql, sizeof(sql), sizeof(sql) - 1,
+        "SELECT msg_id, task_id, pk_value, retry_count "
+        "FROM ogai.vectorize_queue "
+        "WHERE status = 'ready' AND retry_count < %d "
+        "ORDER BY vt ASC LIMIT 10;",
+        VECTOR_PROCESSOR_MAX_RETRY_COUNT);
+    securec_check_ss_c(nRet, "", "");
+
+    *spiRc = SPI_execute(sql, true, 0);
+    if (*spiRc != SPI_OK_SELECT || SPI_processed == 0) {
+        PopActiveSnapshot();
+        finish_xact_command();
+        SPI_finish();
+        MemoryContextSwitchTo(oldCtx);
+        MemoryContextDelete(spiCtx);
+        return false;
+    }
+    return true;
+}
+
+/* Extract task tuple fields and perform basic validation */
+static bool ExtractTaskFields(HeapTuple tuple, TupleDesc tupdesc, int64 *msgId,
+                              int *taskId, int *pkValue, int *retryCount)
+{
+    Datum datum;
+    bool isNull;
+
+    /* get msg_id, 1 is the first result returned by the SQL statement */
+    datum = SPI_getbinval(tuple, tupdesc, 1, &isNull);
+    if (isNull) {
+        ereport(WARNING, (errmsg("Task msg_id is null; skipping processing")));
+        return false;
+    }
+    *msgId = DatumGetInt64(datum);
+
+    /* get task_id, 2 is the second result returned by the SQL statement */
+    datum = SPI_getbinval(tuple, tupdesc, 2, &isNull);
+    if (isNull) {
+        ereport(WARNING, (errmsg("Task msg_id=%ld has empty task_id; marking as failed", *msgId)));
+        UpdateQueueStatus(*msgId, "failed", 0, "task_id is null");
+        return false;
+    }
+    *taskId = DatumGetInt32(datum);
+
+    /* get pk_value, 3 is the third result returned by the SQL statement */
+    datum = SPI_getbinval(tuple, tupdesc, 3, &isNull);
+    if (isNull) {
+        ereport(WARNING, (errmsg("Task msg_id=%ld has empty pk_value; marking as failed", *msgId)));
+        UpdateQueueStatus(*msgId, "failed", 0, "pk_value is null ");
+        return false;
+    }
+    *pkValue = DatumGetInt32(datum);
+
+    /* get retry_count, 4 is the fourth result returned by the SQL statement */
+    datum = SPI_getbinval(tuple, tupdesc, 4, &isNull);
+    *retryCount = isNull ? 0 : DatumGetInt32(datum);
+
+    return true;
+}
+
+/* Handle embedding generation and result processing */
+static void HandleEmbeddingGeneration(int64 msgId, int taskId, int pkValue, int retryCount,
+                                      OgaiTaskConfig *taskConfig, const char *content,
+                                      OgaiFailType *failType, char *failReason, size_t reasonSize)
+{
+    bool success = false;
+    PG_TRY();
+    {
+        BeginInternalSubTransaction(NULL);
+        success = GenerateAndUpdateEmbedding(taskConfig, pkValue, content, failType, failReason, reasonSize);
+        if (success) {
+            ReleaseCurrentSubTransaction();
+            DeleteQueueRecord(msgId);
+            ereport(LOG, (errmsg("Task success: msg_id=%ld, task_id=%d, pk_value=%d, mode=%s",
+                msgId, taskId, pkValue, taskConfig->table_method)));
+        } else {
+            RollbackAndReleaseCurrentSubTransaction();
+            ereport(WARNING, (errmsg("Vector gen failed for msg_id=%ld: %s", msgId, failReason)));
+            
+            BeginInternalSubTransaction(NULL);
+            PG_TRY() {
+                UpdateQueueStatus(msgId, IsRetryable(*failType) ? "ready" : "failed", retryCount + 1, failReason);
+                ReleaseCurrentSubTransaction();
+            } PG_CATCH() {
+                RollbackAndReleaseCurrentSubTransaction();
+                ereport(WARNING, (errmsg("Failed to update status for msg_id=%ld", msgId)));
+            } PG_END_TRY();
+        }
+    }
+    PG_CATCH();
+    {
+        if (IsSubTransaction()) {
+            RollbackAndReleaseCurrentSubTransaction();
+        }
+        errno_t nRet = snprintf_s(failReason, reasonSize,
+                                "Unexpected exception: msg_id=%ld, task_id=%d", msgId, taskId);
+        securec_check_ss_c(nRet, "", "");
+        ereport(WARNING, (errmsg("%s", failReason)));
+        
+        BeginInternalSubTransaction(NULL);
+        PG_TRY() {
+            UpdateQueueStatus(msgId, "failed", retryCount + 1, failReason);
+            ReleaseCurrentSubTransaction();
+        } PG_CATCH() {
+            RollbackAndReleaseCurrentSubTransaction();
+            ereport(WARNING, (errmsg("Failed to update status in exception for msg_id=%ld", msgId)));
+        } PG_END_TRY();
+    }
+    PG_END_TRY();
+}
+
+/* Process core business logic for a single task */
+static void ProcessTaskLogic(int64 msgId, int taskId, int pkValue, int retryCount)
+{
+    OgaiFailType failType = FAIL_TYPE_UNKNOWN;
+    char failReason[FAIL_REASON_BUF_SIZE] = {0};
+    OgaiTaskConfig taskConfig = {0};
+    char content[CONTENT_BUF_SIZE] = {0};
+    bool success = false;
+
+    /* Mark task as processing */
+    if (!UpdateQueueStatus(msgId, "processing", retryCount, "")) {
+        ereport(WARNING, (errmsg("Failed to mark task msg_id=%ld as 'processing'; skipping", msgId)));
+        return;
+    }
+
+    /* Get task configuration */
+    if (!GetTaskConfig(taskId, &taskConfig, &failType, failReason, sizeof(failReason))) {
+        ereport(WARNING, (errmsg("Failed to fetch config for msg_id=%ld: %s", msgId, failReason)));
+        UpdateQueueStatus(msgId, IsRetryable(failType) ? "ready" : "failed", retryCount + 1, failReason);
+        return;
+    }
+
+    /* Get document content */
+    if (!GetDocumentContent(&taskConfig, pkValue, content, sizeof(content),
+                            &failType, failReason, sizeof(failReason))) {
+        ereport(WARNING, (errmsg("Failed to fetch document for msg_id=%ld: %s", msgId, failReason)));
+        UpdateQueueStatus(msgId, IsRetryable(failType) ? "ready" : "failed", retryCount + 1, failReason);
+        return;
+    }
+
+    /* Generate embedding and handle results */
+    HandleEmbeddingGeneration(msgId, taskId, pkValue, retryCount, &taskConfig, content,
+                              &failType, failReason, sizeof(failReason));
+}
+
+/* Core scan and process function */
+static void InternalScanAndProcess()
+{
+    int spiRc = 0;
+    int64 msgId;
+    int taskId;
+    int pkValue;
+    int retryCount;
+    MemoryContext spiCtx = AllocSetContextCreate(CurrentMemoryContext,
+                                                "OgaiSPIContext", ALLOCSET_DEFAULT_SIZES);
+    MemoryContext oldCtx = MemoryContextSwitchTo(spiCtx);
+    /* Initialize environment and query queue */
+    if (!InitEnvAndQueryQueue(&spiRc, oldCtx, spiCtx)) {
+        MemoryContextSwitchTo(oldCtx);
+        MemoryContextDelete(spiCtx);
+        return;
+    }
+
+    /* Iterate and process each task */
+    for (int i = 0; i < SPI_processed; i++) {
+        if (ExtractTaskFields(SPI_tuptable->vals[i], SPI_tuptable->tupdesc,
+                              &msgId, &taskId, &pkValue, &retryCount)) {
+            ProcessTaskLogic(msgId, taskId, pkValue, retryCount);
+        }
+    }
+
+    SPI_freetuptable(SPI_tuptable);
+    PopActiveSnapshot();
+    finish_xact_command();
+    SPI_finish();
+    MemoryContextSwitchTo(oldCtx);
+    MemoryContextDelete(spiCtx);
+}
+
+bool OgaiVectorProcessorInit()
+{
+    int spiRc = SPI_connect();
+    if (spiRc != SPI_OK_CONNECT) {
+        ereport(ERROR, (errmsg(
+                "Vector processor initialization failed: SPI connection failed (return code=%d)", spiRc)));
+        return false;
+    }
+
+    start_xact_command();
+    PushActiveSnapshot(GetTransactionSnapshot(false));
+
+    StringInfoData checkSql;
+    initStringInfo(&checkSql);
+
+    appendStringInfo(&checkSql,
+        "SELECT 1 FROM pg_tables WHERE schemaname = 'ogai' AND tablename = 'vectorize_tasks';");
+    
+    spiRc = SPI_execute(checkSql.data, true, 0);
+    if (spiRc != SPI_OK_SELECT || SPI_processed == 0) {
+        ereport(ERROR, (errmsg(
+            "Vector processor initialization failed: dependent table ogai.vectorize_tasks does not exist")));
+        pfree(checkSql.data);
+        PopActiveSnapshot();
+        finish_xact_command();
+        SPI_finish();
+        return false;
+    }
+
+    resetStringInfo(&checkSql);
+    appendStringInfo(&checkSql,
+        "SELECT 1 FROM pg_tables WHERE schemaname = 'ogai' AND tablename = 'vectorize_queue';");
+    
+    spiRc = SPI_execute(checkSql.data, true, 0);
+    if (spiRc != SPI_OK_SELECT || SPI_processed == 0) {
+        ereport(ERROR, (errmsg(
+            "Vector processor initialization failed: dependent table ogai.vectorize_queue does not exist")));
+        pfree(checkSql.data);
+        PopActiveSnapshot();
+        finish_xact_command();
+        SPI_finish();
+        return false;
+    }
+
+    ereport(LOG, (errmsg("Vector processor initialized successfully")));
+    pfree(checkSql.data);
+    PopActiveSnapshot();
+    finish_xact_command();
+    return true;
+}
+
+void OgaiVectorProcessorScanAndProcess()
+{
+    PG_TRY();
+    {
+        InternalScanAndProcess();
+    }
+    PG_CATCH();
+    {
+        ereport(WARNING, (errmsg(
+            "Vector processor encountered an exception while scanning the queue; proceeding to next iteration")));
+        FlushErrorState();
+    }
+    PG_END_TRY();
+}
+
+void OgaiVectorProcessorDestroy()
+{
+    SPI_finish();
+    ereport(LOG, (errmsg("Vector processor has been destroyed")));
+}
