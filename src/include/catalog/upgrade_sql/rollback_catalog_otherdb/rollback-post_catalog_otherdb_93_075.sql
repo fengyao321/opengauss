@@ -6,7 +6,7 @@ restrict = contsel, join = contjoinsel
 );
 COMMENT ON OPERATOR pg_catalog.@>(jsonb, jsonb) IS 'jsonb_contains';
 
-
+set d_format_behavior_compat_options = 'enable_abs';
 DROP OPERATOR IF EXISTS pg_catalog.<@(jsonb, jsonb) cascade;
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_GENERAL, 3250;
 CREATE OPERATOR pg_catalog.<@(

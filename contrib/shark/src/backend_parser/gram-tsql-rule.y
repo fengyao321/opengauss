@@ -159,18 +159,7 @@ tsql_opt_unique_clustered:
 			| tsql_opt_clustered		{ $$ = FALSE; }
 			| UNIQUE					{ $$ = TRUE; }
 		;
-	
 
-tsql_ident:
-            IDENT
-            {
-                if (!DB_IS_CMPT(D_FORMAT)) {
-                    ereport(ERROR, errcode(ERRCODE_SYNTAX_ERROR),
-                        errmsg("This syntax is only valid in D-format database."),
-                        parser_errposition(@1)));
-                }
-            }
-        ;
 tsql_IndexStmt:
 				CREATE tsql_opt_unique_clustered tsql_opt_columnstore INDEX opt_concurrently opt_index_name
 				ON qualified_name access_method_clause '(' index_params ')'

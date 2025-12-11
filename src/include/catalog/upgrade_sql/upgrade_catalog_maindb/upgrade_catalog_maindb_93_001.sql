@@ -23,8 +23,8 @@ $$SELECT
        THEN null::integer
        WHEN $1 IN (1042, 1043, 3969) /* char, varchar ,nvarchar2*/
        THEN CASE WHEN $2 > 1073741828
-                 THEN $2 - 1073741828
-                 ELSE $2 - 4
+                 THEN ($2 - 1073741828)::integer
+                 ELSE ($2 - 4)::integer
 END
 WHEN $1 IN (1560, 1562) /* bit, varbit */
        THEN $2

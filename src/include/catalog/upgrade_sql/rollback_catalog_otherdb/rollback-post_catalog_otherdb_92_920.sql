@@ -1,3 +1,5 @@
+SET skip_new_column_for_ruledef = true;
+
 do $$DECLARE ans boolean;
 BEGIN
     for ans in select case when count(*) = 1 then true else false end as ans from (select relname from pg_class where relname = 'pg_publication_tables' and relkind = 'v' and relnamespace = 11)

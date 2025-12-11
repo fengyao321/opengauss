@@ -49,6 +49,7 @@ extern const uint32 SUPPORT_D_FORMAT_DATABASE;
 extern const uint32 ANALYZE_PARTITION_VERSION_NUMBER;
 extern const uint32 STATISTIC_HISTORY_VERSION_NUMBER;
 extern const uint32 FETCH_ENHANCE_VERSION_NUM;
+extern const uint32 FLUSH_LSN_FUN_VERSION_NUM;
 extern const uint32 PUBLICATION_DDL_AT_VERSION_NUM;
 extern const uint32 PIPELINED_FUNCTION_VERSION_NUM;
 extern const uint32 DISABLE_CONSTRAINT_VERSION_NUM;
@@ -227,6 +228,9 @@ extern bool contain_backend_version(uint32 version_number);
         D_FORMAT_OPT_ENABLE_TABLE_HINT_IDENTIFIER) && u_sess->attr.attr_sql.sql_compatibility == D_FORMAT)
 
 #define ENABLE_ABS ((u_sess->utils_cxt.d_format_behavior_compat_flags & \
+        D_FORMAT_OPT_ENABLE_ABS) && u_sess->attr.attr_sql.sql_compatibility == D_FORMAT)
+
+#define DISABLE_ABS (!(u_sess->utils_cxt.d_format_behavior_compat_flags & \
         D_FORMAT_OPT_ENABLE_ABS) && u_sess->attr.attr_sql.sql_compatibility == D_FORMAT)
 
 #define OPT_DISPLAY_LEADING_ZERO (1LL << 0)
