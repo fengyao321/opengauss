@@ -1,0 +1,240 @@
+drop schema if exists test_views4 cascade;
+NOTICE:  schema "test_views4" does not exist, skipping
+create schema test_views4;
+set current_schema to test_views4;
+-- sys.system_objects
+\d sys.system_objects
+                   View "sys.system_objects"
+       Column        |            Type             | Modifiers 
+---------------------+-----------------------------+-----------
+ name                | name                        | 
+ object_id           | oid                         | 
+ principal_id        | oid                         | 
+ schema_id           | oid                         | 
+ parent_object_id    | oid                         | 
+ type                | bpchar                      | 
+ type_desc           | nvarchar2(max)              | 
+ create_date         | timestamp without time zone | 
+ modify_date         | timestamp without time zone | 
+ is_ms_shipped       | "bit"                       | 
+ is_published        | "bit"                       | 
+ is_schema_published | "bit"                       | 
+
+select distinct type, type_desc from sys.system_objects order by type;
+ type |      type_desc       
+------+----------------------
+ AF   | AGGREGATE_FUNCTION
+ FN   | SQL_SCALAR_FUNCTION
+ P    | SQL_STORED_PROCEDURE
+ U    | USER_TABLE
+ V    | VIEW
+(5 rows)
+
+select distinct schema_id from sys.system_objects order by schema_id;
+ schema_id 
+-----------
+        11
+      4988
+     16386
+     16480
+(4 rows)
+
+-- sys.all_views
+\d sys.all_views
+                         View "sys.all_views"
+           Column            |            Type             | Modifiers 
+-----------------------------+-----------------------------+-----------
+ name                        | name                        | 
+ object_id                   | oid                         | 
+ principal_id                | oid                         | 
+ schema_id                   | oid                         | 
+ parent_object_id            | oid                         | 
+ type                        | character(2)                | 
+ type_desc                   | nvarchar2(60)               | 
+ create_date                 | timestamp without time zone | 
+ modify_date                 | timestamp without time zone | 
+ is_ms_shipped               | bit(1)                      | 
+ is_published                | bit(1)                      | 
+ is_schema_published         | bit(1)                      | 
+ is_replicated               | bit(1)                      | 
+ has_replication_filter      | bit(1)                      | 
+ has_opaque_metadata         | bit(1)                      | 
+ has_unchecked_assembly_data | bit(1)                      | 
+ with_check_option           | bit(1)                      | 
+ is_date_correlation_view    | bit(1)                      | 
+ is_tracked_by_cdc           | bit(1)                      | 
+
+drop table if exists test1 cascade;
+NOTICE:  table "test1" does not exist, skipping
+create table test1(id int, name varchar(50));
+create view view1 as select * from test1;
+create view view2 as select * from test1 with check option;
+create materialized view mat_view as select * from test1;
+select name, principal_id, parent_object_id, type, type_desc, is_ms_shipped,
+  is_published, is_schema_published, is_replicated, has_replication_filter, has_opaque_metadata,
+  has_unchecked_assembly_data, with_check_option, is_date_correlation_view
+  from sys.views v inner join pg_namespace s on v.schema_id = s.oid
+  where v.name = 'view1' and s.nspname = 'test_views4';
+ name  | principal_id | parent_object_id | type | type_desc | is_ms_shipped | is_published | is_schema_published | is_replicated | has_replication_filter | has_opaque_metadata | has_unchecked_assembly_data | with_check_option | is_date_correlation_view 
+-------+--------------+------------------+------+-----------+---------------+--------------+---------------------+---------------+------------------------+---------------------+-----------------------------+-------------------+--------------------------
+ view1 |              |                0 | V    | VIEW      | 0             | 0            | 0                   | 0             | 0                      | 0                   | 0                           | 0                 | 0
+(1 row)
+
+select name, principal_id, parent_object_id, type, type_desc, is_ms_shipped,
+  is_published, is_schema_published, is_replicated, has_replication_filter, has_opaque_metadata,
+  has_unchecked_assembly_data, with_check_option, is_date_correlation_view, is_tracked_by_cdc
+  from sys.all_views v inner join pg_namespace s on v.schema_id = s.oid
+  where v.name = 'view1' and s.nspname = 'test_views4';
+ name  | principal_id | parent_object_id | type | type_desc | is_ms_shipped | is_published | is_schema_published | is_replicated | has_replication_filter | has_opaque_metadata | has_unchecked_assembly_data | with_check_option | is_date_correlation_view | is_tracked_by_cdc 
+-------+--------------+------------------+------+-----------+---------------+--------------+---------------------+---------------+------------------------+---------------------+-----------------------------+-------------------+--------------------------+-------------------
+ view1 |              |                0 | V    | VIEW      | 0             | 0            | 0                   | 0             | 0                      | 0                   | 0                           | 0                 | 0                        | 0
+(1 row)
+
+select count(*) from sys.views v inner join pg_namespace s on v.schema_id = s.oid
+  inner join pg_class t on t.oid = v.object_id
+  inner join pg_object o on o.ctime = v.create_date and o.mtime = v.modify_date
+  where v.name = 'view1' and s.nspname = 'test_views4';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.all_views v inner join pg_namespace s on v.schema_id = s.oid
+  inner join pg_class t on t.oid = v.object_id
+  inner join pg_object o on o.ctime = v.create_date and o.mtime = v.modify_date
+  where v.name = 'view1' and s.nspname = 'test_views4';
+ count 
+-------
+     1
+(1 row)
+
+select name, principal_id, parent_object_id, type, type_desc, is_ms_shipped,
+  is_published, is_schema_published, is_replicated, has_replication_filter, has_opaque_metadata,
+  has_unchecked_assembly_data, with_check_option, is_date_correlation_view
+  from sys.views v inner join pg_namespace s on v.schema_id = s.oid
+  where v.name = 'view2' and s.nspname = 'test_views4';
+ name  | principal_id | parent_object_id | type | type_desc | is_ms_shipped | is_published | is_schema_published | is_replicated | has_replication_filter | has_opaque_metadata | has_unchecked_assembly_data | with_check_option | is_date_correlation_view 
+-------+--------------+------------------+------+-----------+---------------+--------------+---------------------+---------------+------------------------+---------------------+-----------------------------+-------------------+--------------------------
+ view2 |              |                0 | V    | VIEW      | 0             | 0            | 0                   | 0             | 0                      | 0                   | 0                           | 1                 | 0
+(1 row)
+
+select name, principal_id, parent_object_id, type, type_desc, is_ms_shipped,
+  is_published, is_schema_published, is_replicated, has_replication_filter, has_opaque_metadata,
+  has_unchecked_assembly_data, with_check_option, is_date_correlation_view, is_tracked_by_cdc
+  from sys.all_views v inner join pg_namespace s on v.schema_id = s.oid
+  where v.name = 'view2' and s.nspname = 'test_views4';
+ name  | principal_id | parent_object_id | type | type_desc | is_ms_shipped | is_published | is_schema_published | is_replicated | has_replication_filter | has_opaque_metadata | has_unchecked_assembly_data | with_check_option | is_date_correlation_view | is_tracked_by_cdc 
+-------+--------------+------------------+------+-----------+---------------+--------------+---------------------+---------------+------------------------+---------------------+-----------------------------+-------------------+--------------------------+-------------------
+ view2 |              |                0 | V    | VIEW      | 0             | 0            | 0                   | 0             | 0                      | 0                   | 0                           | 1                 | 0                        | 0
+(1 row)
+
+select count(*) from sys.views v inner join pg_namespace s on v.schema_id = s.oid
+  inner join pg_class t on t.oid = v.object_id
+  inner join pg_object o on o.ctime = v.create_date and o.mtime = v.modify_date
+  where v.name = 'view2' and s.nspname = 'test_views4';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.all_views v inner join pg_namespace s on v.schema_id = s.oid
+  inner join pg_class t on t.oid = v.object_id
+  inner join pg_object o on o.ctime = v.create_date and o.mtime = v.modify_date
+  where v.name = 'view2' and s.nspname = 'test_views4';
+ count 
+-------
+     1
+(1 row)
+
+select name, principal_id, parent_object_id, type, type_desc, is_ms_shipped,
+  is_published, is_schema_published, is_replicated, has_replication_filter, has_opaque_metadata,
+  has_unchecked_assembly_data, with_check_option, is_date_correlation_view
+  from sys.views v inner join pg_namespace s on v.schema_id = s.oid
+  where v.name = 'mat_view' and s.nspname = 'test_views4';
+   name   | principal_id | parent_object_id | type | type_desc | is_ms_shipped | is_published | is_schema_published | is_replicated | has_replication_filter | has_opaque_metadata | has_unchecked_assembly_data | with_check_option | is_date_correlation_view 
+----------+--------------+------------------+------+-----------+---------------+--------------+---------------------+---------------+------------------------+---------------------+-----------------------------+-------------------+--------------------------
+ mat_view |              |                0 | V    | VIEW      | 0             | 0            | 0                   | 0             | 0                      | 0                   | 0                           | 0                 | 0
+(1 row)
+
+select name, principal_id, parent_object_id, type, type_desc, is_ms_shipped,
+  is_published, is_schema_published, is_replicated, has_replication_filter, has_opaque_metadata,
+  has_unchecked_assembly_data, with_check_option, is_date_correlation_view, is_tracked_by_cdc
+  from sys.all_views v inner join pg_namespace s on v.schema_id = s.oid
+  where v.name = 'mat_view' and s.nspname = 'test_views4';
+   name   | principal_id | parent_object_id | type | type_desc | is_ms_shipped | is_published | is_schema_published | is_replicated | has_replication_filter | has_opaque_metadata | has_unchecked_assembly_data | with_check_option | is_date_correlation_view | is_tracked_by_cdc 
+----------+--------------+------------------+------+-----------+---------------+--------------+---------------------+---------------+------------------------+---------------------+-----------------------------+-------------------+--------------------------+-------------------
+ mat_view |              |                0 | V    | VIEW      | 0             | 0            | 0                   | 0             | 0                      | 0                   | 0                           | 0                 | 0                        | 0
+(1 row)
+
+select count(*) from sys.views v inner join pg_namespace s on v.schema_id = s.oid
+  inner join pg_class t on t.oid = v.object_id
+  inner join pg_object o on o.ctime = v.create_date and o.mtime = v.modify_date
+  where v.name = 'mat_view' and s.nspname = 'test_views4';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.all_views v inner join pg_namespace s on v.schema_id = s.oid
+  inner join pg_class t on t.oid = v.object_id
+  inner join pg_object o on o.ctime = v.create_date and o.mtime = v.modify_date
+  where v.name = 'mat_view' and s.nspname = 'test_views4';
+ count 
+-------
+     1
+(1 row)
+
+select v.* from sys.views v inner join pg_namespace s on v.schema_id = s.oid
+ where v.name = 'tables' and s.nspname = 'information_schema'; --empty
+ name | object_id | principal_id | schema_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published | is_replicated | has_replication_filter | has_opaque_metadata | has_unchecked_assembly_data | with_check_option | is_date_correlation_view 
+------+-----------+--------------+-----------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------+---------------+------------------------+---------------------+-----------------------------+-------------------+--------------------------
+(0 rows)
+
+select name, principal_id, parent_object_id, type, type_desc, create_date, modify_date, is_ms_shipped,
+  is_published, is_schema_published, is_replicated, has_replication_filter, has_opaque_metadata,
+  has_unchecked_assembly_data, with_check_option, is_date_correlation_view, is_tracked_by_cdc
+  from sys.all_views v inner join pg_namespace s on v.schema_id = s.oid
+  where v.name = 'tables' and s.nspname = 'information_schema';
+  name  | principal_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published | is_replicated | has_replication_filter | has_opaque_metadata | has_unchecked_assembly_data | with_check_option | is_date_correlation_view | is_tracked_by_cdc 
+--------+--------------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------+---------------+------------------------+---------------------+-----------------------------+-------------------+--------------------------+-------------------
+ tables |              |                0 | V    | VIEW      |             |             | 0             | 0            | 0                   | 0             | 0                      | 0                   | 0                           | 0                 | 0                        | 0
+(1 row)
+
+select count(*) from sys.all_views v inner join pg_namespace s on v.schema_id = s.oid
+  inner join pg_class t on t.oid = v.object_id
+  where v.name = 'tables' and s.nspname = 'information_schema';
+ count 
+-------
+     1
+(1 row)
+
+select v.* from sys.views v inner join pg_namespace s on v.schema_id = s.oid
+  where v.name = 'columns' and s.nspname = 'information_schema'; --empty
+ name | object_id | principal_id | schema_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published | is_replicated | has_replication_filter | has_opaque_metadata | has_unchecked_assembly_data | with_check_option | is_date_correlation_view 
+------+-----------+--------------+-----------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------+---------------+------------------------+---------------------+-----------------------------+-------------------+--------------------------
+(0 rows)
+
+select name, principal_id, parent_object_id, type, type_desc, create_date, modify_date, is_ms_shipped,
+  is_published, is_schema_published, is_replicated, has_replication_filter, has_opaque_metadata,
+  has_unchecked_assembly_data, with_check_option, is_date_correlation_view, is_tracked_by_cdc
+  from sys.all_views v inner join pg_namespace s on v.schema_id = s.oid
+  where v.name = 'columns' and s.nspname = 'information_schema';
+  name   | principal_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published | is_replicated | has_replication_filter | has_opaque_metadata | has_unchecked_assembly_data | with_check_option | is_date_correlation_view | is_tracked_by_cdc 
+---------+--------------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------+---------------+------------------------+---------------------+-----------------------------+-------------------+--------------------------+-------------------
+ columns |              |                0 | V    | VIEW      |             |             | 0             | 0            | 0                   | 0             | 0                      | 0                   | 0                           | 0                 | 0                        | 0
+(1 row)
+
+select count(*) from sys.all_views v inner join pg_namespace s on v.schema_id = s.oid
+  inner join pg_class t on t.oid = v.object_id
+  where v.name = 'columns' and s.nspname = 'information_schema';
+ count 
+-------
+     1
+(1 row)
+
+drop schema test_views4 cascade;
+NOTICE:  drop cascades to 4 other objects
+DETAIL:  drop cascades to table test1
+drop cascades to view view1
+drop cascades to view view2
+drop cascades to materialized view mat_view

@@ -1,0 +1,174 @@
+-- sys.synonyms
+\d sys.synonyms
+                      View "sys.synonyms"
+       Column        |            Type             | Modifiers 
+---------------------+-----------------------------+-----------
+ name                | name                        | 
+ object_id           | oid                         | 
+ principal_id        | oid                         | 
+ schema_id           | oid                         | 
+ parent_object_id    | oid                         | 
+ type                | character(2)                | 
+ type_desc           | nvarchar2(60)               | 
+ create_date         | timestamp without time zone | 
+ modify_date         | timestamp without time zone | 
+ is_ms_shipped       | bit(1)                      | 
+ is_published        | bit(1)                      | 
+ is_schema_published | bit(1)                      | 
+ base_object_name    | nvarchar2(1035)             | 
+
+drop schema if exists test_views2 cascade;
+NOTICE:  schema "test_views2" does not exist, skipping
+create schema test_views2;
+set current_schema to test_views2;
+drop table if exists student;
+NOTICE:  table "student" does not exist, skipping
+create table student
+(
+    std_id int primary key,
+    std_name varchar(20) not null,
+    std_sex varchar(6),
+    std_birth date,
+    std_in date not null,
+    std_address varchar(100)
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "student_pkey" for table "student"
+create or replace synonym syn_student for student;
+select name, principal_id, parent_object_id, type, type_desc, create_date, modify_date, is_ms_shipped,
+  is_published, is_schema_published from sys.objects where name = 'syn_student';
+    name     | principal_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
+-------------+--------------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------
+ syn_student |              |                  | SN   | Synonym   |             |             | 0             | 0            | 0
+(1 row)
+
+select name, principal_id, parent_object_id, type, type_desc, create_date, modify_date, is_ms_shipped,
+  is_published, is_schema_published from sys.synonyms where name = 'syn_student';
+    name     | principal_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
+-------------+--------------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------
+ syn_student |              |                  | SN   | Synonym   |             |             | 0             | 0            | 0
+(1 row)
+
+select count(*) from sys.objects obj inner join pg_synonym syn on syn.synname = obj.name
+  where obj.name = 'syn_student';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.synonyms obj inner join pg_synonym syn on syn.synname = obj.name
+  where obj.name = 'syn_student';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.objects obj inner join pg_synonym syn on syn.synnamespace = obj.schema_id
+inner join pg_namespace np on np.oid = syn.synnamespace
+  where np.nspname = 'test_views2' and obj.name = 'syn_student';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.synonyms obj inner join pg_synonym syn on syn.synnamespace = obj.schema_id
+  inner join pg_namespace np on np.oid = syn.synnamespace
+  where np.nspname = 'test_views2' and obj.name = 'syn_student';
+ count 
+-------
+     1
+(1 row)
+
+select base_object_name from sys.synonyms where name = 'syn_student';
+  base_object_name   
+---------------------
+ test_views2.student
+(1 row)
+
+create view view_stu as select * from student;
+create or replace synonym syn_view_stu FOR view_stu;
+select name, principal_id, parent_object_id, type, type_desc, create_date, modify_date, is_ms_shipped,
+  is_published, is_schema_published from sys.objects where name = 'syn_view_stu';
+     name     | principal_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
+--------------+--------------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------
+ syn_view_stu |              |                  | SN   | Synonym   |             |             | 0             | 0            | 0
+(1 row)
+
+select name, principal_id, parent_object_id, type, type_desc, create_date, modify_date, is_ms_shipped,
+  is_published, is_schema_published from sys.synonyms where name = 'syn_view_stu';
+     name     | principal_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
+--------------+--------------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------
+ syn_view_stu |              |                  | SN   | Synonym   |             |             | 0             | 0            | 0
+(1 row)
+
+select count(*) from sys.objects obj inner join pg_synonym syn on syn.synname = obj.name
+  where obj.name = 'syn_view_stu';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.synonyms obj inner join pg_synonym syn on syn.synname = obj.name
+  where obj.name = 'syn_view_stu';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.objects obj inner join pg_synonym syn on syn.synnamespace = obj.schema_id
+  and syn.synname = obj.name
+  inner join pg_namespace np on np.oid = syn.synnamespace
+  where np.nspname = 'test_views2' and obj.name = 'syn_view_stu';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.synonyms obj inner join pg_synonym syn on syn.synnamespace = obj.schema_id
+  and syn.synname = obj.name
+  inner join pg_namespace np on np.oid = syn.synnamespace
+  where np.nspname = 'test_views2' and obj.name = 'syn_view_stu';
+ count 
+-------
+     1
+(1 row)
+
+select base_object_name from sys.synonyms where name = 'syn_view_stu';
+   base_object_name   
+----------------------
+ test_views2.view_stu
+(1 row)
+
+drop synonym syn_student;
+drop synonym syn_view_stu;
+drop table student cascade;
+NOTICE:  drop cascades to view view_stu
+drop table if exists "student 1";
+NOTICE:  table "student 1" does not exist, skipping
+create table "student 1"
+(
+    std_id int primary key,
+    std_name varchar(20) not null,
+    std_sex varchar(6),
+    std_birth date,
+    std_in date not null,
+    std_address varchar(100)
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "student 1_pkey" for table "student 1"
+create or replace synonym "syn_student 1" FOR "student 1";
+create or replace synonym "syn_student1" FOR "student 1";
+select base_object_name from sys.synonyms where name = 'syn_student 1';
+    base_object_name     
+-------------------------
+ test_views2."student 1"
+(1 row)
+
+select base_object_name from sys.synonyms where name = 'syn_student1';
+    base_object_name     
+-------------------------
+ test_views2."student 1"
+(1 row)
+
+drop synonym "syn_student 1";
+drop synonym "syn_student1";
+drop table "student 1" cascade;
+drop schema test_views2 cascade;

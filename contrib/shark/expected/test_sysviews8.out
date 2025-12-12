@@ -1,0 +1,354 @@
+drop schema if exists test_views3 cascade;
+NOTICE:  schema "test_views3" does not exist, skipping
+create schema test_views3;
+set current_schema to test_views3;
+-- sys.triggers
+\d sys.triggers
+                       View "sys.triggers"
+         Column         |            Type             | Modifiers 
+------------------------+-----------------------------+-----------
+ name                   | name                        | 
+ object_id              | oid                         | 
+ parent_class           | tinyint                     | 
+ parent_class_desc      | nvarchar2(60)               | 
+ parent_id              | oid                         | 
+ type                   | character(2)                | 
+ type_desc              | nvarchar2(60)               | 
+ create_date            | timestamp without time zone | 
+ modify_date            | timestamp without time zone | 
+ is_ms_shipped          | bit(1)                      | 
+ is_disabled            | bit(1)                      | 
+ is_not_for_replication | bit(1)                      | 
+ is_instead_of_trigger  | tinyint                     | 
+
+-- sys.trigger_events
+\d sys.trigger_events
+             View "sys.trigger_events"
+        Column         |     Type      | Modifiers 
+-----------------------+---------------+-----------
+ object_id             | oid           | 
+ type                  | integer       | 
+ type_desc             | nvarchar2(60) | 
+ is_first              | bit(1)        | 
+ is_last               | bit(1)        | 
+ event_group_type      | integer       | 
+ event_group_type_desc | nvarchar2(60) | 
+ is_trigger_event      | bit(1)        | 
+
+-- dml trigger
+create table animals (id int, name char(30));
+create table food (id int, foodtype varchar(32), remark varchar(32));
+create or replace function insert_food_fun returns trigger as
+$$
+begin
+    insert into food(id, foodtype, remark) values (1, 'bamboo', 'healthy');
+    RAISE NOTICE 'insert_food_fun';
+    return NEW;
+end;
+$$ language plpgsql;
+create trigger animals_trigger_after after insert on animals
+for each row
+execute procedure insert_food_fun();
+insert into animals values('1', 'panda');
+NOTICE:  insert_food_fun
+select * from food;
+ id | foodtype | remark  
+----+----------+---------
+  1 | bamboo   | healthy
+(1 row)
+
+select name, parent_class, parent_class_desc, type, type_desc, create_date, modify_date, 
+  is_ms_shipped, is_disabled, is_not_for_replication, is_instead_of_trigger from sys.triggers
+  where name = 'animals_trigger_after';
+         name          | parent_class | parent_class_desc | type |  type_desc  | create_date | modify_date | is_ms_shipped | is_disabled | is_not_for_replication | is_instead_of_trigger 
+-----------------------+--------------+-------------------+------+-------------+-------------+-------------+---------------+-------------+------------------------+-----------------------
+ animals_trigger_after | 1            | OBJECT_OR_COLUMN  | TR   | SQL_TRIGGER |             |             | 0             | 0           | 0                      | 0
+(1 row)
+
+select count(*) from sys.triggers tr inner join pg_trigger pt on tr.object_id = pt.oid
+  and tr.name = pt.tgname where tr.name = 'animals_trigger_after';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.triggers tr inner join pg_trigger pt on tr.object_id = pt.oid
+  and tr.name = pt.tgname and tr.parent_id = pt.tgrelid where tr.name = 'animals_trigger_after';
+ count 
+-------
+     1
+(1 row)
+
+create trigger animals_trigger_before before insert on animals
+for each row
+execute procedure insert_food_fun();
+select name, parent_class, parent_class_desc, type, type_desc, create_date, modify_date, 
+  is_ms_shipped, is_disabled, is_not_for_replication, is_instead_of_trigger from sys.triggers
+  where name = 'animals_trigger_before';
+          name          | parent_class | parent_class_desc | type |  type_desc  | create_date | modify_date | is_ms_shipped | is_disabled | is_not_for_replication | is_instead_of_trigger 
+------------------------+--------------+-------------------+------+-------------+-------------+-------------+---------------+-------------+------------------------+-----------------------
+ animals_trigger_before | 1            | OBJECT_OR_COLUMN  | TR   | SQL_TRIGGER |             |             | 0             | 0           | 0                      | 2
+(1 row)
+
+select count(*) from sys.triggers tr inner join pg_trigger pt on tr.object_id = pt.oid
+  and tr.name = pt.tgname where tr.name = 'animals_trigger_before';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.triggers tr inner join pg_trigger pt on tr.object_id = pt.oid
+  and tr.name = pt.tgname and tr.parent_id = pt.tgrelid where tr.name = 'animals_trigger_before';
+ count 
+-------
+     1
+(1 row)
+
+create view view_animals as select * from animals;
+create trigger animals_trigger_instead instead of insert on view_animals
+for each row
+execute procedure insert_food_fun();
+select name, parent_class, parent_class_desc, type, type_desc, create_date, modify_date, 
+  is_ms_shipped, is_disabled, is_not_for_replication, is_instead_of_trigger from sys.triggers
+  where name = 'animals_trigger_instead';
+          name           | parent_class | parent_class_desc | type |  type_desc  | create_date | modify_date | is_ms_shipped | is_disabled | is_not_for_replication | is_instead_of_trigger 
+-------------------------+--------------+-------------------+------+-------------+-------------+-------------+---------------+-------------+------------------------+-----------------------
+ animals_trigger_instead | 1            | OBJECT_OR_COLUMN  | TR   | SQL_TRIGGER |             |             | 0             | 0           | 0                      | 1
+(1 row)
+
+select count(*) from sys.triggers tr inner join pg_trigger pt on tr.object_id = pt.oid
+  and tr.name = pt.tgname where tr.name = 'animals_trigger_instead';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.triggers tr inner join pg_trigger pt on tr.object_id = pt.oid
+  and tr.name = pt.tgname and tr.parent_id = pt.tgrelid where tr.name = 'animals_trigger_instead';
+ count 
+-------
+     1
+(1 row)
+
+select name, is_instead_of_trigger from sys.triggers where name like 'animals_trigger%' order by name;
+          name           | is_instead_of_trigger 
+-------------------------+-----------------------
+ animals_trigger_after   | 0
+ animals_trigger_before  | 2
+ animals_trigger_instead | 1
+(3 rows)
+
+alter table animals disable trigger animals_trigger_after;
+select tgenabled from pg_trigger where tgname = 'animals_trigger_after';
+ tgenabled 
+-----------
+ D
+(1 row)
+
+select is_disabled from sys.triggers where name = 'animals_trigger_after';
+ is_disabled 
+-------------
+ 1
+(1 row)
+
+alter table animals enable trigger animals_trigger_after;
+select tgenabled from pg_trigger where tgname = 'animals_trigger_after';
+ tgenabled 
+-----------
+ O
+(1 row)
+
+select is_disabled from sys.triggers where name = 'animals_trigger_after';
+ is_disabled 
+-------------
+ 0
+(1 row)
+
+select pt.tgname, type, type_desc, is_first, is_last, event_group_type, event_group_type_desc, is_trigger_event
+  from sys.trigger_events tr inner join pg_trigger pt on tr.object_id = pt.oid order by pt.tgname, type;
+         tgname          | type | type_desc | is_first | is_last | event_group_type | event_group_type_desc | is_trigger_event 
+-------------------------+------+-----------+----------+---------+------------------+-----------------------+------------------
+ animals_trigger_after   |    1 | INSERT    | 0        | 0       |                  |                       | 1
+ animals_trigger_before  |    1 | INSERT    | 0        | 0       |                  |                       | 1
+ animals_trigger_instead |    1 | INSERT    | 0        | 0       |                  |                       | 1
+(3 rows)
+
+create trigger animals_trigger_after_insert after insert on animals
+for each statement
+execute procedure insert_food_fun();
+create trigger animals_trigger_after_delete after delete on animals
+for each statement
+execute procedure insert_food_fun();
+create trigger animals_trigger_after_update after update on animals
+for each statement
+execute procedure insert_food_fun();
+create trigger animals_trigger_after_truncate after truncate on animals
+for each statement
+execute procedure insert_food_fun();
+create trigger animals_trigger_after_mix after insert or delete or update on animals
+for each row
+execute procedure insert_food_fun();
+create trigger animals_trigger_before_insert before insert on animals
+for each statement
+execute procedure insert_food_fun();
+create trigger animals_trigger_before_delete before delete on animals
+for each statement
+execute procedure insert_food_fun();
+create trigger animals_trigger_before_update before update on animals
+for each statement
+execute procedure insert_food_fun();
+create trigger animals_trigger_before_truncate before truncate on animals
+for each statement
+execute procedure insert_food_fun();
+create trigger animals_trigger_before_mix before insert or delete or update on animals
+for each row
+execute procedure insert_food_fun();
+select pt.tgname, type, type_desc, is_first, is_last, event_group_type, event_group_type_desc, is_trigger_event
+  from sys.trigger_events tr inner join pg_trigger pt on tr.object_id = pt.oid order by pt.tgname, type;
+             tgname              | type | type_desc | is_first | is_last | event_group_type | event_group_type_desc | is_trigger_event 
+---------------------------------+------+-----------+----------+---------+------------------+-----------------------+------------------
+ animals_trigger_after           |    1 | INSERT    | 0        | 0       |                  |                       | 1
+ animals_trigger_after_delete    |    3 | DELETE    | 0        | 0       |                  |                       | 1
+ animals_trigger_after_insert    |    1 | INSERT    | 0        | 0       |                  |                       | 1
+ animals_trigger_after_mix       |    1 | INSERT    | 0        | 0       |                  |                       | 1
+ animals_trigger_after_mix       |    2 | UPDATE    | 0        | 0       |                  |                       | 1
+ animals_trigger_after_mix       |    3 | DELETE    | 0        | 0       |                  |                       | 1
+ animals_trigger_after_truncate  |    4 | TRUNCATE  | 0        | 0       |                  |                       | 1
+ animals_trigger_after_update    |    2 | UPDATE    | 0        | 0       |                  |                       | 1
+ animals_trigger_before          |    1 | INSERT    | 0        | 0       |                  |                       | 1
+ animals_trigger_before_delete   |    3 | DELETE    | 0        | 0       |                  |                       | 1
+ animals_trigger_before_insert   |    1 | INSERT    | 0        | 0       |                  |                       | 1
+ animals_trigger_before_mix      |    1 | INSERT    | 0        | 0       |                  |                       | 1
+ animals_trigger_before_mix      |    2 | UPDATE    | 0        | 0       |                  |                       | 1
+ animals_trigger_before_mix      |    3 | DELETE    | 0        | 0       |                  |                       | 1
+ animals_trigger_before_truncate |    4 | TRUNCATE  | 0        | 0       |                  |                       | 1
+ animals_trigger_before_update   |    2 | UPDATE    | 0        | 0       |                  |                       | 1
+ animals_trigger_instead         |    1 | INSERT    | 0        | 0       |                  |                       | 1
+(17 rows)
+
+select name, is_instead_of_trigger from sys.triggers where name like 'animals_trigger%' order by name;
+              name               | is_instead_of_trigger 
+---------------------------------+-----------------------
+ animals_trigger_after           | 0
+ animals_trigger_after_delete    | 0
+ animals_trigger_after_insert    | 0
+ animals_trigger_after_mix       | 0
+ animals_trigger_after_truncate  | 0
+ animals_trigger_after_update    | 0
+ animals_trigger_before          | 2
+ animals_trigger_before_delete   | 2
+ animals_trigger_before_insert   | 2
+ animals_trigger_before_mix      | 2
+ animals_trigger_before_truncate | 2
+ animals_trigger_before_update   | 2
+ animals_trigger_instead         | 1
+(13 rows)
+
+-- event trigger
+create or replace function drop_sql_command()
+returns event_trigger as $$
+begin
+    raise notice '% - sql_drop', tg_tag;
+end;
+$$ language plpgsql;
+create or replace function test_evtrig_no_rewrite() returns event_trigger
+language plpgsql as $$
+begin
+    raise exception 'rewrites not allowed';
+end;
+$$;
+create function test_event_trigger() returns event_trigger as $$
+begin
+    raise notice 'test_event_trigger: % %', tg_event, tg_tag;
+end
+$$ language plpgsql;
+create event trigger regress_event_trigger on ddl_command_start
+  execute procedure test_event_trigger();
+create event trigger regress_event_trigger_end on ddl_command_end
+  execute procedure test_event_trigger();
+create event trigger sql_drop_command ON sql_drop
+  execute procedure drop_sql_command();
+create event trigger no_rewrite_allowed on table_rewrite
+  when tag in ('alter table') execute procedure test_evtrig_no_rewrite();
+create table event_trigger_table (a int);
+NOTICE:  test_event_trigger: ddl_command_start CREATE TABLE
+NOTICE:  test_event_trigger: ddl_command_end CREATE TABLE
+alter table event_trigger_table alter column a type numeric; --error, rewrites not allowed
+NOTICE:  test_event_trigger: ddl_command_start ALTER TABLE
+ERROR:  rewrites not allowed
+drop table event_trigger_table;
+NOTICE:  test_event_trigger: ddl_command_start DROP TABLE
+NOTICE:  DROP TABLE - sql_drop
+NOTICE:  test_event_trigger: ddl_command_end DROP TABLE
+select name, parent_class, parent_class_desc, parent_id, type, type_desc, create_date, modify_date, 
+  is_ms_shipped, is_disabled, is_not_for_replication, is_instead_of_trigger from sys.triggers
+  where parent_class = 0;
+           name            | parent_class | parent_class_desc | parent_id | type |  type_desc  | create_date | modify_date | is_ms_shipped | is_disabled | is_not_for_replication | is_instead_of_trigger 
+---------------------------+--------------+-------------------+-----------+------+-------------+-------------+-------------+---------------+-------------+------------------------+-----------------------
+ regress_event_trigger     | 0            | DDL               |         0 | TR   | SQL_TRIGGER |             |             | 0             | 0           | 0                      | 0
+ regress_event_trigger_end | 0            | DDL               |         0 | TR   | SQL_TRIGGER |             |             | 0             | 0           | 0                      | 0
+ sql_drop_command          | 0            | DDL               |         0 | TR   | SQL_TRIGGER |             |             | 0             | 0           | 0                      | 0
+ no_rewrite_allowed        | 0            | DDL               |         0 | TR   | SQL_TRIGGER |             |             | 0             | 0           | 0                      | 0
+(4 rows)
+
+select pet.evtname, type, type_desc, is_first, is_last, event_group_type, event_group_type_desc, is_trigger_event
+  from sys.trigger_events tr inner join pg_event_trigger pet on tr.object_id = pet.oid;
+          evtname          | type |     type_desc     | is_first | is_last | event_group_type | event_group_type_desc | is_trigger_event 
+---------------------------+------+-------------------+----------+---------+------------------+-----------------------+------------------
+ regress_event_trigger     |    5 | DDL_COMMAND_START | 0        | 0       |                  |                       | 1
+ regress_event_trigger_end |    6 | DDL_COMMAND_END   | 0        | 0       |                  |                       | 1
+ sql_drop_command          |    8 | SQL_DROP          | 0        | 0       |                  |                       | 1
+ no_rewrite_allowed        |    7 | TABLE_REWRITE     | 0        | 0       |                  |                       | 1
+(4 rows)
+
+create role regress_evt_user with encrypted password 'EvtUser123';
+alter event trigger regress_event_trigger rename to regress_event_trigger_start;
+alter event trigger regress_event_trigger_start owner to regress_evt_user; -- error, only superuser allowed
+ERROR:  permission denied to change owner of event trigger "regress_event_trigger_start"
+HINT:  The owner of an event trigger must be a superuser.
+alter event trigger regress_event_trigger_start disable;
+select evtenabled from pg_event_trigger where evtname = 'regress_event_trigger_start';
+ evtenabled 
+------------
+ D
+(1 row)
+
+select is_disabled from sys.triggers where name = 'regress_event_trigger_start';
+ is_disabled 
+-------------
+ 1
+(1 row)
+
+create table event_trigger_table1 (a int);
+NOTICE:  test_event_trigger: ddl_command_end CREATE TABLE
+alter event trigger regress_event_trigger_start enable always;
+select evtenabled from pg_event_trigger where evtname = 'regress_event_trigger_start';
+ evtenabled 
+------------
+ A
+(1 row)
+
+select is_disabled from sys.triggers where name = 'regress_event_trigger_start';
+ is_disabled 
+-------------
+ 0
+(1 row)
+
+create table event_trigger_table2 (a int);
+NOTICE:  test_event_trigger: ddl_command_start CREATE TABLE
+NOTICE:  test_event_trigger: ddl_command_end CREATE TABLE
+drop event trigger regress_event_trigger_start;
+drop event trigger regress_event_trigger_end;
+drop event trigger sql_drop_command;
+drop event trigger no_rewrite_allowed;
+drop schema test_views3 cascade;
+NOTICE:  drop cascades to 9 other objects
+DETAIL:  drop cascades to table animals
+drop cascades to table food
+drop cascades to function insert_food_fun()
+drop cascades to view view_animals
+drop cascades to function drop_sql_command()
+drop cascades to function test_evtrig_no_rewrite()
+drop cascades to function test_event_trigger()
+drop cascades to table event_trigger_table1
+drop cascades to table event_trigger_table2

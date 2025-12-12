@@ -1,0 +1,168 @@
+-- sys.configurations
+\d sys.configurations
+           View "sys.configurations"
+      Column      |      Type      | Modifiers 
+------------------+----------------+-----------
+ configuration_id | integer        | 
+ name             | nvarchar2(35)  | 
+ value            | sql_variant    | 
+ minimum          | sql_variant    | 
+ maximum          | sql_variant    | 
+ value_in_use     | sql_variant    | 
+ description      | nvarchar2(255) | 
+ is_dynamic       | bit(1)         | 
+ is_advanced      | bit(1)         | 
+
+select name, value, minimum, maximum, value_in_use, description from sys.configurations order by name limit 2;
+              name              | value  | minimum |  maximum   | value_in_use |                           description                           
+--------------------------------+--------+---------+------------+--------------+-----------------------------------------------------------------
+ acceleration_with_compute_pool | off    |         |            | off          | If true, agg/scan may run in compute pool.
+ acce_min_datasize_per_thread   | 500000 | 0       | 2147483647 | 500000       | Used to estimate whether pushdown the plan to the compute pool.
+(2 rows)
+
+select name, setting, min_val, max_val, setting, short_desc from pg_settings order by name limit 2;
+              name              | setting | min_val |  max_val   | setting |                           short_desc                            
+--------------------------------+---------+---------+------------+---------+-----------------------------------------------------------------
+ acceleration_with_compute_pool | off     |         |            | off     | If true, agg/scan may run in compute pool.
+ acce_min_datasize_per_thread   | 500000  | 0       | 2147483647 | 500000  | Used to estimate whether pushdown the plan to the compute pool.
+(2 rows)
+
+select distinct is_advanced from sys.configurations;
+ is_advanced 
+-------------
+ 0
+(1 row)
+
+select distinct configuration_id from sys.configurations;
+ configuration_id 
+------------------
+                 
+(1 row)
+
+select name, context from pg_settings where name in ('block_size', 'advance_xlog_file_num',
+  'acce_min_datasize_per_thread', 'ignore_system_indexes', 'alarm_report_interval', 'autoanalyze');
+             name             |  context   
+------------------------------+------------
+ acce_min_datasize_per_thread | user
+ advance_xlog_file_num        | postmaster
+ alarm_report_interval        | sighup
+ autoanalyze                  | superuser
+ block_size                   | internal
+ ignore_system_indexes        | backend
+(6 rows)
+
+select name, is_dynamic from sys.configurations where name in ('block_size', 'advance_xlog_file_num');
+         name          | is_dynamic 
+-----------------------+------------
+ advance_xlog_file_num | 0
+ block_size            | 0
+(2 rows)
+
+select name, is_dynamic from sys.configurations where name in ('acce_min_datasize_per_thread',
+  'ignore_system_indexes', 'alarm_report_interval', 'autoanalyze');
+             name             | is_dynamic 
+------------------------------+------------
+ acce_min_datasize_per_thread | 1
+ alarm_report_interval        | 1
+ autoanalyze                  | 1
+ ignore_system_indexes        | 1
+(4 rows)
+
+-- sys.syscurconfigs
+\d sys.syscurconfigs
+       View "sys.syscurconfigs"
+ Column  |      Type      | Modifiers 
+---------+----------------+-----------
+ value   | sql_variant    | 
+ config  | smallint       | 
+ comment | nvarchar2(255) | 
+ status  | smallint       | 
+
+select value, comment from sys.syscurconfigs limit 2;
+ value  |                             comment                             
+--------+-----------------------------------------------------------------
+ 500000 | Used to estimate whether pushdown the plan to the compute pool.
+ off    | If true, agg/scan may run in compute pool.
+(2 rows)
+
+select setting, short_desc from pg_settings limit 2;
+ setting |                           short_desc                            
+---------+-----------------------------------------------------------------
+ 500000  | Used to estimate whether pushdown the plan to the compute pool.
+ off     | If true, agg/scan may run in compute pool.
+(2 rows)
+
+select distinct config from sys.syscurconfigs;
+ config 
+--------
+       
+(1 row)
+
+select status from sys.syscurconfigs con inner join pg_settings ps on con.comment = ps.short_desc
+  where ps.name in ('block_size', 'advance_xlog_file_num');
+ status 
+--------
+      0
+      0
+(2 rows)
+
+select status from sys.syscurconfigs con inner join pg_settings ps on con.comment = ps.short_desc
+  where ps.name in ('acce_min_datasize_per_thread', 'ignore_system_indexes', 'alarm_report_interval',
+  'autoanalyze');
+ status 
+--------
+      1
+      1
+      1
+      1
+(4 rows)
+
+-- sys.sysconfigures
+\d sys.sysconfigures
+       View "sys.sysconfigures"
+ Column  |      Type      | Modifiers 
+---------+----------------+-----------
+ value   | sql_variant    | 
+ config  | integer        | 
+ comment | nvarchar2(255) | 
+ status  | smallint       | 
+
+select value, comment from sys.syscurconfigs limit 2;
+ value  |                             comment                             
+--------+-----------------------------------------------------------------
+ 500000 | Used to estimate whether pushdown the plan to the compute pool.
+ off    | If true, agg/scan may run in compute pool.
+(2 rows)
+
+select setting, short_desc from pg_settings limit 2;
+ setting |                           short_desc                            
+---------+-----------------------------------------------------------------
+ 500000  | Used to estimate whether pushdown the plan to the compute pool.
+ off     | If true, agg/scan may run in compute pool.
+(2 rows)
+
+select distinct config from sys.syscurconfigs;
+ config 
+--------
+       
+(1 row)
+
+select status from sys.syscurconfigs con inner join pg_settings ps on con.comment = ps.short_desc
+  where ps.name in ('block_size', 'advance_xlog_file_num');
+ status 
+--------
+      0
+      0
+(2 rows)
+
+select status from sys.syscurconfigs con inner join pg_settings ps on con.comment = ps.short_desc
+  where ps.name in ('acce_min_datasize_per_thread', 'ignore_system_indexes', 'alarm_report_interval',
+  'autoanalyze');
+ status 
+--------
+      1
+      1
+      1
+      1
+(4 rows)
+

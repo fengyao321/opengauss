@@ -1,0 +1,925 @@
+-- sys.database_principals
+\d sys.database_principals
+                        View "sys.database_principals"
+               Column                |            Type             | Modifiers 
+-------------------------------------+-----------------------------+-----------
+ name                                | name                        | 
+ principal_id                        | oid                         | 
+ type                                | character(1)                | 
+ type_desc                           | nvarchar2(60)               | 
+ default_schema_name                 | name                        | 
+ create_date                         | timestamp without time zone | 
+ modify_date                         | timestamp without time zone | 
+ owning_principal_id                 | integer                     | 
+ sid                                 | varbinary(85)               | 
+ is_fixed_role                       | bit(1)                      | 
+ authentication_type                 | integer                     | 
+ authentication_type_desc            | nvarchar2(60)               | 
+ default_language_name               | name                        | 
+ default_language_lcid               | integer                     | 
+ allow_encrypted_value_modifications | bit(1)                      | 
+
+select * from sys.database_principals where is_fixed_role::int = 1 and name like 'gs_role%';
+           name           | principal_id | type |   type_desc   | default_schema_name | create_date | modify_date | owning_principal_id |    sid     | is_fixed_role | authentication_type | authentication_type_desc | default_language_name | default_language_lcid | allow_encrypted_value_modifications 
+--------------------------+--------------+------+---------------+---------------------+-------------+-------------+---------------------+------------+---------------+---------------------+--------------------------+-----------------------+-----------------------+-------------------------------------
+ gs_role_copy_files       |         1044 | R    | DATABASE_ROLE |                     |             |             |                  10 | 0x00000414 | 1             |                   0 | NONE                     |                       |                       | 0
+ gs_role_signal_backend   |         1045 | R    | DATABASE_ROLE |                     |             |             |                  10 | 0x00000415 | 1             |                   0 | NONE                     |                       |                       | 0
+ gs_role_tablespace       |         1046 | R    | DATABASE_ROLE |                     |             |             |                  10 | 0x00000416 | 1             |                   0 | NONE                     |                       |                       | 0
+ gs_role_replication      |         1047 | R    | DATABASE_ROLE |                     |             |             |                  10 | 0x00000417 | 1             |                   0 | NONE                     |                       |                       | 0
+ gs_role_account_lock     |         1048 | R    | DATABASE_ROLE |                     |             |             |                  10 | 0x00000418 | 1             |                   0 | NONE                     |                       |                       | 0
+ gs_role_pldebugger       |         1055 | R    | DATABASE_ROLE |                     |             |             |                  10 | 0x0000041f | 1             |                   0 | NONE                     |                       |                       | 0
+ gs_role_directory_create |         1056 | R    | DATABASE_ROLE |                     |             |             |                  10 | 0x00000420 | 1             |                   0 | NONE                     |                       |                       | 0
+ gs_role_directory_drop   |         1059 | R    | DATABASE_ROLE |                     |             |             |                  10 | 0x00000423 | 1             |                   0 | NONE                     |                       |                       | 0
+(8 rows)
+
+select count(*) from sys.database_principals where principal_id = 10 and is_fixed_role::int = 1;
+ count 
+-------
+     1
+(1 row)
+
+create user testview password 'Test@123';
+select count(*) from sys.database_principals where name = 'testview' and is_fixed_role::int = 0;
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.database_principals d inner join pg_roles r
+  on d.name = 'testview' and d.principal_id = r.oid and d.sid = r.oid::int::varbinary(85);
+ count 
+-------
+     1
+(1 row)
+
+select name, type, type_desc, default_schema_name, create_date, modify_date, owning_principal_id,
+  is_fixed_role, authentication_type, authentication_type_desc, default_language_name, 
+  default_language_lcid, allow_encrypted_value_modifications from sys.database_principals d inner join pg_roles r
+  on d.name = 'testview' and d.principal_id = r.oid and d.sid = r.oid::int::varbinary(85);
+   name   | type |   type_desc   | default_schema_name | create_date | modify_date | owning_principal_id | is_fixed_role | authentication_type | authentication_type_desc | default_language_name | default_language_lcid | allow_encrypted_value_modifications 
+----------+------+---------------+---------------------+-------------+-------------+---------------------+---------------+---------------------+--------------------------+-----------------------+-----------------------+-------------------------------------
+ testview | R    | DATABASE_ROLE |                     |             |             |                  10 | 0             |                   0 | NONE                     |                       |                       | 0
+(1 row)
+
+drop user testview;
+-- sys.foreign_key_columns
+-- sys.foreign_keys
+-- sys.sysforeignkeys
+\d sys.foreign_key_columns
+       View "sys.foreign_key_columns"
+        Column        |  Type   | Modifiers 
+----------------------+---------+-----------
+ constraint_object_id | oid     | 
+ constraint_column_id | integer | 
+ parent_object_id     | oid     | 
+ parent_column_id     | integer | 
+ referenced_object_id | oid     | 
+ referenced_column_id | integer | 
+
+\d sys.foreign_keys
+                         View "sys.foreign_keys"
+             Column             |            Type             | Modifiers 
+--------------------------------+-----------------------------+-----------
+ name                           | name                        | 
+ object_id                      | oid                         | 
+ principal_id                   | integer                     | 
+ schema_id                      | oid                         | 
+ parent_object_id               | oid                         | 
+ type                           | character(2)                | 
+ type_desc                      | nvarchar2(60)               | 
+ create_date                    | timestamp without time zone | 
+ modify_date                    | timestamp without time zone | 
+ is_ms_shipped                  | bit(1)                      | 
+ is_published                   | bit(1)                      | 
+ is_schema_published            | bit(1)                      | 
+ referenced_object_id           | oid                         | 
+ key_index_id                   | oid                         | 
+ is_disabled                    | bit(1)                      | 
+ is_not_for_replication         | bit(1)                      | 
+ is_not_trusted                 | bit(1)                      | 
+ delete_referential_action      | tinyint                     | 
+ delete_referential_action_desc | nvarchar2(60)               | 
+ update_referential_action      | tinyint                     | 
+ update_referential_action_desc | nvarchar2(60)               | 
+ is_system_named                | bit(1)                      | 
+
+\d sys.sysforeignkeys
+   View "sys.sysforeignkeys"
+ Column  |   Type   | Modifiers 
+---------+----------+-----------
+ constid | oid      | 
+ fkeyid  | oid      | 
+ rkeyid  | oid      | 
+ fkey    | smallint | 
+ rkey    | smallint | 
+ keyno   | smallint | 
+
+drop schema if exists test_views cascade;
+NOTICE:  schema "test_views" does not exist, skipping
+create schema test_views;
+set current_schema to test_views;
+create table astore_mult1 (a int primary key, b int);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "astore_mult1_pkey" for table "astore_mult1"
+create table astore_mult2 (c int, d int);
+alter table astore_mult2 add foreign key (c) references astore_mult1(a);
+\d+ astore_mult2
+                   Table "test_views.astore_mult2"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ c      | integer |           | plain   |              | 
+ d      | integer |           | plain   |              | 
+Foreign-key constraints:
+    "astore_mult2_c_fkey" FOREIGN KEY (c) REFERENCES astore_mult1(a)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+select constraint_column_id, parent_column_id, referenced_column_id from sys.foreign_key_columns
+  where constraint_object_id = object_id('astore_mult2_c_fkey', 'F') 
+  and parent_object_id = object_id('astore_mult2', 'U')
+  and referenced_object_id = object_id('astore_mult1', 'U');
+ constraint_column_id | parent_column_id | referenced_column_id 
+----------------------+------------------+----------------------
+                    1 |                1 |                    1
+(1 row)
+
+select name, principal_id, type, type_desc, create_date, modify_date, is_ms_shipped, is_published, is_schema_published
+  from sys.objects where name = 'astore_mult2_c_fkey';
+        name         | principal_id | type |       type_desc        | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
+---------------------+--------------+------+------------------------+-------------+-------------+---------------+--------------+---------------------
+ astore_mult2_c_fkey |              | F    | FOREIGN_KEY_CONSTRAINT |             |             | 0             | 0            | 0
+(1 row)
+
+select name, principal_id, type, type_desc, create_date, modify_date, is_ms_shipped, is_published, is_schema_published
+  from sys.foreign_keys where name = 'astore_mult2_c_fkey';
+        name         | principal_id | type |       type_desc        | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
+---------------------+--------------+------+------------------------+-------------+-------------+---------------+--------------+---------------------
+ astore_mult2_c_fkey |              | F    | FOREIGN_KEY_CONSTRAINT |             |             | 0             | 0            | 0
+(1 row)
+
+select is_disabled, is_not_for_replication, is_not_trusted, delete_referential_action, delete_referential_action_desc,
+  update_referential_action, update_referential_action_desc, is_system_named
+  from sys.foreign_keys where name = 'astore_mult2_c_fkey';
+ is_disabled | is_not_for_replication | is_not_trusted | delete_referential_action | delete_referential_action_desc | update_referential_action | update_referential_action_desc | is_system_named 
+-------------+------------------------+----------------+---------------------------+--------------------------------+---------------------------+--------------------------------+-----------------
+ 0           | 0                      | 0              | 0                         | NO_ACTION                      | 0                         | NO_ACTION                      | 1
+(1 row)
+
+select count(*) from sys.objects where object_id = object_id('astore_mult2_c_fkey', 'F');
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.foreign_keys where object_id = object_id('astore_mult2_c_fkey', 'F');
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.objects fk inner join pg_constraint con
+  on fk.schema_id = con.connamespace and fk.parent_object_id = con.conrelid
+  where con.conname = 'astore_mult2_c_fkey';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.foreign_keys fk inner join pg_constraint con
+  on fk.schema_id = con.connamespace and fk.parent_object_id = con.conrelid
+  where con.conname = 'astore_mult2_c_fkey';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.foreign_keys fk inner join pg_constraint con
+  on fk.referenced_object_id = con.confrelid and fk.key_index_id = con.conindid
+  and fk.is_disabled = con.condisable::int::bit and fk.is_not_trusted = (not con.convalidated)::int::bit
+  where con.conname = 'astore_mult2_c_fkey';
+ count 
+-------
+     1
+(1 row)
+
+select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
+  on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid
+  and con.conname = 'astore_mult2_c_fkey';
+ fkey | rkey | keyno 
+------+------+-------
+    1 |    1 |     1
+(1 row)
+
+create table astore_mult3 (a int, b int primary key);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "astore_mult3_pkey" for table "astore_mult3"
+create table astore_mult4 (c int, d int);
+alter table astore_mult4 add foreign key (d) references astore_mult3(b);
+\d+ astore_mult4
+                   Table "test_views.astore_mult4"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ c      | integer |           | plain   |              | 
+ d      | integer |           | plain   |              | 
+Foreign-key constraints:
+    "astore_mult4_d_fkey" FOREIGN KEY (d) REFERENCES astore_mult3(b)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+select constraint_column_id, parent_column_id, referenced_column_id from sys.foreign_key_columns
+  where constraint_object_id = object_id('astore_mult4_d_fkey', 'F') 
+  and parent_object_id = object_id('astore_mult4', 'U')
+  and referenced_object_id = object_id('astore_mult3', 'U');
+ constraint_column_id | parent_column_id | referenced_column_id 
+----------------------+------------------+----------------------
+                    1 |                2 |                    2
+(1 row)
+
+select name, principal_id, type, type_desc, create_date, modify_date, is_ms_shipped, is_published, is_schema_published
+  from sys.objects where name = 'astore_mult4_d_fkey';
+        name         | principal_id | type |       type_desc        | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
+---------------------+--------------+------+------------------------+-------------+-------------+---------------+--------------+---------------------
+ astore_mult4_d_fkey |              | F    | FOREIGN_KEY_CONSTRAINT |             |             | 0             | 0            | 0
+(1 row)
+
+select name, principal_id, type, type_desc, create_date, modify_date, is_ms_shipped, is_published, is_schema_published
+  from sys.foreign_keys where name = 'astore_mult4_d_fkey';
+        name         | principal_id | type |       type_desc        | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
+---------------------+--------------+------+------------------------+-------------+-------------+---------------+--------------+---------------------
+ astore_mult4_d_fkey |              | F    | FOREIGN_KEY_CONSTRAINT |             |             | 0             | 0            | 0
+(1 row)
+
+select is_disabled, is_not_for_replication, is_not_trusted, delete_referential_action, delete_referential_action_desc,
+  update_referential_action, update_referential_action_desc, is_system_named
+  from sys.foreign_keys where name = 'astore_mult4_d_fkey';
+ is_disabled | is_not_for_replication | is_not_trusted | delete_referential_action | delete_referential_action_desc | update_referential_action | update_referential_action_desc | is_system_named 
+-------------+------------------------+----------------+---------------------------+--------------------------------+---------------------------+--------------------------------+-----------------
+ 0           | 0                      | 0              | 0                         | NO_ACTION                      | 0                         | NO_ACTION                      | 1
+(1 row)
+
+select count(*) from sys.objects where object_id = object_id('astore_mult4_d_fkey', 'F');
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.foreign_keys where object_id = object_id('astore_mult4_d_fkey', 'F');
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.objects fk inner join pg_constraint con
+  on fk.schema_id = con.connamespace and fk.parent_object_id = con.conrelid
+  where con.conname = 'astore_mult4_d_fkey';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.foreign_keys fk inner join pg_constraint con
+  on fk.schema_id = con.connamespace and fk.parent_object_id = con.conrelid
+  where con.conname = 'astore_mult4_d_fkey';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.foreign_keys fk inner join pg_constraint con
+  on fk.referenced_object_id = con.confrelid and fk.key_index_id = con.conindid
+  and fk.is_disabled = con.condisable::int::bit and fk.is_not_trusted = (not con.convalidated)::int::bit
+  where con.conname = 'astore_mult4_d_fkey';
+ count 
+-------
+     1
+(1 row)
+
+select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
+  on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid
+  and con.conname = 'astore_mult4_d_fkey';
+ fkey | rkey | keyno 
+------+------+-------
+    2 |    2 |     1
+(1 row)
+
+create table astore_mult5 (a int, b int, primary key(a, b));
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "astore_mult5_pkey" for table "astore_mult5"
+create table astore_mult6 (c int, d int, e int);
+alter table astore_mult6 add foreign key (d, e) references astore_mult5 (a, b);
+\d+ astore_mult6
+                   Table "test_views.astore_mult6"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ c      | integer |           | plain   |              | 
+ d      | integer |           | plain   |              | 
+ e      | integer |           | plain   |              | 
+Foreign-key constraints:
+    "astore_mult6_d_fkey" FOREIGN KEY (d, e) REFERENCES astore_mult5(a, b)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+select constraint_column_id, parent_column_id, referenced_column_id from sys.foreign_key_columns
+  where constraint_object_id = object_id('astore_mult6_d_fkey', 'F') 
+  and parent_object_id = object_id('astore_mult6', 'U')
+  and referenced_object_id = object_id('astore_mult5', 'U');
+ constraint_column_id | parent_column_id | referenced_column_id 
+----------------------+------------------+----------------------
+                    1 |                2 |                    1
+                    2 |                3 |                    2
+(2 rows)
+
+select name, principal_id, type, type_desc, create_date, modify_date, is_ms_shipped, is_published, is_schema_published
+  from sys.objects where name = 'astore_mult6_d_fkey';
+        name         | principal_id | type |       type_desc        | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
+---------------------+--------------+------+------------------------+-------------+-------------+---------------+--------------+---------------------
+ astore_mult6_d_fkey |              | F    | FOREIGN_KEY_CONSTRAINT |             |             | 0             | 0            | 0
+(1 row)
+
+select name, principal_id, type, type_desc, create_date, modify_date, is_ms_shipped, is_published, is_schema_published
+  from sys.foreign_keys where name = 'astore_mult6_d_fkey';
+        name         | principal_id | type |       type_desc        | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
+---------------------+--------------+------+------------------------+-------------+-------------+---------------+--------------+---------------------
+ astore_mult6_d_fkey |              | F    | FOREIGN_KEY_CONSTRAINT |             |             | 0             | 0            | 0
+(1 row)
+
+select is_disabled, is_not_for_replication, is_not_trusted, delete_referential_action, delete_referential_action_desc,
+  update_referential_action, update_referential_action_desc, is_system_named
+  from sys.foreign_keys where name = 'astore_mult6_d_fkey';
+ is_disabled | is_not_for_replication | is_not_trusted | delete_referential_action | delete_referential_action_desc | update_referential_action | update_referential_action_desc | is_system_named 
+-------------+------------------------+----------------+---------------------------+--------------------------------+---------------------------+--------------------------------+-----------------
+ 0           | 0                      | 0              | 0                         | NO_ACTION                      | 0                         | NO_ACTION                      | 1
+(1 row)
+
+select count(*) from sys.objects where object_id = object_id('astore_mult6_d_fkey', 'F');
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.foreign_keys where object_id = object_id('astore_mult6_d_fkey', 'F');
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.objects fk inner join pg_constraint con
+  on fk.schema_id = con.connamespace and fk.parent_object_id = con.conrelid
+  where con.conname = 'astore_mult6_d_fkey';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.foreign_keys fk inner join pg_constraint con
+  on fk.schema_id = con.connamespace and fk.parent_object_id = con.conrelid
+  where con.conname = 'astore_mult6_d_fkey';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.foreign_keys fk inner join pg_constraint con
+  on fk.referenced_object_id = con.confrelid and fk.key_index_id = con.conindid
+  and fk.is_disabled = con.condisable::int::bit and fk.is_not_trusted = (not con.convalidated)::int::bit
+  where con.conname = 'astore_mult6_d_fkey';
+ count 
+-------
+     1
+(1 row)
+
+select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
+  on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid
+  and con.conname = 'astore_mult6_d_fkey';
+ fkey | rkey | keyno 
+------+------+-------
+    2 |    1 |     1
+    3 |    2 |     2
+(2 rows)
+
+create table astore_mult7 (a int, b int, primary key(b, a));
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "astore_mult7_pkey" for table "astore_mult7"
+create table astore_mult8 (c int, d int, e int);
+alter table astore_mult8 add foreign key (d, e) references astore_mult7 (b, a);
+\d+ astore_mult8
+                   Table "test_views.astore_mult8"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ c      | integer |           | plain   |              | 
+ d      | integer |           | plain   |              | 
+ e      | integer |           | plain   |              | 
+Foreign-key constraints:
+    "astore_mult8_d_fkey" FOREIGN KEY (d, e) REFERENCES astore_mult7(b, a)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+select constraint_column_id, parent_column_id, referenced_column_id from sys.foreign_key_columns
+  where constraint_object_id = object_id('astore_mult8_d_fkey', 'F') 
+  and parent_object_id = object_id('astore_mult8', 'U')
+  and referenced_object_id = object_id('astore_mult7', 'U');
+ constraint_column_id | parent_column_id | referenced_column_id 
+----------------------+------------------+----------------------
+                    1 |                2 |                    2
+                    2 |                3 |                    1
+(2 rows)
+
+select name, principal_id, type, type_desc, create_date, modify_date, is_ms_shipped, is_published, is_schema_published
+  from sys.objects where name = 'astore_mult8_d_fkey';
+        name         | principal_id | type |       type_desc        | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
+---------------------+--------------+------+------------------------+-------------+-------------+---------------+--------------+---------------------
+ astore_mult8_d_fkey |              | F    | FOREIGN_KEY_CONSTRAINT |             |             | 0             | 0            | 0
+(1 row)
+
+select name, principal_id, type, type_desc, create_date, modify_date, is_ms_shipped, is_published, is_schema_published
+  from sys.foreign_keys where name = 'astore_mult8_d_fkey';
+        name         | principal_id | type |       type_desc        | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
+---------------------+--------------+------+------------------------+-------------+-------------+---------------+--------------+---------------------
+ astore_mult8_d_fkey |              | F    | FOREIGN_KEY_CONSTRAINT |             |             | 0             | 0            | 0
+(1 row)
+
+select is_disabled, is_not_for_replication, is_not_trusted, delete_referential_action, delete_referential_action_desc,
+  update_referential_action, update_referential_action_desc, is_system_named
+  from sys.foreign_keys where name = 'astore_mult8_d_fkey';
+ is_disabled | is_not_for_replication | is_not_trusted | delete_referential_action | delete_referential_action_desc | update_referential_action | update_referential_action_desc | is_system_named 
+-------------+------------------------+----------------+---------------------------+--------------------------------+---------------------------+--------------------------------+-----------------
+ 0           | 0                      | 0              | 0                         | NO_ACTION                      | 0                         | NO_ACTION                      | 1
+(1 row)
+
+select count(*) from sys.objects where object_id = object_id('astore_mult8_d_fkey', 'F');
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.foreign_keys where object_id = object_id('astore_mult8_d_fkey', 'F');
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.objects fk inner join pg_constraint con
+  on fk.schema_id = con.connamespace and fk.parent_object_id = con.conrelid
+  where con.conname = 'astore_mult8_d_fkey';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.foreign_keys fk inner join pg_constraint con
+  on fk.schema_id = con.connamespace and fk.parent_object_id = con.conrelid
+  where con.conname = 'astore_mult8_d_fkey';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.foreign_keys fk inner join pg_constraint con
+  on fk.referenced_object_id = con.confrelid and fk.key_index_id = con.conindid
+  and fk.is_disabled = con.condisable::int::bit and fk.is_not_trusted = (not con.convalidated)::int::bit
+  where con.conname = 'astore_mult8_d_fkey';
+ count 
+-------
+     1
+(1 row)
+
+select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
+  on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid
+  and con.conname = 'astore_mult8_d_fkey';
+ fkey | rkey | keyno 
+------+------+-------
+    2 |    2 |     1
+    3 |    1 |     2
+(2 rows)
+
+drop table if exists astore_mult2;
+drop table if exists astore_mult1;
+drop table if exists astore_mult4;
+drop table if exists astore_mult3;
+drop table if exists astore_mult6;
+drop table if exists astore_mult5;
+drop table if exists astore_mult8;
+drop table if exists astore_mult7;
+create table staff (
+    id          int primary key not null,
+    name        text not null,
+    age         int not null,
+    address     char(50),
+    salary      real
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "staff_pkey" for table "staff"
+create table department (
+    id          int primary key not null,
+    dept        char(50) not null,
+    emp_id      int references staff(id) on update cascade on delete set default
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "department_pkey" for table "department"
+select delete_referential_action, delete_referential_action_desc, update_referential_action,
+  update_referential_action_desc, is_system_named
+  from sys.foreign_keys where name = 'department_emp_id_fkey';
+ delete_referential_action | delete_referential_action_desc | update_referential_action | update_referential_action_desc | is_system_named 
+---------------------------+--------------------------------+---------------------------+--------------------------------+-----------------
+ 3                         | SET_DEFAULT                    | 1                         | CASCADE                        | 1
+(1 row)
+
+drop table if exists department;
+drop table if exists staff;
+create table staff1 (
+    id          int primary key not null,
+    name        text not null,
+    age         int not null,
+    address     char(50),
+    salary      real
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "staff1_pkey" for table "staff1"
+create table department1 (
+    id          int primary key not null,
+    dept        char(50) not null,
+    emp_id      int,
+    constraint my_fkey foreign key (emp_id) references staff1(id) on update set null on delete cascade
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "department1_pkey" for table "department1"
+select delete_referential_action, delete_referential_action_desc, update_referential_action,
+  update_referential_action_desc, is_system_named 
+  from sys.foreign_keys where name = 'my_fkey';
+ delete_referential_action | delete_referential_action_desc | update_referential_action | update_referential_action_desc | is_system_named 
+---------------------------+--------------------------------+---------------------------+--------------------------------+-----------------
+ 1                         | CASCADE                        | 2                         | SET_NULL                       | 1
+(1 row)
+
+create table astore_mult1 (a int primary key, b int);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "astore_mult1_pkey" for table "astore_mult1"
+create table astore_mult2 (c int, d int);
+alter table astore_mult2 add foreign key (c) references astore_mult1(a);
+create table astore_mult3 (a int primary key, b int);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "astore_mult3_pkey" for table "astore_mult3"
+alter table astore_mult2 add foreign key (c) references astore_mult3(a);
+\d+ astore_mult2
+                   Table "test_views.astore_mult2"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ c      | integer |           | plain   |              | 
+ d      | integer |           | plain   |              | 
+Foreign-key constraints:
+    "astore_mult2_c_fkey" FOREIGN KEY (c) REFERENCES astore_mult1(a)
+    "astore_mult2_c_fkey1" FOREIGN KEY (c) REFERENCES astore_mult3(a)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+select is_system_named from sys.foreign_keys where name = 'astore_mult2_c_fkey';
+ is_system_named 
+-----------------
+ 1
+(1 row)
+
+select is_system_named from sys.foreign_keys where name = 'astore_mult2_c_fkey1'; --error
+ is_system_named 
+-----------------
+ 1
+(1 row)
+
+drop table if exists astore_mult5;
+NOTICE:  table "astore_mult5" does not exist, skipping
+drop table if exists astore_mult4;
+NOTICE:  table "astore_mult4" does not exist, skipping
+create table astore_mult4 (a int, b int, c int, d int, primary key(a, d));
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "astore_mult4_pkey" for table "astore_mult4"
+create table astore_mult5 (aa int, bb int, cc int, dd int);
+alter table astore_mult5 add foreign key (aa, cc) references astore_mult4(a, d);
+\d+ astore_mult5
+                   Table "test_views.astore_mult5"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ aa     | integer |           | plain   |              | 
+ bb     | integer |           | plain   |              | 
+ cc     | integer |           | plain   |              | 
+ dd     | integer |           | plain   |              | 
+Foreign-key constraints:
+    "astore_mult5_aa_fkey" FOREIGN KEY (aa, cc) REFERENCES astore_mult4(a, d)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
+  on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid
+  and con.conname = 'astore_mult5_aa_fkey';
+ fkey | rkey | keyno 
+------+------+-------
+    1 |    1 |     1
+    3 |    4 |     2
+(2 rows)
+
+alter table astore_mult4 drop column c; -- sys.sysforeignkeys value is not changed
+\d astore_mult4
+Table "test_views.astore_mult4"
+ Column |  Type   | Modifiers 
+--------+---------+-----------
+ a      | integer | not null
+ b      | integer | 
+ d      | integer | not null
+Indexes:
+    "astore_mult4_pkey" PRIMARY KEY, btree (a, d) TABLESPACE pg_default
+Referenced by:
+    TABLE "astore_mult5" CONSTRAINT "astore_mult5_aa_fkey" FOREIGN KEY (aa, cc) REFERENCES astore_mult4(a, d)
+
+select attname, attnum from pg_attribute where attrelid =
+  (select oid from pg_class where relname = 'astore_mult4') and attnum > 0;
+           attname            | attnum 
+------------------------------+--------
+ a                            |      1
+ b                            |      2
+ ........pg.dropped.3........ |      3
+ d                            |      4
+(4 rows)
+
+select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
+  on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid
+  and con.conname = 'astore_mult5_aa_fkey';
+ fkey | rkey | keyno 
+------+------+-------
+    1 |    1 |     1
+    3 |    4 |     2
+(2 rows)
+
+alter table astore_mult5 drop column bb; -- sys.sysforeignkeys value is not changed
+\d astore_mult5
+Table "test_views.astore_mult5"
+ Column |  Type   | Modifiers 
+--------+---------+-----------
+ aa     | integer | 
+ cc     | integer | 
+ dd     | integer | 
+Foreign-key constraints:
+    "astore_mult5_aa_fkey" FOREIGN KEY (aa, cc) REFERENCES astore_mult4(a, d)
+
+select attname, attnum from pg_attribute where attrelid =
+  (select oid from pg_class where relname = 'astore_mult5') and attnum > 0;
+           attname            | attnum 
+------------------------------+--------
+ aa                           |      1
+ ........pg.dropped.2........ |      2
+ cc                           |      3
+ dd                           |      4
+(4 rows)
+
+select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
+  on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid
+  and con.conname = 'astore_mult5_aa_fkey';
+ fkey | rkey | keyno 
+------+------+-------
+    1 |    1 |     1
+    3 |    4 |     2
+(2 rows)
+
+alter table astore_mult4 add column e int; -- sys.sysforeignkeys value is not changed
+alter table astore_mult5 add column ee int; -- sys.sysforeignkeys value is not changed
+select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
+  on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid
+  and con.conname = 'astore_mult5_aa_fkey';
+ fkey | rkey | keyno 
+------+------+-------
+    1 |    1 |     1
+    3 |    4 |     2
+(2 rows)
+
+drop table if exists test_1;
+NOTICE:  table "test_1" does not exist, skipping
+create table test_1(col1 int, col2 int, col3 int, col4 int);
+select attname, attnum from pg_attribute where attrelid =
+  (select oid from pg_class where relname = 'test_1') and attnum > 0;
+ attname | attnum 
+---------+--------
+ col1    |      1
+ col2    |      2
+ col3    |      3
+ col4    |      4
+(4 rows)
+
+alter table test_1 add column col int;
+select attname, attnum from pg_attribute where attrelid =
+  (select oid from pg_class where relname = 'test_1') and attnum > 0;
+ attname | attnum 
+---------+--------
+ col1    |      1
+ col2    |      2
+ col3    |      3
+ col4    |      4
+ col     |      5
+(5 rows)
+
+alter table test_1 add column col_after int after col2;
+select attname, attnum from pg_attribute where attrelid =
+  (select oid from pg_class where relname = 'test_1') and attnum > 0;
+  attname  | attnum 
+-----------+--------
+ col1      |      1
+ col2      |      2
+ col_after |      3
+ col3      |      4
+ col4      |      5
+ col       |      6
+(6 rows)
+
+alter table test_1 add column col_before int first;
+select attname, attnum from pg_attribute where attrelid =
+  (select oid from pg_class where relname = 'test_1') and attnum > 0;
+  attname   | attnum 
+------------+--------
+ col_before |      1
+ col1       |      2
+ col2       |      3
+ col_after  |      4
+ col3       |      5
+ col4       |      6
+ col        |      7
+(7 rows)
+
+\d test_1
+    Table "test_views.test_1"
+   Column   |  Type   | Modifiers 
+------------+---------+-----------
+ col_before | integer | 
+ col1       | integer | 
+ col2       | integer | 
+ col_after  | integer | 
+ col3       | integer | 
+ col4       | integer | 
+ col        | integer | 
+
+drop table if exists astore_mult7;
+NOTICE:  table "astore_mult7" does not exist, skipping
+drop table if exists astore_mult6;
+NOTICE:  table "astore_mult6" does not exist, skipping
+create table astore_mult6 (a int, b int, c int, d int, primary key(a, d));
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "astore_mult6_pkey" for table "astore_mult6"
+create table astore_mult7 (aa int, bb int, cc int, dd int);
+alter table astore_mult7 add foreign key (aa, cc) references astore_mult6(a, d);
+\d+ astore_mult7
+                   Table "test_views.astore_mult7"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ aa     | integer |           | plain   |              | 
+ bb     | integer |           | plain   |              | 
+ cc     | integer |           | plain   |              | 
+ dd     | integer |           | plain   |              | 
+Foreign-key constraints:
+    "astore_mult7_aa_fkey" FOREIGN KEY (aa, cc) REFERENCES astore_mult6(a, d)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
+  on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid
+  and con.conname = 'astore_mult7_aa_fkey';
+ fkey | rkey | keyno 
+------+------+-------
+    1 |    1 |     1
+    3 |    4 |     2
+(2 rows)
+
+alter table astore_mult6 add column a0 int first; -- sys.sysforeignkeys value is changed
+\d astore_mult6
+Table "test_views.astore_mult6"
+ Column |  Type   | Modifiers 
+--------+---------+-----------
+ a0     | integer | 
+ a      | integer | not null
+ b      | integer | 
+ c      | integer | 
+ d      | integer | not null
+Indexes:
+    "astore_mult6_pkey" PRIMARY KEY, btree (a, d) TABLESPACE pg_default
+Referenced by:
+    TABLE "astore_mult7" CONSTRAINT "astore_mult7_aa_fkey" FOREIGN KEY (aa, cc) REFERENCES astore_mult6(a, d)
+
+select attname, attnum from pg_attribute where attrelid =
+  (select oid from pg_class where relname = 'astore_mult6') and attnum > 0;
+ attname | attnum 
+---------+--------
+ a0      |      1
+ a       |      2
+ b       |      3
+ c       |      4
+ d       |      5
+(5 rows)
+
+select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
+  on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid
+  and con.conname = 'astore_mult7_aa_fkey';
+ fkey | rkey | keyno 
+------+------+-------
+    1 |    2 |     1
+    3 |    5 |     2
+(2 rows)
+
+alter table astore_mult6 add column a00 int after a0; -- sys.sysforeignkeys value is changed
+\d astore_mult6
+Table "test_views.astore_mult6"
+ Column |  Type   | Modifiers 
+--------+---------+-----------
+ a0     | integer | 
+ a00    | integer | 
+ a      | integer | not null
+ b      | integer | 
+ c      | integer | 
+ d      | integer | not null
+Indexes:
+    "astore_mult6_pkey" PRIMARY KEY, btree (a, d) TABLESPACE pg_default
+Referenced by:
+    TABLE "astore_mult7" CONSTRAINT "astore_mult7_aa_fkey" FOREIGN KEY (aa, cc) REFERENCES astore_mult6(a, d)
+
+select attname, attnum from pg_attribute where attrelid =
+  (select oid from pg_class where relname = 'astore_mult6') and attnum > 0;
+ attname | attnum 
+---------+--------
+ a0      |      1
+ a00     |      2
+ a       |      3
+ b       |      4
+ c       |      5
+ d       |      6
+(6 rows)
+
+select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
+  on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid
+  and con.conname = 'astore_mult7_aa_fkey';
+ fkey | rkey | keyno 
+------+------+-------
+    1 |    3 |     1
+    3 |    6 |     2
+(2 rows)
+
+alter table astore_mult7 add column aa0 int first; -- sys.sysforeignkeys value is changed
+\d astore_mult7
+Table "test_views.astore_mult7"
+ Column |  Type   | Modifiers 
+--------+---------+-----------
+ aa0    | integer | 
+ aa     | integer | 
+ bb     | integer | 
+ cc     | integer | 
+ dd     | integer | 
+Foreign-key constraints:
+    "astore_mult7_aa_fkey" FOREIGN KEY (aa, cc) REFERENCES astore_mult6(a, d)
+
+select attname, attnum from pg_attribute where attrelid =
+  (select oid from pg_class where relname = 'astore_mult7') and attnum > 0;
+ attname | attnum 
+---------+--------
+ aa0     |      1
+ aa      |      2
+ bb      |      3
+ cc      |      4
+ dd      |      5
+(5 rows)
+
+select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
+  on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid
+  and con.conname = 'astore_mult7_aa_fkey';
+ fkey | rkey | keyno 
+------+------+-------
+    2 |    3 |     1
+    4 |    6 |     2
+(2 rows)
+
+alter table astore_mult7 add column aa00 int after aa0; -- sys.sysforeignkeys value is changed
+\d astore_mult7
+Table "test_views.astore_mult7"
+ Column |  Type   | Modifiers 
+--------+---------+-----------
+ aa0    | integer | 
+ aa00   | integer | 
+ aa     | integer | 
+ bb     | integer | 
+ cc     | integer | 
+ dd     | integer | 
+Foreign-key constraints:
+    "astore_mult7_aa_fkey" FOREIGN KEY (aa, cc) REFERENCES astore_mult6(a, d)
+
+select attname, attnum from pg_attribute where attrelid =
+  (select oid from pg_class where relname = 'astore_mult7') and attnum > 0;
+ attname | attnum 
+---------+--------
+ aa0     |      1
+ aa00    |      2
+ aa      |      3
+ bb      |      4
+ cc      |      5
+ dd      |      6
+(6 rows)
+
+select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
+  on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid
+  and con.conname = 'astore_mult7_aa_fkey';
+ fkey | rkey | keyno 
+------+------+-------
+    3 |    3 |     1
+    5 |    6 |     2
+(2 rows)
+
+drop table if exists department1;
+drop table if exists staff1;
+drop schema if exists test_views cascade;
+NOTICE:  drop cascades to 8 other objects
+DETAIL:  drop cascades to table astore_mult1
+drop cascades to table astore_mult2
+drop cascades to table astore_mult3
+drop cascades to table astore_mult4
+drop cascades to table astore_mult5
+drop cascades to table test_1
+drop cascades to table astore_mult6
+drop cascades to table astore_mult7
