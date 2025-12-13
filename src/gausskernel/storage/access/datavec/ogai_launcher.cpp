@@ -72,8 +72,8 @@ static void OgailauncherSighupHandler(SIGNAL_ARGS)
     int saveErrno = errno;
 
     t_thrd.ogailauncher_cxt.got_SIGHUP = true;
-    if (t_thrd.ogailauncher_cxt.OgaiWorkerShmem)
-        SetLatch(&t_thrd.ogailauncher_cxt.OgaiWorkerShmem->latch);
+    if (t_thrd.ogailauncher_cxt.ogaiWorkerShmem)
+        SetLatch(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->latch);
 
     errno = saveErrno;
 }
@@ -84,8 +84,8 @@ static void OgailauncherSigusr2Handler(SIGNAL_ARGS)
     int saveErrno = errno;
 
     t_thrd.ogailauncher_cxt.got_SIGUSR2 = true;
-    if (t_thrd.ogailauncher_cxt.OgaiWorkerShmem)
-        SetLatch(&t_thrd.ogailauncher_cxt.OgaiWorkerShmem->latch);
+    if (t_thrd.ogailauncher_cxt.ogaiWorkerShmem)
+        SetLatch(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->latch);
 
     errno = saveErrno;
 }
@@ -96,8 +96,8 @@ static void OgailauncherSigtermHandler(SIGNAL_ARGS)
     int saveErrno = errno;
 
     t_thrd.ogailauncher_cxt.got_SIGTERM = true;
-    if (t_thrd.ogailauncher_cxt.OgaiWorkerShmem)
-        SetLatch(&t_thrd.ogailauncher_cxt.OgaiWorkerShmem->latch);
+    if (t_thrd.ogailauncher_cxt.ogaiWorkerShmem)
+        SetLatch(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->latch);
 
     errno = saveErrno;
 }
@@ -107,7 +107,7 @@ static bool OgaiLauncherGetWork(OgaiWorkInfo work, int *idx)
     int actualOgaiWorkers = MAX_OGAI_WORKERS;
 
     for (int i = 0; i < actualOgaiWorkers; i++) {
-        if (!OidIsValid(t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].dbid)) {
+        if (!OidIsValid(t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].dbid)) {
             *idx = i;
             break;
         }
@@ -118,7 +118,7 @@ static bool OgaiLauncherGetWork(OgaiWorkInfo work, int *idx)
     }
 
     for (int j = 0; j < actualOgaiWorkers; j++) {
-        Oid candidate_dboid = t_thrd.ogailauncher_cxt.OgaiWorkerShmem->target_dbs[j];
+        Oid candidate_dboid = t_thrd.ogailauncher_cxt.ogaiWorkerShmem->target_dbs[j];
         
         if (!OidIsValid(candidate_dboid)) {
             continue;
@@ -126,9 +126,9 @@ static bool OgaiLauncherGetWork(OgaiWorkInfo work, int *idx)
 
         bool alreadyHasWorker = false;
         for (int i = 0; i < actualOgaiWorkers; i++) {
-            if (t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].dbid == candidate_dboid) {
+            if (t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].dbid == candidate_dboid) {
                 alreadyHasWorker = true;
-                t_thrd.ogailauncher_cxt.OgaiWorkerShmem->target_dbs[j] = InvalidOid;
+                t_thrd.ogailauncher_cxt.ogaiWorkerShmem->target_dbs[j] = InvalidOid;
                 break;
             }
         }
@@ -148,7 +148,7 @@ static bool CanLaunchOgaiWorker()
     * is pointing at has been picked up by an undo worker and that
     * we can override the value.
     */
-    uint32 activeWorkers = pg_atomic_read_u32(&t_thrd.ogailauncher_cxt.OgaiWorkerShmem->active_ogai_workers);
+    uint32 activeWorkers = pg_atomic_read_u32(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->active_ogai_workers);
 
     return (activeWorkers < MAX_OGAI_WORKERS);
 }
@@ -156,7 +156,7 @@ static bool CanLaunchOgaiWorker()
 
 static void PrepareOgaiWorker(OgaiWorkInfo work, int idx)
 {
-    errno_t rc = memcpy_s(t_thrd.ogailauncher_cxt.OgaiWorkerShmem->createdb_request, sizeof(OgaiWorkInfoData), work,
+    errno_t rc = memcpy_s(t_thrd.ogailauncher_cxt.ogaiWorkerShmem->createdb_request, sizeof(OgaiWorkInfoData), work,
         sizeof(OgaiWorkInfoData));
     securec_check(rc, "\0", "\0");
 
@@ -167,18 +167,18 @@ static void PrepareOgaiWorker(OgaiWorkInfo work, int idx)
     if (idx < 0 || idx >= actualOgaiWorkers) {
         ereport(PANIC, (errmsg("Can't find a slot in ogai_worker_status, max_ogai_workers %d, active_ogai_workers %u",
             actualOgaiWorkers,
-            t_thrd.ogailauncher_cxt.OgaiWorkerShmem->active_ogai_workers)));
+            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->active_ogai_workers)));
     }
 
-    t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[idx].dbid = work->dbid;
+    t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[idx].dbid = work->dbid;
 
     while (!t_thrd.ogailauncher_cxt.got_SIGTERM) {
         bool hit10s = (retryTimes % maxRetryTimes == 0);
         if (hit10s) {
             SendPostmasterSignal(PMSIGNAL_START_OGAI_WORKER);
         }
-        if (!OidIsValid(t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[idx].dbid) ||
-            t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[idx].pid != INVALID_PID) {
+        if (!OidIsValid(t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[idx].dbid) ||
+            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[idx].pid != INVALID_PID) {
             break;
         }
         pg_usleep(waitTime);
@@ -196,23 +196,23 @@ Size OgaiWorkerShmemSize(void)
 void OgaiWorkerShmemInit(void)
 {
     bool found = false;
-    t_thrd.ogailauncher_cxt.OgaiWorkerShmem =
+    t_thrd.ogailauncher_cxt.ogaiWorkerShmem =
         (OgaiWorkerShmemStruct *)ShmemInitStruct("Ogai Worker", OgaiWorkerShmemSize(), &found);
 
     if (!found) {
-        t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_launcher_pid = 0;
-        t_thrd.ogailauncher_cxt.OgaiWorkerShmem->active_ogai_workers = 0;
+        t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_launcher_pid = 0;
+        t_thrd.ogailauncher_cxt.ogaiWorkerShmem->active_ogai_workers = 0;
 
-        InitSharedLatch(&t_thrd.ogailauncher_cxt.OgaiWorkerShmem->latch);
+        InitSharedLatch(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->latch);
 
-        t_thrd.ogailauncher_cxt.OgaiWorkerShmem->createdb_request =
-            (OgaiWorkInfo)((char *)t_thrd.ogailauncher_cxt.OgaiWorkerShmem + MAXALIGN(sizeof(OgaiWorkerShmemStruct)));
+        t_thrd.ogailauncher_cxt.ogaiWorkerShmem->createdb_request =
+            (OgaiWorkInfo)((char *)t_thrd.ogailauncher_cxt.ogaiWorkerShmem + MAXALIGN(sizeof(OgaiWorkerShmemStruct)));
 
         for (int i = 0; i < MAX_OGAI_WORKERS; i++) {
-            t_thrd.ogailauncher_cxt.OgaiWorkerShmem->target_dbs[i] = InvalidOid;
-            t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].pid = INVALID_PID;
-            t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].dbid = InvalidOid;
-            t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_worker_status[i].createdbTime = (TimestampTz)0;
+            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->target_dbs[i] = InvalidOid;
+            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].pid = INVALID_PID;
+            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].dbid = InvalidOid;
+            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].createdbTime = (TimestampTz)0;
         }
     }
 }
@@ -220,8 +220,8 @@ void OgaiWorkerShmemInit(void)
 void OgaiLauncherQuitAndClean(int code, Datum arg)
 {
     ereport(LOG, (errmsg("undo launcher shutting down")));
-    t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_launcher_pid = 0;
-    DisownLatch(&t_thrd.ogailauncher_cxt.OgaiWorkerShmem->latch);
+    t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_launcher_pid = 0;
+    DisownLatch(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->latch);
 }
 
 NON_EXEC_STATIC void OgaiLauncherMain()
@@ -236,14 +236,14 @@ NON_EXEC_STATIC void OgaiLauncherMain()
 
     /* reset t_thrd.proc_cxt.MyProcPid */
     t_thrd.proc_cxt.MyProcPid = gs_thread_self();
-    t_thrd.ogailauncher_cxt.OgaiWorkerShmem->ogai_launcher_pid = t_thrd.proc_cxt.MyProcPid;
+    t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_launcher_pid = t_thrd.proc_cxt.MyProcPid;
 
     /* record Start Time for logging */
     t_thrd.proc_cxt.MyStartTime = time(NULL);
 
     t_thrd.proc_cxt.MyProgName = "OgaiLauncher";
 
-    OwnLatch(&t_thrd.ogailauncher_cxt.OgaiWorkerShmem->latch);
+    OwnLatch(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->latch);
 
     init_ps_display("ogai launcher process", "", "", "");
     ereport(LOG, (errmsg("ogai launcher started")));
@@ -335,10 +335,10 @@ NON_EXEC_STATIC void OgaiLauncherMain()
             currSleepTime = defaultSleepTime;
         } else {
             /* Wait until sleep time expires or we get some type of signal */
-            WaitLatch(&t_thrd.ogailauncher_cxt.OgaiWorkerShmem->latch, WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
+            WaitLatch(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->latch, WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
                 currSleepTime);
 
-            ResetLatch(&t_thrd.ogailauncher_cxt.OgaiWorkerShmem->latch);
+            ResetLatch(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->latch);
 
             /* Keep doubling sleep time until 5 mins */
             currSleepTime = Min(defaultSleepTime * 300, 2 * currSleepTime);

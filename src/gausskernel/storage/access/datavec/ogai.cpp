@@ -29,6 +29,7 @@
 #include "access/datavec/ogai_model_manager.h"
 #include "access/datavec/ogai_textsplitter_wrapper.h"
 #include "access/datavec/vector.h"
+#include "access/datavec/ogai_worker.h"
 #include "access/datavec/ogai.h"
 
 Datum ogai_embedding(PG_FUNCTION_ARGS)
@@ -238,6 +239,19 @@ Datum ogai_chunk(PG_FUNCTION_ARGS)
 
         SRF_RETURN_NEXT(funcctx, result);
     }
-
     SRF_RETURN_DONE(funcctx);
+}
+
+Datum ogai_notify(PG_FUNCTION_ARGS)
+{
+/* Wake up the Undo Launcher */
+    Oid dboid = u_sess->proc_cxt.MyDatabaseId;
+    int actualOgaiWorkers = MAX_OGAI_WORKERS;
+    for (int i = 0; i < actualOgaiWorkers; i++) {
+        if (!OidIsValid(t_thrd.ogailauncher_cxt.ogaiWorkerShmem->target_dbs[i])) {
+            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->target_dbs[i] = dboid;
+            break;
+        }
+    }
+    SetLatch(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->latch);
 }

@@ -123,6 +123,8 @@ typedef enum knl_thread_role {
     UNDO_RECYCLER,
     UNDO_LAUNCHER,
     UNDO_WORKER,
+    OGAI_LAUNCHER,
+    OGAI_WORKER,
     CSNMIN_SYNC,
     GLOBALSTATS_THREAD,
     BARRIER_CREATOR,

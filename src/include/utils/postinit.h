@@ -118,6 +118,10 @@ public:
 
     bool InitUndoWorker();
 
+    void InitOgaiLauncher();
+
+    bool InitOgaiWorker();
+
     void InitBarrierCreator();
 
     void InitFencedSysCache();

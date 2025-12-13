@@ -69,6 +69,7 @@
 #include "tsdb/compaction/compaction_entry.h"
 #endif   /* ENABLE_MULTIPLE_NODES */
 #include "access/ustore/knl_undoworker.h"
+#include "access/datavec/ogai_worker.h"
 
 #define DIRECTORY_LOCK_FILE "postmaster.pid"
 
@@ -1018,11 +1019,12 @@ void InitializeSessionUserIdStandalone(void)
     AssertState(!IsUnderPostmaster || IsAutoVacuumWorkerProcess() || IsJobSchedulerProcess() || IsJobWorkerProcess() ||
         AM_WAL_SENDER || IsTxnSnapCapturerProcess() || IsTxnSnapWorkerProcess() || IsUndoWorkerProcess() ||  IsCfsShrinkerProcess() ||
         CompactionProcess::IsTsCompactionProcess() || IsRbCleanerProcess() || IsRbWorkerProcess() ||
+        IsOgaiWorkerProcess() ||
         t_thrd.role == PARALLEL_DECODE || t_thrd.role == LOGICAL_READ_RECORD);
 #else   /* ENABLE_MULTIPLE_NODES */
     AssertState(!IsUnderPostmaster || IsAutoVacuumWorkerProcess() || IsJobSchedulerProcess() || IsJobWorkerProcess() ||
                 AM_WAL_SENDER || IsTxnSnapCapturerProcess() || IsTxnSnapWorkerProcess() || IsUndoWorkerProcess() ||
-                IsRbCleanerProcess() || IsCfsShrinkerProcess() ||
+                IsRbCleanerProcess() || IsCfsShrinkerProcess() || IsOgaiWorkerProcess() ||
                 IsRbWorkerProcess() || t_thrd.role == PARALLEL_DECODE || t_thrd.role == LOGICAL_READ_RECORD);
 #endif   /* ENABLE_MULTIPLE_NODES */
 

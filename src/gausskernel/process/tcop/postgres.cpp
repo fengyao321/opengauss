@@ -7840,6 +7840,9 @@ static void ResetSIGHUPFlag()
         case UNDO_WORKER:
             t_thrd.undoworker_cxt.got_SIGHUP = false;
             break;
+        case OGAI_WORKER:
+            t_thrd.undoworker_cxt.got_SIGHUP = false;
+            break;
         case WLM_WORKER:
         case WLM_MONITOR:
         case WLM_ARBITER:
@@ -7871,6 +7874,8 @@ static bool CheckSIGHUPFlag()
             return t_thrd.rbcleaner_cxt.got_SIGHUP;
         case UNDO_WORKER:
             return t_thrd.undoworker_cxt.got_SIGHUP;
+        case OGAI_WORKER:
+            return t_thrd.ogaiworker_cxt.got_SIGHUP;
         case WLM_WORKER:
         case WLM_MONITOR:
         case WLM_ARBITER:

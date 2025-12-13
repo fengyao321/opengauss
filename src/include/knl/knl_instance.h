@@ -276,6 +276,7 @@ typedef struct knl_g_pid_context {
     ThreadId CommAuxiliaryPID;
     ThreadId CommPoolerCleanPID;
     ThreadId UndoLauncherPID;
+    ThreadId OgaiLauncherPID;
     ThreadId GlobalStatsPID;
     ThreadId* CommReceiverPIDS;
     ThreadId UndoRecyclerPID;

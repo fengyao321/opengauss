@@ -45,7 +45,7 @@ typedef struct {
 } ProviderClientCreators;
 
 void GenerateModelConfig(ModelConfig* config, const char* model);
-void AsyncGenerateModelConfig(ModelConfig* config, const char* model);
+void AsyncGenerateModelConfig(ModelConfig* config, const char* modelKey, const char* ownerName);
 EmbeddingClient* CreateEmbeddingClient(ModelConfig* config);
 GenerateClient* CreateGenerateClient(ModelConfig* config);
 RerankClient* CreateRerankClient(ModelConfig* config);
