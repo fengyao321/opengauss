@@ -33,5 +33,7 @@ Datum ogai_embedding(PG_FUNCTION_ARGS);
 Datum ogai_generate(PG_FUNCTION_ARGS);
 Datum ogai_rerank(PG_FUNCTION_ARGS);
 Datum ogai_chunk(PG_FUNCTION_ARGS);
+Datum load_onnx_model(PG_FUNCTION_ARGS);
+Datum unload_onnx_model(PG_FUNCTION_ARGS);
 Datum ogai_notify(PG_FUNCTION_ARGS);
-#endif
+#endif // OGAI_H
