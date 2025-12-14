@@ -46,6 +46,26 @@ AS 'ogai_chunk';
 
 COMMENT ON FUNCTION pg_catalog.ogai_chunk(text, integer, integer) IS 'return the chunks results of documents with overlap';
 
+DROP FUNCTION IF EXISTS pg_catalog.load_onnx_model(text) CASCADE;
+SET LOCAL inplace_upgrade_next_system_object_oids=IUO_PROC, 8926;
+CREATE OR REPLACE FUNCTION pg_catalog.load_onnx_model(text)
+    RETURNS boolean
+    LANGUAGE internal
+    STRICT NOT FENCED NOT SHIPPABLE
+AS 'load_onnx_model';
+
+COMMENT ON FUNCTION pg_catalog.load_onnx_model(text) IS 'load an ONNX model into cache by model_key';
+
+DROP FUNCTION IF EXISTS pg_catalog.unload_onnx_model(text) CASCADE;
+SET LOCAL inplace_upgrade_next_system_object_oids=IUO_PROC, 8927;
+CREATE OR REPLACE FUNCTION pg_catalog.unload_onnx_model(text)
+    RETURNS boolean
+    LANGUAGE internal
+    STRICT NOT FENCED NOT SHIPPABLE
+AS 'unload_onnx_model';
+
+COMMENT ON FUNCTION pg_catalog.unload_onnx_model(text) IS 'upload an ONNX model from cache by model_key';
+
 CREATE SCHEMA IF NOT EXISTS ogai;
 GRANT USAGE ON SCHEMA ogai TO PUBLIC;
 

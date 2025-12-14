@@ -44,7 +44,11 @@ static ProviderClientCreators providerCreators[] = {
         .createGenerate = CreateOllamaGenerateClient,
         .createRerank = CreateOllamaRerankClient
     },
-    [PROVIDER_ONNX] = {NULL, NULL, NULL},
+    [PROVIDER_ONNX] = {
+        .createEmbedding = NULL,
+        .createGenerate = NULL,
+        .createRerank = NULL
+    },
 };
 
 static void SetModelConfigFromDB(ModelConfig* config, const char* modelKey)
