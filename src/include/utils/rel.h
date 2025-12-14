@@ -320,6 +320,9 @@ typedef struct RelationData {
     /* used only for datavec rabitq*/
     void *rbqMatrix;
     float *rbqOther;
+
+    /* used only for datavec hnsw lsg */
+    float* sampleVec;
 } RelationData;
 
 /*
