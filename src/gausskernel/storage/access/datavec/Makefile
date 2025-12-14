@@ -2,6 +2,10 @@ subdir = src/gausskernel/storage/access/datavec
 top_builddir = ../../../../..
 include $(top_builddir)/src/Makefile.global
 
+override LIBS := -lonnx_wrapper $(LIBS)
+override LDFLAGS += -L$(TOKENIZERS_LIB_PATH) -L$(ONNXRUNTIME_LIB_PATH)
+override CXXFLAGS := -I$(ONNXRUNTIME_INCLUDE_PATH) $(CXXFLAGS)
+
 ifneq "$(MAKECMDGOALS)" "clean"
   ifneq "$(MAKECMDGOALS)" "distclean"
      ifneq "$(shell which g++ |grep hutaf_llt |wc -l)" "1"
@@ -16,6 +20,6 @@ OBJS = bitutils.o hnsw.o hnswbuild.o hnswdelete.o hnswinsert.o hnswscan.o hnswut
 	   pg_prng.o diskann.o diskannbuild.o diskannscan.o diskannutils.o diskanndelete.o common_parallel.o \
        vectortransformer.o rabitq.o scalarquantizer.o ogai_model_framework.o ogai_model_manager.o ogai_qwen.o \
        ogai_utils.o ogai.o ogai_ollama.o ogai_openai.o ogai_launcher.o \
-       ogai_vector_processor.o ogai_worker.o
+       ogai_vector_processor.o ogai_worker.o ogai_onnx_mgr.o ogai_onnx_embedding.o
 
 include $(top_srcdir)/src/gausskernel/common.mk
