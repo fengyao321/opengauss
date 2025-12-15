@@ -1586,15 +1586,7 @@ void CStoreCopyColumnData(Relation CUReplicationRel, Relation rel, AttrNumber at
     const uint64 loops = maxOffset / tempBufSize;
 
     char* tempBuf = NULL;
-    ADIO_RUN()
-    {
-        tempBuf = (char*)adio_align_alloc(tempBufSize);
-    }
-    ADIO_ELSE()
-    {
-        tempBuf = (char*)palloc(tempBufSize);
-    }
-    ADIO_END();
+    tempBuf = (char*)palloc(tempBufSize);
 
     uint64 offset = 0;
 
@@ -1640,15 +1632,7 @@ void CStoreCopyColumnData(Relation CUReplicationRel, Relation rel, AttrNumber at
                     targetRelFileNode)));
 
     /* release the memory */
-    ADIO_RUN()
-    {
-        adio_align_free(tempBuf);
-    }
-    ADIO_ELSE()
-    {
-        pfree(tempBuf);
-    }
-    ADIO_END();
+    pfree(tempBuf);
 
     DELETE_EX(srcCUStorage);
     DELETE_EX(destCUStorage);

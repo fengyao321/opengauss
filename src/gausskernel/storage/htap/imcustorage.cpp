@@ -173,14 +173,6 @@ File IMCUStorage::WSOpenFile(char* file_name, int fileId, bool direct_flag)
         fileFlags = O_RDWR | O_CREAT | PG_BINARY;
     }
 
-    ADIO_RUN()
-    {
-        if (direct_flag) {
-            fileFlags |= O_DIRECT;
-        }
-    }
-    ADIO_END();
-
     RelFileNodeForkNum filenode;
     filenode.rnode.node = m_cnode.m_rnode;
     filenode.rnode.backend = InvalidBackendId;

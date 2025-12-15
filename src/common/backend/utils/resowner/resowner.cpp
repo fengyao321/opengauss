@@ -28,6 +28,7 @@
 #include "storage/predicate.h"
 #include "storage/proc.h"
 #include "storage/smgr/segment.h"
+#include "utils/aiomem.h"
 #include "utils/knl_partcache.h"
 #include "utils/knl_relcache.h"
 #include "utils/memutils.h"

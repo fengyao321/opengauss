@@ -538,6 +538,12 @@ const int SMBWRITERAUX_THREAD_NUM = 7;
 
 #define GSC_MAX_BACKEND_SLOT (g_instance.shmem_cxt.MaxBackends + MAX_SESSION_SLOT_COUNT)
 
+#ifndef ENABLE_LITE_MODE
+#define MAX_AIO_COMPLETER_THREAD_NUM (30)
+#else
+#define MAX_AIO_COMPLETER_THREAD_NUM (0)
+#endif
+
 extern AlarmCheckResult ConnectionOverloadChecker(Alarm* alarm, AlarmAdditionalParam* additionalParam);
 
 /*

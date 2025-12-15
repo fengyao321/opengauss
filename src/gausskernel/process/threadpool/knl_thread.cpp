@@ -1358,10 +1358,14 @@ static void knl_t_storage_init(knl_t_storage_context* storage_cxt)
     storage_cxt->IsForInput = false;
     storage_cxt->ParentIsForInput = false;
     storage_cxt->PinCountWaitBuf = NULL;
-    storage_cxt->InProgressAioDispatch = NULL;
+    storage_cxt->InProgressAioDispatch =
+        (AioDispatchDesc_t **)palloc(sizeof(AioDispatchDesc_t *) * MAX_PREFETCH_REQSIZ);
     storage_cxt->InProgressAioDispatchCount = 0;
     storage_cxt->InProgressAioBuf = NULL;
     storage_cxt->InProgressAioType = AioUnkown;
+    storage_cxt->inProgressAioPageCopys = NULL;
+    storage_cxt->inProgressAioDescs = NULL;
+    storage_cxt->aioPageCopyMaxCount = MAX_PREFETCH_REQSIZ;
     storage_cxt->is_btree_split = false;
     storage_cxt->PrivateRefCountArray =
         (PrivateRefCountEntry*)palloc0(sizeof(PrivateRefCountEntry) * REFCOUNT_ARRAY_ENTRIES);

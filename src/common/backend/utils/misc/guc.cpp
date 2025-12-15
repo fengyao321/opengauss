@@ -269,6 +269,9 @@ const char* sync_guc_variable_namelist[] = {"work_mem",
     "synchronous_commit",
     "commit_delay",
     "commit_siblings",
+#ifndef ENABLE_LITE_MODE
+    "adio_prefetch_quantity",
+#endif
     "client_min_messages",
     "log_min_messages",
     "log_min_error_statement",
@@ -392,12 +395,9 @@ const char* sync_guc_variable_namelist[] = {"work_mem",
     "enable_early_free",
     "cstore_backwrite_quantity",
     "cstore_backwrite_max_threshold",
-    "prefetch_quantity",
     "backwrite_quantity",
     "cstore_prefetch_quantity",
     "enable_fast_allocate",
-    "enable_adio_debug",
-    "enable_adio_function",
     "fast_extend_file_size",
     "enable_global_stats",
     "enable_hypo_index",
@@ -464,7 +464,10 @@ const char* sync_guc_variable_namelist[] = {"work_mem",
     "enable_expr_fusion",
     "heap_bulk_read_size",
     "restrict_nonsystem_relation_kind",
-    "enable_func_cache"
+    "enable_func_cache",
+#ifndef ENABLE_LITE_MODE
+    "enable_adio_debug"
+#endif
     };
 
 static void set_config_sourcefile(const char* name, char* sourcefile, int sourceline);

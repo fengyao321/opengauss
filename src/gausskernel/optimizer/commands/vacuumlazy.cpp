@@ -1068,7 +1068,7 @@ static IndexBulkDeleteResult** lazy_scan_heap(
 
     ADIO_RUN()
     {
-        uint32 quantity = (uint32)u_sess->attr.attr_storage.prefetch_quantity;
+        uint32 quantity = (uint32)u_sess->attr.attr_storage.adioPrefetchQuantity;
         valprefetch.fetchlist1.quantity = (uint32)((quantity > (nblocks / 2 + 1)) ? (nblocks / 2 + 1) : quantity);
         valprefetch.fetchlist1.block_guard = 0;
         valprefetch.fetchlist1.count = 0;

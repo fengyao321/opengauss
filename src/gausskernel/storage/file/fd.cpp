@@ -98,6 +98,7 @@
 #include "pgxc/globalStatistic.h"
 
 #include <linux/falloc.h>
+#include "postmaster/aiocompleter.h"
 
 /*
  * We must leave some file descriptors free for system(), the dynamic loader,
@@ -856,10 +857,10 @@ tryAgain:
     }
 
     if (errno == EMFILE || errno == ENFILE) {
-        int save_errno = errno;
+        int saveErrno = errno;
 
 #ifdef USE_ASSERT_CHECKING
-        if (save_errno == ENFILE) {
+        if (saveErrno == ENFILE) {
             DumpOpenFiles(g_gauss_pid_dir);
             pg_usleep(10000000L);
             ereport(PANIC,
@@ -877,7 +878,7 @@ tryAgain:
         if (ReleaseLruFile()) {
             goto tryAgain;
         }
-        errno = save_errno;
+        errno = saveErrno;
     }
 
     return -1; /* failure */
@@ -2387,7 +2388,7 @@ int FileAsyncRead(AioDispatchDesc_t** dList, int32 dn, bool inter_xact)
      * If the number of requests is too great, and there are more threads
      * than request types it makes sense to spread them around.
      */
-    io_context_t aio_context = CompltrContext(dList[0]->blockDesc.reqType, 0);
+    io_context_t aio_context = CompltrContext(dList[0]->blockDesc.reqType, dList[0]->aiocb.aio_fildes);
 
     returnCode = FileAsyncSubmitIO<AioDispatchDesc_t**>(aio_context, dList, dn);
     if (returnCode != dn) {
@@ -2398,6 +2399,9 @@ int FileAsyncRead(AioDispatchDesc_t** dList, int32 dn, bool inter_xact)
 
     return returnCode;
 }
+
+#define MAX_AIOCOMPLTR_THREADS 30
+extern AioCompltrThreadT compltrArray[MAX_AIOCOMPLTR_THREADS];
 
 /*
  * @Description:  row store async write api
@@ -2430,8 +2434,8 @@ int FileAsyncWrite(AioDispatchDesc_t** dList, int32 dn, bool inter_xact)
         dList[i]->aiocb.aio_fildes = vfdcache[file].fd;
     }
 
-    io_context_t aio_context = CompltrContext(dList[0]->blockDesc.reqType, 0);
-
+    // try our best to put io from same file to same context, so that continuous io can be merged.
+    io_context_t aio_context = CompltrContext(dList[0]->blockDesc.reqType, dList[0]->aiocb.aio_fildes);
     returnCode = FileAsyncSubmitIO<AioDispatchDesc_t**>(aio_context, dList, dn);
     if (returnCode != dn) {
         ereport(PANIC, (errmsg("io_submit() async write failed %d, dispatch count(%d)", returnCode, dn)));
@@ -2495,7 +2499,7 @@ int FileAsyncCURead(AioDispatchCUDesc_t** dList, int32 dn, bool inter_xact)
         dList[i]->aiocb.aio_fildes = vfdcache[file].fd;
     }
 
-    io_context_t aio_context = CompltrContext(dList[0]->cuDesc.reqType, 0);
+    io_context_t aio_context = CompltrContext(dList[0]->cuDesc.reqType, dList[0]->aiocb.aio_fildes);
 
     returnCode = FileAsyncSubmitIO<AioDispatchCUDesc_t**>(aio_context, dList, dn);
     if (returnCode != dn) {
@@ -2540,7 +2544,7 @@ int FileAsyncCUWrite(AioDispatchCUDesc_t** dList, int32 dn, bool inter_xact)
         dList[i]->aiocb.aio_fildes = vfdcache[file].fd;
     }
 
-    io_context_t aio_context = CompltrContext(dList[0]->cuDesc.reqType, 0);
+    io_context_t aio_context = CompltrContext(dList[0]->cuDesc.reqType, dList[0]->aiocb.aio_fildes);
 
     returnCode = FileAsyncSubmitIO<AioDispatchCUDesc_t**>(aio_context, dList, dn);
     if (returnCode != dn) {
@@ -2595,8 +2599,9 @@ int FileSync(File file, uint32 wait_event_info, bool inter_xact)
     DO_DB(ereport(LOG, (errmsg("FileSync: %d (%s)", file, vfdcache[file].fileName))));
 
     returnCode = FileAccess(file, inter_xact);
-    if (returnCode < 0)
+    if (returnCode < 0) {
         return returnCode;
+    }
 
     pgstat_report_waitevent(wait_event_info);
     PGSTAT_INIT_TIME_RECORD();
@@ -2630,8 +2635,9 @@ off_t FileSeek(File file, off_t offset, int whence, bool inter_xact)
 
     if (FileIsNotOpen(file, inter_xact)) {
         returnCode = FileAccess(file, inter_xact);
-        if (returnCode < 0)
+        if (returnCode < 0) {
             return returnCode;
+        }
     }
 
     vfdcache[file].seekPos = lseek(vfdcache[file].fd, offset, whence);
@@ -2661,8 +2667,9 @@ int FileTruncate(File file, off_t offset, uint32 wait_event_info, bool inter_xac
     DO_DB(ereport(LOG, (errmsg("FileTruncate %d (%s)", file, vfdcache[file].fileName))));
 
     returnCode = FileAccess(file, inter_xact);
-    if (returnCode < 0)
+    if (returnCode < 0) {
         return returnCode;
+    }
 
     pgstat_report_waitevent(wait_event_info);
     returnCode = ftruncate(vfdcache[file].fd, offset);
@@ -2716,8 +2723,9 @@ static bool ReserveAllocatedDesc(void)
     int newMax;
 
     /* Quick out if array already has a free slot. */
-    if (u_sess->storage_cxt.numAllocatedDescs < u_sess->storage_cxt.maxAllocatedDescs)
+    if (u_sess->storage_cxt.numAllocatedDescs < u_sess->storage_cxt.maxAllocatedDescs) {
         return true;
+    }
 
     /*
      * If the array hasn't yet been created in the current process, initialize
@@ -2730,8 +2738,9 @@ static bool ReserveAllocatedDesc(void)
         newDescs = (AllocateDesc*)MemoryContextAlloc(
             SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_STORAGE), newMax * sizeof(AllocateDesc));
         /* Out of memory already?  Treat as fatal error. */
-        if (newDescs == NULL)
+        if (newDescs == NULL) {
             ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of memory")));
+        }
         u_sess->storage_cxt.allocatedDescs = newDescs;
         u_sess->storage_cxt.maxAllocatedDescs = newMax;
         return true;
@@ -2750,8 +2759,9 @@ static bool ReserveAllocatedDesc(void)
     if (newMax > u_sess->storage_cxt.maxAllocatedDescs) {
         newDescs = (AllocateDesc*)repalloc(u_sess->storage_cxt.allocatedDescs, newMax * sizeof(AllocateDesc));
         /* Treat out-of-memory as a non-fatal error. */
-        if (newDescs == NULL)
+        if (newDescs == NULL) {
             return false;
+        }
         u_sess->storage_cxt.allocatedDescs = newDescs;
         u_sess->storage_cxt.maxAllocatedDescs = newMax;
         return true;
@@ -2768,7 +2778,7 @@ int AllocateSocket(const char* ipaddr, int port)
     struct addrinfo hint;
     char servname[64];
     int sockfd = -1;
-    bool is_connected = false;
+    bool isConnected = false;
     errno_t rc = EOK;
     int retrynum = 0;
 
@@ -2777,13 +2787,14 @@ int AllocateSocket(const char* ipaddr, int port)
     Assert(ipaddr != NULL);
 restart:
     /* Can we allocate another non-virtual FD? */
-    if (!ReserveAllocatedDesc())
+    if (!ReserveAllocatedDesc()) {
         ereport(ERROR,
                 (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
                  errmsg("exceeded maxAllocatedDescs (%d) while trying to open file \"%s:%d\"",
                         u_sess->storage_cxt.maxAllocatedDescs,
                         ipaddr,
                         port)));
+    }
 
     /* Close excess kernel FDs. */
     ReleaseLruFiles();
@@ -2804,9 +2815,9 @@ restart:
 TryAgain:
         if (sockfd < 0 && (sockfd = socket(saddr.addr.ss_family, SOCK_STREAM, 0)) < 0) {
             if (errno == EMFILE || errno == ENFILE) {
-                int save_errno = errno;
+                int saveErrno = errno;
 #ifdef USE_ASSERT_CHECKING
-                if (save_errno == ENFILE) {
+                if (saveErrno == ENFILE) {
                     DumpOpenFiles(g_gauss_pid_dir);
                     pg_usleep(10000000L);
                     if (addr != NULL)
@@ -2826,11 +2837,13 @@ TryAgain:
 #endif
 
                 errno = 0;
-                if (ReleaseLruFile())
+                if (ReleaseLruFile()) {
                     goto TryAgain;
-                errno = save_errno;
-            } else
+                }
+                errno = saveErrno;
+            } else {
                 continue;
+            }
         }
 
         /* setting socket to non-blocking mode */
@@ -2849,11 +2862,13 @@ retry:
                 int ret = poll(&pollfds, 1, CONNECTION_TIME_OUT * 1000);
                 t_thrd.int_cxt.ImmediateInterruptOK = false;
                 if (ret == -1) {
-                    if (errno == EINTR)
+                    if (errno == EINTR) {
                         goto retry;
+                    }
 
-                    if (addr != NULL)
+                    if (addr != NULL) {
                         pg_freeaddrinfo_all(hint.ai_family, addr);
+                    }
                     ereport(ERROR,
                             (errcode(errcode_for_socket_access()),
                              errmsg("Invalid socket fd \"%d\" for poll():%m", sockfd)));
@@ -2879,14 +2894,15 @@ retry:
         ul = 0;
         (void)ioctl(sockfd, FIONBIO, &ul);
 
-        is_connected = true;
+        isConnected = true;
         break;
     }
 
-    if (addr != NULL)
+    if (addr != NULL) {
         pg_freeaddrinfo_all(hint.ai_family, addr);
+    }
 
-    if (is_connected) {
+    if (isConnected) {
         /* set SO_KEEPALIVE on */
         int on = 1;
         if (setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, (char*)&on, sizeof(on)) < 0) {
@@ -2921,10 +2937,11 @@ retry:
             (void)close(sockfd);
             sockfd = -1;
         }
-        if (++retrynum > RETRY_LIMIT)
+        if (++retrynum > RETRY_LIMIT) {
             ereport(ERROR, (errcode(ERRCODE_CONNECTION_FAILURE), errmsg("\"%s:%d\" connect failed", ipaddr, port)));
-        else
+        } else {
             goto restart;
+        }
     }
     return -1;
 }
@@ -2975,9 +2992,9 @@ TryAgain:
     }
 
     if (errno == EMFILE || errno == ENFILE) {
-        int save_errno = errno;
+        int saveErrno = errno;
 #ifdef USE_ASSERT_CHECKING
-        if (save_errno == ENFILE) {
+        if (saveErrno == ENFILE) {
             DumpOpenFiles(g_gauss_pid_dir);
             pg_usleep(10000000L);
             ereport(PANIC,
@@ -2992,9 +3009,10 @@ TryAgain:
 #endif
 
         errno = 0;
-        if (ReleaseLruFile())
+        if (ReleaseLruFile()) {
             goto TryAgain;
-        errno = save_errno;
+        }
+        errno = saveErrno;
     }
 
     return NULL;
@@ -3022,10 +3040,11 @@ int OpenTransientFile(FileName fileName, int fileFlags, int fileMode)
      * looping.
      */
     if (u_sess->storage_cxt.numAllocatedDescs >= u_sess->storage_cxt.maxAllocatedDescs ||
-        u_sess->storage_cxt.numAllocatedDescs >= t_thrd.storage_cxt.max_safe_fds - 1)
+        u_sess->storage_cxt.numAllocatedDescs >= t_thrd.storage_cxt.max_safe_fds - 1) {
         ereport(ERROR,
                 (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
                  errmsg("exceeded MAX_ALLOCATED_DESCS while trying to open file \"%s\"", fileName)));
+    }
 
     fd = BasicOpenFile(fileName, fileFlags, fileMode);
     if (fd >= 0) {
@@ -3088,8 +3107,9 @@ int FreeSocket(int sockfd)
     for (i = u_sess->storage_cxt.numAllocatedDescs; --i >= 0;) {
         AllocateDesc* desc = &u_sess->storage_cxt.allocatedDescs[i];
 
-        if (desc->kind == AllocateDescSocket && desc->desc.sock == sockfd)
+        if (desc->kind == AllocateDescSocket && desc->desc.sock == sockfd) {
             return FreeDesc(desc);
+        }
     }
 
     /* Only get here if someone passes us a file not in allocatedDescs */
@@ -3114,8 +3134,9 @@ int FreeFile(FILE* file)
     for (i = u_sess->storage_cxt.numAllocatedDescs; --i >= 0;) {
         AllocateDesc* desc = &u_sess->storage_cxt.allocatedDescs[i];
 
-        if (desc->kind == AllocateDescFile && desc->desc.file == file)
+        if (desc->kind == AllocateDescFile && desc->desc.file == file) {
             return FreeDesc(desc);
+        }
     }
 
     /* Only get here if someone passes us a file not in allocatedDescs */
@@ -3149,8 +3170,9 @@ int CloseTransientFile(int fd)
     for (i = u_sess->storage_cxt.numAllocatedDescs; --i >= 0;) {
         AllocateDesc* desc = &u_sess->storage_cxt.allocatedDescs[i];
 
-        if (desc->kind == AllocateDescRawFD && desc->desc.fd == fd)
+        if (desc->kind == AllocateDescRawFD && desc->desc.fd == fd) {
             return FreeDesc(desc);
+        }
     }
 
     /* Only get here if someone passes us a file not in allocatedDescs */
@@ -3174,12 +3196,13 @@ DIR* AllocateDir(const char* dirname)
     DO_DB(ereport(LOG, (errmsg("AllocateDir: Allocated %d (%s)", u_sess->storage_cxt.numAllocatedDescs, dirname))));
 
     /* Can we allocate another non-virtual FD? */
-    if (!ReserveAllocatedDesc())
+    if (!ReserveAllocatedDesc()) {
         ereport(ERROR,
                 (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
                  errmsg("exceeded maxAllocatedDescs (%d) while trying to open directory \"%s\"",
                         u_sess->storage_cxt.maxAllocatedDescs,
                         dirname)));
+    }
 
     /* Close excess kernel FDs. */
     ReleaseLruFiles();
@@ -3196,9 +3219,9 @@ TryAgain:
     }
 
     if (errno == EMFILE || errno == ENFILE) {
-        int save_errno = errno;
+        int saveErrno = errno;
 #ifdef USE_ASSERT_CHECKING
-        if (save_errno == ENFILE) {
+        if (saveErrno == ENFILE) {
             DumpOpenFiles(g_gauss_pid_dir);
             pg_usleep(10000000L);
             ereport(PANIC,
@@ -3213,9 +3236,10 @@ TryAgain:
 #endif
 
         errno = 0;
-        if (ReleaseLruFile())
+        if (ReleaseLruFile()) {
             goto TryAgain;
-        errno = save_errno;
+        }
+        errno = saveErrno;
     }
 
     return NULL;
@@ -3254,8 +3278,9 @@ struct dirent* ReadDir(DIR* dir, const char* dirname)
     }
 
     errno = 0;
-    if ((dent = gs_readdir(dir)) != NULL)
+    if ((dent = gs_readdir(dir)) != NULL) {
         return dent;
+    }
 
 #ifdef WIN32
 
@@ -3291,8 +3316,9 @@ int FreeDir(DIR* dir)
     for (i = u_sess->storage_cxt.numAllocatedDescs; --i >= 0;) {
         AllocateDesc* desc = &u_sess->storage_cxt.allocatedDescs[i];
 
-        if (desc->kind == AllocateDescDir && desc->desc.dir == dir)
+        if (desc->kind == AllocateDescDir && desc->desc.dir == dir) {
             return FreeDesc(desc);
+        }
     }
 
     /* Only get here if someone passes us a dir not in allocatedDescs */
@@ -3334,8 +3360,9 @@ void DestroyAllVfds(bool inter_xact)
     if (GetSizeVfdCache(inter_xact) > 0) {
         Assert(FileIsNotOpen(0, inter_xact)); /* Make sure ring not corrupted */
         for (i = 1; i < GetSizeVfdCache(inter_xact); i++) {
-            if (FileIsValid((int)i, inter_xact))
+            if (FileIsValid((int)i, inter_xact)) {
                 FileClose((File)i, inter_xact);
+            }
         }
         vfd *vfdcache = GetVfdCache(inter_xact);
         if (vfdcache != NULL) {
@@ -3379,10 +3406,11 @@ void SetTempTablespaces(Oid* tableSpaces, int numSpaces)
      * ensures that large temporary sort files are nicely spread across all
      * available tablespaces.
      */
-    if (numSpaces > 1)
+    if (numSpaces > 1) {
         u_sess->storage_cxt.nextTempTableSpace = (int)(gs_random() % numSpaces);
-    else
+    } else {
         u_sess->storage_cxt.nextTempTableSpace = 0;
+    }
 }
 
 /*
@@ -3409,8 +3437,9 @@ GetTempTablespaces(Oid *tableSpaces, int numSpaces)
     int         i;
 
     Assert(TempTablespacesAreSet());
-    for (i = 0; i < u_sess->storage_cxt.numTempTableSpaces && i < numSpaces; ++i)
+    for (i = 0; i < u_sess->storage_cxt.numTempTableSpaces && i < numSpaces; ++i) {
         tableSpaces[i] = u_sess->storage_cxt.tempTableSpaces[i];
+    }
 
     return i;
 }
@@ -3425,8 +3454,9 @@ Oid GetNextTempTableSpace(void)
 {
     if (u_sess->storage_cxt.numTempTableSpaces > 0) {
         /* Advance nextTempTableSpace counter with wraparound */
-        if (++u_sess->storage_cxt.nextTempTableSpace >= u_sess->storage_cxt.numTempTableSpaces)
+        if (++u_sess->storage_cxt.nextTempTableSpace >= u_sess->storage_cxt.numTempTableSpaces) {
             u_sess->storage_cxt.nextTempTableSpace = 0;
+        }
         return u_sess->storage_cxt.tempTableSpaces[u_sess->storage_cxt.nextTempTableSpace];
     }
     return InvalidOid;
@@ -3445,9 +3475,9 @@ void AtEOSubXact_Files(bool isCommit, SubTransactionId mySubid, SubTransactionId
 
     for (i = 0; i < (unsigned int)(u_sess->storage_cxt.numAllocatedDescs); i++) {
         if (u_sess->storage_cxt.allocatedDescs[i].create_subid == mySubid) {
-            if (isCommit)
+            if (isCommit) {
                 u_sess->storage_cxt.allocatedDescs[i].create_subid = parentSubid;
-            else {
+            } else {
                 /* have to recheck the item after FreeDesc (ugly) */
                 (void)FreeDesc(&u_sess->storage_cxt.allocatedDescs[i--]);
             }
@@ -3521,9 +3551,9 @@ static void CleanupTempFiles(bool isProcExit, bool inter_xact)
                  * the ResourceOwner mechanism already, so this is just a
                  * debugging cross-check.
                  */
-                if (isProcExit)
+                if (isProcExit) {
                     FileClose((File)i, inter_xact);
-                else if (fdstate & FD_CLOSE_AT_EOXACT) {
+                } else if (fdstate & FD_CLOSE_AT_EOXACT) {
                     ereport(WARNING,
                             (errmsg("temporary file %s not closed at end-of-transaction",
                                     vfdcache[i].fileName)));
@@ -3545,8 +3575,9 @@ static void CleanupTempFiles(bool isProcExit, bool inter_xact)
     }
 
     /* Clean up "allocated" stdio files, dirs and fds. */
-    while (u_sess->storage_cxt.numAllocatedDescs > 0)
+    while (u_sess->storage_cxt.numAllocatedDescs > 0) {
         (void)FreeDesc(&u_sess->storage_cxt.allocatedDescs[0]);
+    }
 }
 
 /*
@@ -3566,8 +3597,8 @@ static void CleanupTempFiles(bool isProcExit, bool inter_xact)
 void RemovePgTempFiles(void)
 {
     char temp_path[MAXPGPATH];
-    DIR* spc_dir = NULL;
-    struct dirent* spc_de = NULL;
+    DIR* spcDir = NULL;
+    struct dirent* spcDe = NULL;
     errno_t rc = EOK;
 
     /*
@@ -3581,21 +3612,22 @@ void RemovePgTempFiles(void)
     /*
      * Cycle through temp directories for all non-default tablespaces.
      */
-    spc_dir = AllocateDir(TBLSPCDIR);
-    if (spc_dir == NULL) {
+    spcDir = AllocateDir(TBLSPCDIR);
+    if (spcDir == NULL) {
         ereport(ERROR, (errcode_for_file_access(), errmsg("Allocate dir failed.")));
     }
 
-    while ((spc_de = ReadDir(spc_dir, "pg_tblspc")) != NULL) {
-        if (strcmp(spc_de->d_name, ".") == 0 || strcmp(spc_de->d_name, "..") == 0)
+    while ((spcDe = ReadDir(spcDir, "pg_tblspc")) != NULL) {
+        if (strcmp(spcDe->d_name, ".") == 0 || strcmp(spcDe->d_name, "..") == 0) {
             continue;
+        }
 
         /*
          * subDir returned by ReadDir will be overwritten by the next invoking.
          * therefore, the result needs to be saved.
          */
         char curSubDir[MAXPGPATH] = {0};
-        rc = strncpy_s(curSubDir, MAXPGPATH, spc_de->d_name, strlen(spc_de->d_name));
+        rc = strncpy_s(curSubDir, MAXPGPATH, spcDe->d_name, strlen(spcDe->d_name));
         securec_check(rc, "", "");
 #ifdef PGXC
         /* Postgres-XC tablespaces include node name in path */
@@ -3605,7 +3637,7 @@ void RemovePgTempFiles(void)
                             sizeof(temp_path) - 1,
                             "%s/%s/%s/%s",
                             TBLSPCDIR,
-                            spc_de->d_name,
+                            spcDe->d_name,
                             TABLESPACE_VERSION_DIRECTORY,
                             PG_TEMP_FILES_DIR);
             securec_check_ss(rc, "", "");
@@ -3615,7 +3647,7 @@ void RemovePgTempFiles(void)
                             sizeof(temp_path) - 1,
                             "%s/%s/%s_%s/%s",
                             TBLSPCDIR,
-                            spc_de->d_name,
+                            spcDe->d_name,
                             TABLESPACE_VERSION_DIRECTORY,
                             g_instance.attr.attr_common.PGXCNodeName,
                             PG_TEMP_FILES_DIR);
@@ -3642,7 +3674,7 @@ void RemovePgTempFiles(void)
                             sizeof(temp_path) - 1,
                             "%s/%s/%s",
                             TBLSPCDIR,
-                            spc_de->d_name,
+                            spcDe->d_name,
                             TABLESPACE_VERSION_DIRECTORY);
             securec_check_ss(rc, "", "");
         } else {
@@ -3651,7 +3683,7 @@ void RemovePgTempFiles(void)
                             sizeof(temp_path) - 1,
                             "%s/%s/%s_%s",
                             TBLSPCDIR,
-                            spc_de->d_name,
+                            spcDe->d_name,
                             TABLESPACE_VERSION_DIRECTORY,
                             g_instance.attr.attr_common.PGXCNodeName);
             securec_check_ss(rc, "", "");
@@ -3669,7 +3701,7 @@ void RemovePgTempFiles(void)
         RemovePgTempRelationFiles(temp_path);
     }
 
-    (void)FreeDir(spc_dir);
+    (void)FreeDir(spcDir);
 
     /*
      * In EXEC_BACKEND case there is a pgsql_tmp directory at the top level of
@@ -3688,7 +3720,7 @@ void RemovePgTempFiles(void)
 static void RemovePgTempFilesInDir(const char* tmpdirname, bool unlinkAll)
 {
     DIR* temp_dir = NULL;
-    struct dirent* temp_de = NULL;
+    struct dirent* tempDe = NULL;
     char rm_path[MAXPGPATH];
     errno_t rc = EOK;
 
@@ -3701,14 +3733,15 @@ static void RemovePgTempFilesInDir(const char* tmpdirname, bool unlinkAll)
         return;
     }
 
-    while ((temp_de = ReadDir(temp_dir, tmpdirname)) != NULL) {
-        if (strcmp(temp_de->d_name, ".") == 0 || strcmp(temp_de->d_name, "..") == 0)
+    while ((tempDe = ReadDir(temp_dir, tmpdirname)) != NULL) {
+        if (strcmp(tempDe->d_name, ".") == 0 || strcmp(tempDe->d_name, "..") == 0) {
             continue;
+        }
 
-        rc = snprintf_s(rm_path, sizeof(rm_path), sizeof(rm_path) - 1, "%s/%s", tmpdirname, temp_de->d_name);
+        rc = snprintf_s(rm_path, sizeof(rm_path), sizeof(rm_path) - 1, "%s/%s", tmpdirname, tempDe->d_name);
         securec_check_ss(rc, "", "");
 
-        if (unlinkAll || strncmp(temp_de->d_name, PG_TEMP_FILE_PREFIX, strlen(PG_TEMP_FILE_PREFIX)) == 0) {
+        if (unlinkAll || strncmp(tempDe->d_name, PG_TEMP_FILE_PREFIX, strlen(PG_TEMP_FILE_PREFIX)) == 0) {
             struct stat statbuf;
 
             /* note that we ignore any error here and below */
@@ -3753,10 +3786,12 @@ static void RemovePgTempRelationFiles(const char* tsdirname)
          * numeric names.  Note that this code will also (properly) ignore "."
          * and "..".
          */
-        while (isdigit((unsigned char)de->d_name[i]))
+        while (isdigit((unsigned char)de->d_name[i])) {
             ++i;
-        if (de->d_name[i] != '\0' || i == 0)
+        }
+        if (de->d_name[i] != '\0' || i == 0) {
             continue;
+        }
 
         rc = snprintf_s(dbspace_path, sizeof(dbspace_path), sizeof(dbspace_path) - 1, "%s/%s", tsdirname, de->d_name);
         securec_check_ss(rc, "", "");
@@ -3782,8 +3817,9 @@ static void RemovePgTempRelationFilesInDbspace(const char* dbspacedirname)
     }
 
     while ((de = ReadDir(dbspace_dir, dbspacedirname)) != NULL) {
-        if (!looks_like_temp_rel_name(de->d_name))
+        if (!looks_like_temp_rel_name(de->d_name)) {
             continue;
+        }
 
         rc = snprintf_s(rm_path, sizeof(rm_path), sizeof(rm_path) - 1, "%s/%s", dbspacedirname, de->d_name);
         securec_check_ss(rc, "", "");
@@ -3852,7 +3888,7 @@ static bool looks_like_temp_rel_name(const char *name)
 void RemoveErrorCacheFiles()
 {
     DIR* temp_dir = NULL;
-    struct dirent* temp_de = NULL;
+    struct dirent* tempDe = NULL;
     char rm_path[MAXPGPATH];
     char* tmpdirname = "pg_errorinfo";
     errno_t rc = EOK;
@@ -3865,11 +3901,12 @@ void RemoveErrorCacheFiles()
         return;
     }
 
-    while ((temp_de = ReadDir(temp_dir, tmpdirname)) != NULL) {
-        if (strcmp(temp_de->d_name, ".") == 0 || strcmp(temp_de->d_name, "..") == 0)
+    while ((tempDe = ReadDir(temp_dir, tmpdirname)) != NULL) {
+        if (strcmp(tempDe->d_name, ".") == 0 || strcmp(tempDe->d_name, "..") == 0) {
             continue;
+        }
 
-        rc = snprintf_s(rm_path, sizeof(rm_path), sizeof(rm_path) - 1, "%s/%s", tmpdirname, temp_de->d_name);
+        rc = snprintf_s(rm_path, sizeof(rm_path), sizeof(rm_path) - 1, "%s/%s", tmpdirname, tempDe->d_name);
         securec_check_ss(rc, "", "");
 
         (void)unlink(rm_path); /* note we ignore any error */
@@ -4044,11 +4081,13 @@ struct dirent *ReadDirExtended(DIR *dir, const char *dirname, int elevel)
     }
 
     errno = 0;
-    if ((dent = readdir(dir)) != NULL)
+    if ((dent = readdir(dir)) != NULL) {
         return dent;
+    }
 
-    if (errno)
+    if (errno) {
         ereport(elevel, (errcode_for_file_access(), errmsg("could not read directory \"%s\": %m", dirname)));
+    }
     return NULL;
 }
 
@@ -4085,26 +4124,29 @@ static void Walkdir(const char *path, void (*action)(const char *fname, bool isd
 
         CHECK_FOR_INTERRUPTS();
 
-        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
+        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) {
             continue;
+        }
 
         errno_t err_rc = snprintf_s(subpath, sizeof(subpath), sizeof(subpath) - 1, "%s/%s", path, de->d_name);
         securec_check_ss(err_rc, "", "");
 
-        if (process_symlinks)
+        if (process_symlinks) {
             sret = stat(subpath, &fst);
-        else
+        } else {
             sret = lstat(subpath, &fst);
+        }
 
         if (sret < 0) {
             ereport(elevel, (errcode_for_file_access(), errmsg("could not stat file \"%s\": %m", subpath)));
             continue;
         }
 
-        if (S_ISREG(fst.st_mode))
+        if (S_ISREG(fst.st_mode)) {
             (*action)(subpath, false, elevel);
-        else if (S_ISDIR(fst.st_mode))
+        } else if (S_ISDIR(fst.st_mode)) {
             Walkdir(subpath, action, false, elevel);
+        }
     }
 
     FreeDir(dir); /* we ignore any error here */
@@ -4193,8 +4235,10 @@ int DirectFilePRead(File fd, char *buf, int amount, off_t off, uint32 wait_event
             }
 #endif
         /* OK to retry if interrupted */
-        if (errno == EINTR)
-                continue;
+        if (errno == EINTR) {
+            continue;
+        }
+
         if (errno == EIO) {
             count++;
             ereport(WARNING,
@@ -4250,8 +4294,9 @@ int DirectFilePWrite(File fd, const char *buf, int amount, off_t offset, uint32 
         }
 #endif
         /* OK to retry if interrupted */
-        if (errno == EINTR)
+        if (errno == EINTR) {
             continue;
+        }
         if (errno == EIO) {
             count++;
             ereport(WARNING, (errmsg("FilePWrite: %d " INT64_FORMAT " %d \

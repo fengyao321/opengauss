@@ -2575,7 +2575,7 @@ retry:
     {
         if (1 == retrycount) {
             uint32 quantity =
-                Min(u_sess->attr.attr_storage.prefetch_quantity, (g_instance.attr.attr_storage.NBuffers / 4));
+                Min(u_sess->attr.attr_storage.adioPrefetchQuantity, (g_instance.attr.attr_storage.NBuffers / 4));
             anlprefetch.fetchlist1.size =
                 (uint32)((quantity > (totalblocks / 2 + 1)) ? (totalblocks / 2 + 1) : quantity);
             anlprefetch.fetchlist1.blocklist = (BlockNumber*)palloc(sizeof(BlockNumber) * anlprefetch.fetchlist1.size);

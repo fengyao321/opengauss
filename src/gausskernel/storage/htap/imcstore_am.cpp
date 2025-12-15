@@ -417,16 +417,8 @@ bool IMCStore::LoadCUDesc(
      */
     AutoContextSwitch newMemCnxt(m_perScanMemCnxt);
 
-    ADIO_RUN()
-    {
-        loadCUDescInfoPtr->lastLoadNum = loadCUDescInfoPtr->curLoadNum;
-    }
-    ADIO_ELSE()
-    {
-        loadCUDescInfoPtr->lastLoadNum = 0;
-        loadCUDescInfoPtr->curLoadNum = 0;
-    }
-    ADIO_END();
+    loadCUDescInfoPtr->lastLoadNum = 0;
+    loadCUDescInfoPtr->curLoadNum = 0;
 
     if (loadCUDescInfoPtr->nextCUID > m_endCUID) {
         return false;
@@ -948,18 +940,6 @@ RETRY_LOAD_CU:
 
     // load cu from disk
     LoadCU(imcsColIdx, cuPtr, cuDescPtr);
-
-    ADIO_RUN()
-    {
-        ereport(DEBUG1,
-                (errmodule(MOD_ADIO),
-                 errmsg("GetCUData:relation(%s), colIdx(%d), load cuid(%u), slotId(%d)",
-                        RelationGetRelationName(m_relation),
-                        colIdx,
-                        cuDescPtr->cu_id,
-                        slotId)));
-    }
-    ADIO_END();
 
     // Mark the CU as no longer io busy, and wake any waiters
     IMCU_CACHE->DataBlockCompleteIO(slotId);

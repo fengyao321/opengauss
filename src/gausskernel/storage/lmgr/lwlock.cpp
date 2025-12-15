@@ -2021,7 +2021,7 @@ void LWLockUpdateVar(LWLock *lock, uint64 *valptr, uint64 val)
 void LWLockRelease(LWLock *lock)
 {
     uint64 oldstate;
-    bool check_waiters = false;
+    bool checkWaiters = false;
     LWLockMode mode = forget_lwlock_hold(lock);
 
     PRINT_LWDEBUG("LWLockRelease", lock, mode);
@@ -2045,12 +2045,56 @@ void LWLockRelease(LWLock *lock)
     Assert(!(oldstate & LW_VAL_EXCLUSIVE));
 
     /* We're still waiting for backends to get scheduled, don't wake them up again. */
-    check_waiters =
+    checkWaiters =
         ((oldstate & (LW_FLAG_HAS_WAITERS | LW_FLAG_RELEASE_OK)) == (LW_FLAG_HAS_WAITERS | LW_FLAG_RELEASE_OK))
         && ((oldstate & LW_LOCK_MASK) == 0);
     /* As waking up waiters requires the spinlock to be acquired, only do so
      * if necessary. */
-    if (check_waiters) {
+    if (checkWaiters) {
+        /* XXX: remove before commit? */
+        LOG_LWDEBUG("LWLockRelease", lock, "releasing waiters");
+        LWLockWakeup(lock);
+    }
+
+    TRACE_POSTGRESQL_LWLOCK_RELEASE(T_NAME(lock));
+
+    /* Now okay to allow cancel/die interrupts. */
+    RESUME_INTERRUPTS();
+}
+
+void AdioLWLockRelease(LWLock *lock, uint64 lockThreadIdMask)
+{
+    uint64 oldstate;
+    bool checkWaiters = false;
+    LWLockMode mode = forget_lwlock_hold(lock);
+
+    PRINT_LWDEBUG("LWLockRelease", lock, mode);
+
+    /*
+     * Release my hold on lock, after that it can immediately be acquired by
+     * others, even if we still have to wakeup other waiters. */
+    if (mode == LW_EXCLUSIVE) {
+        /* ENABLE_THREAD_CHECK only, Must release vector clock info to other
+         * threads before unlock */
+        TsAnnotateRWLockReleased(&lock->rwlock, 1);
+        oldstate = pg_atomic_sub_fetch_u64(&lock->state, LW_VAL_EXCLUSIVE);
+    } else {
+        /* ENABLE_THREAD_CHECK only, Must release vector clock info to other
+         * threads before unlock */
+        TsAnnotateRWLockReleased(&lock->rwlock, 0);
+        oldstate = __sync_sub_and_fetch(&lock->state, lockThreadIdMask);
+    }
+
+    /* nobody else can have that kind of lock */
+    Assert(!(oldstate & LW_VAL_EXCLUSIVE));
+
+    /* We're still waiting for backends to get scheduled, don't wake them up again. */
+    checkWaiters =
+        ((oldstate & (LW_FLAG_HAS_WAITERS | LW_FLAG_RELEASE_OK)) == (LW_FLAG_HAS_WAITERS | LW_FLAG_RELEASE_OK))
+        && ((oldstate & LW_LOCK_MASK) == 0);
+    /* As waking up waiters requires the spinlock to be acquired, only do so
+     * if necessary. */
+    if (checkWaiters) {
         /* XXX: remove before commit? */
         LOG_LWDEBUG("LWLockRelease", lock, "releasing waiters");
         LWLockWakeup(lock);
@@ -2070,7 +2114,7 @@ void LWLockDowngrade(LWLock *lock)
     PGPROC *proc = t_thrd.proc;
     uint64 old_state;
     /* Check if it is necessary to wake up the processes in the waiting queue. Default does not wake up */
-    bool check_waiters = false;
+    bool checkWaiters = false;
     int i = find_lwlock_hold(lock);
     LWLockMode mode = t_thrd.storage_cxt.held_lwlocks[i].mode;
 
@@ -2099,10 +2143,10 @@ void LWLockDowngrade(LWLock *lock)
     Assert(!(old_state & LW_VAL_EXCLUSIVE));
 
     /* Ensure that no other processes hold the lock, and if there are waiting processes, wake them up */
-    check_waiters =
+    checkWaiters =
         ((old_state & (LW_FLAG_HAS_WAITERS | LW_FLAG_RELEASE_OK)) == (LW_FLAG_HAS_WAITERS | LW_FLAG_RELEASE_OK));
 
-    if (check_waiters) {
+    if (checkWaiters) {
         LOG_LWDEBUG("LWLockDowngrade", lock, "waking up waiters");
         LWLockWakeup(lock);
     }
@@ -2227,6 +2271,8 @@ void LWLockOwn(LWLock *lock)
     }
 
     t_thrd.storage_cxt.held_lwlocks[t_thrd.storage_cxt.num_held_lwlocks].lock = lock;
+    t_thrd.storage_cxt.held_lwlocks[t_thrd.storage_cxt.num_held_lwlocks].mode =
+        (lock->state & LW_VAL_EXCLUSIVE) != 0 ? LW_EXCLUSIVE : LW_SHARED;
     t_thrd.storage_cxt.num_held_lwlocks++;
 
     HOLD_INTERRUPTS();
