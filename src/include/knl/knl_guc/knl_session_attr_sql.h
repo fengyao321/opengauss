@@ -196,6 +196,7 @@ typedef struct knl_session_attr_sql {
     double cpu_index_tuple_cost;
     double cpu_operator_cost;
     double stream_multiple;
+    double ogai_hybrid_search_ratio;
     double dngather_min_rows;
     double cursor_tuple_fraction;
     double Geqo_selection_bias;
