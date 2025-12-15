@@ -273,6 +273,9 @@ typedef struct knl_instance_attr_storage {
 #ifdef ENABLE_HTAP
     int htap_wait_xlog_lsn_timeout;
 #endif
+    int adioBufferAlignSize;
+    int adioReaderThreadNum;
+    int adioWriterThreadNum;
 } knl_instance_attr_storage;
 
 #endif /* SRC_INCLUDE_KNL_KNL_INSTANCE_ATTR_STORAGE_H_ */

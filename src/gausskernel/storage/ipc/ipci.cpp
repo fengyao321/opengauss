@@ -95,6 +95,8 @@ extern void CalcMaxBackends(void);
 extern void InitDisasterCache();
 #endif
 
+#define MAX_AIOCOMPLTR_THREADS 30
+
 /*
  * RequestAddinShmemSpace
  *		Request that extra shmem space be allocated for use by
@@ -477,6 +479,12 @@ void CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
         MemoryContext oldcontext = MemoryContextSwitchTo(g_instance.increCheckPoint_context);
         int thread_num = g_instance.attr.attr_storage.pagewriter_thread_num + 1;
         g_instance.pid_cxt.PageWriterPID = (ThreadId*)palloc0(sizeof(ThreadId) * thread_num);
+        (void)MemoryContextSwitchTo(oldcontext);
+    }
+
+    if (g_instance.pid_cxt.AioCompleterPID == NULL) {
+        MemoryContext oldcontext = MemoryContextSwitchTo(g_instance.increCheckPoint_context);
+        g_instance.pid_cxt.AioCompleterPID = (ThreadId*)palloc0(sizeof(ThreadId) * MAX_AIOCOMPLTR_THREADS);
         (void)MemoryContextSwitchTo(oldcontext);
     }
 

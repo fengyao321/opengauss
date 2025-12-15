@@ -145,6 +145,8 @@ const int DEFAULTBUFFEREDTUPLES = 10000;
 const Size DEFAULTBUFFERSIZE = (4 * 1024 * 1024);
 
 #define REWRITE_BUFFERS_QUEUE_COUNT 1024
+#define LOCK_THREADID_MASK ((((uintptr_t)&t_thrd) >> 20) % 6)
+#define LOCK_REFCOUNT_ONE_BY_THREADID (1LU << (8 * LOCK_THREADID_MASK))
 
 /*
  * State associated with a rewrite operation. This is opaque to the user
@@ -1063,9 +1065,10 @@ void rewrite_page_list_write(RewriteState state)
         aioDescp->blockDesc.blockNum = start + i;
         aioDescp->blockDesc.buffer = (char *)(buf_list + i * BLCKSZ);
         aioDescp->blockDesc.blockSize = BLCKSZ;
-        aioDescp->blockDesc.reqType = PageListBackWriteType;
+        aioDescp->blockDesc.reqType = FLUSH_TYPE;
         aioDescp->blockDesc.bufHdr = bufHdr;
         aioDescp->blockDesc.descType = AioVacummFull;
+        aioDescp->blockDesc.lockThreadMask = LOCK_REFCOUNT_ONE_BY_THREADID;
 
         d_list[t_thrd.storage_cxt.InProgressAioDispatchCount++] = aioDescp;
 

@@ -1858,7 +1858,6 @@ void ckpt_pagewriter_main(void)
          * main pagewriter thread need choose a batch page flush to double write file,
          * than divide to other sub thread.
          */
-
         if (t_thrd.pagewriter_cxt.pagewriter_id == 0) {
             if (!t_thrd.pagewriter_cxt.shutdown_requested) {
                 logSnapshotForLogicalDecoding();
@@ -2091,6 +2090,40 @@ static void ckpt_try_skip_invalid_elem_in_queue_head()
     return;
 }
 
+static void WaitAdioFinish()
+{
+    for (int i = 0; i < t_thrd.storage_cxt.InProgressAioDispatchCount; i++) {
+        CheckIOState(t_thrd.storage_cxt.inProgressAioDescs[i]);
+    }
+}
+
+void AdioEnlargeBuffers(int maxbuffers)
+{
+    if (maxbuffers <= 0) {
+        return;
+    }
+
+    if (t_thrd.storage_cxt.inProgressAioPageCopys == NULL ||
+               t_thrd.storage_cxt.inProgressAioPageCopys == NULL ||
+               t_thrd.storage_cxt.aioPageCopyMaxCount < maxbuffers) {
+        if (t_thrd.storage_cxt.inProgressAioPageCopys != NULL) {
+            adio_align_free(t_thrd.storage_cxt.inProgressAioPageCopys);
+        }
+        if (t_thrd.storage_cxt.inProgressAioDescs != NULL) {
+            adio_align_free(t_thrd.storage_cxt.inProgressAioDescs);
+        }
+
+        t_thrd.storage_cxt.inProgressAioPageCopys =
+            (char *)adio_align_alloc(maxbuffers * BLCKSZ);
+        t_thrd.storage_cxt.inProgressAioDescs =
+            (struct BufferDesc **)adio_align_alloc(maxbuffers * sizeof(struct BufferDesc *));
+    }
+
+    t_thrd.storage_cxt.aioPageCopyMaxCount = maxbuffers;
+    t_thrd.storage_cxt.InProgressAioDispatchCount = 0;
+}
+
+
 static uint32 incre_ckpt_pgwr_flush_dirty_page(WritebackContext *wb_context,
     const CkptSortItem *dirty_buf_list, int start, int batch_num)
 {
@@ -2102,6 +2135,11 @@ static uint32 incre_ckpt_pgwr_flush_dirty_page(WritebackContext *wb_context,
     int thread_id = t_thrd.pagewriter_cxt.pagewriter_id;
     PageWriterProc *pgwr = &g_instance.ckpt_cxt_ctl->pgwr_procs.writer_proc[thread_id];
     DSSAioCxt *aio_cxt = &pgwr->aio_cxt;
+
+    ADIO_RUN() {
+        AdioEnlargeBuffers(batch_num);
+    }
+    ADIO_END()
 
     for (int i = start; i < start + batch_num; i++) {
         buf_id = dirty_buf_list[i].buf_id;
@@ -2129,6 +2167,11 @@ static uint32 incre_ckpt_pgwr_flush_dirty_page(WritebackContext *wb_context,
     if (ENABLE_DMS) {
         DSSAioFlush(aio_cxt);
     }
+
+    ADIO_RUN() {
+        WaitAdioFinish();
+    }
+    ADIO_END()
 
     return num_actual_flush;
 }

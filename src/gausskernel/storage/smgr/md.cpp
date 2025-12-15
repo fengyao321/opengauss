@@ -49,6 +49,8 @@
 #include "storage/cfs/cfs_converter.h"
 #include "storage/cfs/cfs_md.h"
 
+void AdioLWLockRelease(LWLock *lock, uint64 lockThreadIdMask);
+
 constexpr mode_t FILE_RW_PERMISSION = 0600;
 
 /* Populate a file tag describing an md.cpp segment file. */
@@ -1008,6 +1010,8 @@ void mdasyncread(SMgrRelation reln, ForkNumber forkNum, AioDispatchDesc_t **dLis
 int CompltrReadReq(void *aioDesc, long res)
 {
     AioDispatchDesc_t *desc = (AioDispatchDesc_t *)aioDesc;
+    ADIO_LOG_DB(ereport(LOG,
+        (errmsg("One async read post process type (AioRead) started"))));
 
     START_CRIT_SECTION();
     Assert(desc->blockDesc.descType == AioRead);
@@ -1018,16 +1022,18 @@ int CompltrReadReq(void *aioDesc, long res)
         /* io error */
         Assert(0);
         /* If there was an error handle the i/o accordingly */
-        AsyncAbortBufferIO((void *)desc->blockDesc.bufHdr, true);
+        AsyncAbortBufferIO(desc->blockDesc.bufHdr, true, aioDesc);
     } else {
         /* Make the buffer available again */
-        AsyncTerminateBufferIO((void *)desc->blockDesc.bufHdr, false, BM_VALID);
+        AsyncTerminateBufferIO(desc->blockDesc.bufHdr, false, BM_VALID, aioDesc);
     }
 
     /* Unpin the buffer on behalf of the ADIO Completer */
     AsyncCompltrUnpinBuffer((volatile void *)desc->blockDesc.bufHdr);
 
     END_CRIT_SECTION();
+    ADIO_LOG_DB(ereport(LOG,
+        (errmsg("One async read post process type (AioRead) done"))));
 
     /* Deallocate the AIO control block and I/O descriptor */
     adio_share_free(desc);
@@ -1144,6 +1150,9 @@ void mdasyncwrite(SMgrRelation reln, ForkNumber forkNumber, AioDispatchDesc_t **
 int CompltrWriteReq(void *aioDesc, long res)
 {
     AioDispatchDesc_t *desc = (AioDispatchDesc_t *)aioDesc;
+    ADIO_LOG_DB(ereport(LOG,
+        (errmsg("One async write post process type (%s) started",
+                desc->blockDesc.descType == AioWrite ? "AioWrite" : "AioVacummFull"))));
 
     START_CRIT_SECTION();
     if (desc->blockDesc.descType == AioWrite) {
@@ -1155,14 +1164,15 @@ int CompltrWriteReq(void *aioDesc, long res)
             ereport(PANIC, (errmsg("async write failed, write_count(%ld), require_count(%d)", res,
                                    desc->blockDesc.blockSize)));
             /* If there was an error handle the i/o accordingly */
-            AsyncAbortBufferIO((void *)desc->blockDesc.bufHdr, false);
+            AsyncAbortBufferIO(desc->blockDesc.bufHdr, false, aioDesc);
         } else {
             /* Make the buffer available again */
-            AsyncTerminateBufferIO((void *)desc->blockDesc.bufHdr, true, 0);
+            desc->blockDesc.bufHdr->extra->lsn_on_disk = BufferGetLSN(desc->blockDesc.bufHdr);
+            AsyncTerminateBufferIO(desc->blockDesc.bufHdr, true, 0, aioDesc);
         }
 
         /* Release the content lock */
-        LWLockRelease(desc->blockDesc.bufHdr->content_lock);
+        AdioLWLockRelease(desc->blockDesc.bufHdr->content_lock, desc->blockDesc.lockThreadMask);
 
         /* Unpin the buffer and wake waiters, on behalf of the ADIO Completer */
         AsyncCompltrUnpinBuffer((volatile void *)desc->blockDesc.bufHdr);
@@ -1170,14 +1180,17 @@ int CompltrWriteReq(void *aioDesc, long res)
         Assert(desc->blockDesc.descType == AioVacummFull);
 
         if (res != desc->blockDesc.blockSize) {
-            AsyncAbortBufferIOByVacuum((void *)desc->blockDesc.bufHdr);
             ereport(WARNING, (errmsg("vacuum full async write failed, write_count(%ld), require_count(%d)", res,
                                      desc->blockDesc.blockSize)));
+            AsyncAbortBufferIOByVacuum(desc->blockDesc.bufHdr);
         } else {
-            AsyncTerminateBufferIOByVacuum((void *)desc->blockDesc.bufHdr);
+            AsyncTerminateBufferIOByVacuum(desc->blockDesc.bufHdr);
         }
     }
     END_CRIT_SECTION();
+    ADIO_LOG_DB(ereport(LOG,
+        (errmsg("One async write post process type (%s) done",
+                desc->blockDesc.descType == AioWrite ? "AioWrite" : "AioVacummFull"))));
 
     /* Deallocate the AIO control block and I/O descriptor */
     adio_share_free(desc);
