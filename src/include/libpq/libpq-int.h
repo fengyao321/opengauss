@@ -55,6 +55,8 @@
 #include "cipher.h"
 #include "../../include/securec.h"
 #include "../../include/securec_check.h"
+#include "../../include/port/pg_bitutils.h"
+#include "../../include/access/datavec/pg_prng.h"
 #ifndef WIN32
 #define NO_COMPILE_CLASS_FDCOLLECTION
 #include "libcomm/libcomm.h"
@@ -332,6 +334,13 @@ typedef enum
     SERVER_TYPE_PREFER_STANDBY_PASS2    /* second pass - behaves same as ANY */
 } PGTargetServerType;
 
+/* Target server type (decoded value of load_balance_hosts) */
+typedef enum
+{
+    LOAD_BALANCE_DISABLE = 0, /* Use the existing host order (default) */
+    LOAD_BALANCE_RANDOM,      /* Randomly shuffle the hosts */
+} PGLoadBalanceType;
+
 /* Boolean value plus a not-known state, for GUCs we might have to fetch */
 typedef enum
 {
@@ -397,7 +406,9 @@ struct pg_conn {
 
     char* target_session_attrs; /* Type of connection to make
                                  * Possible values any, read-write. */
+    char *load_balance_hosts;   /* load balance over hosts */
     PGTargetServerType target_server_type;       /* desired session properties */
+    PGLoadBalanceType load_balance_type;	     /* desired load balancing algorithm */
     PGTernaryBool default_transaction_read_only; /* default_transaction_read_only */
     PGTernaryBool in_hot_standby;    /* in_hot_standby */
 
@@ -468,7 +479,8 @@ struct pg_conn {
     bool std_strings;           /* standard_conforming_strings */
     PGVerbosity verbosity;      /* error/notice message verbosity */
     PGlobjfuncs* lobjfuncs;     /* private state for large-object access fns */
-
+    pg_prng_state prng_state;   /* prng state for load balancing connections */
+    
     /* Buffer for data received from backend and not yet processed */
     char* inBuffer; /* currently allocated buffer */
     int inBufSize;  /* allocated size of buffer */
