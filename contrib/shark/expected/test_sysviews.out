@@ -1194,9 +1194,10 @@ from sys.schemas where schema_id < 10000 order by schema_id;
  dbe_pldebugger  |      4992 |           10
  dbe_pldeveloper |      4993 |           10
  coverage        |      4994 |           10
+ ogai            |      4995 |           10
  sqladvisor      |      7813 |           10
  dbe_sql_util    |      9049 |           10
-(14 rows)
+(15 rows)
 
 select *
 from sys.sysusers where uid >1000 and uid < 10000;
