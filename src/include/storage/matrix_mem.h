@@ -36,6 +36,7 @@
 
 constexpr auto MATRIX_MEM_SUCCESS = 0;
 constexpr auto MATRIX_MEM_ERROR = -1;
+constexpr auto MATRIX_MEM_LOG_FREE = 1;
 
 struct MmapParams {
     void *start = nullptr;
@@ -111,5 +112,6 @@ extern void MatrixMemFuncUnInit();
 
 extern int RackMemAvailable(int *availBorrowMemSize);
 
-extern void *RackMemShmMmapCheck(MmapParams *params, bool isCheck);
+extern int ubsmem_shmem_mapcheck(void* addr, size_t length, int prot, int flags, const char* name, off_t offset,
+                                 void** local_ptr);
 #endif // MATRIX_MEM_H
