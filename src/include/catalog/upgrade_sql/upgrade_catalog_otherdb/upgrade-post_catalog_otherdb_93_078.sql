@@ -102,3 +102,13 @@ IF NOT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname = 'model_sources_owner_na
     CREATE INDEX model_sources_owner_name_idx ON ogai.model_sources (owner_name);
 END IF;
 END $$;
+
+DROP FUNCTION IF EXISTS pg_catalog.ogai_notify() CASCADE;
+SET LOCAL inplace_upgrade_next_system_object_oids=IUO_PROC, 8928;
+CREATE FUNCTION pg_catalog.ogai_notify()
+RETURNS void
+AS 'ogai_notify'
+LANGUAGE INTERNAL
+STRICT;
+
+COMMENT ON FUNCTION pg_catalog.ogai_notify() IS 'notify ogai aysnc worker thread';
