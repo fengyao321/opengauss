@@ -936,3 +936,16 @@ int GetFunctionType(FmgrInfo* procinfo, FmgrInfo* normprocinfo)
             return -1;
     }
 }
+
+LsgDistType GetLsgfunctionType(FmgrInfo* procinfo, FmgrInfo* normprocinfo)
+{
+    switch (procinfo->fn_oid) {
+        case L2_FUNC_OID:
+            return LSG_L2_DIST;
+        case IP_FUNC_OID:
+            return normprocinfo ? LSG_COS_DIST : LSG_IP_DIST;
+        default:
+            ereport(ERROR, (errmsg("current data type or distance type can't support lsg index build.")));
+            return INVALID_LSG_DIST;
+    }
+}

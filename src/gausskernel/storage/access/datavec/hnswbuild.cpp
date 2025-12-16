@@ -342,6 +342,15 @@ static void CreateMetaPage(HnswBuildState *buildstate)
         metap->otherNblk = 0;
     }
 
+    if (buildstate->enableLsg) {
+        metap->enableLsg = buildstate->enableLsg;
+        metap->lsgSampleSize = buildstate->lsgSampleSize;
+        metap->lsgCodeBookSize = metap->lsgSampleSize * buildstate->lsgDim * sizeof(float);
+        metap->lsgSampleNblk = (metap->lsgCodeBookSize + LSGSAMPLE_STORAGE_SIZE - 1) / LSGSAMPLE_STORAGE_SIZE;
+    } else {
+        metap->lsgSampleSize = 0;
+    }
+
     ((PageHeader)page)->pd_lower = ((char *)metap + sizeof(HnswMetaPageData)) - (char *)page;
 
     MarkBufferDirty(buf);
@@ -465,6 +474,28 @@ static void CreateRbqOtherPages(HnswBuildState *buildstate)
     }
 
     FlushChunkInfoInternal(index, (char *)other, HNSW_CHUNK_START_BLKNO + matrixNblk, otherNblk, otherSize);
+}
+
+/*
+ *  Create LSG-related pages
+ */
+static void CreateLsgSamplePages(HnswBuildState *buildstate)
+{
+    Buffer buf;
+    Page page;
+    Relation index = buildstate->index;
+    ForkNumber forkNum = buildstate->forkNum;
+    uint16 nBlks;
+    HnswGetLsgInfoFromMetaPage(buildstate->index, NULL, &nBlks, NULL, NULL, NULL);
+
+    /* create lsg codebook page */
+    for (int i = 0; i < nBlks; i++) {
+        buf = HnswNewBuffer(index, forkNum);
+        page = BufferGetPage(buf);
+        HnswInitPage(buf, page);
+        MarkBufferDirty(buf);
+        UnlockReleaseBuffer(buf);
+    }
 }
 
 /*
@@ -730,6 +761,10 @@ static void FlushPages(HnswBuildState *buildstate)
         CreateRbqMatrixPages(buildstate);
         /* Create pages and flush centroid (min+diff if refine type is SQ8) */
         CreateRbqOtherPages(buildstate);
+    }
+    if (buildstate->enableLsg) {
+        CreateLsgSamplePages(buildstate);
+        FlushLsgSamples(buildstate);
     }
     CreateGraphPages(buildstate);
     WriteNeighborTuples(buildstate);
@@ -1024,6 +1059,12 @@ static bool InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
     HnswPtrStore(base, element->pqcodes, codePtr);
     HnswPtrStore(base, element->rbqcodes, rbqPtr);
 
+    Vector* currentVec = (Vector*)HnswGetValue(base, element);
+    if (buildstate->enableLsg) {
+        currentVec->isoValue = CalcIsoVal((float *)currentVec->x, buildstate->LocScalingParam);
+    } else {
+        currentVec->isoValue = 1.0;
+    }
     /* Create a lock for the element */
     LWLockInitialize(&element->lock, hnsw_lock_tranche_id);
 
@@ -1196,6 +1237,8 @@ static void InitBuildState(HnswBuildState *buildstate, Relation heap, Relation i
     buildstate->hnswarea = NULL;
 
     buildstate->enablePQ = HnswGetEnablePQ(index);
+    buildstate->enableLsg = HnswGetEnableLsg(index);
+    LsgCalculator* LocScalingParam;
     if (buildstate->enablePQ && !buildstate->typeInfo->supportPQ) {
         ereport(ERROR, (errmsg("this data type cannot support hnswpq.")));
     }
@@ -1211,6 +1254,9 @@ static void InitBuildState(HnswBuildState *buildstate, Relation heap, Relation i
     buildstate->rbqDelayState = RBQ_BUILD_NORMAL;
     if (buildstate->enablePQ && buildstate->enableRabitQ) {
         ereport(ERROR, (errmsg("hnsw does not support the mixed use of the two quantization methods: PQ and RabitQ.")));
+    }
+    if (buildstate->enableLsg && (buildstate->enablePQ || buildstate->enableRabitQ)) {
+        ereport(ERROR, (errmsg("hnsw does not support the mixed use of the LSG and quantization methods.")));
     }
 
     if (buildstate->enablePQ) {
@@ -1259,6 +1305,13 @@ static void InitBuildState(HnswBuildState *buildstate, Relation heap, Relation i
         buildstate->rbqConfig = NULL;
     }
     buildstate->centroid = NULL;
+    if (buildstate->enableLsg) {
+        buildstate->lsgSample = NULL;
+        buildstate->lsgSampleSize = 0;
+        buildstate->lsgIndexCounter = 0;
+        buildstate->lsgDim = 0;
+        buildstate->LocScalingParam = NULL;
+    }
 
     buildstate->isUStore = buildstate->heap ? RelationIsUstoreFormat(buildstate->heap) : false;
 }
@@ -1286,6 +1339,20 @@ static void FreeBuildState(HnswBuildState *buildstate, bool parallel)
             FreeScalarQuantizer(buildstate->rbqConfig->sq);
         }
         pfree(buildstate->rbqConfig);
+    }
+    if (buildstate->enableLsg && !parallel) {
+        if (buildstate->LocScalingParam != NULL && buildstate->LocScalingParam->sampleVecs != NULL) {
+            pfree(buildstate->LocScalingParam->sampleVecs);
+            buildstate->LocScalingParam->sampleVecs = NULL;
+        }
+        if (buildstate->LocScalingParam) {
+            pfree(buildstate->LocScalingParam);
+            buildstate->LocScalingParam = NULL;
+        }
+        if (buildstate->lsgSample) {
+            pfree(buildstate->lsgSample);
+            buildstate->lsgSample = NULL;
+        }
     }
 }
 
@@ -1328,6 +1395,11 @@ static void HnswParallelScanAndInsert(Relation heapRel, Relation indexRel, HnswS
     if (buildstate.enableRabitQ) {
         buildstate.centroid = hnswshared->centroid;
         buildstate.rbqConfig = hnswshared->rbqConfig;
+    }
+    if (buildstate.enableLsg) {
+        buildstate.LocScalingParam = hnswshared->lsgCalc;
+        buildstate.lsgDim = buildstate.LocScalingParam->dim;
+        buildstate.lsgSampleSize = buildstate.LocScalingParam->sampleSize;
     }
     InitAllocator(&buildstate.allocator, &HnswSharedMemoryAlloc, &buildstate);
     scan = tableam_scan_begin_parallel(heapRel, &hnswshared->heapdesc);
@@ -1399,6 +1471,7 @@ static HnswShared *HnswParallelInitshared(HnswBuildState *buildstate)
     char *pqTable;
     float *pqDistanceTable;
     errno_t rc;
+    LsgCalculator* lsgCalc;
     uint32 pqDistanceTableSize = buildstate->pqM * buildstate->pqKsub * buildstate->pqKsub * sizeof(float);
 
     /* Store shared build state, for which we reserved space */
@@ -1431,6 +1504,15 @@ static HnswShared *HnswParallelInitshared(HnswBuildState *buildstate)
     } else {
         hnswshared->centroid = NULL;
         hnswshared->rbqConfig = NULL;
+    }
+    if (buildstate->enableLsg) {
+        lsgCalc = (LsgCalculator *) MemoryContextAllocZero(INSTANCE_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_STORAGE),
+                                                               sizeof(LsgCalculator));
+        rc = memcpy_s(lsgCalc, sizeof(LsgCalculator), buildstate->LocScalingParam, sizeof(LsgCalculator));
+        securec_check_c(rc, "\0", "\0");
+        hnswshared->lsgCalc = lsgCalc;
+    } else {
+        hnswshared->lsgCalc = NULL;
     }
     SpinLockInit(&hnswshared->mutex);
     /* Initialize mutable state */
@@ -1590,6 +1672,47 @@ void ComputeCenterAndTrainRefine(HnswBuildState *buildstate)
     }
 }
 
+static void LsgSampleCallBack(Relation index, CALLBACK_ITEM_POINTER, Datum* values, const bool* isnull,
+                              bool tupleIsAlive, void* state)
+{
+    HnswBuildState *buildstate = (HnswBuildState*) state;
+    char *base = buildstate->hnswarea;
+    const HnswTypeInfo *typeInfo = buildstate->typeInfo;
+    Datum value = PointerGetDatum(PG_DETOAST_DATUM(values[0]));
+
+    if (buildstate->normprocinfo != NULL) {
+        value = HnswNormValue(typeInfo, buildstate->collation, value);
+    }
+
+    Vector* currentVec = (Vector*)DatumGetPointer(value);
+
+    buildstate->lsgDim = currentVec->dim;
+    if ((buildstate->lsgIndexCounter % LSG_SAMPLE_INTERVAL == 0) && (buildstate->lsgSampleSize < MAX_LSG_SAMPLE_SIZE)) {
+        memcpy_s(buildstate->lsgSample + buildstate->lsgSampleSize * currentVec->dim, sizeof(float) * (currentVec->dim),
+                 currentVec->x, sizeof(float) * (currentVec->dim));
+        buildstate->lsgSampleSize += 1;
+    }
+
+    buildstate->lsgIndexCounter += 1;
+}
+
+void GetLsgSample(HnswBuildState *buildstate)
+{
+    buildstate->lsgSampleSize = 0;
+    buildstate->lsgIndexCounter = 0;
+    buildstate->lsgSample = (float*)palloc0(MAX_LSG_SAMPLE_SIZE * buildstate->dimensions * sizeof(float));
+    (void)tableam_index_build_scan(buildstate->heap, buildstate->index, buildstate->indexInfo, false, LsgSampleCallBack,
+                             (void*)buildstate, NULL);
+    if (buildstate->lsgSampleSize == 0 || buildstate->lsgIndexCounter < 2) {
+        ereport(ERROR, (errmsg("create an HNSW LSG index requires inserting data first")));
+    }
+    buildstate->LocScalingParam = (LsgCalculator*)palloc0(sizeof(LsgCalculator));
+    InitScalingParam(buildstate->LocScalingParam, buildstate->lsgSampleSize, buildstate->lsgDim, buildstate->lsgSample,
+                     GetLsgfunctionType(buildstate->procinfo, buildstate->normprocinfo),
+                     HnswGetLsgDegree(buildstate->index), HnswGetLsgAlpha(buildstate->index));
+}
+
+
 /*
  * Build the index
  */
@@ -1643,6 +1766,14 @@ void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildSt
             buildstate->centroid = transCentroid;
         }
         pfree(centroid);
+    }
+
+    if (buildstate->enableLsg) {
+        if (t_thrd.proc->workingVersionNum < LSG_VERSION_NUM) {
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("Before LSG_VERSION_NUM VERSION NUM %u, we do not support lsg.", LSG_VERSION_NUM)));
+        }
+        GetLsgSample(buildstate);
     }
 
     if (buildstate->rbqDelayState == RBQ_BUILD_DELAY) {

@@ -628,6 +628,8 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
     RabitQConfig *rbqConfig = NULL;
     int dim = TupleDescAttr(index->rd_att, 0)->atttypmod;
     float *centroid = NULL;
+    LsgCalculator* LocScalingParam = NULL;
+    bool enableLsg = false;
 
     /*
      * Get a shared lock. This allows vacuum to ensure no in-flight inserts
@@ -699,6 +701,15 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
     }
 
     InitPQParamsOnDisk(&params, index, procinfo, dim, &enablePQ, false);
+    InitLsgSamplesOnDisk(index, procinfo, &LocScalingParam, &enableLsg);
+    if (LocScalingParam != NULL) {
+        Vector* currentVec = (Vector*)HnswGetValue(base, element);
+        if (enableLsg) {
+            currentVec->isoValue = CalcIsoVal((float*)currentVec->x, LocScalingParam);
+        } else {
+            currentVec->isoValue = 1.0;
+        }
+    }
 
     Pointer codePtr = NULL;
     if (enablePQ) {
@@ -721,6 +732,14 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
     if (enableRabitQ) {
         pfree((&rbqDiskParams)->heapTuple);
         pfree((&rbqDiskParams)->indexInfo);
+    }
+    if (LocScalingParam != NULL) {
+        if (LocScalingParam->sampleVecs != NULL) {
+            pfree(LocScalingParam->sampleVecs);
+            LocScalingParam->sampleVecs = NULL;
+        }
+        pfree(LocScalingParam);
+        LocScalingParam = NULL;
     }
 
     return true;

@@ -1,0 +1,99 @@
+create database test;
+\c test
+
+create table tableStandardA (id int, val vector(100));
+create table tableStandardB (id int, val vector(100));
+
+do $$
+declare
+    vector_dim int := 100; -- 自定义向量的维度
+    vector_value float[];
+    record_num int := 3000; -- 自定义插入的记录数量
+    i int;
+    j int;
+begin
+    for j in 1..record_num loop
+    for i in 1..vector_dim loop
+        vector_value[i] :=  ROUND(RANDOM() * 100, 2); -- 使用随机数填充向量
+    end loop;
+    insert into tableStandardA values (j, vector_value);
+    end loop;
+end $$;
+
+do $$
+declare
+    vector_dim int := 100; -- 自定义向量的维度
+    vector_value float[];
+    record_num int := 500; -- 自定义插入的记录数量
+    i int;
+    j int;
+begin
+    for j in 1..record_num loop
+    for i in 1..vector_dim loop
+        vector_value[i] :=  ROUND(RANDOM() * 100, 2); -- 使用随机数填充向量
+    end loop;
+    insert into tableStandardB values (j, vector_value);
+    end loop;
+end $$;
+
+
+CREATE OR REPLACE FUNCTION explain_analyze_filtered(query text)
+RETURNS SETOF text AS $$
+DECLARE
+    plan_line text;
+BEGIN
+    -- 执行 EXPLAIN ANALYZE 并循环读取结果行
+    FOR plan_line IN EXECUTE 'EXPLAIN ANALYZE ' || query LOOP
+        -- 过滤掉时间相关行
+        IF plan_line !~* '(Execution Time:|Planning Time:|JIT Time:|Total runtime:|actual Time)' THEN
+            RETURN NEXT plan_line;
+        END IF;
+    END LOOP;
+    RETURN;
+END $$ LANGUAGE plpgsql;
+
+-- 1 先导入数据，再创建索引，再插入数据
+create table tablevector (id int, val vector(100));
+insert into tablevector select * from tableStandardA;
+
+-- cosine + lsg
+CREATE INDEX idx_vectors_cosine ON tablevector USING hnsw (val vector_cosine_ops) WITH (m = 4, ef_construction = 10, enable_lsg = on);
+-- l2 + lsg
+CREATE INDEX idx_vectors_l2 ON tablevector USING hnsw (val vector_l2_ops) WITH (m = 4, ef_construction = 10, enable_lsg = on);
+-- ip + lsg
+CREATE INDEX idx_vectors_ip ON tablevector USING hnsw (val vector_ip_ops) WITH (m = 4, ef_construction = 10, enable_lsg = on);
+
+select explain_analyze_filtered('SELECT /*+ indexscan(tablevector idx_vectors_cosine) */ id FROM tablevector ORDER BY val <=> array_fill(1,array[100])::vector limit 3;');
+select explain_analyze_filtered('SELECT /*+ indexscan(tablevector idx_vectors_l2) */ id FROM tablevector ORDER BY val <-> array_fill(1,array[100])::vector limit 3;');
+select explain_analyze_filtered('SELECT /*+ indexscan(tablevector idx_vectors_ip) */ id FROM tablevector ORDER BY val <#> array_fill(1,array[100])::vector limit 3;');
+
+insert into tablevector select * from tableStandardB;
+
+select explain_analyze_filtered('SELECT /*+ indexscan(tablevector idx_vectors_cosine) */ id FROM tablevector ORDER BY val <=> array_fill(1,array[100])::vector limit 3;');
+select explain_analyze_filtered('SELECT /*+ indexscan(tablevector idx_vectors_l2) */ id FROM tablevector ORDER BY val <-> array_fill(1,array[100])::vector limit 3;');
+select explain_analyze_filtered('SELECT /*+ indexscan(tablevector idx_vectors_ip) */ id FROM tablevector ORDER BY val <#> array_fill(1,array[100])::vector limit 3;');
+
+
+-- 2 无数据建索引，预期报错
+drop table tablevector;
+create table tablevector (id int, val vector(100));
+
+-- cosine
+CREATE INDEX idx_vectors_cosine ON tablevector USING hnsw (val vector_cosine_ops) WITH (m = 4, ef_construction = 10, enable_lsg = on);
+-- l2
+CREATE INDEX idx_vectors_l2 ON tablevector USING hnsw (val vector_l2_ops) WITH (m = 4, ef_construction = 10, enable_lsg = on);
+-- ip
+CREATE INDEX idx_vectors_ip ON tablevector USING hnsw (val vector_ip_ops) WITH (m = 4, ef_construction = 10, enable_lsg = on);
+
+-- 3 同时使能HNSW lsg算法和量化算法，报错
+
+-- cosine + lsg + rabitq
+CREATE INDEX idx_vectors_cosine ON tablevector USING hnsw (val vector_cosine_ops) WITH (m = 4, ef_construction = 10, enable_lsg = on, enable_rabitq = on);
+-- l2 + lsg + rabitq
+CREATE INDEX idx_vectors_l2 ON tablevector USING hnsw (val vector_l2_ops) WITH (m = 4, ef_construction = 10, enable_lsg = on, enable_rabitq = on);
+-- ip + lsg + rabitq
+CREATE INDEX idx_vectors_ip ON tablevector USING hnsw (val vector_ip_ops) WITH (m = 4, ef_construction = 10, enable_lsg = on, enable_rabitq = on);
+
+
+\c regression
+drop database test;
