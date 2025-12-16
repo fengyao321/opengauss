@@ -553,6 +553,20 @@ TEXT_SPLITTER_INCLUDE_PATH = $(TEXT_SPLITTER_HOME)/include
 TEXT_SPLITTER_LIB_PATH = $(TEXT_SPLITTER_HOME)/lib
 
 #############################################################################
+# tokenizers component
+#############################################################################
+TOKENIZERS_HOME = $(with_3rd)/kernel/dependency/tokenizers/comm
+TOKENIZERS_INCLUDE_PATH = $(TOKENIZERS_HOME)/include
+TOKENIZERS_LIB_PATH = $(TOKENIZERS_HOME)/lib
+
+#############################################################################
+# onnx runtime component
+#############################################################################
+ONNXRUNTIME_HOME = $(with_3rd)/kernel/dependency/onnxruntime/comm
+ONNXRUNTIME_INCLUDE_PATH = $(ONNXRUNTIME_HOME)/include
+ONNXRUNTIME_LIB_PATH = $(ONNXRUNTIME_HOME)/lib
+
+#############################################################################
 # kerberos component
 #############################################################################
 KERBEROS_BIN_PATH = $(KERBEROS_HOME)/bin
@@ -944,7 +958,6 @@ WINDRES = @WINDRES@
 X = @EXEEXT@
 
 LDFLAGS += -L$(with_3rd)/kernel/dependency/text-splitter/comm/lib
-LIBS += -ltext_splitter_ffi
 
 ifeq ($(with_3rd), NONE)
   LIBTINFO_HOME = $(top_builddir)/$(BINARYPATH)/ncurses/comm

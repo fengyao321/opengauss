@@ -1,11 +1,6 @@
 #This is the main CMAKE for build all components.
 AUX_SOURCE_DIRECTORY(${CMAKE_CURRENT_SOURCE_DIR} TGT_datavec_SRC)
 
-list(REMOVE_ITEM TGT_datavec_SRC
-    ${CMAKE_CURRENT_SOURCE_DIR}/ogai_onnx_embedding.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ogai_onnx_mgr.cpp
-)
-
 set(TGT_datavec_INC
         ${PROJECT_SRC_DIR}/include
         ${PROJECT_OPENGS_DIR}/contrib/jieba_tokenizer
@@ -13,6 +8,8 @@ set(TGT_datavec_INC
         ${LIBCGROUP_INCLUDE_PATH}
         ${EVENT_INCLUDE_PATH}
         ${ZLIB_INCLUDE_PATH}
+        ${TOKENIZERS_INCLUDE_PATH}
+        ${ONNXRUNTIME_INCLUDE_PATH}
         /usr/include/openblas
 )
 find_library(OPENBLAS_LIB openblas HINTS /usr/lib64 /usr/lib)

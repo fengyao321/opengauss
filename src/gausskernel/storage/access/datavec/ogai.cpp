@@ -28,6 +28,7 @@
 #include "access/datavec/ogai_model_framework.h"
 #include "access/datavec/ogai_model_manager.h"
 #include "access/datavec/ogai_textsplitter_wrapper.h"
+#include "access/datavec/ogai_onnx_mgr.h"
 #include "access/datavec/vector.h"
 #include "access/datavec/ogai_worker.h"
 #include "access/datavec/ogai.h"
@@ -264,6 +265,7 @@ Datum ogai_notify(PG_FUNCTION_ARGS)
 Datum load_onnx_model(PG_FUNCTION_ARGS)
 {
     char* modelKey = NULL;
+    ONNXModelDesc* modelDesc = NULL;
 
     if (PG_ARGISNULL(0)) {
         ereport(ERROR,
@@ -294,7 +296,12 @@ Datum load_onnx_model(PG_FUNCTION_ARGS)
     elog(LOG, "load_onnx_model: loading model '%s' from path '%s'", modelName, modelPath);
     PG_TRY();
     {
-        elog(ERROR, "onnx framework, not supported yet.");
+        modelDesc = ONNX_MODEL_MGR->LoadONNXModel(modelName, modelPath);
+        if (modelDesc == NULL || modelDesc->handle == NULL) {
+            ereport(ERROR,
+                    (errcode(ERRCODE_EXTERNAL_ROUTINE_EXCEPTION),
+                         errmsg("failed to load ONNX model: %s", modelName)));
+        }
     }
     PG_CATCH();
     {
@@ -343,7 +350,7 @@ Datum unload_onnx_model(PG_FUNCTION_ARGS)
     elog(LOG, "unload_onnx_model: unloading model '%s' from path '%s'", modelName, modelPath);
     PG_TRY();
     {
-        elog(ERROR, "onnx framework, not supported yet.");
+        ONNX_MODEL_MGR->UnloadONNXModel(modelName, modelPath);
     }
     PG_CATCH();
     {

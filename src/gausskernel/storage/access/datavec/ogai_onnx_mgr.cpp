@@ -46,7 +46,6 @@ ONNXModelMgr* ONNXModelMgr::GetInstance(void)
 
 void ONNXModelMgr::NewSingletonInstance(void)
 {
-    Assert(onnxModelMgr == NULL);
     if (IsUnderPostmaster)
         return;
     onnxModelMgr = New(CurrentMemoryContext) ONNXModelMgr;
@@ -109,18 +108,18 @@ ONNXModelDesc* ONNXModelMgr::GetONNXModelDesc(const char* modelName, const char*
     if (entry == NULL || entry->modelDesc == NULL) {
         return NULL;
     }
-    // todo 如果模型不存在，但系统表中状态已经加载，则尝试加载该模型。
     return entry->modelDesc;
 }
 
 ONNXModelDesc* ONNXModelMgr::LoadONNXModel(const char* modelName, const char* modelPath)
 {
     RWLockGuard guard(mutex, LW_EXCLUSIVE);
+    bool found = false;
     ONNXModelTag tag;
     memcpy_s(tag.modelName, NAMEDATALEN, modelName, NAMEDATALEN - 1);
     memcpy_s(tag.modelPath, MAXPATH, modelPath, MAXPATH - 1);
-    ONNXModelHashEntry* entry = (ONNXModelHashEntry*)hash_search(onnxModelHash, &tag, HASH_ENTER, NULL);
-    if (entry->modelDesc != NULL) {
+    ONNXModelHashEntry* entry = (ONNXModelHashEntry*)hash_search(onnxModelHash, &tag, HASH_ENTER, &found);
+    if (found) {
         ereport(ERROR,
             (errmsg("onnx model mgr: onnx model already exists, model name: %s, model path: %s.", modelName,
                 modelPath)));

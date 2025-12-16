@@ -165,6 +165,11 @@ LIBS += -lcjson
 LIBS += -ltext_splitter_ffi
 
 ##########################################################################
+# append onnx for AI model inference
+############################################################################
+LIBS += -lonnx_wrapper -lonnxruntime -ltokenizers
+
+##########################################################################
 # append xgboost for xgboost algorithm : libxgboost.so attached by dlopen
 ############################################################################
 #LIBS += -L$(XGBOOST_LIB_PATH) -lxgboost 
@@ -299,6 +304,10 @@ endif
   # append text-splitter for text chunking
   LDFLAGS += -L$(TEXT_SPLITTER_LIB_PATH)
   CXXFLAGS+= -I$(TEXT_SPLITTER_INCLUDE_PATH)
+
+  # append onnx for AI model inference
+  LDFLAGS += -L$(ONNXRUNTIME_LIB_PATH) -L$(TOKENIZERS_LIB_PATH)
+  CXXFLAGS+= -I$(ONNXRUNTIME_INCLUDE_PATH) -I$(TOKENIZERS_INCLUDE_PATH)
 
 ifeq ($(with_obs), yes)
   CXXFLAGS+= -I$(LIBOBS_INCLUDE_PATH)
@@ -638,6 +647,8 @@ endif
 	cp -d $(XGBOOST_LIB_PATH)/libxgboost* '$(DESTDIR)$(libdir)/'
 	cp -d $(CJSON_LIB_PATH)/libcjson* '$(DESTDIR)$(libdir)/'
 	cp -d $(TEXT_SPLITTER_LIB_PATH)/libtext_splitter_ffi* '$(DESTDIR)$(libdir)/'
+	cp -d $(ONNXRUNTIME_LIB_PATH)/libonnx* '$(DESTDIR)$(libdir)/'
+	cp -d $(TOKENIZERS_LIB_PATH)/libtokenizers* '$(DESTDIR)$(libdir)/'
 
 ifneq ($(with_openeuler_os), yes)
 ifeq ($(enable_lite_mode), no)
