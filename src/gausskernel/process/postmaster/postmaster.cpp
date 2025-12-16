@@ -4288,30 +4288,18 @@ static int ServerLoop(void)
 
         ereport(DEBUG4, (errmsg("postmaster poll event process end.")));
 
+#ifndef ENABLE_LITE_MODE
         /*
          * If the AioCompleters have not been started start them.
-         * These should remain run indefinitely.
          */
         ADIO_RUN()
         {
-            if (!g_instance.pid_cxt.AioCompleterStarted && !dummyStandbyMode) {
-                int aioStartErr = 0;
-                if ((aioStartErr = AioCompltrStart()) == 0) {
-                    g_instance.pid_cxt.AioCompleterStarted = 1;
-                } else {
-                    ereport(LOG, (errmsg_internal("Cannot start AIO completer threads error=%d", aioStartErr)));
-                    /*
-                     * If we failed to fork a aio process, just shut down.
-                     * Any required cleanup will happen at next restart. We
-                     * set g_instance.fatal_error so that an "abnormal shutdown" message
-                     * gets logged when we exit.
-                     */
-                    g_instance.fatal_error = true;
-                    HandleChildCrash(g_instance.pid_cxt.AioCompleterStarted, 1, "AIO process");
-                }
+            if (!dummyStandbyMode && !g_aioCompltrReady) {
+                AioCmpltrStart();
             }
         }
         ADIO_END();
+#endif
 
         if (threadPoolActivated && (pmState == PM_RUN || pmState == PM_HOT_STANDBY))
             g_threadPoolControler->AddWorkerIfNecessary();
@@ -7413,6 +7401,18 @@ static void reaper(SIGNAL_ARGS)
             }
 
             if (!dummyStandbyMode && ENABLE_INCRE_CKPT) {
+#ifndef ENABLE_LITE_MODE
+                /*
+                * If the AioCompleters have not been started start them.
+                */
+                ADIO_RUN()
+                {
+                    if (!g_aioCompltrReady) {
+                        AioCmpltrStart();
+                    }
+                }
+                ADIO_END();
+#endif
                 for (int i = 0; i < g_instance.ckpt_cxt_ctl->pgwr_procs.num; i++) {
                     if (g_instance.pid_cxt.PageWriterPID[i] == 0) {
                         g_instance.pid_cxt.PageWriterPID[i] = initialize_util_thread(PAGEWRITER_THREAD);
@@ -8516,8 +8516,6 @@ static const char* GetProcName(ThreadId pid)
         return "fault monitor process";
     else if (g_instance.pid_cxt.AlarmCheckerPID == pid)
         return "alarm checker process";
-    else if (g_instance.pid_cxt.AioCompleterStarted == pid)
-        return "aio completer process";
     else if (pid == g_instance.pid_cxt.CBMWriterPID)
         return "CBM writer process";
     else if (g_instance.pid_cxt.HeartbeatPID == pid)
@@ -10129,6 +10127,18 @@ static void handle_recovery_started()
             }
 
             if (ENABLE_INCRE_CKPT) {
+#ifndef ENABLE_LITE_MODE
+                /*
+                * If the AioCompleters have not been started start them.
+                */
+                ADIO_RUN()
+                {
+                    if (!dummyStandbyMode && !g_aioCompltrReady) {
+                        AioCmpltrStart();
+                    }
+                }
+                ADIO_END();
+#endif
                 for (int i = 0; i < g_instance.ckpt_cxt_ctl->pgwr_procs.num; i++) {
                     Assert(g_instance.pid_cxt.PageWriterPID[i] == 0);
                     g_instance.pid_cxt.PageWriterPID[i] = initialize_util_thread(PAGEWRITER_THREAD);
@@ -14226,6 +14236,11 @@ static void SetAuxType()
         case SMB_ALY_AUXILIARY_THREAD:
             t_thrd.bootstrap_cxt.MyAuxProcType = SMBAnalyzeAuxiliaryProcess;
             break;
+#ifndef ENABLE_LITE_MODE
+        case AIO_COMPLETER_THREAD:
+            t_thrd.bootstrap_cxt.MyAuxProcType = AIO_PROCESS;
+            break;
+#endif
         default:
             ereport(ERROR, (errmsg("unrecorgnized proc type %d", thread_role)));
     }
@@ -14572,6 +14587,12 @@ int GaussDbAuxiliaryThreadMain(knl_thread_arg* arg)
             SyncAuxiliaryMain();
             proc_exit(1);
             break;
+#ifndef ENABLE_LITE_MODE
+        case AIO_COMPLETER_THREAD:
+            AioCompltrMain((int)(uintptr_t)arg->payload);
+            proc_exit(1);
+            break;
+#endif
         default:
             ereport(PANIC, (errmsg("unrecognized process type: %d", (int)t_thrd.bootstrap_cxt.MyAuxProcType)));
             proc_exit(1);
@@ -14839,6 +14860,9 @@ int GaussDbThreadMain(knl_thread_arg* arg)
         case THREADPOOL_SCHEDULER:
         case DMS_AUXILIARY_THREAD:
         case SYNCINFO_THREAD:
+#ifndef ENABLE_LITE_MODE
+        case AIO_COMPLETER_THREAD:
+#endif
         case UNDO_RECYCLER: {
             SetAuxType<thread_role>();
             /* Restore basic shared memory pointers */
@@ -15449,6 +15473,9 @@ static ThreadMetaData GaussdbThreadGate[] = {
     { GaussDbThreadMain<EXRTO_RECYCLER>, EXRTO_RECYCLER, "exrtorecycler", "exrto recycler" },
     { GaussDbThreadMain<BARRIER_PREPARSE>, BARRIER_PREPARSE, "barrierpreparse", "barrier preparse backend" },
     { GaussDbThreadMain<RACK_MEM_FREE_THREAD>, RACK_MEM_FREE_THREAD, "rackmem_cleaner", "rack mem cleaner" },
+#ifndef ENABLE_LITE_MODE
+    { GaussDbThreadMain<AIO_COMPLETER_THREAD>, AIO_COMPLETER_THREAD, "aio_completer", "aio completer" },
+#endif
     /* Keep the block in the end if it may be absent !!! */
 #ifdef ENABLE_MULTIPLE_NODES
     { GaussDbThreadMain<TS_COMPACTION>, TS_COMPACTION, "TScompaction",

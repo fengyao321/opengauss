@@ -28,6 +28,7 @@
 #include "access/datavec/ogai_model_framework.h"
 #include "access/datavec/ogai_model_manager.h"
 #include "access/datavec/ogai_textsplitter_wrapper.h"
+#include "access/datavec/ogai_onnx_mgr.h"
 #include "access/datavec/vector.h"
 #include "access/datavec/ogai_worker.h"
 #include "access/datavec/ogai.h"
@@ -254,4 +255,108 @@ Datum ogai_notify(PG_FUNCTION_ARGS)
         }
     }
     SetLatch(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->latch);
+}
+
+/*
+ * load_onnx_model - Load ONNX model into cache
+ *
+ * Usage: SELECT load_onnx_model('model_key');
+ */
+Datum load_onnx_model(PG_FUNCTION_ARGS)
+{
+    char* modelKey = NULL;
+    ONNXModelDesc* modelDesc = NULL;
+
+    if (PG_ARGISNULL(0)) {
+        ereport(ERROR,
+                (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
+                     errmsg("model_key cannot be NULL")));
+    }
+
+    modelKey = text_to_cstring(PG_GETARG_TEXT_PP(0));
+
+    ModelConfig config;
+    GenerateModelConfig(&config, modelKey);
+
+    if (config.provider != PROVIDER_ONNX) {
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                     errmsg("model_key '%s' is not an ONNX model", modelKey)));
+    }
+
+    const char* modelPath = config.baseUrl;
+    const char* modelName = config.modelName;
+
+    if (modelPath == NULL || modelName == NULL) {
+        ereport(ERROR,
+                (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
+                     errmsg("model_name or url cannot be NULL for model_key: %s", modelKey)));
+    }
+
+    elog(LOG, "load_onnx_model: loading model '%s' from path '%s'", modelName, modelPath);
+    PG_TRY();
+    {
+        modelDesc = ONNX_MODEL_MGR->LoadONNXModel(modelName, modelPath);
+        if (modelDesc == NULL || modelDesc->handle == NULL) {
+            ereport(ERROR,
+                    (errcode(ERRCODE_EXTERNAL_ROUTINE_EXCEPTION),
+                         errmsg("failed to load ONNX model: %s", modelName)));
+        }
+    }
+    PG_CATCH();
+    {
+        PG_RE_THROW();
+    }
+    PG_END_TRY();
+
+    PG_RETURN_BOOL(true);
+}
+
+/*
+ * unload_onnx_model - Unload ONNX model from cache
+ *
+ * Usage: SELECT unload_onnx_model('model_key');
+ */
+Datum unload_onnx_model(PG_FUNCTION_ARGS)
+{
+    char* modelKey = NULL;
+
+    if (PG_ARGISNULL(0)) {
+        ereport(ERROR,
+                (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
+                     errmsg("model_key cannot be NULL")));
+    }
+
+    modelKey = text_to_cstring(PG_GETARG_TEXT_PP(0));
+
+    ModelConfig config;
+    GenerateModelConfig(&config, modelKey);
+
+    if (config.provider != PROVIDER_ONNX) {
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                     errmsg("model_key '%s' is not an ONNX model", modelKey)));
+    }
+
+    const char* modelPath = config.baseUrl;
+    const char* modelName = config.modelName;
+
+    if (modelPath == NULL || modelName == NULL) {
+        ereport(ERROR,
+                (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
+                     errmsg("model_name or url cannot be NULL for model_key: %s", modelKey)));
+    }
+
+    elog(LOG, "unload_onnx_model: unloading model '%s' from path '%s'", modelName, modelPath);
+    PG_TRY();
+    {
+        ONNX_MODEL_MGR->UnloadONNXModel(modelName, modelPath);
+    }
+    PG_CATCH();
+    {
+        PG_RE_THROW();
+    }
+    PG_END_TRY();
+
+    PG_RETURN_BOOL(true);
 }

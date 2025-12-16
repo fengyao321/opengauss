@@ -22,6 +22,15 @@ declare -a DEPENDENCIES_YUM=(
     "numactl-devel"
     "unixODBC-devel"
     "java-1.8.0-openjdk-devel"
+    "make"
+    "binutils"
+    "libaio-devel"
+    "flex"
+    "bison"
+    "ncurses-devel"
+    "glibc-devel"
+    "patch"
+    "readline-devel"
 )
 
 declare missing_deps=()
@@ -68,20 +77,27 @@ check_dependencies() {
                 missing_deps+=("$dep")
             fi
         done
+    elif [ "$pkg_manager" == "apt" ]; then
+        for dep in "${DEPENDENCIES_APT[@]}"; do
+            if ! dpkg -l "$dep" | grep -q "^ii"; then
+                missing_deps+=("$dep")
+            fi
+        done
     fi
 
     if [ ${#missing_deps[@]} -gt 0 ]; then
-        echo "Error: Missing required dependencies:"
-        printf "  %s\n" "${missing_deps[@]}"
-        
+        echo "Error: Missing required dependencies:" >&2
+        printf "  %s\n" "${missing_deps[@]}" >&2
+
         if [ "$pkg_manager" == "yum" ]; then
-            echo -e "\nPlease install the missing dependencies using:"
-            echo "sudo yum install -y ${missing_deps[*]}"
+            echo -e "\nPlease install the missing dependencies using:" >&2
+            echo "sudo yum install -y ${missing_deps[*]}" >&2
+        elif [ "$pkg_manager" == "apt" ]; then
+            echo -e "\nPlease install the missing dependencies using:" >&2
+            echo "sudo apt-get install -y ${missing_deps[*]}" >&2
         fi
-        
+
         exit 1
-    else
-        echo "All required dependencies are installed."
     fi
 }
 

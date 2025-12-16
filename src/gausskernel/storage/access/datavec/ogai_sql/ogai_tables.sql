@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS ogai.vectorize_tasks
     dim integer NOT NULL,
     max_chunk_size integer NOT NULL DEFAULT 0,
     max_chunk_overlap integer NOT NULL DEFAULT 0,
+    enable_bm25 BOOLEAN NOT NULL DEFAULT true,
     owner_name NAME NOT NULL DEFAULT CURRENT_USER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (task_name, owner_name)

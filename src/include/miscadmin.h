@@ -714,6 +714,9 @@ typedef enum {
     ParallelDecodeProcess,
     LogicalReadRecord,
     SqlLimitProcess,
+#ifndef ENABLE_LITE_MODE
+    AIO_PROCESS,
+#endif
 
     NUM_AUXPROCTYPES /* Must be last! */
 } AuxProcType;

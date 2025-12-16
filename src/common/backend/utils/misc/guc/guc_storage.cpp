@@ -867,7 +867,7 @@ static void InitStorageConfigureNamesBool()
             NULL,
             NULL,
             NULL},
-
+#ifndef ENABLE_LITE_MODE
         {{"enable_adio_debug",
             PGC_SUSET,
             NODE_ALL,
@@ -879,9 +879,13 @@ static void InitStorageConfigureNamesBool()
             check_adio_debug_guc,
             NULL,
             NULL},
-
+#endif
         {{"enable_adio_function",
+#ifdef ENABLE_LITE_MODE
             PGC_INTERNAL,
+#else
+            PGC_POSTMASTER,
+#endif
             NODE_ALL,
             DEVELOPER_OPTIONS,
             gettext_noop("Enable adio function."),
@@ -3365,21 +3369,22 @@ static void InitStorageConfigureNamesInt()
             NULL,
             NULL,
             NULL},
-        {{"prefetch_quantity",
+#ifndef ENABLE_LITE_MODE
+        {{"adio_prefetch_quantity",
             PGC_USERSET,
             NODE_ALL,
             RESOURCES_MEM,
             gettext_noop("Sets the IO quantity of prefetch buffers used by async dirct IO interface."),
             NULL,
             GUC_UNIT_BLOCKS},
-            &u_sess->attr.attr_storage.prefetch_quantity,
+            &u_sess->attr.attr_storage.adioPrefetchQuantity,
             4096,
             128,
             131072,
             NULL,
             NULL,
             NULL},
-
+#endif
         {{"backwrite_quantity",
             PGC_USERSET,
             NODE_ALL,
@@ -4316,6 +4321,47 @@ static void InitStorageConfigureNamesInt()
             60,
             0,
             INT_MAX / 1000,
+            NULL,
+            NULL,
+            NULL},
+#endif
+#ifndef ENABLE_LITE_MODE
+        {{"adio_buffer_align_size",
+            PGC_POSTMASTER,
+            NODE_ALL,
+            DEVELOPER_OPTIONS,
+            gettext_noop("Buffer aligned size for adio, should set to the page size of file system."),
+            NULL},
+            &g_instance.attr.attr_storage.adioBufferAlignSize,
+            BLCKSZ,
+            512,
+            BLCKSZ,
+            NULL,
+            NULL,
+            NULL},
+        {{"adio_reader_thread_num",
+            PGC_POSTMASTER,
+            NODE_ALL,
+            DEVELOPER_OPTIONS,
+            gettext_noop("Buffer aligned size for adio, should set to the page size of file system."),
+            NULL},
+            &g_instance.attr.attr_storage.adioReaderThreadNum,
+            2,
+            1,
+            10,
+            NULL,
+            NULL,
+            NULL},
+        {{"adio_writer_thread_num",
+            PGC_POSTMASTER,
+            NODE_ALL,
+            DEVELOPER_OPTIONS,
+            gettext_noop("Buffer aligned size for adio, should set to the page size of file system."),
+            NULL},
+            &g_instance.attr.attr_storage.adioWriterThreadNum,
+            2,
+            1,
+            10,
             NULL,
             NULL,
             NULL},
@@ -5808,20 +5854,24 @@ static bool check_enable_data_replicate(bool* newval, void** extra, GucSource so
 
 static bool check_adio_debug_guc(bool* newval, void** extra, GucSource source)
 {
+#ifdef ENABLE_LITE_MODE
     /* This value is always false no matter how the user sets it.  */
     if (*newval == true) {
         *newval = false;
     }
+#endif
 
     return true;
 }
 
 static bool check_adio_function_guc(bool* newval, void** extra, GucSource source)
 {
+#ifdef ENABLE_LITE_MODE
     /* This value is always false no matter how the user sets it.  */
     if (*newval == true) {
         *newval = false;
     }
+#endif
 
     return true;
 }

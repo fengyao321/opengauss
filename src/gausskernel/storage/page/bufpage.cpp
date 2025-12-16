@@ -316,7 +316,7 @@ static inline void AllocPageCopyMem()
  * buffer, other processes might be updating hint bits in it, so we must
  * copy the page to private storage if we are going to change it.
  */
-char* PageDataEncryptIfNeed(Page page, TdeInfo* tde_info, bool need_copy, bool is_segbuf)
+char* PageDataEncryptIfNeed(Page page, TdeInfo* tde_info, bool need_copy, bool isSegbuf)
 {
     size_t plainLength = 0;
     size_t cipherLength = 0;
@@ -338,7 +338,7 @@ char* PageDataEncryptIfNeed(Page page, TdeInfo* tde_info, bool need_copy, bool i
     }
     if (need_copy) {
         AllocPageCopyMem();
-        dst = is_segbuf ? t_thrd.storage_cxt.segPageCopy : t_thrd.storage_cxt.pageCopy;
+        dst = isSegbuf ? t_thrd.storage_cxt.segPageCopy : t_thrd.storage_cxt.pageCopy;
         ret = memcpy_s(dst, BLCKSZ, (char*)page, BLCKSZ);
         securec_check(ret, "\0", "\0");
     } else {
@@ -403,7 +403,7 @@ void PageDataDecryptIfNeed(Page page)
  * statically-allocated memory, so the caller must immediately write the
  * returned page and not refer to it again.
  */
-char* PageSetChecksumCopy(Page page, BlockNumber blkno, bool is_segbuf)
+char* PageSetChecksumCopy(Page page, BlockNumber blkno, bool isSegbuf)
 {
     /* If we don't need a checksum, just return the passed-in data */
     if (!CheckPageZeroCases((PageHeader)page)) {
@@ -418,7 +418,27 @@ char* PageSetChecksumCopy(Page page, BlockNumber blkno, bool is_segbuf)
      */
     AllocPageCopyMem();
 
-    char *dst = is_segbuf ? t_thrd.storage_cxt.segPageCopy : t_thrd.storage_cxt.pageCopy;
+    char *dst = isSegbuf ? t_thrd.storage_cxt.segPageCopy : t_thrd.storage_cxt.pageCopy;
+
+    errno_t rc = memcpy_s(dst, BLCKSZ, (char*)page, BLCKSZ);
+    securec_check(rc, "", "");
+
+    /* set page->pd_flags mark using FNV1A for checksum */
+    PageSetChecksumByFNV1A(dst);
+
+    ((PageHeader)dst)->pd_checksum = pg_checksum_page(dst, blkno);
+
+    return dst;
+}
+
+char* AdioPageSetChecksumCopy(Page page, BlockNumber blkno, bool isSegbuf)
+{
+    /* If we don't need a checksum, just return the passed-in data */
+    if (!CheckPageZeroCases((PageHeader)page)) {
+        return (char*)page;
+    }
+
+    char *dst = t_thrd.storage_cxt.inProgressAioPageCopys + t_thrd.storage_cxt.InProgressAioDispatchCount * BLCKSZ;
 
     errno_t rc = memcpy_s(dst, BLCKSZ, (char*)page, BLCKSZ);
     securec_check(rc, "", "");

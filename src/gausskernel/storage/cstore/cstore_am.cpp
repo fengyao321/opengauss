@@ -474,134 +474,7 @@ void CStore::Destroy()
  */
 void CStore::CUPrefetch(CUDesc* cudesc, int col, AioDispatchCUDesc_t** dList, int& count, File* vfdList)
 {
-#ifndef ENABLE_LITE_MODE
-    CU* cu_ptr = NULL;
-    bool found = false;
-    int slotId = CACHE_BLOCK_INVALID_IDX;
-    AioDispatchCUDesc_t* aioDescp = NULL;
-
-    // same value CU
-    if (cudesc->cu_size == 0 || cudesc->IsNullCU() || cudesc->IsSameValCU()) {
-        return;
-    }
-
-    /* it is better to check  all delete and do not prefetch, but actually load cu does not take care of it */
-    uint64 load_offset = m_cuStorage[col]->GetAlignCUOffset(cudesc->cu_pointer);
-    int head_padding_size = cudesc->cu_pointer - load_offset;
-    int load_size = m_cuStorage[col]->GetAlignCUSize(head_padding_size + cudesc->cu_size);
-    /* need check and add sitution cu store in many files,
-        now if we found, jump the cu, we should think about more to deal with the CU in adio module */
-    if (!m_cuStorage[col]->IsCUStoreInOneFile(load_offset, load_size)) {
-        ereport(LOG,
-                (errmodule(MOD_ADIO),
-                 errmsg("CUPrefetch: skip cloumn(%d), cuid(%u), offset(%lu), size(%d)  ",
-                        col,
-                        cudesc->cu_id,
-                        cudesc->cu_pointer,
-                        cudesc->cu_size)));
-        return;
-    }
-
-    DataSlotTag dataSlotTag = CUCache->InitCUSlotTag((RelFileNodeOld *)&m_relation->rd_node, col, cudesc->cu_id,
-                                                     cudesc->cu_pointer);
-    // find whether already in CUCache, ReserveDataBlock can also find CU in cache,
-    // but i still add FindDataBlock here for efficient
-    // here we ignore the enter block times
-    slotId = CUCache->FindDataBlock(&dataSlotTag, false);
-    if (IsValidCacheSlotID(slotId)) {
-        ereport(DEBUG1,
-                (errmodule(MOD_ADIO),
-                 errmsg("prefetch find cu cache: relid(%u), column(%d), load cuid(%u)",
-                        m_relation->rd_node.relNode,
-                        col,
-                        cudesc->cu_id)));
-        CUCache->UnPinDataBlock(slotId);
-        return;
-    }
-
-    slotId = CUCache->ReserveDataBlock(&dataSlotTag, cudesc->cu_size, found);
-    if (found) {
-        CUCache->UnPinDataBlock(slotId);
-        return;
-    }
-
-    /* ReserveDataBlock, load_buf ,fd, offset allocate before adio_share_alloc becasue these can auto rollback */
-    File file = m_cuStorage[col]->GetCUFileFd(load_offset);
-    uint64 file_offset = m_cuStorage[col]->GetCUOffsetInFile(load_offset);
-
-    aioDescp = (AioDispatchCUDesc_t*)adio_share_alloc(sizeof(AioDispatchCUDesc_t));
-
-    cu_ptr = CUCache->GetCUBuf(slotId);
-    Assert(cu_ptr);
-
-    cu_ptr->m_head_padding_size = head_padding_size;
-    cu_ptr->m_adio_error = false;
-    cu_ptr->m_inCUCache = true;
-    cu_ptr->m_compressedLoadBuf = (char*)CStoreMemAlloc::Palloc(load_size, false);
-    cu_ptr->m_compressedBuf = cu_ptr->m_compressedLoadBuf + cu_ptr->m_head_padding_size;
-    cu_ptr->m_compressedBufSize = cudesc->cu_size;
-    cu_ptr->SetCUSize(cudesc->cu_size);
-    cu_ptr->m_cache_compressed = true;
-
-    /* iocb filled in later */
-    aioDescp->aiocb.data = 0;
-    aioDescp->aiocb.aio_fildes = 0;
-    aioDescp->aiocb.aio_lio_opcode = 0;
-    aioDescp->aiocb.u.c.buf = 0;
-    aioDescp->aiocb.u.c.nbytes = 0;
-    aioDescp->aiocb.u.c.offset = 0;
-
-    aioDescp->cuDesc.buf = cu_ptr->m_compressedLoadBuf;
-    aioDescp->cuDesc.offset = file_offset;
-    aioDescp->cuDesc.size = load_size;
-    aioDescp->cuDesc.fd = file;
-    vfdList[count] = file;
-    aioDescp->cuDesc.io_error = &cu_ptr->m_adio_error;
-    aioDescp->cuDesc.slotId = slotId;  // slotId maybe CACHE_BLOCK_INVALID_IDX
-    aioDescp->cuDesc.cu_pointer = cudesc->cu_pointer;
-    aioDescp->cuDesc.reqType = CUListPrefetchType;
-    aioDescp->aiocb.aio_reqprio = CompltrPriority(aioDescp->cuDesc.reqType);
-
-    dList[count] = aioDescp;
-    io_prep_pread((struct iocb*)dList[count],
-                  aioDescp->cuDesc.fd,
-                  aioDescp->cuDesc.buf,
-                  aioDescp->cuDesc.size,
-                  aioDescp->cuDesc.offset);
-    count++;
-
-    CUCache->TerminateCU(false);  // already record in dList[count]
-
-    Assert(IsValidCacheSlotID(slotId));
-    CUCache->UnPinDataBlock(slotId);
-    CUCache->CULWLockDisown(slotId);
-
-    ereport(DEBUG1,
-            (errmodule(MOD_ADIO),
-             errmsg("CUPrefetch: relid(%u), slotId(%d), col_id(%d), cu_id(%u), cu_size(%d), cu_point(%lu)",
-                    m_relation->rd_node.relNode,
-                    slotId,
-                    col,
-                    cudesc->cu_id,
-                    cudesc->cu_size,
-                    cudesc->cu_pointer)));
-
-    /* check need submint io */
-    if (count >= MAX_CU_PREFETCH_REQSIZ) {
-        int tmp_count = count;
-
-        HOLD_INTERRUPTS();
-        FileAsyncCURead(dList, count);
-        count = 0;
-        RESUME_INTERRUPTS();
-
-        FileAsyncCUClose(vfdList, tmp_count);
-        // stat cu hdd asyn read
-        pgstatCountCUHDDAsynRead4SessionLevel(tmp_count);
-        pgstat_count_cu_hdd_asyn(m_relation, tmp_count);
-    }
     return;
-#endif
 }
 
 /*
@@ -763,19 +636,9 @@ void CStore::CStoreScanWithCU(_in_ CStoreScanState* state, __inout BatchCUData* 
      * step3: Have CU hitted
      * we will not fill vector because no CU is hitted
      */
-    ADIO_RUN()
-    {
-        if (unlikely(m_cursor == m_NumCUDescIdx)) {
-            return;
-        }
+    if (unlikely(m_NumLoadCUDesc == 0)) {
+        return;
     }
-    ADIO_ELSE()
-    {
-        if (unlikely(m_NumLoadCUDesc == 0)) {
-            return;
-        }
-    }
-    ADIO_END();
 
     /*
      * step 4:
@@ -871,13 +734,6 @@ void CStore::CStoreScanWithCU(_in_ CStoreScanState* state, __inout BatchCUData* 
 
     // We should never have dived into rows in CU in this function
     Assert(m_rowCursorInCU == 0);
-
-    // step6: prefetch if need
-    ADIO_RUN()
-    {
-        CUListPrefetch();
-    }
-    ADIO_END();
 }
 
 // CStoreScan
@@ -904,19 +760,9 @@ void CStore::CStoreScan(_in_ CStoreScanState* state, _out_ VectorBatch* vecBatch
 
     // step3: Have CU hitted
     // we will not fill vector because no CU is hitted
-    ADIO_RUN()
-    {
-        if (unlikely(m_cursor == m_NumCUDescIdx)) {
-            return;
-        }
+    if (unlikely(m_NumLoadCUDesc == 0)) {
+        return;
     }
-    ADIO_ELSE()
-    {
-        if (unlikely(m_NumLoadCUDesc == 0)) {
-            return;
-        }
-    }
-    ADIO_END();
 
     // step4: Fill VecBatch
     CSTORESCAN_TRACE_START(FILL_BATCH);
@@ -925,15 +771,6 @@ void CStore::CStoreScan(_in_ CStoreScanState* state, _out_ VectorBatch* vecBatch
 
     // step5: refresh cursor
     RefreshCursor(vecBatchOut->m_rows, deadRows);
-
-    // step6: prefetch if need
-    ADIO_RUN()
-    {
-        CSTORESCAN_TRACE_START(PREFETCH_CU_LIST);
-        CUListPrefetch();
-        CSTORESCAN_TRACE_END(PREFETCH_CU_LIST);
-    }
-    ADIO_END();
 }
 
 /*
@@ -973,25 +810,11 @@ bool CStore::HasEnoughCuDescSlot(int start, int end) const
 bool CStore::NeedLoadCUDesc(int32& cudesc_idx)
 {
     bool need_load = false;
-    ADIO_RUN()
-    {
-        // check load condition, first not load finish, second not exceed prefetch count
-        if (!m_load_finish && (m_cursor == m_NumCUDescIdx || LoadCudescMinus(m_cursor, m_NumCUDescIdx) <=
-                               t_thrd.cstore_cxt.cstore_prefetch_count / 2)) {
-            need_load = true;
-            m_prefetch_quantity = 0;
-            cudesc_idx = m_NumCUDescIdx;
-        }
+    if (m_cursor >= m_NumLoadCUDesc) {
+        need_load = true;
+        m_cursor = 0;
+        cudesc_idx = 0;
     }
-    ADIO_ELSE()
-    {
-        if (m_cursor >= m_NumLoadCUDesc) {
-            need_load = true;
-            m_cursor = 0;
-            cudesc_idx = 0;
-        }
-    }
-    ADIO_END();
 
     return need_load;
 }
@@ -1055,34 +878,7 @@ void CStore::LoadCUDescIfNeed()
             m_NumLoadCUDesc += LoadCudescMinus(m_CUDescInfo[0]->lastLoadNum, m_CUDescInfo[0]->curLoadNum);
         }
 
-        ADIO_RUN()
-        {
-            // if found ,we need to check prefetch quantity and decide whether need load more cudesc
-            if (found && m_prefetch_quantity < m_prefetch_threshold &&
-                HasEnoughCuDescSlot(last_load_num, m_CUDescInfo[0]->curLoadNum)) {
-                continue;
-            }
-            // load finish, set lastLoadNum to backup values
-            for (int i = 0; i < m_colNum; ++i) {
-                m_CUDescInfo[i]->lastLoadNum = last_load_num;
-            }
-            if (m_colNum > 0) {
-                // give an min prefetch count here,because we need prefetch window to control whether need prefetch
-                t_thrd.cstore_cxt.cstore_prefetch_count = Max(m_NumLoadCUDesc, CSTORE_MIN_PREFETCH_COUNT);
-                ereport(DEBUG1,
-                        (errmodule(MOD_ADIO),
-                         errmsg("LoadCUDesc: columns(%d), count(%d), quantity(%d)",
-                                m_colNum,
-                                m_NumLoadCUDesc,
-                                m_prefetch_quantity)));
-            }
-            break;
-        }
-        ADIO_ELSE()
-        {
-            break;
-        }
-        ADIO_END();
+        break;
     } while (1);
 
     // sys columns and const columns
@@ -1124,14 +920,6 @@ void CStore::LoadCUDescIfNeed()
 void CStore::IncLoadCuDescIdx(int& idx) const
 {
     idx++;
-
-    ADIO_RUN()
-    {
-        if (idx >= u_sess->attr.attr_storage.max_loaded_cudesc) {
-            idx = 0;
-        }
-    }
-    ADIO_END();
     return;
 }
 
@@ -1233,13 +1021,6 @@ void CStore::RoughCheckIfNeed(_in_ CStoreScanState* state)
     }
 
     if (likely(nkeys == 0 || scanKey == NULL || m_colNum == 0)) {
-        /* when no where condition, we also need set m_lastNumCUDescIdx and m_NumCUDescIdx for prefetch once */
-        ADIO_RUN()
-        {
-            m_NumCUDescIdx = (m_NumCUDescIdx + m_NumLoadCUDesc) % u_sess->attr.attr_storage.max_loaded_cudesc;
-            m_needRCheck = false;
-        }
-        ADIO_END();
         return;
     }
 
@@ -1247,29 +1028,13 @@ void CStore::RoughCheckIfNeed(_in_ CStoreScanState* state)
     bool hitCU = true;
     int cudesc_idx_tmp = 0;
 
-    ADIO_RUN()
-    {
-        /* pos is rough check start point */
-        cudesc_idx_tmp = m_NumCUDescIdx;
-        pos = m_NumCUDescIdx;
-    }
-    ADIO_END();
-
     lastLoadNum = m_CUDescInfo[0]->lastLoadNum;
     curLoadNum = m_CUDescInfo[0]->curLoadNum;
     for (int i = (int)lastLoadNum; i != (int)curLoadNum; IncLoadCuDescIdx(i), IncLoadCuDescIdx(cudesc_idx_tmp)) {
         hitCU = RoughCheck(scanKey, nkeys, i);
         if (hitCU) {
             // fliter CU not hit
-            ADIO_RUN()
-            {
-                m_CUDescIdx[pos] = m_CUDescIdx[cudesc_idx_tmp];
-            }
-            ADIO_ELSE()
-            {
-                m_CUDescIdx[pos] = m_CUDescIdx[i];
-            }
-            ADIO_END();
+            m_CUDescIdx[pos] = m_CUDescIdx[i];
 
             IncLoadCuDescIdx(pos);
         }
@@ -1330,20 +1095,7 @@ void CStore::RoughCheckIfNeed(_in_ CStoreScanState* state)
         }
     }
 
-    ADIO_RUN()
-    {
-        /* m_NumCUDescIdx is rough check end point, ,so need update here */
-        if (pos == m_NumCUDescIdx) {
-            m_NumCUDescIdx = (m_NumCUDescIdx + m_NumLoadCUDesc) % u_sess->attr.attr_storage.max_loaded_cudesc;
-        } else {
-            m_NumCUDescIdx = pos;
-        }
-    }
-    ADIO_ELSE()
-    {
-        m_NumLoadCUDesc = pos;
-    }
-    ADIO_END();
+    m_NumLoadCUDesc = pos;
 
     // set flag for already done the rought check
     m_needRCheck = false;
@@ -1427,16 +1179,7 @@ void CStore::InitPartReScan(Relation rel)
 // FORCE_INLINE
 bool CStore::IsEndScan() const
 {
-    // all CUDesc already scanned
-    ADIO_RUN()
-    {
-        return (m_cursor == m_NumCUDescIdx && m_load_finish) ? true : false;
-    }
-    ADIO_ELSE()
-    {
-        return (m_NumCUDescIdx == 0) ? true : false;
-    }
-    ADIO_END();
+    return (m_NumCUDescIdx == 0) ? true : false;
 }
 
 FORCE_INLINE
@@ -2270,16 +2013,8 @@ bool CStore::LoadCUDesc(
      */
     AutoContextSwitch newMemCnxt(m_perScanMemCnxt);
 
-    ADIO_RUN()
-    {
-        loadCUDescInfoPtr->lastLoadNum = loadCUDescInfoPtr->curLoadNum;
-    }
-    ADIO_ELSE()
-    {
-        loadCUDescInfoPtr->lastLoadNum = 0;
-        loadCUDescInfoPtr->curLoadNum = 0;
-    }
-    ADIO_END();
+    loadCUDescInfoPtr->lastLoadNum = 0;
+    loadCUDescInfoPtr->curLoadNum = 0;
 
     CUDesc* cuDescArray = loadCUDescInfoPtr->cuDescArray;
     /*
@@ -2339,22 +2074,8 @@ bool CStore::LoadCUDesc(
         int32 cu_size = DatumGetInt32(values[CUDescSizeAttr - 1]);
         Assert(!isnull[CUDescSizeAttr - 1]);
 
-        ADIO_RUN()
-        {
-            loadNum = (int)loadCUDescInfoPtr->curLoadNum;
-            IncLoadCuDescIdx(loadNum);
-            /* case1: check whether can load more ;case 2: m_virtualCUDescInfo check here  whether array overflow */
-            if (m_CUDescIdx[m_cursor] == loadNum || !HasEnoughCuDescSlot(loadCUDescInfoPtr->lastLoadNum, loadNum)) {
-                break;
-            }
-            m_prefetch_quantity += cu_size;
-        }
-        ADIO_ELSE()
-        {
-            if (!loadCUDescInfoPtr->HasFreeSlot())
-                break;
-        }
-        ADIO_END();
+        if (!loadCUDescInfoPtr->HasFreeSlot())
+            break;
 
         cuDescArray[loadCUDescInfoPtr->curLoadNum].cu_size = cu_size;
         cuDescArray[loadCUDescInfoPtr->curLoadNum].xmin = HeapTupleGetRawXmin(tup);
@@ -2427,15 +2148,6 @@ bool CStore::LoadCUDesc(
     systable_endscan_ordered(cudesc_scan);
     index_close(idx_rel, AccessShareLock);
     heap_close(cudesc_rel, AccessShareLock);
-
-    ADIO_RUN()
-    {
-        if (tup == NULL) {
-            /* no tup found means prefetch finish */
-            m_load_finish = true;
-        }
-    }
-    ADIO_END();
 
     if (found) {
         /* nextCUID must be greater than loaded cudesc */
@@ -3744,18 +3456,6 @@ RETRY_LOAD_CU:
 
     m_cuStorage[colIdx]->LoadCU(
         cuPtr, cuDescPtr->cu_pointer, cuDescPtr->cu_size, g_instance.attr.attr_storage.enable_adio_function, true);
-
-    ADIO_RUN()
-    {
-        ereport(DEBUG1,
-                (errmodule(MOD_ADIO),
-                 errmsg("GetCUData:relation(%s), colIdx(%d), load cuid(%u), slotId(%d)",
-                        RelationGetRelationName(m_relation),
-                        colIdx,
-                        cuDescPtr->cu_id,
-                        slotId)));
-    }
-    ADIO_END();
 
     // Mark the CU as no longer io busy, and wake any waiters
     CUCache->DataBlockCompleteIO(slotId);

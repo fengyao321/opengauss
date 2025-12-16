@@ -2,6 +2,10 @@ subdir = src/gausskernel/storage/access/datavec
 top_builddir = ../../../../..
 include $(top_builddir)/src/Makefile.global
 
+override LIBS := -lonnx_wrapper $(LIBS)
+override LDFLAGS += -L$(TOKENIZERS_LIB_PATH) -L$(ONNXRUNTIME_LIB_PATH)
+override CXXFLAGS := -I$(ONNXRUNTIME_INCLUDE_PATH) $(CXXFLAGS)
+
 ifneq "$(MAKECMDGOALS)" "clean"
   ifneq "$(MAKECMDGOALS)" "distclean"
      ifneq "$(shell which g++ |grep hutaf_llt |wc -l)" "1"

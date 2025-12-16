@@ -731,6 +731,8 @@
 ./lib/libz.so*
 ./lib/libcjson.so*
 ./lib/libtext_splitter_ffi.so*
+./lib/libonnx*.so*
+./lib/libtokenizers.so*
 ./lib/libcjson_utils.so*
 ./lib/libstdc++.so.6
 ./lib/libgcc_s.so.1

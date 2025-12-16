@@ -29,6 +29,7 @@
 #include "utils/palloc.h"
 #include "ddes/dms/ss_dms_bufmgr.h"
 #include "ddes/dms/ss_common_attr.h"
+#include "access/datavec/ogai_onnx_mgr.h"
 #ifdef ENABLE_HTAP
 #include "access/htap/imcucache_mgr.h"
 #include "access/htap/ss_imcucache_mgr.h"
@@ -208,6 +209,9 @@ void InitBufferPool(void)
     IMCUDataCacheMgr::NewSingletonInstance();
     SSIMCUDataCacheMgr::NewSingletonInstance();
 #endif
+
+    /* Init onnx runtime buffers */
+    ONNXModelMgr::NewSingletonInstance();
 
     /* Initialize per-backend file flush context */
     WritebackContextInit(t_thrd.storage_cxt.BackendWritebackContext, &u_sess->attr.attr_common.backend_flush_after);

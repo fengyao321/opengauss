@@ -26,6 +26,7 @@
 #include "access/htup.h"
 #include "utils/builtins.h"
 #include "access/datavec/ogai_model_framework.h"
+#include "access/datavec/ogai_onnx_embedding.h"
 #include "access/datavec/ogai_model_manager.h"
 
 static ProviderClientCreators providerCreators[] = {
@@ -44,7 +45,11 @@ static ProviderClientCreators providerCreators[] = {
         .createGenerate = CreateOllamaGenerateClient,
         .createRerank = CreateOllamaRerankClient
     },
-    [PROVIDER_ONNX] = {NULL, NULL, NULL},
+    [PROVIDER_ONNX] = {
+        .createEmbedding = CreateONNXEmbeddingClient,
+        .createGenerate = NULL,
+        .createRerank = NULL
+    },
 };
 
 static void SetModelConfigFromDB(ModelConfig* config, const char* modelKey)

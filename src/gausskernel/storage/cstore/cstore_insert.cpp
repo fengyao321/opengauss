@@ -157,22 +157,12 @@ CStoreInsert::CStoreInsert(_in_ Relation relation, _in_ const InsertArg& args, _
                                               ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE,
                                               STANDARD_CONTEXT, m_cstorInsertMem->MemInsert * 1024L);
 
-    ADIO_RUN()
-    {
-        m_aio_memcnxt = AllocSetContextCreate(CurrentMemoryContext, "ADIO CU CACHE CNXT", ALLOCSET_DEFAULT_MINSIZE,
-                                              ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE);
-        /* the other ADIO vars will be initialized later */
-    }
-    ADIO_ELSE()
-    {
-        m_aio_memcnxt = NULL;
-        m_aio_cu_PPtr = NULL;
-        m_aio_dispath_cudesc = NULL;
-        m_aio_dispath_idx = NULL;
-        m_aio_cache_write_threshold = NULL;
-        m_vfdList = NULL;
-    }
-    ADIO_END();
+    m_aio_memcnxt = NULL;
+    m_aio_cu_PPtr = NULL;
+    m_aio_dispath_cudesc = NULL;
+    m_aio_dispath_idx = NULL;
+    m_aio_cache_write_threshold = NULL;
+    m_vfdList = NULL;
 
     AutoContextSwitch autoMemContext(m_batchInsertCnxt);
 
@@ -373,13 +363,6 @@ void CStoreInsert::Destroy()
     }
 #endif
 
-    ADIO_RUN()
-    {
-        FreeMemAllocateByAdio();
-        MemoryContextDelete(m_aio_memcnxt);
-    }
-    ADIO_END();
-
     /* Step 3: Destroy memory context */
     MemoryContextDelete(m_tmpMemCnxt);
     MemoryContextDelete(m_batchInsertCnxt);
@@ -561,27 +544,6 @@ void CStoreInsert::BeginBatchInsert(const InsertArg& args)
      * So insert acquire relfilenode lock to block catchup.
      */
     LockRelFileNode(m_relation->rd_node, RowExclusiveLock);
-
-    ADIO_RUN()
-    {
-        m_aio_dispath_idx = (int*)palloc0(sizeof(int) * m_relation->rd_att->natts);
-        m_aio_dispath_cudesc =
-            (AioDispatchCUDesc_t***)palloc(sizeof(AioDispatchCUDesc_t**) * m_relation->rd_att->natts);
-        m_aio_cu_PPtr = (CU***)palloc(sizeof(CU**) * m_relation->rd_att->natts);
-        m_aio_cache_write_threshold = (int32*)palloc0(sizeof(int32) * m_relation->rd_att->natts);
-
-        m_vfdList = (File**)palloc(sizeof(File*) * m_relation->rd_att->natts);
-
-        for (int col = 0; col < m_relation->rd_att->natts; ++col) {
-            m_aio_cu_PPtr[col] = (CU**)palloc(sizeof(CU*) * MAX_CU_WRITE_REQSIZ);
-            m_aio_dispath_cudesc[col] =
-                (AioDispatchCUDesc_t**)palloc(sizeof(AioDispatchCUDesc_t*) * MAX_CU_WRITE_REQSIZ);
-            m_vfdList[col] = (File*)palloc(sizeof(File) * MAX_CU_WRITE_REQSIZ);
-            errno_t rc = memset_s((char*)m_vfdList[col], sizeof(File) * MAX_CU_WRITE_REQSIZ, 0xFF, sizeof(File) * MAX_CU_WRITE_REQSIZ);
-            securec_check(rc, "\0", "\0");
-        }
-    }
-    ADIO_END();
 }
 
 void CStoreInsert::InitDeltaInfo()
@@ -724,17 +686,8 @@ void CStoreInsert::InitIndexInfo(void)
 void CStoreInsert::EndBatchInsert()
 {
     int attNo = m_relation->rd_att->natts;
-
-    ADIO_RUN()
-    {
-        CUListFlushAll(attNo);
-    }
-    ADIO_ELSE()
-    {
-        for (int i = 0; i < attNo && m_cuStorage[i] != NULL; ++i)
-            m_cuStorage[i]->FlushDataFile();
-    }
-    ADIO_END();
+    for (int i = 0; i < attNo && m_cuStorage[i] != NULL; ++i)
+        m_cuStorage[i]->FlushDataFile();
 }
 
 void CStoreInsert::DoBatchInsert(int options)
@@ -1080,115 +1033,7 @@ void CStoreInsert::CUListFlushAll(int attno)
  */
 void CStoreInsert::CUWrite(int attno, int col)
 {
-#ifndef ENABLE_LITE_MODE
-    CU* cu = m_cuPPtr[col];
-    CUDesc* cuDesc = m_cuDescPPtr[col];
-    CUStorage* cuStorage = m_cuStorage[col];
-    AioDispatchCUDesc_t** dList = m_aio_dispath_cudesc[col];
-    int count = m_aio_dispath_idx[col];
-    AioDispatchCUDesc_t* aioDescp = NULL;
-
-    Assert(cuDesc->cu_size > 0);
-
-    /* if the cu store in two files or more, need flush the cus cached and sync write the cu */
-    if (!cuStorage->IsCUStoreInOneFile(cuDesc->cu_pointer, cuDesc->cu_size)) {
-        /* submint io */
-        if (count > 0) {
-            FileAsyncCUWrite(dList, count);
-            CUListWriteCompeleteIO(col, count);
-            count = 0;
-        }
-        m_aio_dispath_idx[col] = count;
-
-        cuStorage->SaveCU(cu->m_compressedBuf, cuDesc->cu_pointer, cuDesc->cu_size, true);
-        CStoreCUReplication(
-            m_relation, cuStorage->m_cnode.m_attid, cu->m_compressedBuf, cuDesc->cu_size, cuDesc->cu_pointer);
-        cu->FreeMem<false>();
-        ereport(LOG, (errmodule(MOD_ADIO),
-                 errmsg("CUListWrite: sync write cloumn(%d), cuid(%u), offset(%lu), size(%d)  ",
-                        col, cuDesc->cu_id, cuDesc->cu_pointer, cuDesc->cu_size)));
-        return;
-    }
-
-    /* when cache cu exceed upper limit, write all */
-    bool need_flush_cache = false;
-    CUCache->LockPrivateCache();
-    if (adio_write_cache_size + cuDesc->cu_size >= u_sess->attr.attr_storage.cstore_backwrite_max_threshold * 1024LL) {
-        need_flush_cache = true;
-    }
-    CUCache->UnLockPrivateCache();
-    if (need_flush_cache) {
-        ereport(LOG, (errmodule(MOD_ADIO), errmsg("CUListWrite: exceed total cache, relid(%u), size(%ld)  ",
-                        m_relation->rd_node.relNode, adio_write_cache_size)));
-        CUListFlushAll(attno);
-    }
-
-    /* must get count again becaue CUListFlushAll change  m_aio_dispath_idx[col] */
-    count = m_aio_dispath_idx[col];
-
-    /* when col cache cu exceed upper limit, write cache cu of this col */
-    if (m_aio_cache_write_threshold[col] + cuDesc->cu_size >= cstore_backwrite_quantity * 1024LL) {
-        ereport(DEBUG1, (errmodule(MOD_ADIO), errmsg("CUListWrite: exceed write threshold, column(%d), count(%d), size(%d)  ",
-                        col, count, m_aio_cache_write_threshold[col])));
-        /* submint io */
-        if (count > 0) {
-            FileAsyncCUWrite(dList, count);
-            CUListWriteCompeleteIO(col, count);
-            count = 0;
-        }
-    }
-    m_aio_cache_write_threshold[col] += cuDesc->cu_size;
-
-    aioDescp = (AioDispatchCUDesc_t*)adio_share_alloc(sizeof(AioDispatchCUDesc_t));
-
-    m_aio_cu_PPtr[col][count] = cu;
-
-    /* iocb filled in later */
-    aioDescp->aiocb.data = 0;
-    aioDescp->aiocb.aio_fildes = 0;
-    aioDescp->aiocb.aio_lio_opcode = 0;
-    aioDescp->aiocb.u.c.buf = 0;
-    aioDescp->aiocb.u.c.nbytes = 0;
-    aioDescp->aiocb.u.c.offset = 0;
-
-    aioDescp->cuDesc.buf = cu->m_compressedBuf;
-    aioDescp->cuDesc.offset = cuStorage->GetCUOffsetInFile(cuDesc->cu_pointer);
-    aioDescp->cuDesc.size = cuDesc->cu_size;
-    aioDescp->cuDesc.fd = cuStorage->GetCUFileFd(cuDesc->cu_pointer);
-    m_vfdList[col][count] = aioDescp->cuDesc.fd;
-    aioDescp->cuDesc.io_error = &cu->m_adio_error;
-    aioDescp->cuDesc.slotId = cuDesc->cu_id;
-    aioDescp->cuDesc.cu_pointer = cuDesc->cu_pointer;
-    aioDescp->cuDesc.io_finish = false;
-    aioDescp->cuDesc.reqType = CUListWriteType;
-    aioDescp->aiocb.aio_reqprio = CompltrPriority(aioDescp->cuDesc.reqType);
-
-    dList[count] = aioDescp;
-    io_prep_pwrite((struct iocb*)dList[count], aioDescp->cuDesc.fd, aioDescp->cuDesc.buf, aioDescp->cuDesc.size,
-                   aioDescp->cuDesc.offset);
-    count++;
-
-    /* record size */
-    CUCache->LockPrivateCache();
-    adio_write_cache_size += cuDesc->cu_size;
-    CUCache->UnLockPrivateCache();
-    ereport(DEBUG1, (errmodule(MOD_ADIO), errmsg("CUListWrite: increase cache size, column(%d), cu_size(%d),total cache size(%ld)",
-                    col, cuDesc->cu_size, adio_write_cache_size)));
-
-    /* submint io */
-    if (count >= MAX_CU_WRITE_REQSIZ) {
-        ereport(DEBUG1, (errmodule(MOD_ADIO), errmsg("CUListWrite: exceed queue size, cloumn(%d), count(%d), size(%d) ",
-                        col, count, m_aio_cache_write_threshold[col])));
-        FileAsyncCUWrite(dList, count);
-        CUListWriteCompeleteIO(col, count);
-        count = 0;
-    }
-    m_aio_dispath_idx[col] = count;
-    ereport(DEBUG1, (errmodule(MOD_ADIO), errmsg("CUListWrite: add cloumn(%d), cuid(%u), offset(%lu), size(%d) ",
-                    col, cuDesc->cu_id, cuDesc->cu_pointer, cuDesc->cu_size)));
-
     return;
-#endif
 }
 
 /*
@@ -1365,46 +1210,38 @@ void CStoreInsert::SaveAll(int options, _in_ const char* delBitmap)
     UnlockRelationForExtension(m_relation, ExclusiveLock);
 
     /* Step 5: Write CU into storage */
-    ADIO_RUN()
-    {
-        CUListWrite();
-    }
-    ADIO_ELSE()
-    {
-        for (col = 0; col < attno; ++col) {
-            if (m_relation->rd_att->attrs[col].attisdropped) {
-                if (m_cuPPtr[col])
-                    DELETE_EX(m_cuPPtr[col]);
-                continue;
-            }
-            CU* cu = m_cuPPtr[col];
-            CUDesc* cuDesc = m_cuDescPPtr[col];
-            CUStorage* cuStorage = m_cuStorage[col];
-
-            if (cuDesc->cu_size > 0) {
-                /* IO collector and IO scheduler */
-                if (ENABLE_WORKLOAD_CONTROL)
-                    IOSchedulerAndUpdate(IO_TYPE_WRITE, 1, IO_TYPE_COLUMN);
-
-                cuStorage->SaveCU(cu->m_compressedBuf, cuDesc->cu_pointer, cuDesc->cu_size, false);
-                const int CUALIGNSIZE = cuStorage->Is2ByteAlign() ? ALIGNOF_TIMESERIES_CUSIZE : ALIGNOF_CUSIZE;
-                if (u_sess->attr.attr_storage.HaModuleDebug)
-                    ereport(LOG, (errmsg("HA-SaveAll: rnode %u/%u/%u, col %d, blockno %lu, cuUnitCount %d",
-                        m_relation->rd_node.spcNode, m_relation->rd_node.dbNode, m_relation->rd_node.relNode, 
-                        cuStorage->m_cnode.m_attid, cuDesc->cu_pointer / CUALIGNSIZE, cuDesc->cu_size / CUALIGNSIZE)));
-
-                CStoreCUReplication(
-                    m_relation, cuStorage->m_cnode.m_attid, cu->m_compressedBuf, cuDesc->cu_size, cuDesc->cu_pointer);
-
-                cu->FreeMem<false>();
-            }
-
-            /* free CU object immediately */
+    for (col = 0; col < attno; ++col) {
+        if (m_relation->rd_att->attrs[col].attisdropped) {
             if (m_cuPPtr[col])
                 DELETE_EX(m_cuPPtr[col]);
+            continue;
         }
+        CU* cu = m_cuPPtr[col];
+        CUDesc* cuDesc = m_cuDescPPtr[col];
+        CUStorage* cuStorage = m_cuStorage[col];
+
+        if (cuDesc->cu_size > 0) {
+            /* IO collector and IO scheduler */
+            if (ENABLE_WORKLOAD_CONTROL)
+                IOSchedulerAndUpdate(IO_TYPE_WRITE, 1, IO_TYPE_COLUMN);
+
+            cuStorage->SaveCU(cu->m_compressedBuf, cuDesc->cu_pointer, cuDesc->cu_size, false);
+            const int CUALIGNSIZE = cuStorage->Is2ByteAlign() ? ALIGNOF_TIMESERIES_CUSIZE : ALIGNOF_CUSIZE;
+            if (u_sess->attr.attr_storage.HaModuleDebug)
+                ereport(LOG, (errmsg("HA-SaveAll: rnode %u/%u/%u, col %d, blockno %lu, cuUnitCount %d",
+                    m_relation->rd_node.spcNode, m_relation->rd_node.dbNode, m_relation->rd_node.relNode,
+                    cuStorage->m_cnode.m_attid, cuDesc->cu_pointer / CUALIGNSIZE, cuDesc->cu_size / CUALIGNSIZE)));
+
+            CStoreCUReplication(
+                m_relation, cuStorage->m_cnode.m_attid, cu->m_compressedBuf, cuDesc->cu_size, cuDesc->cu_pointer);
+
+            cu->FreeMem<false>();
+        }
+
+        /* free CU object immediately */
+        if (m_cuPPtr[col])
+            DELETE_EX(m_cuPPtr[col]);
     }
-    ADIO_END();
 
     /* step 6: Insert CUDesc of virtual column */
     CStore::SaveVCCUDesc(m_relation->rd_rel->relcudescrelid, m_cuDescPPtr[firstColIdx]->cu_id,
@@ -1430,17 +1267,7 @@ CU* CStoreInsert::FormCU(int col, bulkload_rows* batchRowPtr, CUDesc* cuDescPtr)
     int attlen = attrs[col].attlen;
     CU* cuPtr = NULL;
 
-    ADIO_RUN()
-    {
-        /* cuPtr need keep untill async write finish */
-        cuPtr = New(m_aio_memcnxt) CU(attlen, attrs[col].atttypmod, attrs[col].atttypid);
-    }
-    ADIO_ELSE()
-    {
-        cuPtr = New(CurrentMemoryContext) CU(attlen, attrs[col].atttypmod, attrs[col].atttypid);
-    }
-    ADIO_END();
-
+    cuPtr = New(CurrentMemoryContext) CU(attlen, attrs[col].atttypmod, attrs[col].atttypid);
     cuDescPtr->Reset();
 
     int funIdx = batchRowPtr->m_vectors[col].m_values_nulls.m_has_null ? FORMCU_IDX_HAVE_NULL : FORMCU_IDX_NONE_NULL;
@@ -2759,15 +2586,7 @@ PartitionValueCache::PartitionValueCache(Relation rel)
     m_fd = OpenTemporaryFile(false);
     m_rel = rel;
 
-    ADIO_RUN()
-    {
-        m_buffer = (char*)CStoreMemAlloc::Palloc(PartitionValueCache::MAX_BUFFER_SIZE);
-    }
-    ADIO_ELSE()
-    {
-        m_buffer = (char*)palloc(PartitionValueCache::MAX_BUFFER_SIZE);
-    }
-    ADIO_END();
+    m_buffer = (char*)palloc(PartitionValueCache::MAX_BUFFER_SIZE);
 
     Reset();
     Assert(m_fd > 0);
@@ -2784,17 +2603,8 @@ void PartitionValueCache::Destroy()
     if (m_fd > 0)
         FileClose(m_fd);
 
-    ADIO_RUN()
-    {
-        CStoreMemAlloc::Pfree(m_buffer);
-        m_buffer = NULL;
-    }
-    ADIO_ELSE()
-    {
-        pfree(m_buffer);
-        m_buffer = NULL;
-    }
-    ADIO_END();
+    pfree(m_buffer);
+    m_buffer = NULL;
 }
 
 Size PartitionValueCache::WriteRow(Datum* values, const bool* nulls)

@@ -8,6 +8,8 @@ set(TGT_datavec_INC
         ${LIBCGROUP_INCLUDE_PATH}
         ${EVENT_INCLUDE_PATH}
         ${ZLIB_INCLUDE_PATH}
+        ${TOKENIZERS_INCLUDE_PATH}
+        ${ONNXRUNTIME_INCLUDE_PATH}
         /usr/include/openblas
 )
 find_library(OPENBLAS_LIB openblas HINTS /usr/lib64 /usr/lib)

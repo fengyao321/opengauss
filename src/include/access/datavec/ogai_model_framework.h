@@ -72,7 +72,7 @@ typedef struct InputDocuments {
 
 class EmbeddingClient : public BaseObject {
 public:
-    Vector** BatchEmbed(OGAIString* texts, size_t textNum, int* dim);
+    virtual Vector** BatchEmbed(OGAIString* texts, size_t textNum, int* dim);
     virtual char* BuildEmbeddingReqBody(OGAIString* texts, size_t textNum) = 0;
     virtual void ParseEmbeddingRespBody(char* respBody, Vector** results, size_t start, size_t textNum) = 0;
 
