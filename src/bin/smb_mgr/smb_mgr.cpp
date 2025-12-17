@@ -26,6 +26,7 @@ static constexpr auto ENV_PGDATA = "PGDATA";
 
 static char confPath[MAXPGPATH];
 static char* g_ubsMemPath;
+static char* g_shmPool;
 static uint64 ParseSize(const char *str);
 static const char* PROGNAME;
 
@@ -149,9 +150,10 @@ static bool CreateShmChunk(int deleteChunkNum, char* name, size_t size)
 {
     int ret = 0;
     void *data = nullptr;
-    ret = ubsmem_shmem_map(data, size, PROT_READ | PROT_WRITE, MAP_SHARED, name, 0, &data);
+    ret = ubsmem_shmem_mapcheck(data, size, PROT_READ | PROT_WRITE, MAP_SHARED, name, 0, &data);
     if (ret != 0) {
-        ret = ubsmem_shmem_allocate("default", name, size, 0600, 0);
+        mode_t permission = S_IRUSR | S_IWUSR;
+        ret = ubsmem_shmem_allocate(g_shmPool, name, size, permission, UBSM_FLAG_CACHE);
         if (ret != 0) {
             pg_log(PG_ERROR, _("SMB: create share memory %s failed, code is [%d].\n"), name, ret);
             DeleteAllShmChunks(deleteChunkNum, name);
@@ -307,13 +309,14 @@ static void Usage(void)
     printf(_("  Common options:\n"));
     printf(_("  -D                     Path of database cluster.\n"));
     printf(_("  -L                     Path of matrix memory dynamic library.\n"));
+    printf(_("  -M                     Name of the shared region.\n"));
     printf(_("  -h|--help              show this help, then exit.\n"));
 }
 
 static int GetOpts(int argc, char *argv[])
 {
     int optionValue;
-    while ((optionValue = getopt(argc, argv, "D:L:")) != -1) {
+    while ((optionValue = getopt(argc, argv, "D:L:M:")) != -1) {
         switch (optionValue) {
             case 'D': {
                 char *pgdenv = nullptr;
@@ -326,6 +329,10 @@ static int GetOpts(int argc, char *argv[])
             case 'L':
                 CheckInputForSecurity(optarg);
                 g_ubsMemPath = Xstrdup(optarg);
+                break;
+            case 'M':
+                CheckInputForSecurity(optarg);
+                g_shmPool = Xstrdup(optarg);
                 break;
             default:
                 pg_log(PG_ERROR, _("Try \"%s --help\" for more information.\n"), PROGNAME);
@@ -340,6 +347,7 @@ int main (int argc, char* argv[])
     int nRet = 0;
     char *pgData = nullptr;
     g_ubsMemPath = "libubsm_sdk.so";
+    g_shmPool = "default";
 
     PROGNAME = get_progname(argv[0]);
     if (argc < VALID_PARA_NUM || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {

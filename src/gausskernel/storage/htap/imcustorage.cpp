@@ -154,7 +154,7 @@ void IMCUStorage::TryRemoveCUFile(_in_ uint32 cuId, _in_ int colId)
     GetFileName(tmpFileName, MAXPGPATH, cuId);
 
     if (!IsDataFileExist(cuId)) {
-        ereport(LOG, (errcode(ERRCODE_DATA_EXCEPTION),
+        ereport(DEBUG1, (errcode(ERRCODE_DATA_EXCEPTION),
                         errmsg("IMCUStorage::do not found cu file in disk.")));
         return;
     }

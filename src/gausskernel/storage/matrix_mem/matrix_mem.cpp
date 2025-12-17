@@ -188,8 +188,9 @@ static int Retry(Func func, const char *funcName)
         if (errorCode == MATRIX_MEM_SUCCESS) {
             return MATRIX_MEM_SUCCESS;
         }
-
-        PrintError(funcName, errorCode, retry, (retry == MAX_RETRY_TIMES - 1));
+        if (errorCode != MATRIX_MEM_LOG_FREE) {
+            PrintError(funcName, errorCode, retry, (retry == MAX_RETRY_TIMES - 1));
+        }
 
         const ErrorInfo *info = GetErrorInfo(errorCode);
         bool shouldRetry = (info && info->shouldRetry);
@@ -258,7 +259,17 @@ int ubsmem_lease_malloc(const char *region_name, size_t size, ubsmem_distance_t 
 int ubsmem_lease_free(void *local_ptr)
 {
     std::function<int()> funcin = [&]() -> int {
-        return g_matrixMemFunc.ubsmem_lease_free(local_ptr);
+        int ret = MATRIX_MEM_ERROR;
+        ret = g_matrixMemFunc.ubsmem_lease_free(local_ptr);
+        if (ret == UBSM_ERR_PARAM_INVALID) {
+#ifdef FRONTEND
+            fprintf(stdout, _("pointer [%p] has been freed.\n"), local_ptr);
+#else
+            ereport(LOG, (errmsg("pointer [%p] has been freed.\n", local_ptr)));
+#endif
+            return MATRIX_MEM_SUCCESS;
+        }
+        return ret;
     };
     return Retry(funcin, "ubsmem_lease_free");
 }
@@ -318,6 +329,20 @@ int ubsmem_shmem_map(void *addr, size_t length, int prot, int flags, const char 
         return g_matrixMemFunc.ubsmem_shmem_map(addr, length, prot, flags, name, offset, local_ptr);
     };
     return Retry(funcin, "ubsmem_shmem_map");
+}
+
+int ubsmem_shmem_mapcheck(void *addr, size_t length, int prot, int flags, const char *name, off_t offset,
+    void **local_ptr)
+{
+    std::function<int()> funcin = [&]() -> int {
+        int ret = MATRIX_MEM_ERROR;
+        ret = g_matrixMemFunc.ubsmem_shmem_map(addr, length, prot, flags, name, offset, local_ptr);
+        if (ret == UBSM_ERR_NOT_FOUND) {
+            return MATRIX_MEM_LOG_FREE;
+        }
+        return ret;
+    };
+    return Retry(funcin, "ubsmem_shmem_mapcheck");
 }
 
 int ubsmem_shmem_unmap(void *local_ptr, size_t length)

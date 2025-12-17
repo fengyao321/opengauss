@@ -71,12 +71,14 @@ typedef enum {
     UBSM_ERR_UNIMPL = 6013,  // not implement
     UBSM_CHECK_RESOURCE_ERROR = 6014, // resource check failed.
     UBSM_ERR_MEMLIB = 6015, // mem lib failed
+    UBSM_ERR_NO_NEEDED = 6016,
 
     // resource error
     UBSM_ERR_NOT_FOUND = 6020,
     UBSM_ERR_ALREADY_EXIST = 6021,
     UBSM_ERR_MALLOC_FAIL = 6022,
     UBSM_ERR_RECOED = 6023,
+    UBSM_ERR_IN_USING = 6024,
 
     // net error
     UBSM_ERR_NET = 6040,
