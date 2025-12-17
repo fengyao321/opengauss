@@ -18,6 +18,7 @@
 
 #include "catalog/namespace.h"
 #include "catalog/pg_type.h"
+#include "parser/parser.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/numeric.h"
@@ -607,6 +608,11 @@ static char* format_type_internal(
         typname = NameStr(typeform->typname);
 
         buf = quote_qualified_identifier(nspname, typname);
+        /* sys.varbinary in D format extension when typmod < 0. */
+        Oid varbianryoid = TSQL_HAS_VARBINARY ? TSQL_VARBINARY_OID : InvalidOid;
+        if (OidIsValid(varbianryoid) && typemod_given && typemod == TSQL_MAX_TYPMOD) {
+            buf = psnprintf(strlen(buf) + 6, "%s(max)", buf);
+        }
 
         if (with_typemod && !(type_oid == BYTEAWITHOUTORDERWITHEQUALCOLOID || type_oid == BYTEAWITHOUTORDERCOLOID))
             buf = printTypmod(buf, typemod, typeform->typmodout);
