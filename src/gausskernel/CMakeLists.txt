@@ -274,12 +274,14 @@ if("${ENABLE_UT}" STREQUAL "ON")
 endif()
 
 if(NOT "${ENABLE_LITE_MODE}" STREQUAL "ON")
-    list(APPEND gaussdb_objects
-        $<TARGET_OBJECTS:gausskernel_runtime_codegen_executor>
-        $<TARGET_OBJECTS:gausskernel_runtime_codegen_vecexecutor>
-        $<TARGET_OBJECTS:gausskernel_runtime_codegen_codegenutil>
-        $<TARGET_OBJECTS:gausskernel_runtime_codegen>
-    )
+    if(${ENABLE_LLVM_COMPILE} STREQUAL "ON")
+        list(APPEND gaussdb_objects
+            $<TARGET_OBJECTS:gausskernel_runtime_codegen_executor>
+            $<TARGET_OBJECTS:gausskernel_runtime_codegen_vecexecutor>
+            $<TARGET_OBJECTS:gausskernel_runtime_codegen_codegenutil>
+            $<TARGET_OBJECTS:gausskernel_runtime_codegen>
+        )
+    endif()
 endif()
 
 if(NOT "${ENABLE_LITE_MODE}" STREQUAL "ON")
