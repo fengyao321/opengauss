@@ -53,6 +53,13 @@ static LockTupleMode ExecUpdateLockMode(EState *estate, ResultRelInfo *relinfo);
 static LockTupleMode
 ExecUpdateLockMode(EState *estate, ResultRelInfo *relinfo)
 {
+    /**
+     * Ustore only support LockTupleExclusive for UPDATE tuple lock
+     */
+    if (RelationIsUstoreFormat(relinfo->ri_RelationDesc)) {
+        return LockTupleExclusive;
+    }
+
     Bitmapset  *keyCols;
     Bitmapset  *updatedCols;
 
