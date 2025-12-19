@@ -209,14 +209,14 @@ static inline void* RackMallocConverter(Size size)
         clock_t start;
         clock_t finish;
         start = clock();
-        ret = ubsmem_lease_malloc("default", size, DISTANCE_DIRECT_NODE, true, &rackPtr);
+        ret = ubsmem_lease_malloc("default", size, DISTANCE_DIRECT_NODE, 0, &rackPtr);
         ptr = (RackPrefix*)rackPtr;
         finish = clock();
         double timeused = static_cast<double>(finish - start) / CLOCKS_PER_SEC;
         ereport(LOG, (errmsg("RackMallocConverter: ubsmem_lease_malloc used %fs to alloc memory from remote",
                 timeused)));
     } else {
-        ret = ubsmem_lease_malloc("default", size, DISTANCE_DIRECT_NODE, true, &rackPtr);
+        ret = ubsmem_lease_malloc("default", size, DISTANCE_DIRECT_NODE, 0, &rackPtr);
         ptr = (RackPrefix*)rackPtr;
     }
 

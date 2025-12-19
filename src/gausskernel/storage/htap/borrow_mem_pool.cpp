@@ -38,7 +38,7 @@ bool BorrowMemPool::AllocateNewBlock()
 {
     BMPBlock *prevBlock = m_currBlock;
     void *rackPtr = nullptr;
-    int ret = ubsmem_lease_malloc("default", BLOCK_SIZE, DISTANCE_DIRECT_NODE, true, &rackPtr);
+    int ret = ubsmem_lease_malloc("default", BLOCK_SIZE, DISTANCE_DIRECT_NODE, 0, &rackPtr);
     if (ret == 0 && rackPtr != NULL) {
         m_currBlock = (BMPBlock*)palloc0(sizeof(BMPBlock));
         m_currBlock->ptr = rackPtr;
