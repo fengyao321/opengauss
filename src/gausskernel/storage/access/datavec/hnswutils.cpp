@@ -1314,6 +1314,22 @@ bool HnswRbqNeedReorder(bool enableRabitQ, RabitqQueryParams *rbqParams, int lc)
     return true;
 }
 
+float HNSWRbqComputeDis(RabitqQueryParams *rbqParams, float *candidate)
+{
+    float refineDis = 0;
+    Vector *qVec = (Vector *)DatumGetPointer(rbqParams->originQueryVec);
+    if (rbqParams->funcType == DIS_L2) {
+        refineDis = VectorL2SquaredDistance(qVec->dim, qVec->x, candidate);
+    } else {
+        refineDis = -VectorInnerProduct(qVec->dim, qVec->x, candidate);
+    }
+    if (rbqParams->normprocinfo != NULL) {
+        float square = (float)vector_square(candidate, qVec->dim);
+        refineDis = square == 0 ? 0 : -refineDis * refineDis / square;
+    }
+    return refineDis;
+}
+
 /*
  * Algorithm 2 from paper
  */
@@ -1548,8 +1564,7 @@ List *HnswSearchLayer(char *base, Datum q, List *ep, int ef, int lc, Relation in
                 ScalarQuantizer *sq = rbqConfig->sq;
                 int dim = sq->dim;
                 VectorDecodeSQ(dim, sq->trained, sq->trained + dim, sq->decodeVec->x, refineCode);
-                refineDis = (float)DatumGetFloat8(FunctionCall2Coll(
-                            procinfo, collation, rbqParams->originQueryVec, PointerGetDatum(sq->decodeVec)));
+                refineDis = HNSWRbqComputeDis(rbqParams, sq->decodeVec->x);
                 UnlockReleaseBuffer(buf);
             } else if (rbqParams->rbqConfig->reType == FP32) {
                 if (!ItemPointerIsValid(&etup->heaptids[0])) {
@@ -1564,19 +1579,7 @@ List *HnswSearchLayer(char *base, Datum q, List *ep, int ef, int lc, Relation in
                 } else {
                     eRbqDiskVec = ((Vector *)eRbqDiskData)->x;
                 }
-                Vector *qVec = (Vector *)DatumGetPointer(rbqParams->originQueryVec);
-                if (rbqParams->funcType == DIS_L2) {
-                    refineDis = VectorL2SquaredDistance(qVec->dim, qVec->x, eRbqDiskVec);
-                } else {
-                    refineDis = -VectorInnerProduct(qVec->dim, qVec->x, eRbqDiskVec);
-                }
-                if (rbqParams->normprocinfo != NULL) {
-                    square = (float)vector_square(eRbqDiskVec, qVec->dim);
-                    if (square == 0) {
-                        continue;
-                    }
-                    refineDis = -refineDis * refineDis / square;
-                }
+                refineDis = HNSWRbqComputeDis(rbqParams, eRbqDiskVec);
                 if (BufferIsValid(heapbuf)) {
                     ReleaseBuffer(heapbuf);
                 }
