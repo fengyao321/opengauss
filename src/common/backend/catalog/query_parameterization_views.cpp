@@ -33,6 +33,14 @@
 #include "commands/auto_parameterization.h"
 #include "catalog/query_parameterization_views.h"
 
+#define FIXED_QUERY_TYPE_LEN 5
+#define QUERY_TYPE_UNKNOWN 0
+#define QUERY_TYPE_INSERT 1
+#define QUERY_TYPE_UPDATE 2
+#define QUERY_TYPE_DELETE 3
+#define QUERY_TYPE_SELECT 4
+
+static char* query_type_text[FIXED_QUERY_TYPE_LEN] = {"OTHERS", "INSERT", "UPDATE", "DELETE", "SELECT"};
 
 static void FillParamViewValues(Datum* paramViewsValues, bool* paramViewsNulls, ParamView* paramView);
 static int2vector* MakeInt2Vec(Oid* paramTypes, int paramNums);
@@ -161,6 +169,9 @@ static char* MakeQueryTypeString(Node* parsetree)
             break;
         case T_DeleteStmt:
             res = query_type_text[QUERY_TYPE_DELETE];
+            break;
+        case T_SelectStmt:
+            res = query_type_text[QUERY_TYPE_SELECT];
             break;
         default:
             res = query_type_text[QUERY_TYPE_UNKNOWN];

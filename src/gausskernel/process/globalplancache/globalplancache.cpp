@@ -689,7 +689,7 @@ void GlobalPlanCache::MoveIntoInvalidPlanList(CachedPlanSource* psrc)
 }
 
 void GlobalPlanCache::RecreateCachePlan(CachedPlanSource* oldsource, const char* stmt_name, PreparedStatement *entry,
-                                        SPIPlanPtr spiplan, ListCell* spiplanCell, bool hasGetLock)
+                                        SPIPlanPtr spiplan, ListCell* spiplanCell, bool hasGetLock, void* paramCachedKey)
 {
     GPC_LOG("recreate plan", oldsource, oldsource->stmt_name);
     /* these operator may throw error, make sure shared plan is invalid first */
@@ -756,7 +756,7 @@ void GlobalPlanCache::RecreateCachePlan(CachedPlanSource* oldsource, const char*
         u_sess->param_cxt.first_saved_plan = newsource;
         newsource->is_param = true;
         newsource->entry = oldsource->entry;
-        ((ParamCachedPlan*)(newsource->entry))->psrc = newsource;
+        ((ParamCachedPlan*)(paramCachedKey))->psrc = newsource;
     }
 
     newsource->is_saved = true;

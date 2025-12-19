@@ -34,11 +34,6 @@
 #define MAX_PARAM_NODES 64
 #define MAX_PARAMETERIZED_QUERY_STORED 512
 #define IUD_COMMAND_LEN 7
-#define FIXED_QUERY_TYPE_LEN 4
-#define QUERY_TYPE_UNKNOWN 0
-#define QUERY_TYPE_INSERT 1
-#define QUERY_TYPE_UPDATE 2
-#define QUERY_TYPE_DELETE 3
 
 typedef struct ParamCachedKey {
     char parameterized_query[MAX_PARAM_QUERY_LEN];
@@ -76,8 +71,6 @@ typedef struct ParamCachedPlan {
     ParamCachedKey paramCachedKey;
     CachedPlanSource* psrc;
 } ParamCachedPlan;
-
-extern char* query_type_text[FIXED_QUERY_TYPE_LEN];
 
 bool execQueryParameterization(Node* parsetree, const char* query_string, CommandDest cmdDest, char* completionTag);
 bool isQualifiedIuds(Node* parsetree, const char* queryString);

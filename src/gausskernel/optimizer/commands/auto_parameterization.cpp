@@ -95,7 +95,6 @@ static bool IsQualifiedTbl(RangeVar* rel);
 static bool isDataValid(Oid paramType, Node* node);
 
 #define NODENAMELEN 64
-char* query_type_text[FIXED_QUERY_TYPE_LEN] = {"OTHERS", "INSERT", "UPDATE", "DELETE"};
 
 bool isQualifiedIuds(Node* parsetree, const char* queryString)
 {
@@ -162,7 +161,22 @@ static bool IsQualifiedParsetree(Node* parsetree, RangeVar** rel)
             }
             break;
         }
-
+        case T_SelectStmt: {
+            SelectStmt *stmt = (SelectStmt*)parsetree;
+            if (stmt->op != SETOP_NONE || stmt->distinctClause != NULL || stmt->startWithClause != NULL ||
+                stmt->groupClause != NULL || stmt->intoClause != NULL || stmt->withClause != NULL ||
+                stmt->lockingClause != NULL || stmt->limitOffset != NULL || stmt->limitCount != NULL ||
+                stmt->hintState != NULL || stmt->sortClause != NULL || stmt->whereClause == NULL) {
+                res = false;
+            }
+            if (stmt->fromClause == NULL || stmt->fromClause->length > 1 ||
+                !IsA(linitial(stmt->fromClause), RangeVar)) {
+                *rel = NULL;
+            } else {
+                *rel = (RangeVar *)linitial(stmt->fromClause);
+            }
+            break;
+        }
         default:
             res = false;
     }
@@ -176,7 +190,9 @@ static bool IsQualifiedTbl(RangeVar* rel)
         return false;
     }
     Relation relation = heap_open(relOid, NoLock);
-    if (RelationIsPartitioned(relation)) {
+    if (IsSystemRelation(relation) || RelationIsPartitioned(relation) || RELATION_IS_TEMP(relation)
+        || RelationGetRelPersistence(relation) == RELPERSISTENCE_UNLOGGED || RelationIsView(relation)
+        || RowRelationIsCompressed(relation) || isAnyTempNamespace(RelationGetNamespace(relation))) {
         heap_close(relation, NoLock);
         return false;
     }
@@ -232,6 +248,7 @@ static bool isNodeSkipParam(Node* node)
         case T_SubLink:
         case T_CaseExpr:
         case T_PredictByFunction:
+        case T_A_ArrayExpr:
             res = true;
             break;
         default:
@@ -244,7 +261,7 @@ static bool isNodeSkipParam(Node* node)
 static ParamListInfo syncParams(Oid* paramTypes, int numParams, List* params, CachedPlanSource* psrc,
                                 const char* queryString, EState* estate)
 {
-    ParamListInfo paramListInfo;
+    ParamListInfo paramListInfo = NULL;
     ParseState* pstate = NULL;
     Oid paramCollation;
     int paramCharset;
@@ -270,21 +287,19 @@ static ParamListInfo syncParams(Oid* paramTypes, int numParams, List* params, Ca
         expr = transformExpr(pstate, expr, EXPR_KIND_EXECUTE_PARAMETER);
 
         /* Cannot contain subselects or aggregates */
-        if (pstate->p_hasSubLinks)
-            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("can't use sublinks in parameterization")));
-        if (pstate->p_hasAggs)
-            ereport(ERROR, (errcode(ERRCODE_GROUPING_ERROR), errmsg("can't use agg function in parameterization")));
-        if (pstate->p_hasWindowFuncs)
-            ereport(ERROR, (errcode(ERRCODE_WINDOWING_ERROR), errmsg("can't use window function in parameterization")));
-
+        if (pstate->p_hasSubLinks || pstate->p_hasAggs || pstate->p_hasWindowFuncs) {
+            ereport(LOG, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("can't use sublinks/agg/window in parameterization")));
+            return NULL;
+        }
         givenTypeId = exprType(expr);
         expr = coerce_to_target_type(pstate, expr, givenTypeId, expectedTypeId, -1, COERCION_ASSIGNMENT,
                                      COERCE_IMPLICIT_CAST, NULL, NULL, -1);
-        if (expr == NULL)
-            ereport(ERROR, (errcode(ERRCODE_DATATYPE_MISMATCH),
+        if (expr == NULL) {
+            ereport(LOG, (errcode(ERRCODE_DATATYPE_MISMATCH),
                             errmsg("parameter $%d of type %s cannot be coerced to the expected type %s", i + 1,
-                                   format_type_be(givenTypeId), format_type_be(expectedTypeId)),
-                            errhint("You will need to rewrite or cast the expression.")));
+                                   format_type_be(givenTypeId), format_type_be(expectedTypeId))));
+            return NULL;
+        }
 
         /* Take care of collations in the finished expression. */
         assign_expr_collations(pstate, expr);
@@ -356,6 +371,7 @@ bool execQueryParameterization(Node* parsetree, const char* queryString, Command
     CachedPlanSource* psrc = NULL;
     EState* estate = NULL;
     ParamListInfo params = NULL;
+    bool ret = false;
 
     paramInfo = (ParameterizationInfo*)palloc0(sizeof(ParameterizationInfo));
     paramInfo->parent_node = parsetree;
@@ -371,44 +387,53 @@ bool execQueryParameterization(Node* parsetree, const char* queryString, Command
     makeParamKey(&paramCachedKey, paramInfo, parameterizedQuery);
     dest = CreateDestReceiver(cmdDest);
     ParamCachedPlan* paramCachedPlan = fetchCachedPlan(&paramCachedKey);
+
     if (paramCachedPlan != NULL) {
         if (ENABLE_CN_GPC) {
             bool hasGetLock = false;
             if (g_instance.plan_cache->CheckRecreateCachePlan(paramCachedPlan->psrc, &hasGetLock)) {
-                g_instance.plan_cache->RecreateCachePlan(paramCachedPlan->psrc, paramCachedPlan->psrc->stmt_name, NULL, NULL, NULL, hasGetLock);
+                g_instance.plan_cache->RecreateCachePlan(paramCachedPlan->psrc,
+                    paramCachedPlan->psrc->stmt_name, NULL, NULL, NULL, hasGetLock, (void*)paramCachedPlan);
             }
         }
         psrc = paramCachedPlan->psrc;
         t_thrd.postgres_cxt.cur_command_tag = transform_node_tag(psrc->raw_parse_tree);
 
         if (!validateType(paramInfo->param_state.clocations, psrc->param_types, psrc->num_params)) {
-            parsetreeRollBack(paramInfo);
-            return false;
+            goto ParaRet;
         }
         estate = CreateExecutorState();
         estate->es_param_list_info = params;
         paramListInfo = syncParams(psrc->param_types, psrc->num_params, paramInfo->params, psrc, queryString, estate);
-
+        if (paramListInfo == NULL) {
+            goto ParaRet;
+        }
         if (tryBypass(psrc, paramInfo, dest, &paramListInfo, completionTag)) {
-            return true;
+            ret = true;
+            goto ParaRet;
         }
         if (executeParamQuery(psrc, paramListInfo, dest, completionTag, cmdDest)) {
-            return true;
+            ret = true;
+            goto ParaRet;
         }
     } else {
         psrc = buildParamCachedPlan(parsetree, queryString, &paramCachedKey, paramInfo, &paramListInfo);
         if (psrc == NULL) {
-            parsetreeRollBack(paramInfo);
-            return false;
+            goto ParaRet;
         }
         if (executeParamQuery(psrc, paramListInfo, dest, completionTag, cmdDest)) {
-            return true;
+            ret = true;
+            goto ParaRet;
         }
     }
-    parsetreeRollBack(paramInfo);
+ParaRet:
+    if (!ret) {
+        parsetreeRollBack(paramInfo);
+    }
     pfree_ext(paramListInfo);
     pfree_ext(paramInfo);
-    return false;
+    return ret;
+
 }
 
 static void InitParameterHashTable(void)
@@ -1117,7 +1142,7 @@ static CachedPlanSource* buildParamCachedPlan(Node* parsetree, const char* query
     CachedPlanSource* psrc = NULL;
     List* queryList = NIL;
     EState* estate = NULL;
-    bool fixedResult = FORCE_VALIDATE_PLANCACHE_RESULT;
+    bool fixedResult = false;
     int nargs = 0;
     ParamListInfo params = NULL;
     MemoryContext oldContext = NULL;
@@ -1148,6 +1173,9 @@ static CachedPlanSource* buildParamCachedPlan(Node* parsetree, const char* query
     estate->es_param_list_info = params;
     *paramListInfo =
         syncParams(paramInfo->param_types, paramInfo->param_count, paramInfo->params, psrc, queryString, estate);
+    if (*paramListInfo == NULL) {
+        return NULL;
+    }
     CompleteCachedPlan(psrc,
                        queryList,
                        NULL,
@@ -1168,11 +1196,6 @@ static CachedPlanSource* buildParamCachedPlan(Node* parsetree, const char* query
 static bool tryBypass(CachedPlanSource* psrc, ParameterizationInfo* paramInfo, DestReceiver* dest,
                       ParamListInfo* paramListInfo, char* completionTag)
 {
-    /* Shouldn't find a non-fixed-result cached plan */
-    if (!psrc->fixed_result && FORCE_VALIDATE_PLANCACHE_RESULT)
-        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                        errmsg("EXECUTE does not support variable-result cached plans")));
-
     OpFusion::clearForCplan((OpFusion*)psrc->opFusionObj, psrc);
 
     if (psrc->opFusionObj != NULL) {
@@ -1191,13 +1214,7 @@ static bool tryBypass(CachedPlanSource* psrc, ParameterizationInfo* paramInfo, D
         opFusionObj->setPreparedDestReceiver(dest);
         opFusionObj->useOuterParameter(*paramListInfo);
         opFusionObj->setCurrentOpFusionObj(opFusionObj);
-#ifdef ENABLE_MULTIPLE_NODES
-        CachedPlanSource* cps = opFusionObj->m_global->m_psrc;
-        bool needBucketId = cps != NULL && cps->gplan;
-        if (needBucketId) {
-            setCachedPlanBucketId(cps->gplan, *paramListInfo);
-        }
-#endif
+        opFusionObj->m_local.m_isFirst = true; // for check ExecCheckRTPerms
         if (OpFusion::process(FUSION_EXECUTE, NULL, 0, completionTag, false, NULL)) {
             return true;
         }
@@ -1267,7 +1284,6 @@ static bool executeParamQuery(CachedPlanSource* psrc, ParamListInfo paramListInf
     (void)PortalRun(portal, count, false, dest, dest, completionTag);
 
     PortalDrop(portal, false);
-    pfree_ext(paramListInfo);
 
     return true;
 }

@@ -65,7 +65,7 @@ public:
 
     /* transaction */
     void RecreateCachePlan(CachedPlanSource* oldsource, const char* stmt_name,
-                           PreparedStatement *entry, SPIPlanPtr spiplan, ListCell* spiplanCell, bool hasGetLock);
+                           PreparedStatement *entry, SPIPlanPtr spiplan, ListCell* spiplanCell, bool hasGetLock, void* paramCachedKey = NULL);
     void Commit();
     bool CheckRecreateCachePlan(CachedPlanSource* psrc, bool* hasGetLock);
 
