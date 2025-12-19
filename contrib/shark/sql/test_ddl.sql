@@ -29,7 +29,7 @@ CREATE TRIGGER animals_trigger2 AFTER INSERT ON animals
 FOR EACH ROW
 EXECUTE PROCEDURE insert_food_fun2();
 
-select tgname from pg_trigger;
+select tgname from pg_trigger order by tgname;
 select count(*) from food;
 insert into animals(id, name) values (1, 'panda');
 select * from animals;

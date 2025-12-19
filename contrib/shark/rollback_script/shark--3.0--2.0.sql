@@ -61,3 +61,20 @@ drop view if exists sys.server_principals;
 
 drop function if exists sys.datepart(cstring, int);
 drop function if exists sys.datepart(text, text);
+
+drop view if exists sys.database_principals;
+drop view if exists sys.foreign_key_columns;
+drop view if exists sys.foreign_keys;
+drop view if exists sys.key_constraints;
+drop view if exists sys.sysforeignkeys;
+drop view if exists sys.check_constraints;
+drop view if exists sys.index_columns;
+drop view if exists sys.sysprocesses;
+drop view if exists sys.synonyms;
+drop view if exists sys.system_objects;
+drop view if exists sys.all_views;
+drop view if exists sys.triggers;
+drop view if exists sys.trigger_events;
+drop view if exists sys.configurations;
+drop view if exists sys.syscurconfigs;
+drop view if exists sys.sysconfigures;
