@@ -179,6 +179,7 @@ extern Datum lastval(PG_FUNCTION_ARGS);
 extern Datum last_insert_id(PG_FUNCTION_ARGS);
 extern Datum last_insert_id_no_args(PG_FUNCTION_ARGS);
 extern Datum pg_sequence_parameters(PG_FUNCTION_ARGS);
+extern Datum pg_sequence_all_parameters(PG_FUNCTION_ARGS);
 extern Datum pg_sequence_last_value(PG_FUNCTION_ARGS);
 
 extern int128 nextval_internal(Oid relid);

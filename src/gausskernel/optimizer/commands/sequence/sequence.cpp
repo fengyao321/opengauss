@@ -107,6 +107,11 @@ static int64 GetNextvalResult(SeqTable sess_elm, Relation seqrel, Form_pg_sequen
     Buffer buf, int64* rangemax, SeqTable elm, GTM_UUID uuid);
 template<typename T_Int, bool large>
 static char* Int8or16Out(T_Int num);
+static TupleDesc build_sequence_tuple_desc(void);
+static void fill_normal_seq_values(Form_pg_sequence seq, Datum *values, bool *isnull);
+static void fill_large_seq_values(Form_pg_large_sequence seq, Datum *values, bool *isnull);
+static bool compute_is_exhausted(int128 last_value, int128 min_val, int128 max_val, int128 inc,
+    bool is_cycled, bool is_called);
 /*
  * Sequence concurrent improvements
  *
@@ -2799,6 +2804,155 @@ Datum pg_sequence_parameters(PG_FUNCTION_ARGS)
     relation_close(seqrel, NoLock);
 
     return HeapTupleGetDatum(heap_form_tuple(tupdesc, values, isnull));
+}
+
+/*
+ * Return sequence all paremeters
+ */
+Datum pg_sequence_all_parameters(PG_FUNCTION_ARGS)
+{
+    text *seq_name_text = PG_GETARG_TEXT_PP(0);
+    char *seq_name_str;
+    List *name_list;
+    RangeVar *rel_var;
+    Oid relid;
+    char relkind;
+    SeqTable elm;
+    Relation seqrel;
+    Datum values[12];
+    bool isnull[12];
+    TupleDesc tupdesc;
+
+    seq_name_str = text_to_cstring(seq_name_text);
+    name_list = stringToQualifiedNameList(seq_name_str);
+    rel_var = makeRangeVarFromNameList(name_list);
+    relid = RangeVarGetRelid(rel_var, AccessShareLock, false);
+    relkind = get_rel_relkind(relid);
+    if (!RELKIND_IS_SEQUENCE(relkind))
+        ereport(ERROR,
+                (errcode(ERRCODE_WRONG_OBJECT_TYPE),
+                 errmsg("\"%s\" is not a sequence", seq_name_str)));
+
+    if (pg_class_aclcheck(relid, GetUserId(), ACL_SELECT | ACL_UPDATE | ACL_USAGE) != ACLCHECK_OK)
+        ereport(ERROR,
+                (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+                 errmsg("permission denied for sequence %s", seq_name_str)));
+
+    init_sequence(relid, &elm, &seqrel);
+    tupdesc = build_sequence_tuple_desc();
+
+    errno_t rc = memset_s(isnull, sizeof(isnull), 0, sizeof(isnull));
+    securec_check(rc, "\0", "\0");
+
+    GTM_UUID uuid;
+    Buffer buf;
+    HeapTupleData seqtuple;
+
+    if (relkind == RELKIND_LARGE_SEQUENCE) {
+        Form_pg_large_sequence seq = read_seq_tuple<Form_pg_large_sequence>(elm, seqrel, &buf, &seqtuple, &uuid);
+        fill_large_seq_values(seq, values, isnull);
+    } else {
+        Form_pg_sequence seq = read_seq_tuple<Form_pg_sequence>(elm, seqrel, &buf, &seqtuple, &uuid);
+        fill_normal_seq_values(seq, values, isnull);
+    }
+    UnlockReleaseBuffer(buf);
+    relation_close(seqrel, NoLock);
+    PG_RETURN_DATUM(HeapTupleGetDatum(heap_form_tuple(tupdesc, values, isnull)));
+}
+
+static TupleDesc build_sequence_tuple_desc(void)
+{
+    TupleDesc tupdesc = CreateTemplateTupleDesc(12, false);
+    TupleDescInitEntry(tupdesc, (AttrNumber)1, "start_value", INT16OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)2, "minimum_value", INT16OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)3, "maximum_value", INT16OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)4, "increment", INT16OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)5, "cycle_option", BOOLOID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)6, "cache_size", INT16OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)7, "last_value", INT16OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)8, "is_called", BOOLOID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)9, "log_cnt", INT8OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)10, "uuid", INT8OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)11, "last_used_value", INT16OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)12, "is_exhausted", BOOLOID, -1, 0);
+    BlessTupleDesc(tupdesc);
+    return tupdesc;
+}
+
+static void fill_normal_seq_values(Form_pg_sequence seq, Datum *values, bool *isnull)
+{
+    int i = 0;
+    values[i++] = Int128GetDatum((int128)seq->start_value);
+    values[i++] = Int128GetDatum((int128)seq->min_value);
+    values[i++] = Int128GetDatum((int128)seq->max_value);
+    values[i++] = Int128GetDatum((int128)seq->increment_by);
+    values[i++] = BoolGetDatum(seq->is_cycled);
+    values[i++] = Int128GetDatum((int128)seq->cache_value);
+    values[i++] = Int128GetDatum((int128)seq->last_value);
+    values[i++] = BoolGetDatum(seq->is_called);
+    values[i++] = Int64GetDatum(seq->log_cnt);
+    values[i++] = Int64GetDatum(seq->uuid);
+
+    if (seq->is_called) {
+        values[i++] = Int128GetDatum((int128)seq->last_value);
+    } else {
+        values[i] = (Datum)0;
+        isnull[i] = true;
+        i++;
+    }
+
+    bool exhausted = compute_is_exhausted(
+        (int128)seq->last_value,
+        (int128)seq->min_value,
+        (int128)seq->max_value,
+        (int128)seq->increment_by,
+        seq->is_cycled,
+        seq->is_called
+    );
+    values[i++] = BoolGetDatum(exhausted);
+}
+
+static void fill_large_seq_values(Form_pg_large_sequence seq, Datum *values, bool *isnull)
+{
+    int i = 0;
+    values[i++] = Int128GetDatum(seq->start_value);
+    values[i++] = Int128GetDatum(seq->min_value);
+    values[i++] = Int128GetDatum(seq->max_value);
+    values[i++] = Int128GetDatum(seq->increment_by);
+    values[i++] = BoolGetDatum(seq->is_cycled);
+    values[i++] = Int128GetDatum(seq->cache_value);
+    values[i++] = Int128GetDatum(seq->last_value);
+    values[i++] = BoolGetDatum(seq->is_called);
+    values[i++] = Int64GetDatum(seq->log_cnt);
+    values[i++] = Int64GetDatum(seq->uuid);
+
+    if (seq->is_called) {
+        values[i++] = Int128GetDatum(seq->last_value);
+    } else {
+        values[i] = (Datum)0;
+        isnull[i] = true;
+        i++;
+    }
+
+    bool exhausted = compute_is_exhausted(
+        seq->last_value,
+        seq->min_value,
+        seq->max_value,
+        seq->increment_by,
+        seq->is_cycled,
+        seq->is_called
+    );
+    values[i++] = BoolGetDatum(exhausted);
+}
+
+static bool compute_is_exhausted(int128 last_value, int128 min_val, int128 max_val, int128 inc, bool is_cycled, bool is_called)
+{
+    bool over_max = (inc > 0 && FetchNOverMaxBound(max_val, last_value, inc));
+    bool over_min = (inc < 0 && FetchNOverMinBound(min_val, last_value, inc));
+    bool exhausted = over_max || over_min;
+
+    // Only non-cycled sequences can be truly exhausted
+    return is_called && !is_cycled && exhausted;
 }
 
 Datum pg_sequence_last_value(PG_FUNCTION_ARGS)

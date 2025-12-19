@@ -1,0 +1,636 @@
+-- sys.sequences
+\d sys.sequences
+                     View "sys.sequences"
+       Column        |            Type             | Modifiers 
+---------------------+-----------------------------+-----------
+ name                | name                        | 
+ object_id           | oid                         | 
+ principal_id        | oid                         | 
+ schema_id           | oid                         | 
+ parent_object_id    | oid                         | 
+ type                | character(2)                | 
+ type_desc           | nvarchar2(60)               | 
+ create_date         | timestamp without time zone | 
+ modify_date         | timestamp without time zone | 
+ is_ms_shipped       | bit(1)                      | 
+ is_published        | bit(1)                      | 
+ is_schema_published | bit(1)                      | 
+ start_value         | sql_variant                 | 
+ increment           | sql_variant                 | 
+ minimum_value       | sql_variant                 | 
+ maximum_value       | sql_variant                 | 
+ is_cycling          | bit(1)                      | 
+ is_cached           | bit(1)                      | 
+ cache_size          | sql_variant                 | 
+ system_type_id      | tinyint                     | 
+ user_type_id        | integer                     | 
+ precision           | tinyint                     | 
+ scale               | tinyint                     | 
+ current_value       | sql_variant                 | 
+ is_exhausted        | bit(1)                      | 
+ last_used_value     | sql_variant                 | 
+
+drop schema if exists test_views6 cascade;
+NOTICE:  schema "test_views6" does not exist, skipping
+create schema test_views6;
+set current_schema to test_views6;
+create sequence seq1;
+select name, principal_id, parent_object_id, type, type_desc, is_ms_shipped,
+  is_published, is_schema_published from sys.objects where name = 'seq1';
+ name | principal_id | parent_object_id | type |    type_desc    | is_ms_shipped | is_published | is_schema_published 
+------+--------------+------------------+------+-----------------+---------------+--------------+---------------------
+ seq1 |              |                0 | SO   | SEQUENCE_OBJECT | 0             | 0            | 0
+(1 row)
+
+select name, principal_id, parent_object_id, type, type_desc, is_ms_shipped,
+  is_published, is_schema_published from sys.sequences where name = 'seq1';
+ name | principal_id | parent_object_id | type |    type_desc    | is_ms_shipped | is_published | is_schema_published 
+------+--------------+------------------+------+-----------------+---------------+--------------+---------------------
+ seq1 |              |                0 | SO   | SEQUENCE_OBJECT | 0             | 0            | 0
+(1 row)
+
+select count(*) from sys.objects obj inner join pg_class pc on pc.oid = obj.object_id
+  where obj.name = 'seq1';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.sequences obj inner join pg_class pc on pc.oid = obj.object_id
+  where obj.name = 'seq1';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.objects obj inner join pg_class pc on pc.oid = obj.object_id
+  inner join pg_namespace np on np.oid = obj.schema_id
+  where obj.name = 'seq1';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.sequences obj inner join pg_class pc on pc.oid = obj.object_id
+  inner join pg_namespace np on np.oid = obj.schema_id
+  where obj.name = 'seq1';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.objects obj inner join pg_class pc on pc.oid = obj.object_id
+  inner join pg_namespace np on np.oid = obj.schema_id
+  inner join pg_object po on po.object_oid = pc.oid and po.ctime = obj.create_date
+  and po.mtime = obj.modify_date 
+  where obj.name = 'seq1';
+ count 
+-------
+     1
+(1 row)
+
+select count(*) from sys.sequences obj inner join pg_class pc on pc.oid = obj.object_id
+  inner join pg_namespace np on np.oid = obj.schema_id
+  inner join pg_object po on po.object_oid = pc.oid and po.ctime = obj.create_date
+  and po.mtime = obj.modify_date 
+  where obj.name = 'seq1';
+ count 
+-------
+     1
+(1 row)
+
+select * from seq1;
+ sequence_name | last_value | start_value | increment_by |      max_value      | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+---------------------+-----------+-------------+---------+-----------+-----------+------
+ seq1          |          1 |           1 |            1 | 9223372036854775807 |         1 |           1 |       0 | f         | f         |    0
+(1 row)
+
+select start_value, increment, minimum_value, maximum_value, is_cycling, is_cached, cache_size,
+  system_type_id, user_type_id, precision, scale, current_value, is_exhausted, last_used_value
+  from sys.sequences where name = 'seq1';
+ start_value | increment | minimum_value |    maximum_value    | is_cycling | is_cached | cache_size | system_type_id | user_type_id | precision | scale | current_value | is_exhausted | last_used_value 
+-------------+-----------+---------------+---------------------+------------+-----------+------------+----------------+--------------+-----------+-------+---------------+--------------+-----------------
+ 1           | 1         | 1             | 9223372036854775807 | 0          | 1         | 1          | 20             |           20 | 19        | 0     | 1             | 0            | 
+(1 row)
+
+create sequence seq2 increment by 2 minvalue 10 maxvalue 30 cycle;
+select * from seq2;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq2          |         10 |          10 |            2 |        30 |        10 |           1 |       0 | t         | f         |    0
+(1 row)
+
+select start_value, increment, minimum_value, maximum_value, is_cycling, is_cached, cache_size,
+  system_type_id, user_type_id, precision, scale, current_value, is_exhausted, last_used_value
+  from sys.sequences where name = 'seq2';
+ start_value | increment | minimum_value | maximum_value | is_cycling | is_cached | cache_size | system_type_id | user_type_id | precision | scale | current_value | is_exhausted | last_used_value 
+-------------+-----------+---------------+---------------+------------+-----------+------------+----------------+--------------+-----------+-------+---------------+--------------+-----------------
+ 10          | 2         | 10            | 30            | 1          | 1         | 1          | 20             |           20 | 19        | 0     | 10            | 0            | 
+(1 row)
+
+create sequence seq3 increment by 2 cache 5;
+select * from seq3;
+ sequence_name | last_value | start_value | increment_by |      max_value      | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+---------------------+-----------+-------------+---------+-----------+-----------+------
+ seq3          |          1 |           1 |            2 | 9223372036854775807 |         1 |           5 |       0 | f         | f         |    0
+(1 row)
+
+select start_value, increment, minimum_value, maximum_value, is_cycling, is_cached, cache_size,
+  system_type_id, user_type_id, precision, scale, current_value, is_exhausted, last_used_value
+  from sys.sequences where name = 'seq3';
+ start_value | increment | minimum_value |    maximum_value    | is_cycling | is_cached | cache_size | system_type_id | user_type_id | precision | scale | current_value | is_exhausted | last_used_value 
+-------------+-----------+---------------+---------------------+------------+-----------+------------+----------------+--------------+-----------+-------+---------------+--------------+-----------------
+ 1           | 2         | 1             | 9223372036854775807 | 0          | 1         | 5          | 20             |           20 | 19        | 0     | 1             | 0            | 
+(1 row)
+
+create sequence seq4 increment by 2 start with 15 minvalue 10 maxvalue 30 cycle;
+select * from seq4;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq4          |         15 |          15 |            2 |        30 |        10 |           1 |       0 | t         | f         |    0
+(1 row)
+
+select start_value, increment, minimum_value, maximum_value, is_cycling, is_cached, cache_size,
+  system_type_id, user_type_id, precision, scale, current_value, is_exhausted, last_used_value
+  from sys.sequences where name = 'seq4';
+ start_value | increment | minimum_value | maximum_value | is_cycling | is_cached | cache_size | system_type_id | user_type_id | precision | scale | current_value | is_exhausted | last_used_value 
+-------------+-----------+---------------+---------------+------------+-----------+------------+----------------+--------------+-----------+-------+---------------+--------------+-----------------
+ 15          | 2         | 10            | 30            | 1          | 1         | 1          | 20             |           20 | 19        | 0     | 15            | 0            | 
+(1 row)
+
+create large sequence seq11;
+select * from seq11;
+ sequence_name | last_value | start_value | increment_by |                max_value                | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------------------------------------+-----------+-------------+---------+-----------+-----------+------
+ seq11         |          1 |           1 |            1 | 170141183460469231731687303715884105727 |         1 |           1 |       0 | f         | f         |    0
+(1 row)
+
+select start_value, increment, minimum_value, maximum_value, is_cycling, is_cached, cache_size,
+  system_type_id, user_type_id, precision, scale, current_value, is_exhausted, last_used_value
+  from sys.sequences where name = 'seq11';
+ start_value | increment | minimum_value |              maximum_value              | is_cycling | is_cached | cache_size | system_type_id | user_type_id | precision | scale | current_value | is_exhausted | last_used_value 
+-------------+-----------+---------------+-----------------------------------------+------------+-----------+------------+----------------+--------------+-----------+-------+---------------+--------------+-----------------
+ 1           | 1         | 1             | 170141183460469231731687303715884105727 | 0          | 1         | 1          | 34             |           34 | 39        | 0     | 1             | 0            | 
+(1 row)
+
+create large sequence seq22 increment by 2 minvalue 10 maxvalue 30 cycle;
+select * from seq22;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq22         |         10 |          10 |            2 |        30 |        10 |           1 |       0 | t         | f         |    0
+(1 row)
+
+select start_value, increment, minimum_value, maximum_value, is_cycling, is_cached, cache_size,
+  system_type_id, user_type_id, precision, scale, current_value, is_exhausted, last_used_value
+  from sys.sequences where name = 'seq22';
+ start_value | increment | minimum_value | maximum_value | is_cycling | is_cached | cache_size | system_type_id | user_type_id | precision | scale | current_value | is_exhausted | last_used_value 
+-------------+-----------+---------------+---------------+------------+-----------+------------+----------------+--------------+-----------+-------+---------------+--------------+-----------------
+ 10          | 2         | 10            | 30            | 1          | 1         | 1          | 34             |           34 | 39        | 0     | 10            | 0            | 
+(1 row)
+
+create large sequence seq33 increment by 2 cache 5;
+select * from seq33;
+ sequence_name | last_value | start_value | increment_by |                max_value                | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------------------------------------+-----------+-------------+---------+-----------+-----------+------
+ seq33         |          1 |           1 |            2 | 170141183460469231731687303715884105727 |         1 |           5 |       0 | f         | f         |    0
+(1 row)
+
+select start_value, increment, minimum_value, maximum_value, is_cycling, is_cached, cache_size,
+  system_type_id, user_type_id, precision, scale, current_value, is_exhausted, last_used_value
+  from sys.sequences where name = 'seq33';
+ start_value | increment | minimum_value |              maximum_value              | is_cycling | is_cached | cache_size | system_type_id | user_type_id | precision | scale | current_value | is_exhausted | last_used_value 
+-------------+-----------+---------------+-----------------------------------------+------------+-----------+------------+----------------+--------------+-----------+-------+---------------+--------------+-----------------
+ 1           | 2         | 1             | 170141183460469231731687303715884105727 | 0          | 1         | 5          | 34             |           34 | 39        | 0     | 1             | 0            | 
+(1 row)
+
+create large sequence seq44 increment by 2 start with 15 minvalue 10 maxvalue 30 cycle;
+select * from seq44;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq44         |         15 |          15 |            2 |        30 |        10 |           1 |       0 | t         | f         |    0
+(1 row)
+
+select start_value, increment, minimum_value, maximum_value, is_cycling, is_cached, cache_size,
+  system_type_id, user_type_id, precision, scale, current_value, is_exhausted, last_used_value
+  from sys.sequences where name = 'seq44';
+ start_value | increment | minimum_value | maximum_value | is_cycling | is_cached | cache_size | system_type_id | user_type_id | precision | scale | current_value | is_exhausted | last_used_value 
+-------------+-----------+---------------+---------------+------------+-----------+------------+----------------+--------------+-----------+-------+---------------+--------------+-----------------
+ 15          | 2         | 10            | 30            | 1          | 1         | 1          | 34             |           34 | 39        | 0     | 15            | 0            | 
+(1 row)
+
+create large sequence seq55 increment by 12345678901234567890
+start with 12345678901234567890
+minvalue 12345678901234567890
+maxvalue 170141183460469231731687303715884105700 cycle;
+select * from seq55;
+ sequence_name |      last_value      |     start_value      |     increment_by     |                max_value                |      min_value       | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+----------------------+----------------------+----------------------+-----------------------------------------+----------------------+-------------+---------+-----------+-----------+------
+ seq55         | 12345678901234567890 | 12345678901234567890 | 12345678901234567890 | 170141183460469231731687303715884105700 | 12345678901234567890 |           1 |       0 | t         | f         |    0
+(1 row)
+
+select start_value, increment, minimum_value, maximum_value, is_cycling, is_cached, cache_size,
+  system_type_id, user_type_id, precision, scale, current_value, is_exhausted, last_used_value
+  from sys.sequences where name = 'seq55';
+     start_value      |      increment       |    minimum_value     |              maximum_value              | is_cycling | is_cached | cache_size | system_type_id | user_type_id | precision | scale |    current_value     | is_exhausted | last_used_value 
+----------------------+----------------------+----------------------+-----------------------------------------+------------+-----------+------------+----------------+--------------+-----------+-------+----------------------+--------------+-----------------
+ 12345678901234567890 | 12345678901234567890 | 12345678901234567890 | 170141183460469231731687303715884105700 | 1          | 1         | 1          | 34             |           34 | 39        | 0     | 12345678901234567890 | 0            | 
+(1 row)
+
+drop sequence if exists seq4;
+create sequence seq4 increment by 5 minvalue 10 maxvalue 20;
+select * from seq4;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq4          |         10 |          10 |            5 |        20 |        10 |           1 |       0 | f         | f         |    0
+(1 row)
+
+select start_value, increment, minimum_value, maximum_value, is_cycling, is_cached, cache_size,
+  system_type_id, user_type_id, precision, scale, current_value, is_exhausted, last_used_value
+  from sys.sequences where name = 'seq4';
+ start_value | increment | minimum_value | maximum_value | is_cycling | is_cached | cache_size | system_type_id | user_type_id | precision | scale | current_value | is_exhausted | last_used_value 
+-------------+-----------+---------------+---------------+------------+-----------+------------+----------------+--------------+-----------+-------+---------------+--------------+-----------------
+ 10          | 5         | 10            | 20            | 0          | 1         | 1          | 20             |           20 | 19        | 0     | 10            | 0            | 
+(1 row)
+
+select currval('seq4'); -- error
+ERROR:  currval of sequence "seq4" is not yet defined in this session
+CONTEXT:  referenced column: currval
+select nextval('seq4');
+ nextval 
+---------
+      10
+(1 row)
+
+select * from seq4;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq4          |         10 |          10 |            5 |        20 |        10 |           1 |       2 | f         | t         |    0
+(1 row)
+
+select current_value, is_exhausted, last_used_value from sys.sequences where name = 'seq4';
+ current_value | is_exhausted | last_used_value 
+---------------+--------------+-----------------
+ 10            | 0            | 10
+(1 row)
+
+select currval('seq4');
+ currval 
+---------
+      10
+(1 row)
+
+select nextval('seq4');
+ nextval 
+---------
+      15
+(1 row)
+
+select * from seq4;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq4          |         15 |          10 |            5 |        20 |        10 |           1 |       1 | f         | t         |    0
+(1 row)
+
+select current_value, is_exhausted, last_used_value from sys.sequences where name = 'seq4';
+ current_value | is_exhausted | last_used_value 
+---------------+--------------+-----------------
+ 15            | 0            | 15
+(1 row)
+
+select currval('seq4');
+ currval 
+---------
+      15
+(1 row)
+
+select nextval('seq4');
+ nextval 
+---------
+      20
+(1 row)
+
+select * from seq4;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq4          |         20 |          10 |            5 |        20 |        10 |           1 |       0 | f         | t         |    0
+(1 row)
+
+select current_value, is_exhausted, last_used_value from sys.sequences where name = 'seq4';
+ current_value | is_exhausted | last_used_value 
+---------------+--------------+-----------------
+ 20            | 1            | 20
+(1 row)
+
+select currval('seq4');
+ currval 
+---------
+      20
+(1 row)
+
+select nextval('seq4'); -- error, exhausted
+ERROR:  nextval: reached maximum value of sequence "seq4" (20)
+CONTEXT:  referenced column: nextval
+select current_value, is_exhausted, last_used_value from sys.sequences where name = 'seq4';
+ current_value | is_exhausted | last_used_value 
+---------------+--------------+-----------------
+ 20            | 1            | 20
+(1 row)
+
+drop sequence if exists seq5;
+NOTICE:  sequence "seq5" does not exist, skipping
+create sequence seq5 increment by 5 minvalue 10 maxvalue 20 cycle;
+select * from seq5;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq5          |         10 |          10 |            5 |        20 |        10 |           1 |       0 | t         | f         |    0
+(1 row)
+
+select start_value, increment, minimum_value, maximum_value, is_cycling, is_cached, cache_size,
+  system_type_id, user_type_id, precision, scale, current_value, is_exhausted, last_used_value
+  from sys.sequences where name = 'seq5';
+ start_value | increment | minimum_value | maximum_value | is_cycling | is_cached | cache_size | system_type_id | user_type_id | precision | scale | current_value | is_exhausted | last_used_value 
+-------------+-----------+---------------+---------------+------------+-----------+------------+----------------+--------------+-----------+-------+---------------+--------------+-----------------
+ 10          | 5         | 10            | 20            | 1          | 1         | 1          | 20             |           20 | 19        | 0     | 10            | 0            | 
+(1 row)
+
+select currval('seq5'); --error
+ERROR:  currval of sequence "seq5" is not yet defined in this session
+CONTEXT:  referenced column: currval
+select nextval('seq5');
+ nextval 
+---------
+      10
+(1 row)
+
+select * from seq5;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq5          |         10 |          10 |            5 |        20 |        10 |           1 |       2 | t         | t         |    0
+(1 row)
+
+select current_value, is_exhausted, last_used_value from sys.sequences where name = 'seq5';
+ current_value | is_exhausted | last_used_value 
+---------------+--------------+-----------------
+ 10            | 0            | 10
+(1 row)
+
+select currval('seq5');
+ currval 
+---------
+      10
+(1 row)
+
+select nextval('seq5');
+ nextval 
+---------
+      15
+(1 row)
+
+select * from seq5;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq5          |         15 |          10 |            5 |        20 |        10 |           1 |       1 | t         | t         |    0
+(1 row)
+
+select current_value, is_exhausted, last_used_value from sys.sequences where name = 'seq5';
+ current_value | is_exhausted | last_used_value 
+---------------+--------------+-----------------
+ 15            | 0            | 15
+(1 row)
+
+select currval('seq5');
+ currval 
+---------
+      15
+(1 row)
+
+select nextval('seq5');
+ nextval 
+---------
+      20
+(1 row)
+
+select * from seq5;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq5          |         20 |          10 |            5 |        20 |        10 |           1 |       0 | t         | t         |    0
+(1 row)
+
+select current_value, is_exhausted, last_used_value from sys.sequences where name = 'seq5';
+ current_value | is_exhausted | last_used_value 
+---------------+--------------+-----------------
+ 20            | 0            | 20
+(1 row)
+
+select currval('seq5');
+ currval 
+---------
+      20
+(1 row)
+
+select nextval('seq5');
+ nextval 
+---------
+      10
+(1 row)
+
+select * from seq5;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq5          |         10 |          10 |            5 |        20 |        10 |           1 |       2 | t         | t         |    0
+(1 row)
+
+select current_value, is_exhausted, last_used_value from sys.sequences where name = 'seq5';
+ current_value | is_exhausted | last_used_value 
+---------------+--------------+-----------------
+ 10            | 0            | 10
+(1 row)
+
+select currval('seq5');
+ currval 
+---------
+      10
+(1 row)
+
+select nextval('seq5');
+ nextval 
+---------
+      15
+(1 row)
+
+create sequence seq6 increment by 5 minvalue 4 maxvalue 5;
+select * from seq6;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq6          |          4 |           4 |            5 |         5 |         4 |           1 |       0 | f         | f         |    0
+(1 row)
+
+select start_value, increment, minimum_value, maximum_value, is_cycling, is_cached, cache_size,
+  system_type_id, user_type_id, precision, scale, current_value, is_exhausted, last_used_value
+  from sys.sequences where name = 'seq6';
+ start_value | increment | minimum_value | maximum_value | is_cycling | is_cached | cache_size | system_type_id | user_type_id | precision | scale | current_value | is_exhausted | last_used_value 
+-------------+-----------+---------------+---------------+------------+-----------+------------+----------------+--------------+-----------+-------+---------------+--------------+-----------------
+ 4           | 5         | 4             | 5             | 0          | 1         | 1          | 20             |           20 | 19        | 0     | 4             | 0            | 
+(1 row)
+
+select currval('seq6'); -- error
+ERROR:  currval of sequence "seq6" is not yet defined in this session
+CONTEXT:  referenced column: currval
+select nextval('seq6');
+ nextval 
+---------
+       4
+(1 row)
+
+select * from seq6;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq6          |          4 |           4 |            5 |         5 |         4 |           1 |       0 | f         | t         |    0
+(1 row)
+
+select current_value, is_exhausted, last_used_value from sys.sequences where name = 'seq6';
+ current_value | is_exhausted | last_used_value 
+---------------+--------------+-----------------
+ 4             | 1            | 4
+(1 row)
+
+select currval('seq6');
+ currval 
+---------
+       4
+(1 row)
+
+select nextval('seq6'); -- error, exhausted
+ERROR:  nextval: reached maximum value of sequence "seq6" (5)
+CONTEXT:  referenced column: nextval
+select * from seq6;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq6          |          4 |           4 |            5 |         5 |         4 |           1 |       0 | f         | t         |    0
+(1 row)
+
+select current_value, is_exhausted, last_used_value from sys.sequences where name = 'seq6';
+ current_value | is_exhausted | last_used_value 
+---------------+--------------+-----------------
+ 4             | 1            | 4
+(1 row)
+
+create sequence seq7 increment by -2 minvalue -2 maxvalue 2;
+select * from seq7;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq7          |          2 |           2 |           -2 |         2 |        -2 |           1 |       0 | f         | f         |    0
+(1 row)
+
+select start_value, increment, minimum_value, maximum_value, is_cycling, is_cached, cache_size,
+  system_type_id, user_type_id, precision, scale, current_value, is_exhausted, last_used_value
+  from sys.sequences where name = 'seq7';
+ start_value | increment | minimum_value | maximum_value | is_cycling | is_cached | cache_size | system_type_id | user_type_id | precision | scale | current_value | is_exhausted | last_used_value 
+-------------+-----------+---------------+---------------+------------+-----------+------------+----------------+--------------+-----------+-------+---------------+--------------+-----------------
+ 2           | -2        | -2            | 2             | 0          | 1         | 1          | 20             |           20 | 19        | 0     | 2             | 0            | 
+(1 row)
+
+select currval('seq7'); -- error
+ERROR:  currval of sequence "seq7" is not yet defined in this session
+CONTEXT:  referenced column: currval
+select nextval('seq7');
+ nextval 
+---------
+       2
+(1 row)
+
+select * from seq7;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq7          |          2 |           2 |           -2 |         2 |        -2 |           1 |       2 | f         | t         |    0
+(1 row)
+
+select current_value, is_exhausted, last_used_value from sys.sequences where name = 'seq7';
+ current_value | is_exhausted | last_used_value 
+---------------+--------------+-----------------
+ 2             | 0            | 2
+(1 row)
+
+select currval('seq7');
+ currval 
+---------
+       2
+(1 row)
+
+select nextval('seq7');
+ nextval 
+---------
+       0
+(1 row)
+
+select * from seq7;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq7          |          0 |           2 |           -2 |         2 |        -2 |           1 |       1 | f         | t         |    0
+(1 row)
+
+select current_value, is_exhausted, last_used_value from sys.sequences where name = 'seq7';
+ current_value | is_exhausted | last_used_value 
+---------------+--------------+-----------------
+ 0             | 0            | 0
+(1 row)
+
+select currval('seq7');
+ currval 
+---------
+       0
+(1 row)
+
+select nextval('seq7');
+ nextval 
+---------
+      -2
+(1 row)
+
+select * from seq7;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq7          |         -2 |           2 |           -2 |         2 |        -2 |           1 |       0 | f         | t         |    0
+(1 row)
+
+select current_value, is_exhausted, last_used_value from sys.sequences where name = 'seq7';
+ current_value | is_exhausted | last_used_value 
+---------------+--------------+-----------------
+ -2            | 1            | -2
+(1 row)
+
+select currval('seq7');
+ currval 
+---------
+      -2
+(1 row)
+
+select nextval('seq7'); -- error, exhausted
+ERROR:  nextval: reached minimum value of sequence "seq7" (-2)
+CONTEXT:  referenced column: nextval
+select * from seq7;
+ sequence_name | last_value | start_value | increment_by | max_value | min_value | cache_value | log_cnt | is_cycled | is_called | uuid 
+---------------+------------+-------------+--------------+-----------+-----------+-------------+---------+-----------+-----------+------
+ seq7          |         -2 |           2 |           -2 |         2 |        -2 |           1 |       0 | f         | t         |    0
+(1 row)
+
+select current_value, is_exhausted, last_used_value from sys.sequences where name = 'seq7';
+ current_value | is_exhausted | last_used_value 
+---------------+--------------+-----------------
+ -2            | 1            | -2
+(1 row)
+
+drop schema test_views6 cascade;
+NOTICE:  drop cascades to 12 other objects
+DETAIL:  drop cascades to sequence seq1
+drop cascades to sequence seq2
+drop cascades to sequence seq3
+drop cascades to large sequence seq11
+drop cascades to large sequence seq22
+drop cascades to large sequence seq33
+drop cascades to large sequence seq44
+drop cascades to large sequence seq55
+drop cascades to sequence seq4
+drop cascades to sequence seq5
+drop cascades to sequence seq6
+drop cascades to sequence seq7

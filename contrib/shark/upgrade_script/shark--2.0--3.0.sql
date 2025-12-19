@@ -751,47 +751,6 @@ grant select on sys.sysobjects to public;
 
 CREATE OR REPLACE FUNCTION sys.newid() RETURNS uuid LANGUAGE C VOLATILE as '$libdir/shark', 'uuid_generate';
 
-create or replace function sys.get_sequence_start_value(in sequence_name character varying)
-returns bigint as
-$BODY$
-declare
-  v_res bigint;
-begin
-  execute 'select start_value from '|| sequence_name into v_res;
-  return v_res;
-end;
-$BODY$
-language plpgsql STABLE STRICT;
-
-create or replace function sys.get_sequence_increment_value(in sequence_name character varying)
-returns bigint as
-$BODY$
-declare
-  v_res bigint;
-begin
-  execute 'select increment_by from '|| sequence_name into v_res;
-  return v_res;
-end;
-$BODY$
-language plpgsql STABLE STRICT;
-
-create or replace function sys.get_sequence_last_value(in sequence_name character varying)
-returns bigint as
-$BODY$
-declare
-  v_res bigint;
-  is_called bool;
-begin
-  execute 'select is_called from '|| sequence_name into is_called;
-  if is_called = 'f' then 
-    return NULL;
-  end if;
-  execute 'select last_value from '|| sequence_name into v_res;
-  return v_res;
-end;
-$BODY$
-language plpgsql STABLE STRICT;
-
 drop view if exists sys.columns;
 create or replace view sys.columns as
 select
@@ -844,6 +803,15 @@ and c.relkind in ('r', 'v', 'm', 'f')
 and has_column_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), a.attname, 'SELECT')
 and s.nspname not in ('information_schema', 'pg_catalog', 'dbe_perf', 'sys', 'information_schema_tsql');
 
+
+CREATE OR REPLACE FUNCTION sys.int16_sqlvariant(int16, int)
+RETURNS sys.SQL_VARIANT
+AS '$libdir/shark', 'int16_sqlvariant'
+LANGUAGE C IMMUTABLE STRICT ;
+
+CREATE CAST (int16 AS sys.SQL_VARIANT)
+WITH FUNCTION sys.int16_sqlvariant (int16, int) AS IMPLICIT;
+
 create or replace view sys.identity_columns as
 select
   a.attrelid as object_id,
@@ -883,9 +851,18 @@ select
   cast(0 as bit) as is_masked,
   cast(null as int) as graph_type,
   cast(null as nvarchar(60)) as graph_type_desc,
-  cast(sys.get_sequence_start_value(pg_get_serial_sequence(quote_ident(s.nspname)||'.'||quote_ident(c.relname), a.attname)) AS SQL_VARIANT) as seed_value,
-  cast(sys.get_sequence_increment_value(pg_get_serial_sequence(quote_ident(s.nspname)||'.'||quote_ident(c.relname), a.attname)) AS SQL_VARIANT) as increment_value,
-  cast(sys.get_sequence_last_value(pg_get_serial_sequence(quote_ident(s.nspname)||'.'||quote_ident(c.relname), a.attname)) AS SQL_VARIANT) as last_value,
+  cast(((pg_catalog.pg_sequence_all_parameters(
+          pg_get_serial_sequence(quote_ident(s.nspname)||'.'||quote_ident(c.relname), a.attname)
+        )).start_value)
+      as sql_variant) as seed_value,
+  cast(((pg_catalog.pg_sequence_all_parameters(
+          pg_get_serial_sequence(quote_ident(s.nspname)||'.'||quote_ident(c.relname), a.attname)
+        )).increment)
+      as sql_variant) as increment_value,
+  cast(((pg_catalog.pg_sequence_all_parameters(
+          pg_get_serial_sequence(quote_ident(s.nspname)||'.'||quote_ident(c.relname), a.attname)
+        )).last_used_value)
+      as sql_variant) as last_value,
   cast(0 as bit) as is_not_for_replication
 from pg_attribute a
 inner join pg_class c on c.oid = attrelid
@@ -1520,3 +1497,108 @@ SELECT
   0 AS stmt_end,
   blocked_activity.query_id AS request_id
 FROM pg_stat_activity blocked_activity;
+
+-- sys.sequences
+CREATE OR REPLACE VIEW sys.sequences AS
+SELECT
+  c.relname AS name,
+  c.oid AS object_id,
+  CAST(CASE s.nspowner WHEN c.relowner THEN NULL ELSE c.relowner END AS OID) AS principal_id,
+  s.oid AS schema_id,
+  CAST(0 AS OID) AS parent_object_id,
+  CAST('SO' AS CHAR(2)) AS type,
+  CAST('SEQUENCE_OBJECT' AS NVARCHAR(60)) AS type_desc,
+  CAST(o.ctime AS TIMESTAMP) AS create_date,
+  CAST(o.mtime AS TIMESTAMP) AS modify_date,
+  CAST(0 AS BIT) AS is_ms_shipped,
+  CAST(0 AS BIT) AS is_published,
+  CAST(0 AS BIT) AS is_schema_published,
+  CAST(
+          (pg_catalog.pg_sequence_all_parameters(
+              quote_ident(s.nspname) || '.' || quote_ident(c.relname)
+          )).start_value
+      AS SQL_VARIANT
+  ) AS start_value,
+  CAST(
+          (pg_catalog.pg_sequence_all_parameters(
+              quote_ident(s.nspname) || '.' || quote_ident(c.relname)
+          )).increment
+      AS SQL_VARIANT
+  ) AS increment,
+  CAST(
+          (pg_catalog.pg_sequence_all_parameters(
+              quote_ident(s.nspname) || '.' || quote_ident(c.relname)
+          )).minimum_value
+      AS SQL_VARIANT
+  ) AS minimum_value,
+  CAST(
+          (pg_catalog.pg_sequence_all_parameters(
+              quote_ident(s.nspname) || '.' || quote_ident(c.relname)
+          )).maximum_value
+      AS SQL_VARIANT
+  ) AS maximum_value,
+  CAST(
+      CAST(
+          (pg_catalog.pg_sequence_all_parameters(
+              quote_ident(s.nspname) || '.' || quote_ident(c.relname)
+          )).cycle_option
+          AS INT
+      )
+      AS BIT
+  ) AS is_cycling,
+  CAST(1 AS BIT) AS is_cached,
+  CAST(
+          (pg_catalog.pg_sequence_all_parameters(
+              quote_ident(s.nspname) || '.' || quote_ident(c.relname)
+          )).cache_size
+      AS SQL_VARIANT
+  ) AS cache_size,
+  CAST(
+    CASE relkind
+      WHEN 'S' THEN 20
+      WHEN 'L' THEN 34
+      ELSE -1
+    END AS TINYINT
+  ) AS system_type_id,
+  CAST(
+    CASE relkind
+      WHEN 'S' THEN 20
+      WHEN 'L' THEN 34
+      ELSE -1
+    END AS INT
+  ) AS user_type_id,
+  CAST(
+    CASE relkind
+      WHEN 'S' THEN 19
+      WHEN 'L' THEN 39
+      ELSE -1
+    END AS TINYINT
+  ) AS precision,
+  CAST(0 AS TINYINT) AS scale,
+  CAST(
+          (pg_catalog.pg_sequence_all_parameters(
+              quote_ident(s.nspname) || '.' || quote_ident(c.relname)
+          )).last_value
+      AS SQL_VARIANT
+  ) AS current_value,
+  CAST(
+      CAST(
+          (pg_catalog.pg_sequence_all_parameters(
+              quote_ident(s.nspname) || '.' || quote_ident(c.relname)
+          )).is_exhausted
+          AS INT
+      )
+      AS BIT
+  ) AS is_exhausted,
+  CAST(
+          (pg_catalog.pg_sequence_all_parameters(
+              quote_ident(s.nspname) || '.' || quote_ident(c.relname)
+          )).last_used_value
+      AS SQL_VARIANT
+  ) AS last_used_value
+FROM pg_class c
+INNER JOIN pg_namespace s ON s.oid = c.relnamespace
+INNER JOIN pg_object o ON o.object_oid = c.oid
+WHERE relkind IN ('S', 'L')
+AND s.nspname NOT IN ('information_schema', 'pg_catalog', 'sys', 'information_schema_tsql')
+AND (pg_catalog.pg_has_role(c.relowner, 'USAGE') OR pg_catalog.has_sequence_privilege(c.oid, 'SELECT, UPDATE, USAGE'));
