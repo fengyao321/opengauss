@@ -49,7 +49,7 @@ static int2vector* MakeInt2Vec(Oid* paramTypes, int paramNums)
 
 static void FillParamViewValues(Datum* paramViewsValues, bool* paramViewsNulls, ParamView* paramView)
 {
-    paramViewsValues[Anum_parameterization_views_reloid - 1] = ObjectIdGetDatum(paramView->relOid);
+    paramViewsValues[Anum_parameterization_views_databaseoid - 1] = ObjectIdGetDatum(paramView->database_id);
     paramViewsValues[Anum_parameterization_views_is_bypass - 1] = BoolGetDatum(paramView->isBypass);
     paramViewsValues[Anum_parameterization_views_query_type - 1] = CStringGetTextDatum(paramView->queryType);
     if (paramView->paramNums > 0) {
@@ -81,7 +81,7 @@ ParamView* GetAllParamQueries(uint32* num)
         }
         Assert(psrc->magic == CACHEDPLANSOURCE_MAGIC);
         ParamCachedKey pck = entry->paramCachedKey;
-        results[viewIndex].relOid = pck.relOid;
+        results[viewIndex].database_id = pck.database_id;
         results[viewIndex].isBypass = (psrc->opFusionObj != NULL);
         results[viewIndex].queryType = MakeQueryTypeString(psrc->raw_parse_tree);
         results[viewIndex].paramNums = pck.num_param;
@@ -117,7 +117,7 @@ Datum query_parameterization_views(PG_FUNCTION_ARGS)
         oldContext = MemoryContextSwitchTo(funcCtx->multi_call_memory_ctx);
         tupDesc = CreateTemplateTupleDesc(Natts_parameterization_views, false, TableAmHeap);
 
-        TupleDescInitEntry(tupDesc, (AttrNumber)Anum_parameterization_views_reloid, "reloid", OIDOID, -1, 0);
+        TupleDescInitEntry(tupDesc, (AttrNumber)Anum_parameterization_views_databaseoid, "databaseid", OIDOID, -1, 0);
         TupleDescInitEntry(tupDesc, (AttrNumber)Anum_parameterization_views_query_type, "query_type", TEXTOID, -1, 0);
         TupleDescInitEntry(tupDesc, (AttrNumber)Anum_parameterization_views_is_bypass, "is_bypass", BOOLOID, -1, 0);
         TupleDescInitEntry(tupDesc, (AttrNumber)Anum_parameterization_views_types, "param_types", INT2VECTOROID, -1, 0);

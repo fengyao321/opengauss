@@ -1065,8 +1065,6 @@ typedef struct knl_u_parameterization_context {
 
     HTAB* parameterized_queries;
 
-    MemoryContext query_param_cxt;
-
     bool use_parame;
 } knl_u_parameterization_context;
 

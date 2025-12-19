@@ -45,6 +45,7 @@
 #include "utils/plpgsql.h"
 #include "nodes/pg_list.h"
 #include "commands/sqladvisor.h"
+#include "commands/auto_parameterization.h"
 
 extern bool IsTransactionExitStmt(Node* parsetree);
 
@@ -338,6 +339,10 @@ bool GlobalPlanCache::TryStore(CachedPlanSource *plansource,  PreparedStatement 
         if (ps == NULL) {
             Assert (IS_PGXC_DATANODE);
             GPC_LOG("drop cache plan in try store", plansource, 0);
+            if (plansource->is_param) {
+                GPCreplacePlan((ParamCachedPlan*)(plansource->entry), entry->val.plansource);
+                entry->val.plansource->gpc.status.AddRefcount();
+            }
             DropCachedPlan(plansource);
         } else {
             CachedPlanSource* newsource = entry->val.plansource;
@@ -356,6 +361,7 @@ bool GlobalPlanCache::TryStore(CachedPlanSource *plansource,  PreparedStatement 
             DropCachedPlan(plansource);
             u_sess->pcache_cxt.gpc_in_try_store = false;
         }
+
     }
 
     MemoryContextSwitchTo(oldcontext);
@@ -742,8 +748,17 @@ void GlobalPlanCache::RecreateCachePlan(CachedPlanSource* oldsource, const char*
 
     /* newsource has reference on session, forget resource owner */
     ResourceOwnerForgetGMemContext(t_thrd.utils_cxt.TopTransactionResourceOwner, newsource->context);
-    newsource->next_saved = u_sess->pcache_cxt.first_saved_plan;
-    u_sess->pcache_cxt.first_saved_plan = newsource;
+    if (!oldsource->is_param) {
+        newsource->next_saved = u_sess->pcache_cxt.first_saved_plan;
+        u_sess->pcache_cxt.first_saved_plan = newsource;
+    } else {
+        newsource->next_saved = u_sess->param_cxt.first_saved_plan;
+        u_sess->param_cxt.first_saved_plan = newsource;
+        newsource->is_param = true;
+        newsource->entry = oldsource->entry;
+        ((ParamCachedPlan*)(newsource->entry))->psrc = newsource;
+    }
+
     newsource->is_saved = true;
     newsource->gpc.status.SetLoc(GPC_SHARE_IN_LOCAL_SAVE_PLAN_LIST);
     if (spiplan != NULL)
@@ -755,7 +770,9 @@ void GlobalPlanCache::RecreateCachePlan(CachedPlanSource* oldsource, const char*
         else
             entry->plansource = newsource;
 #else
-        entry->plansource = newsource;
+        if (entry != NULL) {
+            entry->plansource = newsource;
+        }
 #endif
     }
 
@@ -772,6 +789,7 @@ void GlobalPlanCache::Commit()
     }
 #else
     CNCommit();
+    CNCommitParam();
 #endif
 }
 
@@ -888,6 +906,32 @@ void GlobalPlanCache::CNCommit()
             }
         }
 
+        plansource = next_plansource;
+    }
+}
+
+void GlobalPlanCache::CNCommitParam()
+{
+    CachedPlanSource *next_plansource = NULL;
+    CachedPlanSource *plansource = u_sess->param_cxt.first_saved_plan;
+    u_sess->param_cxt.first_saved_plan = NULL;
+
+    while (plansource != NULL) {
+        Assert(plansource->magic == CACHEDPLANSOURCE_MAGIC);
+        Assert(!plansource->gpc.status.InShareTable());
+        if (unlikely(plansource->magic != CACHEDPLANSOURCE_MAGIC)) {
+            ereport(PANIC,
+                  (errcode(ERRCODE_UNDEFINED_PSTATEMENT),
+                   errmsg("In gpc commit stage, plansource has already been freed")));
+        }
+
+        next_plansource = plansource->next_saved;
+        if (plansource->is_valid && plansource->gplan != NULL && plansource->is_param
+            && plansource->gpc.status.IsSharePlan() && plansource->gpc.status.InSavePlanList(GPC_SHARED)) {
+            TryStore(plansource, NULL);
+        } else {
+            DropCachedPlan(plansource);
+        }
         plansource = next_plansource;
     }
 }

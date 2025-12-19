@@ -2913,9 +2913,8 @@ static void exec_simple_query(const char* query_string, MessageType messageType,
         }
 
         if(u_sess->attr.attr_sql.enable_query_parameterization && u_sess->attr.attr_sql.sql_compatibility != B_FORMAT && g_instance.attr.attr_common.enable_mot_server != true) {
-            Oid parameterOid = InvalidOid;
-            if (isQualifiedIuds(parsetree, query_string, &parameterOid)) {
-                bool res = execQueryParameterization(parsetree, query_string, dest, completionTag, parameterOid);
+            if (isQualifiedIuds(parsetree, query_string)) {
+                bool res = execQueryParameterization(parsetree, query_string, dest, completionTag);
                 u_sess->param_cxt.use_parame = false;
                 if(res){
                     CommandCounterIncrement();

@@ -71,6 +71,7 @@ public:
 
     void CNCommit();
     void DNCommit();
+    void CNCommitParam();
 
     /* system function */
     void* GetStatus(uint32 *num);

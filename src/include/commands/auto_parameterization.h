@@ -45,7 +45,7 @@ typedef struct ParamCachedKey {
     int query_len;
     Oid param_types[MAX_PARAM_NODES];
     int num_param;
-    Oid relOid;
+    Oid database_id;
 } ParamCachedKey;
 
 typedef struct ParamLocationLen {
@@ -79,11 +79,11 @@ typedef struct ParamCachedPlan {
 
 extern char* query_type_text[FIXED_QUERY_TYPE_LEN];
 
-bool execQueryParameterization(Node* parsetree, const char* query_string, CommandDest cmdDest, char* completionTag,
-                               Oid relOid);
-bool isQualifiedIuds(Node* parsetree, const char* queryString, Oid* relOid);
+bool execQueryParameterization(Node* parsetree, const char* query_string, CommandDest cmdDest, char* completionTag);
+bool isQualifiedIuds(Node* parsetree, const char* queryString);
 void dropAllParameterizedQueries(void);
 extern uint32 cachedPlanKeyHashFunc(const void* key, Size keysize);
 extern int cachedPlanKeyHashMatch(const void* key1, const void* key2, Size keysize);
+void GPCreplacePlan(ParamCachedPlan* entry, CachedPlanSource* psrc);
 
 #endif /* OPENGAUSS_SERVER_AUTO_PARAMETERIZATION_H */
