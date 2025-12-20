@@ -38,14 +38,14 @@ select name, principal_id, parent_object_id, type, type_desc, create_date, modif
   is_published, is_schema_published from sys.objects where name = 'syn_student';
     name     | principal_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
 -------------+--------------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------
- syn_student |              |                  | SN   | Synonym   |             |             | 0             | 0            | 0
+ syn_student |              |                0 | SN   | Synonym   |             |             | 0             | 0            | 0
 (1 row)
 
 select name, principal_id, parent_object_id, type, type_desc, create_date, modify_date, is_ms_shipped,
   is_published, is_schema_published from sys.synonyms where name = 'syn_student';
     name     | principal_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
 -------------+--------------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------
- syn_student |              |                  | SN   | Synonym   |             |             | 0             | 0            | 0
+ syn_student |              |                0 | SN   | Synonym   |             |             | 0             | 0            | 0
 (1 row)
 
 select count(*) from sys.objects obj inner join pg_synonym syn on syn.synname = obj.name
@@ -90,14 +90,14 @@ select name, principal_id, parent_object_id, type, type_desc, create_date, modif
   is_published, is_schema_published from sys.objects where name = 'syn_view_stu';
      name     | principal_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
 --------------+--------------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------
- syn_view_stu |              |                  | SN   | Synonym   |             |             | 0             | 0            | 0
+ syn_view_stu |              |                0 | SN   | Synonym   |             |             | 0             | 0            | 0
 (1 row)
 
 select name, principal_id, parent_object_id, type, type_desc, create_date, modify_date, is_ms_shipped,
   is_published, is_schema_published from sys.synonyms where name = 'syn_view_stu';
      name     | principal_id | parent_object_id | type | type_desc | create_date | modify_date | is_ms_shipped | is_published | is_schema_published 
 --------------+--------------+------------------+------+-----------+-------------+-------------+---------------+--------------+---------------------
- syn_view_stu |              |                  | SN   | Synonym   |             |             | 0             | 0            | 0
+ syn_view_stu |              |                0 | SN   | Synonym   |             |             | 0             | 0            | 0
 (1 row)
 
 select count(*) from sys.objects obj inner join pg_synonym syn on syn.synname = obj.name
