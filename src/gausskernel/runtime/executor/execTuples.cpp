@@ -143,6 +143,18 @@ TupleTableSlot* MakeTupleTableSlot(bool has_tuple_mcxt, const TableAmRoutine* ta
     return slot;
 }
 
+void ExecSetTupleSlotFromOtherTupleSlot(TupleTableSlot* src_slot, TupleTableSlot* dest_slot, int begin, int delta)
+{
+    dest_slot->tts_flags = src_slot->tts_flags & (TTS_FLAG_EMPTY | TTS_FLAG_SHOULDFREE_ROW);
+    dest_slot->tts_xcnodeoid = src_slot->tts_xcnodeoid;
+    dest_slot->tts_nvalid = dest_slot->tts_tupleDescriptor->natts;
+    for (int i = 0; i < delta; i++) {
+        dest_slot->tts_values[i] = src_slot->tts_values[begin + i];
+        dest_slot->tts_isnull[i] = src_slot->tts_isnull[begin + i];
+        dest_slot->tts_lobPointers[i] = src_slot->tts_lobPointers[begin + i];
+    }
+}
+
 /* --------------------------------
  *		ExecAllocTableSlot
  *

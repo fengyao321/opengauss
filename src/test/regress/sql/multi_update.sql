@@ -146,12 +146,12 @@ select * from t_t_mutil_t1;
 rollback;
 update t_t_mutil_t1 a,t_t_mutil_t2 a set a.col2=5; --error
 -- different explain plan
-explain(verbose) update/*+nestloop(a b)*/ t_t_mutil_t1 a,t_t_mutil_t2 b set b.col1=5,a.col2=4 where a.col1=b.col1;
-explain(verbose) update/*+hashjoin(a b)*/ t_t_mutil_t1 a,t_t_mutil_t2 b set b.col1=5,a.col2=4 where a.col1=b.col1;
-explain(verbose) update/*+mergejoin(a b)*/ t_t_mutil_t1 a,t_t_mutil_t2 b set b.col1=5,a.col2=4 where a.col1=b.col1;
-explain(format xml) update public.t_t_mutil_t1 a,t_t_mutil_t2 b set b.col2=5,a.col2=4 where a.col1=b.col1;
-explain(format json) update public.t_t_mutil_t1 a,t_t_mutil_t2 b set b.col2=5,a.col2=4 where a.col1=b.col1;
-explain(format yaml) update public.t_t_mutil_t1 a,t_t_mutil_t2 b set b.col2=5,a.col2=4 where a.col1=b.col1;
+explain(costs off, verbose) update/*+nestloop(a b)*/ t_t_mutil_t1 a,t_t_mutil_t2 b set b.col1=5,a.col2=4 where a.col1=b.col1;
+explain(costs off, verbose) update/*+hashjoin(a b)*/ t_t_mutil_t1 a,t_t_mutil_t2 b set b.col1=5,a.col2=4 where a.col1=b.col1;
+explain(costs off, verbose) update/*+mergejoin(a b)*/ t_t_mutil_t1 a,t_t_mutil_t2 b set b.col1=5,a.col2=4 where a.col1=b.col1;
+explain(costs off, format xml) update public.t_t_mutil_t1 a,t_t_mutil_t2 b set b.col2=5,a.col2=4 where a.col1=b.col1;
+explain(costs off, format json) update public.t_t_mutil_t1 a,t_t_mutil_t2 b set b.col2=5,a.col2=4 where a.col1=b.col1;
+explain(costs off, format yaml) update public.t_t_mutil_t1 a,t_t_mutil_t2 b set b.col2=5,a.col2=4 where a.col1=b.col1;
 -- temp table
 drop table if exists t_t_mutil_t1;
 drop table if exists t_t_mutil_t2;
@@ -712,5 +712,29 @@ drop table if exists t_t_mutil_t2;
 drop table if exists t_t_mutil_t3;
 reset query_dop;
 
+-- multi-update concurrently
+create table t_t_mutil_t1 (a int, b int);
+create table t_t_mutil_t2 (a int, b int);
+insert into t_t_mutil_t1 values (1,1);
+insert into t_t_mutil_t2 values (1,1);
+
+\parallel on 2
+begin
+update t_t_mutil_t1, t_t_mutil_t2 set t_t_mutil_t1.a = 2, t_t_mutil_t2.a = 2 where t_t_mutil_t1.a = t_t_mutil_t2.a;
+perform pg_sleep(2);
+end;
+/
+
+begin
+perform pg_sleep(1);
+update t_t_mutil_t1, t_t_mutil_t2 set t_t_mutil_t1.a = 3, t_t_mutil_t2.a = 3 where t_t_mutil_t1.a = t_t_mutil_t2.a;
+perform pg_sleep(2);
+end;
+/
+\parallel off
+select * from t_t_mutil_t1;
+select * from t_t_mutil_t2;
+drop table if exists t_t_mutil_t1;
+drop table if exists t_t_mutil_t2;
 \c regression
 drop database multiupdate;

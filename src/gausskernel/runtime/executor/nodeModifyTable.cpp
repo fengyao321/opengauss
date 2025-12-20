@@ -3490,6 +3490,43 @@ static TupleTableSlot* ExecReplace(EState* estate, ModifyTableState* node, Tuple
     return slot;
 }
 
+static void ModifyTableFetchPlanSlot(TupleTableSlot*& planSlot, ProjectionInfo** projInfos,
+    PlanState* subPlanState, int resultRelationNum, int& modifyRti, bool isinherit)
+{
+    if (unlikely(resultRelationNum > 1 && !isinherit)) {
+        ProjectionInfo* projInfo = NULL;
+        if (modifyRti == 0) {
+            planSlot = ExecProcNode(subPlanState);
+            if (TupIsNull(planSlot)) {
+                return;
+            }
+            tableam_tslot_getsomeattrs(planSlot, list_length(subPlanState->plan->targetlist));
+            int begin_attrnum = 0;
+            int delta_attrnum = 0;
+            TupleTableSlot* resSlot = NULL;
+            for (int ri = 0; ri < resultRelationNum; ri++) {
+                projInfo = projInfos[ri];
+                if (projInfo->pi_state.is_flt_frame) {
+                    resSlot = projInfo->pi_state.resultslot;
+                } else {
+                    resSlot = projInfo->pi_slot;
+                }
+                delta_attrnum = resSlot->tts_tupleDescriptor->natts;
+                ExecSetTupleSlotFromOtherTupleSlot(planSlot, resSlot, begin_attrnum, delta_attrnum);
+                begin_attrnum += delta_attrnum;
+            }
+        }
+        projInfo = projInfos[modifyRti];
+        if (projInfo->pi_state.is_flt_frame) {
+            planSlot = projInfo->pi_state.resultslot;
+        } else {
+            planSlot = projInfo->pi_slot;
+        }
+    } else {
+        planSlot = ExecProcNode(subPlanState);
+    }
+}
+
 /* ----------------------------------------------------------------
  *	   ExecModifyTable
  *
@@ -3682,7 +3719,8 @@ static TupleTableSlot* ExecModifyTable(PlanState* state)
          */
         ResetPerTupleExprContext(estate);
         t_thrd.xact_cxt.ActiveLobRelid = result_rel_info->ri_RelationDesc->rd_id;
-        plan_slot = FetchPlanSlot(subPlanState, node->mt_ProjInfos, node->isinherit);
+        ModifyTableFetchPlanSlot(plan_slot, node->mt_ProjInfos, subPlanState, resultRelationNum,
+            estate->result_rel_index, node->isinherit);
         t_thrd.xact_cxt.ActiveLobRelid = InvalidOid;
         if (TupIsNull(plan_slot)) {
             record_first_time();
@@ -4293,7 +4331,7 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
     }
 #endif
     /* set up epqstate with dummy subplan data for the moment */
-    EvalPlanQualInit(&mt_state->mt_epqstate, estate, NULL, NIL, node->epqParam);
+    EvalPlanQualInit(&mt_state->mt_epqstate, estate, NULL, NIL, node->epqParam, mt_state->mt_ProjInfos);
 
     estate->es_result_relation_info = saved_result_rel_info;
 #ifdef ENABLE_MULTIPLE_NDOES

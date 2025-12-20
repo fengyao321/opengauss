@@ -56,6 +56,7 @@ static TupleTableSlot* ExecLockRows(PlanState* state)
     Relation bucket_rel = NULL;
     bool orig_early_free = false;
     bool orig_early_deinit = false;
+    bool multi_modify = false;
 
     CHECK_FOR_INTERRUPTS();
 
@@ -63,6 +64,7 @@ static TupleTableSlot* ExecLockRows(PlanState* state)
      * get information from the node
      */
     estate = node->ps.state;
+    multi_modify = estate->es_num_result_relations > 1 ? true : false;
     outer_plan = outerPlanState(node);
 
     /*
@@ -130,8 +132,13 @@ lnext:
             datum = ExecGetJunkAttribute(slot, aerm->toidAttNo, &isNull);
             /* shouldn't ever get a null result... */
             if (isNull) {
-                ereport(ERROR,
-                    (errcode(ERRCODE_NULL_JUNK_ATTRIBUTE), errmsg("tableoid is NULL when try to lock current row.")));
+                if (multi_modify) {
+                    continue;
+                } else {
+                    ereport(ERROR,
+                        (errcode(ERRCODE_NULL_JUNK_ATTRIBUTE),
+                            errmsg("tableoid is NULL when try to lock current row.")));
+                }
             }
             
             table_oid = DatumGetObjectId(datum);
@@ -145,9 +152,15 @@ lnext:
         if (RELATION_OWN_BUCKET(erm->relation)) {
             Datum bucket_datum;
             bucket_datum = ExecGetJunkAttribute(slot, aerm->tbidAttNo, &isNull);
-            if (isNull)
-                ereport(ERROR,
-                    (errcode(ERRCODE_NULL_JUNK_ATTRIBUTE), errmsg("bucketid is NULL when try to lock current row.")));
+            if (isNull) {
+                if (multi_modify) {
+                    continue;
+                } else {
+                    ereport(ERROR,
+                        (errcode(ERRCODE_NULL_JUNK_ATTRIBUTE),
+                            errmsg("bucketid is NULL when try to lock current row.")));
+                }
+            }
             bucket_id = DatumGetObjectId(bucket_datum);
             Assert(bucket_id != InvalidBktId);
         }
@@ -157,6 +170,9 @@ lnext:
             Datum part_datum;
 
             part_datum = ExecGetJunkAttribute(slot, aerm->toidAttNo, &isNull);
+            if (isNull && multi_modify) {
+                continue;
+            }
             rowMovement = erm->relation->rd_rel->relrowmovement;
             tblid = DatumGetObjectId(part_datum);
             /* if it is a partition */
@@ -179,9 +195,14 @@ lnext:
         /* fetch the tuple's ctid */
         datum = ExecGetJunkAttribute(slot, aerm->ctidAttNo, &isNull);
         /* shouldn't ever get a null result... */
-        if (isNull)
-            ereport(
-                ERROR, (errcode(ERRCODE_NULL_JUNK_ATTRIBUTE), errmsg("ctid is NULL when try to lock current row.")));
+        if (isNull) {
+            if (multi_modify) {
+                continue;
+            } else {
+                ereport(ERROR, (errcode(ERRCODE_NULL_JUNK_ATTRIBUTE),
+                    errmsg("ctid is NULL when try to lock current row.")));
+            }
+        }
         tuple.t_self = *((ItemPointer)DatumGetPointer(datum));
         tuple.t_data = &tbuf.hdr;
 
@@ -233,6 +254,9 @@ lnext:
             case TM_SelfUpdated:
             case TM_SelfModified:
                 /* treat it as deleted; do not process */
+                if (multi_modify) {
+                    break;
+                }
                 goto lnext;
 
             case TM_Ok:

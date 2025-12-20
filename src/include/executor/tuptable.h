@@ -247,6 +247,8 @@ extern void slot_getallattrsfast(TupleTableSlot *slot, int maxIdx);
 extern void heap_slot_getsomeattrs(TupleTableSlot* slot, int attnum);
 extern bool heap_slot_attisnull(TupleTableSlot* slot, int attnum);
 extern void heap_slot_formbatch(TupleTableSlot* slot, struct VectorBatch* batch, int cur_rows, int attnum);
+extern void ExecSetTupleSlotFromOtherTupleSlot(TupleTableSlot* src_slot, TupleTableSlot* dest_slot, int begin,
+    int delta);
 
 
 #ifdef USE_SPQ
