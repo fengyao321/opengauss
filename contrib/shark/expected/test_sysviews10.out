@@ -1,0 +1,517 @@
+drop schema if exists test_views5 cascade;
+NOTICE:  schema "test_views5" does not exist, skipping
+create schema test_views5;
+set current_schema to test_views5;
+-- sys.sysprocesses
+\d sys.sysprocesses
+               View "sys.sysprocesses"
+    Column    |           Type           | Modifiers 
+--------------+--------------------------+-----------
+ spid         | bigint                   | 
+ kpid         | smallint                 | 
+ blocked      | bigint                   | 
+ waittype     | varbinary(2)             | 
+ waittime     | bigint                   | 
+ lastwaittype | character(32)            | 
+ waitresource | character(256)           | 
+ dbid         | oid                      | 
+ uid          | oid                      | 
+ cpu          | integer                  | 
+ physical_io  | bigint                   | 
+ memusage     | integer                  | 
+ login_time   | timestamp with time zone | 
+ last_batch   | timestamp with time zone | 
+ ecid         | smallint                 | 
+ open_tran    | smallint                 | 
+ status       | character(30)            | 
+ sid          | varbinary(86)            | 
+ hostname     | character(128)           | 
+ program_name | character(128)           | 
+ hostprocess  | character(10)            | 
+ cmd          | text                     | 
+ nt_domain    | character(128)           | 
+ nt_username  | character(128)           | 
+ net_address  | character(12)            | 
+ net_library  | character(12)            | 
+ loginname    | character(128)           | 
+ context_info | varbinary(128)           | 
+ sql_handle   | varbinary(20)            | 
+ stmt_start   | integer                  | 
+ stmt_end     | integer                  | 
+ request_id   | bigint                   | 
+
+select kpid, waittype, waittime, lastwaittype, waitresource, cpu, physical_io, memusage, ecid,
+  open_tran, hostprocess, nt_domain, nt_username, net_address, net_library, context_info, sql_handle,
+  stmt_start, stmt_end from sys.sysprocesses limit 1;
+ kpid | waittype | waittime | lastwaittype | waitresource | cpu | physical_io | memusage | ecid | open_tran | hostprocess | nt_domain | nt_username | net_address | net_library | context_info | sql_handle | stmt_start | stmt_end 
+------+----------+----------+--------------+--------------+-----+-------------+----------+------+-----------+-------------+-----------+-------------+-------------+-------------+--------------+------------+------------+----------
+      |          |        0 |              |              |   0 |           0 |        0 |    0 |         0 |             |           |             |             |             |              |            |          0 |        0
+(1 row)
+
+-- sys.index_columns
+\d sys.index_columns
+         View "sys.index_columns"
+       Column       |  Type   | Modifiers 
+--------------------+---------+-----------
+ object_id          | oid     | 
+ index_id           | oid     | 
+ index_column_id    | integer | 
+ column_id          | integer | 
+ key_ordinal        | tinyint | 
+ partition_ordinal  | tinyint | 
+ is_descending_key  | bit(1)  | 
+ is_included_column | bit(1)  | 
+
+create table test(id int primary key, name varchar(10));
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "test_pkey" for table "test"
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('test');
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         1 | 1           | 0                 | 0                 | 0
+(1 row)
+
+create table sales_range (
+    id          int,
+    product     varchar(100),
+    sale_date   date
+) with (storage_type = ustore);
+create index idx on sales_range using ubtree (id) include (product);
+create columnstore index idx1 on sales_range (id) include (sale_date);
+NOTICE:  The COLUMNSTORE option is currently ignored
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('sales_range') order by index_id, index_column_id;
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         1 | 1           | 0                 | 0                 | 0
+               2 |         2 | 0           | 0                 | 0                 | 1
+               1 |         1 | 1           | 0                 | 0                 | 0
+               2 |         3 | 0           | 0                 | 0                 | 1
+(4 rows)
+
+create table sales_range1 (
+    id          int,
+    product     varchar(100),
+    sale_date   date
+);
+create index ix_sales_id_desc_date_asc on sales_range1 (id desc, sale_date asc);
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('sales_range1');
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         1 | 1           | 0                 | 1                 | 0
+               2 |         3 | 2           | 0                 | 0                 | 0
+(2 rows)
+
+create table sales_range2 (
+    id          int,
+    product     varchar(100),
+    sale_date   date
+);
+create index sales_range2_lower on sales_range2 (lower(product));
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('sales_range2');
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         0 | 1           | 0                 | 0                 | 0
+(1 row)
+
+create table sales_range3 (
+    id          int,
+    product     varchar(100),
+    sale_date   date
+)
+partition by range (sale_date) (
+    partition p2023 values less than ('2024-01-01'),
+    partition p2024 values less than ('2025-01-01'),
+    partition p_max values less than (maxvalue)
+);
+create index index1 on sales_range3(sale_date);
+create index index2 on sales_range3(sale_date, id);
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('sales_range3') order by index_id, index_column_id;
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         3 | 1           | 1                 | 0                 | 0
+               2 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         3 | 1           | 1                 | 0                 | 0
+               2 |         1 | 2           | 0                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+(5 rows)
+
+create table sales (
+    id          int,
+    region_id   int,
+    sale_date   date,
+    amount      decimal(10,2)
+)
+partition by range (region_id, sale_date)
+(
+    partition p1 values less than (1, '2024-01-01'),
+    partition p2 values less than (2, '2025-01-01'),
+    partition p3 values less than (3, '2026-01-01'),
+    partition p4 values less than (maxvalue, maxvalue)
+);
+create index sales_index1 on sales(id);
+create index sales_index2 on sales(region_id, sale_date);
+create index sales_index3 on sales(id, amount);
+create index sales_index4 on sales(id, sale_date);
+create index sales_index5 on sales(id, sale_date, region_id);
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('sales') order by index_id, index_column_id;
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         1 | 1           | 0                 | 0                 | 0
+               2 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         2 | 1           | 1                 | 0                 | 0
+               2 |         3 | 2           | 2                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 0                 | 0                 | 0
+               2 |         4 | 2           | 0                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 0                 | 0                 | 0
+               2 |         3 | 2           | 2                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 0                 | 0                 | 0
+               2 |         3 | 2           | 2                 | 0                 | 0
+               3 |         2 | 3           | 1                 | 0                 | 0
+               4 |        -7 | 0           | 0                 | 0                 | 0
+(15 rows)
+
+create table sales1 (
+    id          int,
+    region_id   int,
+    sale_date   date,
+    amount      decimal(10,2)
+)
+partition by range (abs(id))
+(
+    partition p1 values less than (2024),
+    partition p2 values less than (2025),
+    partition p3 values less than (2026),
+    partition p4 values less than (maxvalue)
+);
+create index sales1_index1 on sales1 (id);
+create index sales1_index2 on sales1 (region_id, sale_date);
+create index sales1_index3 on sales1 (id, amount);
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('sales1') order by index_id, index_column_id;
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         1 | 1           | 1                 | 0                 | 0
+               2 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         2 | 1           | 0                 | 0                 | 0
+               2 |         3 | 2           | 0                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 1                 | 0                 | 0
+               2 |         4 | 2           | 0                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+(8 rows)
+
+create table sales2 (
+    id          int,
+    region_id   int,
+    sale_date   date,
+    amount      decimal(10,2)
+) with (storage_type = ustore)
+partition by range (abs(id))
+(
+    partition p1 values less than (2024),
+    partition p2 values less than (2025),
+    partition p3 values less than (2026),
+    partition p4 values less than (maxvalue)
+);
+create index idx22 on sales2 using ubtree (id) include (amount);
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('sales2');
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         1 | 1           | 1                 | 0                 | 0
+               2 |         4 | 0           | 0                 | 0                 | 1
+               3 |        -7 | 0           | 0                 | 0                 | 0
+(3 rows)
+
+create table range_range(id int, gender varchar not null, birthday date not null)
+partition by range (id) subpartition by range (birthday)
+(
+    partition p_1 values less than(100)
+    (
+            subpartition p_1_a values less than('2022-01-01'),
+            subpartition p_1_b values less than(MAXVALUE)
+    ),
+    partition p_2 values less than(200)
+    (
+            subpartition p_2_a values less than('2022-01-01'),
+            subpartition p_2_b values less than(MAXVALUE)
+    ),
+    partition p_3 values less than(MAXVALUE)
+    (
+            subpartition p_3_a values less than('2022-01-01'),
+            subpartition p_3_b values less than(MAXVALUE)
+    )
+);
+insert into range_range values(198,'boy','2010-02-15'),(33,'boy','2003-08-11'),(78,'girl','2014-06-24');
+insert into range_range values(233,'girl','2010-01-01'),(360,'boy','2007-05-14'),(146,'girl','2005-03-08');
+insert into range_range values(111,'girl','2013-11-19'),(15,'girl','2009-01-12'),(156,'boy','2011-05-21');
+create index range_range_index1 on range_range(id);
+create index range_range_index2 on range_range(id, gender);
+create index range_range_index3 on range_range(id, birthday);
+create index range_range_index4 on range_range(gender);
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('range_range') order by index_id, index_column_id;
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         1 | 1           | 1                 | 0                 | 0
+               2 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 1                 | 0                 | 0
+               2 |         2 | 2           | 0                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 1                 | 0                 | 0
+               2 |         3 | 2           | 0                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         2 | 1           | 0                 | 0                 | 0
+               2 |        -7 | 0           | 0                 | 0                 | 0
+(10 rows)
+
+drop table if exists sales3;
+NOTICE:  table "sales3" does not exist, skipping
+create table sales3 (
+    id          int,
+    product     varchar(100),
+    sale_date   date,
+    num         int
+);
+create index sales3_upper on sales3 (upper(product));
+create index sales3_index1 on sales3 (product);
+create index sales3_abs on sales3 (abs(id));
+create index sales3_index2 on sales3 (id);
+create index sales3_abs2 on sales3 (abs(id + num));
+create index sales3_index3 on sales3 (id, num);
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('sales3') order by index_id, index_column_id;
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         0 | 1           | 0                 | 0                 | 0
+               1 |         2 | 1           | 0                 | 0                 | 0
+               1 |         0 | 1           | 0                 | 0                 | 0
+               1 |         1 | 1           | 0                 | 0                 | 0
+               1 |         0 | 1           | 0                 | 0                 | 0
+               1 |         1 | 1           | 0                 | 0                 | 0
+               2 |         4 | 2           | 0                 | 0                 | 0
+(7 rows)
+
+drop table if exists sales3;
+create table sales3 (
+    id          int,
+    product     varchar(100),
+    sale_date   date,
+    num         int,
+    product_lower as lower(product) persisted
+);
+create index ix_sales3_product_lower on sales3 (product_lower);
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('sales3');
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         5 | 1           | 0                 | 0                 | 0
+(1 row)
+
+drop table if exists sales1;
+create table sales1 (
+    id          int,
+    region_id   int,
+    sale_date   date,
+    amount      decimal(10,2)
+)
+partition by range (abs(id))
+(
+    partition p1 values less than (2024),
+    partition p2 values less than (2025),
+    partition p3 values less than (2026),
+    partition p4 values less than (maxvalue)
+);
+create index sales1_index1 on sales1 (id);
+create index sales1_index2 on sales1 (id, region_id);
+create index sales1_index3 on sales1 (region_id, sale_date);
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('sales1') order by index_id, index_column_id;
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         1 | 1           | 1                 | 0                 | 0
+               2 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 1                 | 0                 | 0
+               2 |         2 | 2           | 0                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         2 | 1           | 0                 | 0                 | 0
+               2 |         3 | 2           | 0                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+(8 rows)
+
+drop table if exists sales1;
+create table sales1 (
+    id          int,
+    region_id   int,
+    sale_date   date,
+    amount      decimal(10,2)
+)
+partition by range (id)
+(
+    partition p1 values less than (2024),
+    partition p2 values less than (2025),
+    partition p3 values less than (2026),
+    partition p4 values less than (maxvalue)
+);
+create index sales1_index1 on sales1 (id);
+create index sales1_index2 on sales1 (id, region_id);
+create index sales1_index3 on sales1 (region_id, sale_date);
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('sales1') order by index_id, index_column_id;
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         1 | 1           | 1                 | 0                 | 0
+               2 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 1                 | 0                 | 0
+               2 |         2 | 2           | 0                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         2 | 1           | 0                 | 0                 | 0
+               2 |         3 | 2           | 0                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+(8 rows)
+
+drop table if exists sales_range;
+CREATE TABLE sales_range (
+    id          INT,
+    product     VARCHAR(100),
+    sale_date   DATE,
+    region_id   INT,
+    amount      NUMERIC
+)
+PARTITION BY RANGE (sale_date, region_id) (
+    PARTITION p1 VALUES LESS THAN ('2023-01-01', 100),
+    PARTITION p2 VALUES LESS THAN ('2023-01-01', 200),
+    PARTITION p3 VALUES LESS THAN ('2024-01-01', 100),
+    PARTITION p4 VALUES LESS THAN ('2024-01-01', MAXVALUE),
+    PARTITION p5 VALUES LESS THAN (MAXVALUE, MAXVALUE)
+);
+create index sales_range_index1 on sales_range(id);
+create index sales_range_index2 on sales_range(id, sale_date, region_id);
+create index sales_range_index3 on sales_range(id, sale_date);
+create index sales_range_index4 on sales_range(id, region_id);
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('sales_range') order by index_id, index_column_id;
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         1 | 1           | 0                 | 0                 | 0
+               2 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 0                 | 0                 | 0
+               2 |         3 | 2           | 1                 | 0                 | 0
+               3 |         4 | 3           | 2                 | 0                 | 0
+               4 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 0                 | 0                 | 0
+               2 |         3 | 2           | 1                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 0                 | 0                 | 0
+               2 |         4 | 2           | 2                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+(12 rows)
+
+CREATE TABLE sales_list (
+    id        INT,
+    product   VARCHAR(100),
+    region_id INT,
+    channel   VARCHAR(20),
+    amount    NUMERIC
+)
+PARTITION BY LIST (region_id, channel) (
+    PARTITION p_north_online  VALUES ((1, 'online'), (1, 'web')),
+    PARTITION p_south_offline VALUES ((2, 'offline'), (2, 'store')),
+    PARTITION p_other         VALUES (DEFAULT)
+);
+create index sales_list_index1 on sales_list(id, region_id);
+create index sales_list_index2 on sales_list(id, channel);
+create index sales_list_index3 on sales_list(id, channel, region_id);
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('sales_list') order by index_id, index_column_id;
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         1 | 1           | 0                 | 0                 | 0
+               2 |         3 | 2           | 1                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 0                 | 0                 | 0
+               2 |         4 | 2           | 2                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 0                 | 0                 | 0
+               2 |         4 | 2           | 2                 | 0                 | 0
+               3 |         3 | 3           | 1                 | 0                 | 0
+               4 |        -7 | 0           | 0                 | 0                 | 0
+(10 rows)
+
+drop table if exists sales_range;
+CREATE TABLE sales_range (
+    id          INT,
+    product     VARCHAR(100),
+    sale_date   DATE,
+    region_id   INT,
+    amount      NUMERIC
+)
+PARTITION BY RANGE (id, region_id) (
+    PARTITION p1 VALUES LESS THAN (10, 100),
+    PARTITION p2 VALUES LESS THAN (20, 200),
+    PARTITION p3 VALUES LESS THAN (30, 300),
+    PARTITION p4 VALUES LESS THAN (40, 400),
+    PARTITION p5 VALUES LESS THAN (MAXVALUE, MAXVALUE)
+);
+create index sales_range_index1 on sales_range(id);
+create index sales_range_index2 on sales_range(id, sale_date, region_id);
+create index sales_range_index3 on sales_range(id, sale_date);
+create index sales_range_index4 on sales_range(id, region_id);
+create index sales_range_index5 on sales_range(region_id, amount);
+select index_column_id, column_id, key_ordinal, partition_ordinal, is_descending_key, is_included_column
+  from sys.index_columns where object_id = object_id('sales_range') order by index_id, index_column_id;
+ index_column_id | column_id | key_ordinal | partition_ordinal | is_descending_key | is_included_column 
+-----------------+-----------+-------------+-------------------+-------------------+--------------------
+               1 |         1 | 1           | 1                 | 0                 | 0
+               2 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 1                 | 0                 | 0
+               2 |         3 | 2           | 0                 | 0                 | 0
+               3 |         4 | 3           | 2                 | 0                 | 0
+               4 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 1                 | 0                 | 0
+               2 |         3 | 2           | 0                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         1 | 1           | 1                 | 0                 | 0
+               2 |         4 | 2           | 2                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+               1 |         4 | 1           | 2                 | 0                 | 0
+               2 |         5 | 2           | 0                 | 0                 | 0
+               3 |        -7 | 0           | 0                 | 0                 | 0
+(15 rows)
+
+drop table if exists sales_range;
+CREATE TABLE sales_range (
+    id          INT,
+    product     VARCHAR(100),
+    sale_date   DATE,
+    region_id   INT,
+    amount      NUMERIC
+)
+PARTITION BY RANGE (abs(id), region_id) (
+    PARTITION p1 VALUES LESS THAN (10, 100),
+    PARTITION p2 VALUES LESS THAN (20, 200),
+    PARTITION p3 VALUES LESS THAN (30, 300),
+    PARTITION p4 VALUES LESS THAN (40, 400),
+    PARTITION p5 VALUES LESS THAN (MAXVALUE, MAXVALUE)
+);
+ERROR:  The multi partition expr keys are not supported.
+drop schema if exists test_views5 cascade;
+NOTICE:  drop cascades to 10 other objects
+DETAIL:  drop cascades to table test
+drop cascades to table sales_range1
+drop cascades to table sales_range2
+drop cascades to table sales_range3
+drop cascades to table sales
+drop cascades to table sales2
+drop cascades to table range_range
+drop cascades to table sales3
+drop cascades to table sales1
+drop cascades to table sales_list
