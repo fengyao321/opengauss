@@ -71,7 +71,7 @@ SHMEM_API int ubsmem_shmem_lookup(const char *name, ubsmem_shmem_info_t *shm_inf
 SHMEM_API int ubsmem_shmem_attach(const char *name);
 SHMEM_API int ubsmem_shmem_detach(const char *name);
 
-SHMEM_API int ubsmem_lease_malloc(const char *region_name, size_t size, ubsmem_distance_t mem_distance, bool is_numa,
+SHMEM_API int ubsmem_lease_malloc(const char *region_name, size_t size, ubsmem_distance_t mem_distance, uint64_t flags,
                                   void **local_ptr);
 
 SHMEM_API int ubsmem_lease_free(void *local_ptr);

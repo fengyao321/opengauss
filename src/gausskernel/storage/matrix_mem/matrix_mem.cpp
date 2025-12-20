@@ -247,11 +247,11 @@ int ubsmem_set_extern_logger(void (*func)(int level, const char *msg))
     return Retry(funcin, "ubsmem_set_extern_logger");
 }
 
-int ubsmem_lease_malloc(const char *region_name, size_t size, ubsmem_distance_t mem_distance, bool is_numa,
+int ubsmem_lease_malloc(const char *region_name, size_t size, ubsmem_distance_t mem_distance, uint64_t flags,
                         void **local_ptr)
 {
     std::function<int()> funcin = [&]() -> int {
-        return g_matrixMemFunc.ubsmem_lease_malloc(region_name, size, mem_distance, is_numa, local_ptr);
+        return g_matrixMemFunc.ubsmem_lease_malloc(region_name, size, mem_distance, flags, local_ptr);
     };
     return Retry(funcin, "ubsmem_lease_malloc");
 }

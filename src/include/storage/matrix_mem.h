@@ -96,7 +96,7 @@ typedef struct MatrixMemFunc {
     int (*ubsmem_shmem_lookup)(const char *name, ubsmem_shmem_info_t *shm_info);
     int (*ubsmem_shmem_attach)(const char *name);
     int (*ubsmem_shmem_detach)(const char *name);
-    int (*ubsmem_lease_malloc)(const char *region_name, size_t size, ubsmem_distance_t mem_distance, bool is_numa,
+    int (*ubsmem_lease_malloc)(const char *region_name, size_t size, ubsmem_distance_t mem_distance, uint64_t flags,
                                void **local_ptr);
     int (*ubsmem_lease_free)(void *local_ptr);
     int (*ubsmem_lookup_cluster_statistic)(ubsmem_cluster_info_t* info);

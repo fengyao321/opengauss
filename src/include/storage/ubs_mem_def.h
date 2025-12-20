@@ -58,7 +58,9 @@ extern "C" {
 #define UBSM_FLAG_NONCACHE 0x2UL  // open O_SYNC
 #define UBSM_FLAG_WR_DELAY_COMP 0x4UL  // obmm import with wr_delay_comp
 #define UBSM_FLAG_ONLY_IMPORT_NONCACHE 0X8UL  // only import open O_SYNC
-#define UBSM_FLAG_MEM_ANONYMOUS 0x16UL  // auto cleanup when all references in domain drop to zero
+#define UBSM_FLAG_MEM_ANONYMOUS 0x10UL  // auto cleanup when all references in domain drop to zero
+#define UBSM_FLAG_MMAP_HUGETLB_PMD 0x20UL
+#define UBSM_FLAG_MALLOC_WITH_NUMA 0x40UL // create a remote numa when malloc
 
 constexpr int FOUR_KB = 4 * 1024;
 constexpr size_t FOUR_MB = 4 * 1024 * 1024;
@@ -77,7 +79,7 @@ typedef enum {
     UBSM_ERR_NOT_FOUND = 6020,
     UBSM_ERR_ALREADY_EXIST = 6021,
     UBSM_ERR_MALLOC_FAIL = 6022,
-    UBSM_ERR_RECOED = 6023,
+    UBSM_ERR_RECORD = 6023,
     UBSM_ERR_IN_USING = 6024,
 
     // net error
@@ -161,7 +163,7 @@ typedef struct {
     char name[MAX_SHM_NAME_LENGTH + 1];
     size_t size;
     uint32_t mem_num;
-    uint64_t mem_uint_size;
+    uint64_t mem_unit_size;
     uint64_t mem_id_list[MAX_MEMID_NUM];
 } ubsmem_shmem_info_t;
 
