@@ -173,6 +173,8 @@ void swapRelationIndicesRelfileNode(Relation rel1, Relation rel2, uint8 needSwit
 static void GttSwapRelationFiles(Oid r1, Oid r2, TransactionId frozenXid);
 static void HbktModifyPartIndexRelnode(Relation indexRel, Partition indexPart, DataTransferType transferType,
     Oid bucketOid);
+void OnlineDDLSwapRelationIndexes(List* srcIndexOidList, List* destIndexOidList, AlteredTableInfo* tab);
+
 
 /* ---------------------------------------------------------------------------
  * This cluster code allows for clustering multiple tables at once. Because
@@ -3447,7 +3449,8 @@ static void SwapCStoreTables(Oid relId1, Oid relId2, Oid parentOid, Oid tempTabl
  * cleaning up (including rebuilding all indexes on the old heap).
  */
 void finish_heap_swap(Oid OIDOldHeap, Oid OIDNewHeap, bool is_system_catalog, bool swap_toast_by_content,
-    bool checkConstraints, TransactionId frozenXid, MultiXactId frozenMulti, AdaptMem* memInfo, AlteredTableInfo* tab)
+    bool checkConstraints, TransactionId frozenXid, MultiXactId frozenMulti, AdaptMem* memInfo, AlteredTableInfo* tab,
+    bool skipReindex)
 {
     ObjectAddress object;
     Oid mapped_tables[4];
@@ -3496,7 +3499,11 @@ void finish_heap_swap(Oid OIDOldHeap, Oid OIDNewHeap, bool is_system_catalog, bo
     reindex_flags = REINDEX_REL_SUPPRESS_INDEX_USE;
     if (checkConstraints)
         reindex_flags |= REINDEX_REL_CHECK_CONSTRAINTS;
-    ReindexRelation(OIDOldHeap, reindex_flags, REINDEX_ALL_INDEX, NULL, memInfo);
+    if (!skipReindex) {
+        ReindexRelation(OIDOldHeap, reindex_flags, REINDEX_ALL_INDEX, NULL, memInfo);
+    } else {
+        CommandCounterIncrement();
+    }
 
 #ifndef ENABLE_MULTIPLE_NODES
     if (RelationIsCUFormatByOid(OIDOldHeap)) {
@@ -5837,4 +5844,29 @@ void relfilenode_swap(Oid OIDOldHeap, Oid OIDNewHeap, uint8 needSwitch, Transact
     }
     relation_close(oldHeap, AccessShareLock);
     relation_close(newHeap, AccessShareLock);
+}
+
+void OnlineDDLSwapRelationIndexes(List* srcIndexOidList, List* destIndexOidList, AlteredTableInfo* tab)
+{
+    if (srcIndexOidList == NULL || destIndexOidList == NULL) {
+        ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+            errmsg("[Online-DDL] srcIndexOidList or destIndexOidList is null, during swap index.")));
+    }
+    ListCell* cell1 = NULL;
+    ListCell* cell2 = NULL;
+    forboth(cell1, srcIndexOidList, cell2, destIndexOidList) {
+        Oid srcIndexOid = lfirst_oid(cell1);
+        Oid destIndexOid = lfirst_oid(cell2);
+        Oid mappedTables[4];
+        errno_t rc = EOK;
+        rc = memset_s(mappedTables, sizeof(mappedTables), 0, sizeof(mappedTables));
+        securec_check_ss_c(rc, "\0", "\0");
+
+        Relation srcIndexRel = index_open(srcIndexOid, AccessExclusiveLock);
+        Relation destIndexRel = index_open(destIndexOid, AccessExclusiveLock);
+        swap_relation_files(srcIndexOid, destIndexOid, (srcIndexOid == RelationRelationId), false,
+                            u_sess->utils_cxt.RecentXmin, GetOldestMultiXactId(), mappedTables, tab);
+        index_close(srcIndexRel, AccessExclusiveLock);
+        index_close(destIndexRel, AccessExclusiveLock);
+    }
 }

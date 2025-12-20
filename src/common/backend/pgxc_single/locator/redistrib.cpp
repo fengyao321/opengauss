@@ -971,7 +971,7 @@ void RemoveRedisRelOptionsFromList(List** reloptions)
  * - Return:
  *      @void:
  */
-List* AlterTableSetRedistribute(Relation rel, RedisRelAction action, char *merge_list)
+List* AlterTableSetRedistribute(Relation rel, RedisRelAction action, char *merge_list, bool alterAppendmode)
 {
     List* rel_options = NIL;
     bool isCUFormat = false;
@@ -1086,6 +1086,22 @@ List* AlterTableSetRedistribute(Relation rel, RedisRelAction action, char *merge
             rel_options = add_ctid_string_to_reloptions(rel_options, "end_ctid_internal", &end_ctid);
             break;
         }
+        case ONLINE_DDL_APPEND_MODE: {
+            rel_options =
+                lappend(rel_options, makeDefElem(pstrdup("append_mode_internal"), (Node*)makeInteger(action)));
+            break;
+        }
+        case REDIS_REL_INVALID: {
+            if (alterAppendmode && RelationGetAppendMode(rel) == ONLINE_DDL_APPEND_MODE) {
+                rel_options =
+                    lappend(rel_options, makeDefElem(pstrdup("append_mode_internal"), NULL));
+                rel_options =
+                    lappend(rel_options, makeDefElem(pstrdup("start_ctid_internal"), NULL));
+                rel_options =
+                    lappend(rel_options, makeDefElem(pstrdup("end_ctid_internal"), NULL));
+                break;
+            }
+        }
         default:
             rel_options = NIL;
             break;
@@ -1120,9 +1136,11 @@ void AlterTableSetPartRelOptions(
  * @See also:
  */
 #ifdef ENABLE_MULTIPLE_NODES
-void CheckRedistributeOption(List* options, Oid* rel_cn_oid, RedisHtlAction* action, char *merge_list_str, Relation rel)
+void CheckRedistributeOption(List* options, Oid* rel_cn_oid, RedisHtlAction* action, char* merge_list_str, Relation rel,
+                             bool* alterAppendmode)
 #else
-void CheckRedistributeOption(List* options, Oid* rel_cn_oid, RedisHtlAction* action, Relation rel)
+void CheckRedistributeOption(List* options, Oid* rel_cn_oid, RedisHtlAction* action, Relation rel,
+                             bool* alterAppendmode)
 #endif
 {
     ListCell* opt = NULL;
@@ -1135,17 +1153,23 @@ void CheckRedistributeOption(List* options, Oid* rel_cn_oid, RedisHtlAction* act
         DefElem* def = (DefElem*)lfirst(opt);
 
         if (pg_strcasecmp(def->defname, "append_mode") == 0) {
+            *alterAppendmode = true;
+            if (def->arg == NULL) {
+                continue;
+            }
             char* mode_options = defGetString(def);
-            if (pg_strcasecmp(mode_options, "on") == 0)
+            if (pg_strcasecmp(mode_options, "on") == 0) {
                 *action = REDIS_REL_APPEND;
-            else if (pg_strcasecmp(mode_options, "off") == 0)
+            } else if (pg_strcasecmp(mode_options, "off") == 0) {
                 *action = REDIS_REL_NORMAL;
-            else if (pg_strcasecmp(mode_options, "read_only") == 0)
+            } else if (pg_strcasecmp(mode_options, "read_only") == 0) {
                 *action = REDIS_REL_READ_ONLY;
-            else
-                ereport(ERROR,
-                    (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                        errmsg("you can only take append_mode = on, off, refresh, read_only, end_catchup")));
+            } else if (pg_strcasecmp(mode_options, "online_ddl") == 0) {
+                *action = ONLINE_DDL_APPEND_MODE;
+            } else {
+                ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                                errmsg("you can only take append_mode = on, off, refresh, read_only, end_catchup")));
+            }
             append_set = true;
         } else if (pg_strcasecmp(def->defname, "rel_cn_oid") == 0) {
             *rel_cn_oid = atoi(defGetString(def));

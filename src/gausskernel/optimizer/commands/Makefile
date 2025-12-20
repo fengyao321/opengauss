@@ -17,7 +17,8 @@ ifneq "$(MAKECMDGOALS)" "clean"
   endif
 endif
 
-SUBDIRS     = sequence
+
+SUBDIRS     = online_ddl sequence
 
 OBJS = aggregatecmds.o alter.o amcmds.o analyze.o async.o cluster.o comment.o  \
 	collationcmds.o constraint.o conversioncmds.o copy.o createas.o \

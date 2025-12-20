@@ -92,6 +92,9 @@
 #include "commands/tablespace.h"
 #include "commands/trigger.h"
 #include "commands/typecmds.h"
+#include "commands/online_ddl.h"
+#include "commands/online_ddl_deltalog.h"
+#include "commands/online_ddl_util.h"
 #include "commands/vacuum.h"
 #include "commands/verify.h"
 #include "commands/matview.h"
@@ -254,44 +257,6 @@ typedef struct {
     Query* query;
     Form_pg_attribute attForm;
 } ViewQueryCheck_context;
-
-/* Struct describing one new constraint to check in Phase 3 scan */
-/* Note: new NOT NULL constraints are handled elsewhere */
-typedef struct NewConstraint {
-    char* name;         /* Constraint name, or NULL if none */
-    ConstrType contype; /* CHECK or FOREIGN */
-    Oid refrelid;       /* PK rel, if FOREIGN */
-    Oid refindid;       /* OID of PK's index, if FOREIGN */
-    Oid conid;          /* OID of pg_constraint entry, if FOREIGN */
-    Node* qual;         /* Check expr or CONSTR_FOREIGN Constraint */
-    List* qualstate;    /* Execution state for CHECK */
-    bool isdisable;
-} NewConstraint;
-
-/*
- * Struct describing one new column value that needs to be computed during
- * Phase 3 copy (this could be either a new column with a non-null default, or
- * a column that we're changing the type of).  Columns without such an entry
- * are just copied from the old table during ATRewriteTable.  Note that the
- * expr is an expression over *old* table values.
- */
-typedef struct NewColumnValue {
-    AttrNumber attnum;    /* which column */
-    Expr* expr;           /* expression to compute */
-    ExprState* exprstate; /* execution state */
-    bool is_generated;     /* is it a GENERATED expression? */
-    bool is_autoinc;
-    bool is_addloc;          /* is add column first or after */
-    bool is_alter_using;          /* have alter type using clause */
-    bool make_dml_change;
-    AttrNumber newattnum;   /* is modify column first or after
-                               -1 denote add;
-                               0 denote modify without first|after;
-                               > 0 denote modify with first|after */
-    char *col_name;
-    AttrNumber generate_attnum;
-    bool is_updated;
-} NewColumnValue;
 
 /*
  * Error-reporting support for RemoveRelations
@@ -608,7 +573,7 @@ static void ATExecSetRelOptionsToast(Oid toastid, List* defList, AlterTableType 
 static void ATExecSetTableSpaceForPartitionP2(AlteredTableInfo* tab, Relation rel, Node* partition);
 static void ATExecSetTableSpaceForPartitionP3(Oid tableOid, Oid partOid, Oid newTableSpace, LOCKMODE lockmode);
 static void atexecset_table_space(Relation rel, Oid newTableSpace, Oid newrelfilenode);
-static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType operation, 
+static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType operation,
     LOCKMODE lockmode, bool innerset = false, AlteredTableInfo* tab = NULL);
 static void ATExecEnableDisableTrigger(
     Relation rel, const char* trigname, char fires_when, bool skip_system, LOCKMODE lockmode);
@@ -801,10 +766,10 @@ static void ATCheckDuplicateColumn(const AlterTableCmd* cmd, const List* tabCmds
 static void ATCheckNotNullConstr(const AlterTableCmd* cmd, const AlteredTableInfo* tab);
 static void DelDependencONDataType(Relation rel, Relation depRel, const Form_pg_attribute attTup);
 static void ATExecEncryptionKeyRotation(Relation rel, LOCKMODE lockmode);
-static void CopyTempAutoIncrement(Relation oldrel, Relation newrel);
+void CopyTempAutoIncrement(Relation oldrel, Relation newrel);
 static void ATAlterCheckModifiyColumnRepeatedly(const AlterTableCmd* cmd, const List* tab_cmds);
-static int128 EvaluateAutoIncrement(Relation rel, TupleDesc desc, AttrNumber attnum, Datum* value, bool* is_null);
-static void SetRelAutoIncrement(Relation rel, TupleDesc desc, int128 autoinc);
+int128 EvaluateAutoIncrement(Relation rel, TupleDesc desc, AttrNumber attnum, Datum* value, bool* is_null);
+void SetRelAutoIncrement(Relation rel, TupleDesc desc, int128 autoinc);
 static Node* RecookAutoincAttrDefault(Relation rel, int attrno, Oid targettype, int targettypmod);
 static void check_unsupported_charset_for_column(Oid collation, const char* col_name);
 static void AlterTableNamespaceDependentProcess(Relation classRel ,Relation rel, Oid oldNspOid,
@@ -998,7 +963,7 @@ static void CheckPartitionUnsupported(CreateStmt* stmt)
                          erraction("Create a new row-store table to replace it."))));
     }
 
-    if (stmt->partTableState != NULL && 
+    if (stmt->partTableState != NULL &&
         (stmt->partTableState->partitionStrategy == PART_STRATEGY_LIST ||
         stmt->partTableState->partitionStrategy == PART_STRATEGY_HASH)) {
         ereport(ERROR,
@@ -1032,7 +997,7 @@ static void CheckCStoreUnsupportedFeature(CreateStmt* stmt)
                 errmsg("Unsupport feature"),
                 errdetail("cstore/timeseries don't support relation defination with inheritance.")));
     }
-    
+
     if (stmt->relation->schemaname != NULL &&
         IsSystemNamespace(get_namespace_oid(stmt->relation->schemaname, false))) {
         ereport(ERROR,
@@ -1094,7 +1059,7 @@ static void partition_policy_interval_check(StdRdOptions* std_opt, bool is_ts_ta
 
     if (period_interval == NULL && is_ts_table) {
         period_interval = char_to_interval(TIME_ONE_DAY, typmod);
-        ereport(WARNING, 
+        ereport(WARNING,
             (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                 errmsg(" using %s as default period.", TIME_ONE_DAY)));
     }
@@ -1685,7 +1650,7 @@ static void check_part_tbl_space(CreateStmt* stmt, Oid ownerId, bool dfsTablespa
     }
 }
 
-static void alter_orientation(CreateStmt** stmt, bool all_field, bool all_tag, 
+static void alter_orientation(CreateStmt** stmt, bool all_field, bool all_tag,
     Datum* reloptions, Node** orientedFrom, char** storeChar)
 {
     static const char* const validnsps[] = HEAP_RELOPT_NAMESPACES;
@@ -1765,7 +1730,7 @@ static bool validate_timeseries(CreateStmt** stmt, Datum* reloptions, char** sto
     if ((*stmt)->distributeby != NULL &&
         ((*stmt)->distributeby->disttype != DISTTYPE_HASH && (*stmt)->distributeby->disttype != DISTTYPE_HIDETAG)) {
         ereport(ERROR,
-            (errcode(ERRCODE_INVALID_TABLE_DEFINITION), 
+            (errcode(ERRCODE_INVALID_TABLE_DEFINITION),
                 errmsg("Only support hash distribution for timeseries table.")));
     }
 
@@ -1901,7 +1866,7 @@ static void partition_policy_check(CreateStmt* stmt, StdRdOptions* std_opt, bool
     ListCell* cell = NULL;
 
     partition_policy_interval_check(std_opt, timeseries_checked);
-    /* 
+    /*
      * For TIMESERIES storage, it is based on the partition table.
      * If it is not a partition table, turn relation into partition table by construncting
      * regarding partition structure explicitly with 2 partition forward
@@ -1939,7 +1904,7 @@ static void partition_policy_check(CreateStmt* stmt, StdRdOptions* std_opt, bool
                     ereport(ERROR,
                         (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                             errmsg(" Partition Key must be of type TIMESTAMP(TZ) when using ttl or period.")));
-                if(timeseries_checked && colDef->kvtype != ATT_KV_TIMETAG) 
+                if(timeseries_checked && colDef->kvtype != ATT_KV_TIMETAG)
                     ereport(ERROR,
                         (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                             errmsg(" Partition Key must be of kv type TSTAG.")));
@@ -1950,7 +1915,7 @@ static void partition_policy_check(CreateStmt* stmt, StdRdOptions* std_opt, bool
 
 static void FetchSliceReftableOid(CreateStmt* stmt, Oid namespaceId)
 {
-    if (stmt->distributeby == NULL || stmt->distributeby->distState == NULL || 
+    if (stmt->distributeby == NULL || stmt->distributeby->distState == NULL ||
         stmt->distributeby->distState->refTableName == NULL) {
         return;
     }
@@ -2108,7 +2073,7 @@ void UpdatePartKeyExpr(Relation rel, PartitionState *partTableState, Oid partOid
 
 /*Check whether tables or partition stored in segment are created
 in limited tablespaces */
-void CheckSegmentIsInLimitTablespace(char* tableSpaceName, char* relName) 
+void CheckSegmentIsInLimitTablespace(char* tableSpaceName, char* relName)
 {
     Oid tableSpaceId = InvalidOid;
     if (tableSpaceName != NULL) {
@@ -2214,12 +2179,12 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
     /* During grayscale upgrade, forbid creating LIST/RANGE tables if workingVersionNum is too low. */
     if (stmt->distributeby != NULL) {
         distType = stmt->distributeby->disttype;
-        if ((distType == DISTTYPE_RANGE || distType == DISTTYPE_LIST) && 
+        if ((distType == DISTTYPE_RANGE || distType == DISTTYPE_LIST) &&
             t_thrd.proc->workingVersionNum < RANGE_LIST_DISTRIBUTION_VERSION_NUM) {
             ereport(ERROR,
                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                     errmsg(
-                        "Working Version Num less than %u does not support LIST/RANGE distributed tables.", 
+                        "Working Version Num less than %u does not support LIST/RANGE distributed tables.",
                         RANGE_LIST_DISTRIBUTION_VERSION_NUM)));
         }
     }
@@ -2302,7 +2267,7 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
             } else {
                 aclresult = pg_namespace_aclcheck(namespaceId, ownerId, ACL_CREATE);
             }
-            
+
             bool anyResult = false;
             if (aclresult != ACLCHECK_OK && !IsSysSchema(namespaceId)) {
                 anyResult = CheckRelationCreateAnyPrivilege(ownerId, relkind);
@@ -2467,9 +2432,9 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
                         errmsg("hash bucket table not supported in current version!")));
             }
             if (!XLogIsNeeded()) {
-                ereport(ERROR, 
-                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), 
-                     errmodule(MOD_SEGMENT_PAGE), 
+                ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                     errmodule(MOD_SEGMENT_PAGE),
                      errmsg("segment-page storage requires wal-logging."),
                      errdetail("wal_level must >= WAL_LEVEL_ARCHIVE")));
             }
@@ -2530,7 +2495,7 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
 
             }
             if (isInLedgerNsp) {
-                ereport(ERROR, 
+                ereport(ERROR,
                         (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                          errmsg("Ustore table is not supported ledger user table.")));
             }
@@ -3009,7 +2974,7 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
                     ListCell* specCell = NULL;
                     foreach(specCell, partition->intervalTablespaces) {
                         tableSpaceName = ((Value*)lfirst(specCell))->val.str;
-                        CheckSegmentIsInLimitTablespace(tableSpaceName, NULL);                     
+                        CheckSegmentIsInLimitTablespace(tableSpaceName, NULL);
                     }
                     continue;
                 } else if (IsA((lfirst(cell)), RangePartitionDefState) || IsA((lfirst(cell)), HashPartitionDefState) || IsA((lfirst(cell)), ListPartitionDefState)) {
@@ -3041,7 +3006,7 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
     }
 
     if (ENABLE_DMS && !u_sess->attr.attr_common.IsInplaceUpgrade) {
-        if ((t_thrd.proc->workingVersionNum < PAGE_BASED_VERSION_NUM) 
+        if ((t_thrd.proc->workingVersionNum < PAGE_BASED_VERSION_NUM)
             && ((stmt->relation->relpersistence == RELPERSISTENCE_UNLOGGED)
             || (stmt->relation->relpersistence == RELPERSISTENCE_TEMP)
             || (stmt->relation->relpersistence == RELPERSISTENCE_GLOBAL_TEMP)
@@ -3160,7 +3125,7 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
 #endif
         char* logic_cluster_name = NULL;
         PGXCSubCluster* subcluster = stmt->subcluster;
-        bool isinstallationgroup = (dfsTablespace || relkind == RELKIND_FOREIGN_TABLE 
+        bool isinstallationgroup = (dfsTablespace || relkind == RELKIND_FOREIGN_TABLE
                                     || relkind == RELKIND_STREAM);
         if (in_logic_cluster()) {
             isinstallationgroup = false;
@@ -3177,7 +3142,7 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
         /* assemble referenceoid for slice reference table creation */
         FetchSliceReftableOid(stmt, namespaceId);
 
-        AddRelationDistribution(relname, relationId, stmt->distributeby, subcluster, 
+        AddRelationDistribution(relname, relationId, stmt->distributeby, subcluster,
                                 inheritOids, descriptor, isinstallationgroup, isbucket, bucketcnt);
 
         if (logic_cluster_name != NULL && subcluster != NULL) {
@@ -3191,7 +3156,7 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
         RelationCacheInvalidateEntry(relationId);
     }
     /* If no Datanodes defined, do not create foreign table  */
-    if (IS_PGXC_COORDINATOR && (relkind == RELKIND_FOREIGN_TABLE || relkind == RELKIND_STREAM) 
+    if (IS_PGXC_COORDINATOR && (relkind == RELKIND_FOREIGN_TABLE || relkind == RELKIND_STREAM)
         && u_sess->pgxc_cxt.NumDataNodes == 0) {
         ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT), errmsg("No Datanode defined in cluster")));
     }
@@ -3427,7 +3392,7 @@ ObjectAddresses* PreCheckforRemoveRelation(DropStmt* drop, StringInfo tmp_queryS
             relkind = RELKIND_SEQUENCE;
             relkind_s = "SEQUENCE";
             break;
-        
+
         case OBJECT_LARGE_SEQUENCE:
             relkind = RELKIND_LARGE_SEQUENCE;
             relkind_s = "LARGE SEQUENCE";
@@ -4026,7 +3991,7 @@ ObjectAddresses* PreCheckforRemoveObjects(
             if (IsMaskingFunctionOid(funcOid) && !u_sess->attr.attr_common.IsInplaceUpgrade) {
                 ereport(ERROR, (errmodule(MOD_FUNCTION),
                     errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-                        errmsg("function \"%s\" is a masking function, it can not be droped", 
+                        errmsg("function \"%s\" is a masking function, it can not be droped",
                             NameListToString(objname)),
                                 errdetail("cannot drop masking function")));
             }
@@ -4081,7 +4046,7 @@ ObjectAddresses* PreCheckforRemoveObjects(
             }
             skip_check = (aclresult == ACLCHECK_OK) ? true : false;
         }
-        
+
         /* Check permissions. */
         namespaceId = get_object_namespace(&address);
         if ((!is_securityadmin) && (!skip_check) &&
@@ -5520,7 +5485,7 @@ static List* MergeAttributes(
                 }
                 if (def->cmprs_mode == ATT_CMPR_UNDEFINED) {
                     def->cmprs_mode = attribute->attcmprmode;
-                }   
+                }
                 /* Default and other constraints are handled below */
                 newattno[parent_attno - 1] = exist_attno;
 
@@ -6318,7 +6283,7 @@ ObjectAddress renameatt(RenameStmt* stmt)
             if (exist_dep) {
                 ereport(ERROR,
                     (errcode(ERRCODE_DEPENDENT_OBJECTS_STILL_EXIST),
-                     errmsg("cannot rename attribute of the type because it is dependent on another object."))); 
+                     errmsg("cannot rename attribute of the type because it is dependent on another object.")));
             }
         }
     }
@@ -7092,7 +7057,7 @@ void RenameRelationInternal(Oid myrelid, const char* newrelname, char* newschema
 #ifdef ENABLE_MULTIPLE_NODES
     if (RelationIsTsStore(targetrelation)) {
         if (!g_instance.attr.attr_common.enable_tsdb) {
-            ereport(ERROR, (errcode(ERRCODE_OPERATE_FAILED), 
+            ereport(ERROR, (errcode(ERRCODE_OPERATE_FAILED),
                             errmsg("Cannot rename timeseries table when enable_tsdb is off.")));
         }
         Tsdb::CheckTsRelname(newrelname);
@@ -7687,7 +7652,7 @@ static void checkTypeIsTableOfOrPackage(AlterTableStmt* stmt)
                 }
 #endif
                 HeapTuple typeTup = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typeOid));
-    
+
                 if (HeapTupleIsValid(typeTup)) {
                     if (((Form_pg_type)GETSTRUCT(typeTup))->typtype == TYPTYPE_TABLEOF) {
                         ereport(ERROR,
@@ -7716,7 +7681,7 @@ Oid AlterTableLookupRelation(AlterTableStmt* stmt, LOCKMODE lockmode, bool unloc
         state.concurrent = false;
         state.heapOid = InvalidOid;
         state.relkind = RELKIND_INDEX;
-        
+
         if (index_cmd->subtype == AT_UnusableIndex) {
             Oid relid = InvalidOid;
             relid = RangeVarGetRelidExtended(stmt->relation,
@@ -8824,7 +8789,7 @@ static void ATPrepCmd(List** wqueue, Relation rel, AlterTableCmd* cmd, bool recu
             if (recurse)
                 cmd->subtype = AT_DISABLE_NOValidateConstraintRecurse;
             pass = AT_PASS_MISC;
-            break;			
+            break;
         case AT_ReplicaIdentity: /* REPLICA IDENTITY ... */
             ATSimplePermissions(rel, ATT_TABLE);
             pass = AT_PASS_MISC;
@@ -9389,7 +9354,7 @@ static void ATExecCmd(List** wqueue, AlteredTableInfo* tab, Relation rel, AlterT
             LockPartitionObject(rel->rd_id, INTERVAL_PARTITION_LOCK_SDEQUENCE, PARTITION_EXCLUSIVE_LOCK);
         }
     }
-    
+
     if (sqlcmd_partition_index_ddl_cmd(cmd->subtype) && RelationIsIndex(rel)) {
         Oid rel_id = IndexGetRelation(rel->rd_id, false);
         CacheInvalidateRelcacheByRelid(rel_id);
@@ -9480,7 +9445,7 @@ static void ATExecCmd(List** wqueue, AlteredTableInfo* tab, Relation rel, AlterT
             break;
         case AT_EnableIndex:
             ATExecEnableIndex(rel, true);
-            break;  
+            break;
         case AT_AddIndex: /* ADD INDEX */
             address = ATExecAddIndex(tab, rel, (IndexStmt*)cmd->def, false, lockmode);
             break;
@@ -10024,7 +9989,7 @@ static UHeapTuple RestoreScanCuTup(UHeapTuple backUpTup)
 }
 
 template<typename T, TableAmType amtype>
-static T EvaluateGenExpr(AlteredTableInfo* tab, T tuple,
+T EvaluateGenExpr(AlteredTableInfo* tab, T tuple,
                                   TupleDesc newTupDesc, ExprContext* econtext,
                                   Datum* values, bool* isnull)
 {
@@ -10069,7 +10034,7 @@ static T EvaluateGenExpr(AlteredTableInfo* tab, T tuple,
  * update values and isnull after modify column to a new loaction.
  * newattnum > 0 denotes modify with first or after column or add generated column.
  */
-static void UpdateValueModifyFirstAfter(NewColumnValue *ex, Datum* values, bool* isnull)
+void UpdateValueModifyFirstAfter(NewColumnValue *ex, Datum* values, bool* isnull)
 {
     if (ex->newattnum > 0 && !ex->is_addloc) {
         Datum valuesTemp = values[ex->attnum - 1];
@@ -10090,7 +10055,7 @@ static void UpdateValueModifyFirstAfter(NewColumnValue *ex, Datum* values, bool*
     }
 }
 
-static void UpdateGeneratedColumnIsnull(AlteredTableInfo* tab, bool* isnull, bool has_generated)
+void UpdateGeneratedColumnIsnull(AlteredTableInfo* tab, bool* isnull, bool has_generated)
 {
     ListCell* l = NULL;
 
@@ -10261,7 +10226,7 @@ static void repl_update_addcolumn_default(AlteredTableInfo* tab, Relation oldrel
         bool updateIndexes = false;
         Bitmapset *modifiedIdxAttrs = NULL;
         bool allowInplaceUpdate = true;
-        
+
         (void)tableam_tuple_update(newrel, NULL, searchSlotTid, htup, mycid, InvalidSnapshot, estate->es_snapshot, true, &newslot, &tmfd, &updateIndexes, &modifiedIdxAttrs,
             false, allowInplaceUpdate);
 
@@ -10343,7 +10308,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
     /* Build the needed expression execution states */
     foreach (l, tab->constraints) {
         NewConstraint* con = (NewConstraint*)lfirst(l);
-        if (con->isdisable) 
+        if (con->isdisable)
             continue;
 
         switch (con->contype) {
@@ -10366,7 +10331,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
         }
     }
 
-    if (newrel && RelationIsRowFormat(oldrel) && 
+    if (newrel && RelationIsRowFormat(oldrel) &&
         tab->rewrite > 0 && XLogLogicalInfoActive() &&
         oldrel->rd_rel->relpersistence != RELPERSISTENCE_TEMP &&
         oldrel->relreplident == REPLICA_IDENTITY_FULL) {
@@ -10683,6 +10648,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
         } else {
             ((HeapScanDesc) scan)->rs_tupdesc = oldTupDesc;
             while ((tuple =  (HeapTuple) tableam_scan_getnexttuple(scan, ForwardScanDirection)) != NULL) {
+                ItemPointer oldCtid = &tuple->t_self;
                 if (tab->check_pass_with_relempty == AT_FASN_FAIL_PRECISION) {
                     ereport(ERROR,
                         (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -10696,7 +10662,6 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
                 if (tab->rewrite > 0) {
                     Oid tupOid = InvalidOid;
                     int newvals_num = 0;
-
                     /* Extract data from old tuple */
                     tableam_tops_deform_tuple(tuple, oldTupDesc, values, isnull);
                     if (oldTupDesc->tdhasoid)
@@ -10738,7 +10703,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
                             values[ex->attnum - 1] = ExecEvalExpr(ex->exprstate, econtext, &isnull[ex->attnum - 1]);
                         }
 
-                        
+
                         if (ex->is_autoinc) {
                             need_autoinc = (autoinc_attnum > 0);
                         }
@@ -10847,8 +10812,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
                             SetRelAutoIncrement(oldrel, newTupDesc, autoinc);
                         }
                     } else {
-                        (void)tableam_tuple_insert(newrel, tuple, mycid, hi_options, bistate);
-
+                        (void) tableam_tuple_insert(newrel, tuple, mycid, hi_options, bistate);
                         if (autoinc > 0) {
                             SetRelAutoIncrement(oldrel, newTupDesc, autoinc);
                         }
@@ -11567,7 +11531,7 @@ static Node *UpdateVarattnoAfterAddColumn(Node *node, int startattnum, int endat
             Node* nls_fmt_str = UpdateVarattnoAfterAddColumn(expr->nls_fmt_str, startattnum, endattnum, is_increase);
             newexpr->nls_fmt_str = nls_fmt_str;
             Node* default_expr = UpdateVarattnoAfterAddColumn(expr->default_expr, startattnum, endattnum, is_increase);
-            newexpr->default_expr = default_expr; 
+            newexpr->default_expr = default_expr;
             return (Node *)newexpr;
         }
         case T_ArrayExpr: {
@@ -11950,7 +11914,7 @@ static void UpdatePgDescriptionFirstAfter(Relation rel, int startattnum, int end
     ScanKeyData key[3];
     SysScanDesc scan;
     Form_pg_description desc_form;
-    
+
     desc_rel = heap_open(DescriptionRelationId, RowExclusiveLock);
 
     for (int i = (is_increase ? endattnum : startattnum);
@@ -11985,8 +11949,8 @@ static void UpdatePgDescriptionFirstAfter(Relation rel, int startattnum, int end
 
     heap_close(desc_rel, RowExclusiveLock);
 }
- 
-/* 
+
+/*
  * update pg_attribute.
  * 1. add column with first or after col_name.
  * 2. modify column to first or after column.
@@ -12595,7 +12559,7 @@ static void UpdatePgPartitionFirstAfter(Relation rel, int startattnum, int endat
 
             partkey = (int2vector *)DatumGetPointer(partkey_datum);
             int2 *partkey_values = (int2 *)palloc0(partkey->dim1 * sizeof(int2));
-            
+
             for (int i = 0; i < partkey->dim1; i++) {
                 if (partkey->values[i] >= startattnum && partkey->values[i] <= endattnum) {
                     partkey_values[i] = is_increase ? (partkey->values[i] + 1) : (partkey->values[i] - 1);
@@ -13659,7 +13623,7 @@ static ObjectAddress ATExecAddColumn(List** wqueue, AlteredTableInfo* tab, Relat
                             addcolumndef = true;
                             colDef->initdefval = NULL;
                         }
-                        
+
                         ATExecAppendDefValExpr(attribute.attnum, defval, tab, colDef, false, true, addcolumndef);
                     }
                 } else {
@@ -14592,7 +14556,7 @@ static void CheckTsStoreDropColumn(const Relation tsrel, const AttrNumber attnum
 {
     int1 kvtype = tsrel->rd_att->attrs[attnum - 1]->attkvtype;
     if (kvtype == ATT_KV_TIMETAG) {
-        ereport(ERROR, 
+        ereport(ERROR,
                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                 errmsg("cannot drop the TSTime column \"%s\" from timeseries table", colName),
                 errdetail("If the type of the column is TsTime, it cannot be dropped"),
@@ -14600,7 +14564,7 @@ static void CheckTsStoreDropColumn(const Relation tsrel, const AttrNumber attnum
                 erraction("This column is not be dropped"),
                 errmodule(MOD_TIMESERIES)));
     } else if (kvtype == ATT_KV_TAG && get_valid_natts_by_kvtype(tsrel, kvtype) <= 1) {
-        ereport(ERROR, 
+        ereport(ERROR,
                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                 errmsg("cannot drop the only TSTag column \"%s\" from timeseries table", colName),
                 errdetail("When the column of TSTag is the last one, it cannot be dropped"),
@@ -14608,7 +14572,7 @@ static void CheckTsStoreDropColumn(const Relation tsrel, const AttrNumber attnum
                 erraction("This column is not be dropped"),
                 errmodule(MOD_TIMESERIES)));
     } else if (kvtype == ATT_KV_FIELD && get_valid_natts_by_kvtype(tsrel, kvtype) <= 1) {
-        ereport(ERROR, 
+        ereport(ERROR,
                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                 errmsg("cannot drop the only TSField column \"%s\" from timeseries table", colName),
                 errdetail("When the column of TSField is the last one, it cannot be dropped"),
@@ -14782,7 +14746,7 @@ static ObjectAddress  ATExecDropColumn(List** wqueue, Relation rel, const char* 
                     /*
                      * If the child column has other definition sources, just
                      * decrement its inheritance count; if not, recurse to delete it.
-                     * 
+                     *
                      * Time to delete this child column, too
                      */
 
@@ -15093,7 +15057,7 @@ static ObjectAddress ATExecAddIndexConstraint(AlteredTableInfo* tab, Relation re
         stmt->primary,
         true, /* update pg_index */
         true, /* remove old dependencies */
-        (g_instance.attr.attr_common.allowSystemTableMods || u_sess->attr.attr_common.IsInplaceUpgrade), 
+        (g_instance.attr.attr_common.allowSystemTableMods || u_sess->attr.attr_common.IsInplaceUpgrade),
         stmt->isvalidated,
         stmt->isdisable);
     /* index constraint */
@@ -15371,7 +15335,7 @@ static ObjectAddress ATAddForeignKeyConstraint(AlteredTableInfo* tab, Relation r
         ereport(ERROR,
             (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
                 errmsg("permission denied: \"%s\" is a system catalog", RelationGetRelationName(pkrel))));
-	
+
 #ifdef ENABLE_MULTIPLE_NODES
     if (RELATION_IS_PARTITIONED(pkrel))
         ereport(ERROR,
@@ -17034,7 +16998,7 @@ void CheckHugeToast(AlteredTableInfo *tab, Relation rel, AttrNumber attnum)
  * Check numeric type modify.
  *      column to be modified must be empty to decrease precision or scale;
  *      column to be modified must be empty to change datatype.
- * 
+ *
  * Only valid numeric scale decrease, And when set behavior_compat_options = 'float_as_numeric'
  * (float use numeric indicate), valid float(p) can't decrease precision and can't change to other datatype.
 */
@@ -17061,7 +17025,7 @@ static int CheckFloatIllegalTypeConversion(Relation rel, Oid origintype, int32 o
     if (targettype == NUMERICOID) {
         tarprecision = (int32) ((((uint32)(targettypmod - VARHDRSZ)) >> 16) & 0xffff);
         tarscale = (int16) (((uint32)(targettypmod - VARHDRSZ)) & 0xffff);
-        
+
         if (origintype == NUMERICOID) {
             if (compatibilityversion) {
                 // float decrease precision
@@ -17080,7 +17044,7 @@ static int CheckFloatIllegalTypeConversion(Relation rel, Oid origintype, int32 o
             }
 
             return result;
-        } else if (compatibilityversion && IS_FLOAT_AS_NUMERIC(tarscale) 
+        } else if (compatibilityversion && IS_FLOAT_AS_NUMERIC(tarscale)
                     && (origintype == INT4OID || origintype == INT2OID || origintype ==INT1OID)) {
             // O* has no int type, so all use NUMBER(38) instead.
             if (ceil(log10(2) * tarprecision) < 38) {
@@ -17494,8 +17458,8 @@ static void UpdateDescriptionObjsubidFirstAfter(Relation rel, Oid myrelid, int c
 
     systable_endscan(scan);
 }
- 
-/* 
+
+/*
  * update pg_depend refobjsubid for the modified column with first or after column.
  */
 static void UpdateDependRefobjsubidFirstAfter(Relation rel, Oid myrelid, int curattnum, int newattnum,
@@ -17711,7 +17675,7 @@ static void AlterColumnToFirstAfter(AlteredTableInfo* tab, Relation rel, AlterTa
 
     Relation desc_rel = heap_open(DescriptionRelationId, RowExclusiveLock);
     UpdateDescriptionObjsubidFirstAfter(desc_rel, myrelid, curattnum, 0, &has_comment);
- 
+
     Relation def_rel = heap_open(AttrDefaultRelationId, RowExclusiveLock);
     UpdateAttrdefAdnumFirstAfter(def_rel, myrelid, curattnum, 0, &has_default);
 
@@ -17766,7 +17730,7 @@ static void AlterColumnToFirstAfter(AlteredTableInfo* tab, Relation rel, AlterTa
         UpdateDescriptionObjsubidFirstAfter(desc_rel, myrelid, 0, newattnum, NULL);
     }
     heap_close(desc_rel, RowExclusiveLock);
- 
+
     if (has_default) {
         UpdateAttrdefAdnumFirstAfter(def_rel, myrelid, 0, newattnum, NULL);
     }
@@ -19015,7 +18979,7 @@ void ATExecChangeOwner(Oid relationOid, Oid newOwnerId, bool recursing, LOCKMODE
                  * Or allow changing owner to sysadmin users.
                  */
                 group_oid = get_pgxc_logic_groupoid(tuple_class->relowner);
-                if (tuple_class->relkind != RELKIND_CONTQUERY && tuple_class->relkind != RELKIND_VIEW 
+                if (tuple_class->relkind != RELKIND_CONTQUERY && tuple_class->relkind != RELKIND_VIEW
                     && !OidIsValid(group_oid) && is_pgxc_class_table(relationOid)) {
                     group_oid = get_pgxc_class_groupoid(relationOid);
                 }
@@ -19732,24 +19696,24 @@ static void ATExecSetRelOptionsToast(Oid toastid, List* defList, AlterTableType 
 }
 
 /* Check if compressed options have changed. */
-inline bool CheckIfModifyCompressedOptions(PageCompressOpts* newCompressOpt, RelFileCompressOption current) 
+inline bool CheckIfModifyCompressedOptions(PageCompressOpts* newCompressOpt, RelFileCompressOption current)
 {
-    if (newCompressOpt->compressType != (int)current.compressAlgorithm || 
-        newCompressOpt->compressLevel != (int)current.compressLevel || 
+    if (newCompressOpt->compressType != (int)current.compressAlgorithm ||
+        newCompressOpt->compressLevel != (int)current.compressLevel ||
         newCompressOpt->compressChunkSize != CHUNK_SIZE_LIST[current.compressChunkSize] ||
         newCompressOpt->compressPreallocChunks != (int)current.compressPreallocChunks ||
         newCompressOpt->compressByteConvert != (int)current.byteConvert ||
         newCompressOpt->compressDiffConvert != (int)current.diffConvert) {
         return true;
-    } 
+    }
     return false;
 }
 
 /**
- * Row compressed Options can not be used in segment table, 
+ * Row compressed Options can not be used in segment table,
  * column table, view, unlogged table or temp table.
  */
-bool CheckTableSupportSetCompressedOptions(Relation rel) 
+bool CheckTableSupportSetCompressedOptions(Relation rel)
 {
     if (rel == NULL) {
         return false;
@@ -19769,7 +19733,7 @@ bool CheckTableSupportSetCompressedOptions(Relation rel)
     return true;
 }
 
-bool CheckDefListContainsCompressedOptions(List* defList) 
+bool CheckDefListContainsCompressedOptions(List* defList)
 {
     if (defList == NULL) {
         return false;
@@ -19792,7 +19756,7 @@ bool CheckDefListContainsCompressedOptions(List* defList)
 /**
  * Set compressed options need to rebuild table, check whether the modification need to rebuild table,
  * and check whether the new compressed options is valid.
- */ 
+ */
 bool static transformTableCompressedOptions(Relation rel, bytea* relOption, List* defList)
 {
     /* only row table can modify compressed options */
@@ -19810,7 +19774,7 @@ bool static transformTableCompressedOptions(Relation rel, bytea* relOption, List
     }
 
     /* check whether the new compression parameter is valid */
-    if (newCompressOpt->compressType == COMPRESS_TYPE_NONE && 
+    if (newCompressOpt->compressType == COMPRESS_TYPE_NONE &&
             (newCompressOpt->compressLevel != 0 || newCompressOpt->compressChunkSize != BLCKSZ / 2 ||
             newCompressOpt->compressPreallocChunks != 0 || newCompressOpt->compressByteConvert != false ||
             newCompressOpt->compressDiffConvert != false)) {
@@ -19826,7 +19790,7 @@ bool static transformTableCompressedOptions(Relation rel, bytea* relOption, List
     if ((newCompressOpt->compressType != COMPRESS_TYPE_ZSTD && newCompressOpt->compressType != COMPRESS_TYPE_ZLIB) &&
         newCompressOpt->compressLevel != 0) {
         ereport(ERROR, (errcode(ERRCODE_INVALID_OPTION),
-            errmsg("compress_level should be used with ZSTD or ZLIB algorithm."))); 
+            errmsg("compress_level should be used with ZSTD or ZLIB algorithm.")));
     }
 
     if (!newCompressOpt->compressByteConvert && newCompressOpt->compressDiffConvert) {
@@ -19842,7 +19806,7 @@ bool static transformTableCompressedOptions(Relation rel, bytea* relOption, List
                                 newCompressOpt->compressChunkSize, BLCKSZ / 16, BLCKSZ / 8, BLCKSZ / 4, BLCKSZ / 2)));
     }
     if (newCompressOpt->compressPreallocChunks >= BLCKSZ / newCompressOpt->compressChunkSize) {
-        ereport(ERROR, (errcode(ERRCODE_INVALID_OPTION), 
+        ereport(ERROR, (errcode(ERRCODE_INVALID_OPTION),
                         errmsg("invalid compress_prealloc_chunks %u, must be less than %u for %s",
                                 newCompressOpt->compressPreallocChunks,
                                 BLCKSZ / newCompressOpt->compressChunkSize,
@@ -19924,7 +19888,7 @@ bool static transformCompressedOptions(Relation rel, bytea* relOption, List* def
     }
 
     /* If the relkind doesn't support compressed options, check if delist contains compressed options.
-     * If does, throw exception. 
+     * If does, throw exception.
      */
     if (!REL_SUPPORT_COMPRESSED(rel)) {
         ForbidUserToSetCompressedOptions(defList);
@@ -19964,6 +19928,7 @@ static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType oper
     errno_t rc = EOK;
     Oid rel_cn_oid = InvalidOid;
     RedisHtlAction redis_action = REDIS_REL_INVALID;
+    bool alterAppendmode = false;
     char* merge_list = NULL;
     bool oldRelHasUids = RELATION_HAS_UIDS(rel);
     bool newRelHasUids = false;
@@ -19975,7 +19940,7 @@ static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType oper
             (errcode(ERRCODE_INVALID_OPERATION),
                 errmsg("table cannot add or modify on commit parameter by ALTER TABLE command.")));
     }
-    
+
     if (!innerset) {
         /* forbid user to set or change inner options */
         ForbidOutUsersToSetInnerOptions(defList);
@@ -19983,9 +19948,9 @@ static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType oper
     }
 
 #ifdef ENABLE_MULTIPLE_NODES
-    CheckRedistributeOption(defList, &rel_cn_oid, &redis_action, &merge_list, rel);
+    CheckRedistributeOption(defList, &rel_cn_oid, &redis_action, &merge_list, rel, alterAppendmode);
 #else
-    CheckRedistributeOption(defList, &rel_cn_oid, &redis_action, rel);
+    CheckRedistributeOption(defList, &rel_cn_oid, &redis_action, rel, &alterAppendmode);
 #endif
 
     defList = list_delete_name(defList, "merge_list");
@@ -20032,7 +19997,6 @@ static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType oper
     if (rel->rd_rel->relkind == RELKIND_RELATION) {
         oldOptions = SysCacheGetAttr(RELOID, tuple, Anum_pg_class_reloptions, &isnull);
     }
-
     /* remove the redis reloptions. */
     if (redis_action == REDIS_REL_NORMAL) {
         List* old_reloptions = untransformRelOptions(datum);
@@ -20043,18 +20007,16 @@ static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType oper
         if (old_reloptions != NIL) {
             defList = list_concat(defList, old_reloptions);
         }
-        /* Generate new proposed reloptions (text array) */
-        newOptions = transformRelOptions((Datum)0, defList, NULL, validnsps, false, operation == AT_ResetRelOptions);
 
         if (old_reloptions != NIL && defList != NULL) {
             defList = list_truncate(defList, list_length(defList) - list_length(old_reloptions));
         }
 
         list_free_ext(old_reloptions);
-        List *redis_reloptions = AlterTableSetRedistribute(rel, redis_action, merge_list);
+        List *redis_reloptions = AlterTableSetRedistribute(rel, redis_action, merge_list, alterAppendmode);
         list_free(redis_reloptions);
     } else if (redis_action == REDIS_REL_READ_ONLY) {
-        List* redis_reloptions = AlterTableSetRedistribute(rel, redis_action, merge_list);
+        List* redis_reloptions = AlterTableSetRedistribute(rel, redis_action, merge_list, alterAppendmode);
         List* old_reloptions = untransformRelOptions(datum);
         RemoveRedisRelOptionsFromList(&old_reloptions);
 
@@ -20067,7 +20029,6 @@ static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType oper
         }
 
         newOptions = transformRelOptions((Datum)0, defList, NULL, validnsps, false, operation == AT_ResetRelOptions);
-
         if (redis_reloptions != NIL) {
             defList = list_truncate(defList, list_length(defList) - list_length(redis_reloptions));
         }
@@ -20075,13 +20036,14 @@ static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType oper
         list_free_ext(redis_reloptions);
     } else {
         /* Generate new proposed reloptions (text array) */
-        List* redis_reloptions = AlterTableSetRedistribute(rel, redis_action, merge_list);
+        List* redis_reloptions = AlterTableSetRedistribute(rel, redis_action, merge_list, alterAppendmode);
 
         if (redis_reloptions != NIL)
             defList = list_concat(defList, redis_reloptions);
 
         newOptions = transformRelOptions(
             isnull ? (Datum)0 : datum, defList, NULL, validnsps, false, operation == AT_ResetRelOptions);
+
         if (redis_reloptions != NIL)
             defList = list_truncate(defList, list_length(defList) - list_length(redis_reloptions));
 
@@ -20166,17 +20128,17 @@ static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType oper
     /* Only row table support rewriting table when modifying compressed options. */
     if (transformCompressedOptions(rel, relOpt, defList, tab)) {
         /*
-         * The oldOptions will be used in phase 3 to delete the old data file correctly, 
+         * The oldOptions will be used in phase 3 to delete the old data file correctly,
          * so the tmpTuple will not be released manually, but be released by memory context.
          */
         tmptuple = heap_copytuple(tuple);
         oldOptions = SysCacheGetAttr(RELOID, tmptuple, Anum_pg_class_reloptions, &isnull);
 
         /*
-         * If modiying compressed options of row table, set tab->rewrite to 
-         * AT_REWRITE_ALTER_COMPRESSION, which will case rewriting table during 
+         * If modiying compressed options of row table, set tab->rewrite to
+         * AT_REWRITE_ALTER_COMPRESSION, which will case rewriting table during
          * the phase 3 of altering reloptions.
-         */ 
+         */
         tab->rewrite = AT_REWRITE_ALTER_COMPRESSION;
         tab->opt = rel->rd_node.opt;
         tab->newOptions = newOptions;
@@ -20538,7 +20500,7 @@ static void atexecset_table_space_internal(Relation rel, RelFileNode& newrnode, 
 
     /* open rel storage avoid relcache invalided*/
     RelationOpenSmgr(rel);
-    
+
     /* we should not copy relation to the limited space tablespace */
     RelFileNode newFileNode = dstrel->smgr_rnode.node;
 
@@ -20588,7 +20550,7 @@ static void atexecset_table_space(Relation rel, Oid newTableSpace, Oid newrelfil
     newrnode.relNode = newrelfilenode;
     newrnode.spcNode = newTableSpace;
     RelationCreateStorage(newrnode, rel->rd_rel->relpersistence, rel->rd_rel->relowner, rel->rd_bucketoid, rel);
-    
+
     if (RELATION_CREATE_BUCKET(rel)) {
         oidvector* bucketlist = searchHashBucketByOid(rel->rd_bucketoid);
         for (int i = 0; i < bucketlist->dim1; i++) {
@@ -20757,7 +20719,7 @@ static void ATExecSetTableSpace(Oid tableOid, Oid newTableSpace, LOCKMODE lockmo
         ATExecSetTableSpace(reltoastrelid, newTableSpace, lockmode);
     if (OidIsValid(reltoastidxid))
         ATExecSetTableSpace(reltoastidxid, newTableSpace, lockmode);
-}   
+}
 
  /*
   * If the rel isn't temp, we must fsync it down to disk before it's safe
@@ -20773,7 +20735,7 @@ static void ATExecSetTableSpace(Oid tableOid, Oid newTableSpace, LOCKMODE lockmo
   * wouldn't replay our earlier WAL entries. If we do not fsync those pages
   * here, they might still not be on disk when the crash occurs.
   */
-static void JudgeSmgrDsync(char relpersistence, bool copying_initfork, SMgrRelation dst, ForkNumber forkNum) 
+static void JudgeSmgrDsync(char relpersistence, bool copying_initfork, SMgrRelation dst, ForkNumber forkNum)
 {
     if (relpersistence == RELPERSISTENCE_PERMANENT || copying_initfork ||
         ((relpersistence == RELPERSISTENCE_TEMP) && STMT_RETRY_ENABLED)) {
@@ -20887,7 +20849,7 @@ static void copy_relation_data(Relation rel, SMgrRelation* dstptr, ForkNumber fo
                 RemoteReadBlock(src->smgr_rnode, forkNum, blkno, buf, NULL);
 
                 /*
-                 * segment-page storage may fail here, because it use logic blocknumber while CRC 
+                 * segment-page storage may fail here, because it use logic blocknumber while CRC
                  * use physical block number
                  */
                 if (PageIsVerified(page, blkno)) {
@@ -20914,7 +20876,7 @@ static void copy_relation_data(Relation rel, SMgrRelation* dstptr, ForkNumber fo
         }
 
         if (IsSegmentFileNode(dst->smgr_rnode.node)) {
-            /* 
+            /*
              * Segment-page storage requiress extending data through buffer to set LSN correctly,
              * and avoid half-page write. DataEncrypt and SetChecksum is done during buffer flush.
              */
@@ -21368,7 +21330,7 @@ static void ATExecEncryptionKeyRotation(Relation rel, LOCKMODE lockmode)
     tde_data = tde_key_manager->create_dek();
 
     dek_cipher = (char*)palloc0(strlen(tde_data->dek_cipher) + 1);
-    rc = memcpy_s(dek_cipher, (strlen(tde_data->dek_cipher) + 1), tde_data->dek_cipher, 
+    rc = memcpy_s(dek_cipher, (strlen(tde_data->dek_cipher) + 1), tde_data->dek_cipher,
         (strlen(tde_data->dek_cipher) + 1));
     securec_check(rc, "\0", "\0");
 
@@ -22653,7 +22615,7 @@ static void AtExecSubCluster(Relation rel, PGXCSubCluster* options)
     CommandCounterIncrement();
 }
 
-/* 
+/*
  * copy tabOid2 slice tuples (info from slicelist) to tabOid1 (destination)
  */
 static void AtExecCopySlice(CatCList* sliceList, Oid tabOid, Relation pgxcSliceRel)
@@ -22662,7 +22624,7 @@ static void AtExecCopySlice(CatCList* sliceList, Oid tabOid, Relation pgxcSliceR
     Datum values[Natts_pgxc_slice] = {0};
     bool nulls[Natts_pgxc_slice] = {false};
     bool replaces[Natts_pgxc_slice] = {false};
-    
+
     for (int i = 0; i < sliceList->n_members; i++) {
         oldTup = t_thrd.lsc_cxt.FetchTupleFromCatCList(sliceList, i);
         bool isnull = false;
@@ -22707,7 +22669,7 @@ static void AtExecUpdateSliceLike(Relation rel, const RangeVar* refTableName)
         tabOid2 = RangeVarGetRelidExtended(refTableName, NoLock, true, false, false, true, NULL, NULL);
         invalRel = relation_open(tabOid1, AccessExclusiveLock);
         pgxcSliceRel = heap_open(PgxcSliceRelationId, RowExclusiveLock);
-        sliceList1 = SearchSysCacheList2(PGXCSLICERELID, ObjectIdGetDatum(tabOid1), 
+        sliceList1 = SearchSysCacheList2(PGXCSLICERELID, ObjectIdGetDatum(tabOid1),
             CharGetDatum(PGXC_SLICE_TYPE_SLICE));
         sliceList2 = SearchSysCacheList2(PGXCSLICERELID, ObjectIdGetDatum(tabOid2),
             CharGetDatum(PGXC_SLICE_TYPE_SLICE));
@@ -22725,7 +22687,7 @@ static void AtExecUpdateSliceLike(Relation rel, const RangeVar* refTableName)
             simple_heap_delete(pgxcSliceRel, &oldTup->t_self);
         }
         ReleaseSysCacheList(sliceList1);
-        
+
         /* copy tabOid2 slice tuples to tabOid1 */
         AtExecCopySlice(sliceList2, tabOid1, pgxcSliceRel);
         ReleaseSysCacheList(sliceList2);
@@ -23062,7 +23024,7 @@ static RedistribState* BuildRedistribCommands(Oid relid, List* subCmds)
                 new_oid_array = delete_node_list(new_oid_array, new_num, del_oids, del_num, &new_num);
             } break;
             case AT_UpdateSliceLike: {
-                /* 
+                /*
                  * Update slice like the temptable in pgxc_slice.
                  * Nothing need to do here, because 'update slice' only follows
                  * 'add/delete node' when redistribution is working,
@@ -25005,13 +24967,13 @@ void ComparePartitionValue(List *pos, FormData_pg_attribute *attrs, List *partit
 
     if (pos == NULL || attrs == NULL) {
         ereport(ERROR, (errcode(ERRCODE_INVALID_OPERATION),
-            errmsg(isPartition ? "invalid range partition table definition" : 
+            errmsg(isPartition ? "invalid range partition table definition" :
                 "invalid range distribution table definition")));
     }
     /* no partitionvalues */
     if (!pos->length) {
         list_free_ext(pos);
-        ereport(ERROR, (errcode(ERRCODE_INVALID_OPERATION), 
+        ereport(ERROR, (errcode(ERRCODE_INVALID_OPERATION),
             errmsg(isPartition ? "there is no partition key" : "there is no distribution key")));
     }
     pre = (Const**)palloc0(pos->length * sizeof(Const*));
@@ -25041,7 +25003,7 @@ void ComparePartitionValue(List *pos, FormData_pg_attribute *attrs, List *partit
                 list_free_ext(pos);
                 ereport(ERROR,
                     (errcode(ERRCODE_INVALID_OPERATION),
-                        errmsg((isPartition ? "partition bound of partition \"%s\" is too low" : 
+                        errmsg((isPartition ? "partition bound of partition \"%s\" is too low" :
                             "distribution bound of slice \"%s\" is too low"),
                             ((RangePartitionDefState*)lfirst(cell))->partitionName)));
             }
@@ -26596,7 +26558,7 @@ static void ATUnusableGlobalIndex(Relation rel)
         CacheInvalidateRelcache(rel);
         CommandCounterIncrement();
     }
-    
+
     ereport(NOTICE, (errmsg("Command without UPDATE GLOBAL INDEX will disable global index")));
 }
 
@@ -26803,7 +26765,7 @@ static void ATExecVisibleIndexDirect(Relation rel, bool visible)
 {
     if (RelationIsIndex(rel) && OidIsValid(rel->rd_id)) {
         ATExecSetIndexVisibleState(rel->rd_id, visible);
-    } else {        
+    } else {
         ereport(ERROR,
             (errcode(ERRCODE_WRONG_OBJECT_TYPE),
                 errmsg("can not set visible for relation %s, as it is not a index",
@@ -27477,7 +27439,7 @@ static void mergePartitionBTreeIndexes(List* srcPartOids, List* srcPartMergeOffs
         List* merging_btrees_list = NIL;
         List* merging_part_list = NIL;
         int2 bktid = RelationIsCrossBucketIndex(currentIndex) ? InvalidBktId : bucketId;
-        
+
         if (OID_IS_BTREE(currentIndex->rd_rel->relam))
             skip_build = true;
         else
@@ -28386,7 +28348,7 @@ static void ExecuteUndoActionsForRelation(Relation rel)
     if (srcHeapBlocks == 0) {
         RelationCloseSmgr(rel);
         return;
-    } 
+    }
 
     for (BlockNumber blkno = 0; blkno < srcHeapBlocks; blkno ++) {
         ExecuteUndoActionsForPartition(rel, rel->rd_smgr, MAIN_FORKNUM, blkno, blkno,
@@ -28471,7 +28433,7 @@ static void ATExecExchangePartition(Relation partTableRel, AlterTableCmd* cmd)
         !has_privs_of_role(GetUserId(), ordTableRel->rd_rel->relowner)) {
         aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_CLASS, RelationGetRelationName(ordTableRel));
     }
-    
+
     ATSimplePermissions(ordTableRel, ATT_TABLE);
 
     // Check compress
@@ -29509,7 +29471,7 @@ static void checkValidationForExchangeTable(Relation partTableRel, Relation ordT
                 switch (result) {
                     case TM_SelfModified:
                         /* Tuple was already updated in current command? */
-                        ereport(ERROR, (errcode(ERRCODE_T_R_SERIALIZATION_FAILURE), 
+                        ereport(ERROR, (errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
                             errmsg("tuple already updated by self")));
                         break;
 
@@ -29531,17 +29493,17 @@ static void checkValidationForExchangeTable(Relation partTableRel, Relation ordT
                         break;
                     }
                     case TM_Updated:
-                        ereport(ERROR, (errcode(ERRCODE_T_R_SERIALIZATION_FAILURE), 
+                        ereport(ERROR, (errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
                             errmsg("tuple concurrently updated")));
                         break;
 
                     case TM_Deleted:
-                        ereport(ERROR, (errcode(ERRCODE_T_R_SERIALIZATION_FAILURE), 
+                        ereport(ERROR, (errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
                             errmsg("tuple concurrently updated")));
                         break;
 
                     default:
-                        ereport(ERROR, (errcode(ERRCODE_T_R_SERIALIZATION_FAILURE), 
+                        ereport(ERROR, (errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
                             errmsg("unrecognized delete status: %u", result)));
                         break;
                 }
@@ -30559,7 +30521,7 @@ static void ATExecSplitSubPartition(Relation partTableRel, AlterTableCmd* cmd)
     partitionClose(partTableRel, part, NoLock);
 
     if (splitSubPart->splitType == LISTSUBPARTITIION) {
-        /* 
+        /*
          * add dest subpartitions. For list subpartition We allow the dest subpartition name
          * to be the same as the src subpartition name. So we need delete src subpartition
          * and then add the dest subpartition name.
@@ -30950,7 +30912,7 @@ static void AlterPartitionedSetWaitCleanGPI(bool alterGPI, Relation partTableRel
 }
 
 /*
- * Description: Set one subpartitioned relation's reloptions wait_clean_gpi and 
+ * Description: Set one subpartitioned relation's reloptions wait_clean_gpi and
  * one subpartition's reloptions wait_clean_gpi.
  *
  * Parameters:
@@ -31634,8 +31596,8 @@ void addToastTableForNewPartition(Relation relation, Oid newPartId, bool isForSu
     firstPartitionId = ((RangePartitionMap*)relation->partMap)->rangeElements[0].partitionOid;
     firstPartition = partitionOpen(relation, firstPartitionId, NoLock);
     firstPartitionToastId = firstPartition->pd_part->reltoastrelid;
-    
-    
+
+
     if (OidIsValid(firstPartitionToastId)) {
         reltuple = SearchSysCache1(RELOID, ObjectIdGetDatum(firstPartitionToastId));
         if (!PointerIsValid(reltuple)) {
@@ -31966,7 +31928,7 @@ void DropTableThrowErrorExternal(RangeVar* relation, ObjectType removeType, bool
         case OBJECT_CONTQUERY:
             relkind = RELKIND_CONTQUERY;
             break;
-            
+
         case OBJECT_FOREIGN_TABLE:
             relkind = RELKIND_FOREIGN_TABLE;
             break;
@@ -32451,7 +32413,7 @@ static void ExecRewriteRowTable(AlteredTableInfo* tab, Oid NewTableSpace, LOCKMO
      * against new constraints generated by ALTER TABLE commands.
      */
     Relation oldRel = heap_open(tab->relid, NoLock);
-    Relation newRel = heap_open(OIDNewHeap, lockmode); 
+    Relation newRel = heap_open(OIDNewHeap, lockmode);
 
     /*
      * Temporarily set the relOptions of the old rel to th ones before
@@ -32548,7 +32510,7 @@ static void ExecRewriteRowPartitionedTable(AlteredTableInfo* tab, Oid NewTableSp
                 Datum relOptions = 0;
 
                 /*
-                 * Make new partition heap with the new reloptions when modifying 
+                 * Make new partition heap with the new reloptions when modifying
                  * compressed options.
                  */
                 if (tab->rewrite == AT_REWRITE_ALTER_COMPRESSION) {
@@ -32591,7 +32553,7 @@ static void ExecRewriteRowPartitionedTable(AlteredTableInfo* tab, Oid NewTableSp
             Datum relOptions = 0;
 
             /*
-             * Make new partition heap with the new reloptions when modifying 
+             * Make new partition heap with the new reloptions when modifying
              * compressed options.
              */
             if (tab->rewrite == AT_REWRITE_ALTER_COMPRESSION) {
@@ -33252,7 +33214,7 @@ static void ResetPartsRedisCtidRelOptions(Relation rel)
     part_tupdesc = RelationGetDescr(pg_partition);
     ScanKeyInit(&key[0], Anum_pg_partition_parttype, BTEqualStrategyNumber, F_CHAREQ,
         CharGetDatum(PART_OBJ_TYPE_TABLE_PARTITION));
-    ScanKeyInit(&key[1], Anum_pg_partition_parentid, BTEqualStrategyNumber,F_OIDEQ, 
+    ScanKeyInit(&key[1], Anum_pg_partition_parentid, BTEqualStrategyNumber,F_OIDEQ,
         ObjectIdGetDatum(RelationGetRelid(rel)));
 
     scan = systable_beginscan(pg_partition, PartitionParentOidIndexId, true, NULL, 2, key);
@@ -33503,10 +33465,10 @@ void DropWeakPasswordDictionary()
 
     /* if the relation is valid, then delete the records of the role */
     while ((tuple = (HeapTuple) tableam_scan_getnexttuple(scan, ForwardScanDirection)) != NULL) {
-        if (strcmp(DatumGetCString(heap_getattr(tuple, Anum_gs_global_config_name, tupdesc, &is_null)), 
+        if (strcmp(DatumGetCString(heap_getattr(tuple, Anum_gs_global_config_name, tupdesc, &is_null)),
             "weak_password") == 0) {
             Assert(is_null == false);
-            simple_heap_delete(rel, &tuple->t_self);            
+            simple_heap_delete(rel, &tuple->t_self);
         }
     }
     tableam_scan_end(scan);
@@ -33522,7 +33484,7 @@ void DropWeakPasswordDictionary()
 static void at_timeseries_check(Relation rel, AlterTableCmd* cmd)
 {
     if (!g_instance.attr.attr_common.enable_tsdb) {
-        ereport(ERROR, (errcode(ERRCODE_OPERATE_FAILED), 
+        ereport(ERROR, (errcode(ERRCODE_OPERATE_FAILED),
                         errmsg("Cannot alter timeseries table when enable_tsdb is off.")));
     }
     if (!CStoreSupportATCmd(cmd->subtype))
@@ -33652,7 +33614,7 @@ void ExecutePurge(PurgeStmt *stmt)
             spcId = ConvertToPgclassRelTablespaceOid(
                         get_tablespace_oid(stmt->purobj->relname, false));
             if (!pg_tablespace_ownercheck(spcId, GetUserId())) {
-                aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_TABLESPACE, 
+                aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_TABLESPACE,
                     stmt->purobj->relname);
             }
             RbCltPurgeSpace(spcId);
@@ -33814,7 +33776,7 @@ void ShrinkRelationChunk(ShrinkStmt* shrink)
     }
 }
 
-static int128 EvaluateAutoIncrement(Relation rel, TupleDesc desc, AttrNumber attnum, Datum* value, bool* is_null)
+int128 EvaluateAutoIncrement(Relation rel, TupleDesc desc, AttrNumber attnum, Datum* value, bool* is_null)
 {
     ConstrAutoInc* cons_autoinc = desc->constr->cons_autoinc;
     int128 autoinc;
@@ -33845,7 +33807,7 @@ static int128 EvaluateAutoIncrement(Relation rel, TupleDesc desc, AttrNumber att
     return autoinc;
 }
 
-static void SetRelAutoIncrement(Relation rel, TupleDesc desc, int128 autoinc)
+void SetRelAutoIncrement(Relation rel, TupleDesc desc, int128 autoinc)
 {
     if (rel->rd_rel->relpersistence == RELPERSISTENCE_TEMP) {
         tmptable_autoinc_setval(rel->rd_rel->relfilenode, desc->constr->cons_autoinc->next, autoinc, true);
@@ -33854,7 +33816,7 @@ static void SetRelAutoIncrement(Relation rel, TupleDesc desc, int128 autoinc)
     }
 }
 
-static void CopyTempAutoIncrement(Relation oldrel, Relation newrel)
+void CopyTempAutoIncrement(Relation oldrel, Relation newrel)
 {
     if (oldrel->rd_rel->relpersistence != RELPERSISTENCE_TEMP ||
         oldrel->rd_rel->relfilenode == newrel->rd_rel->relfilenode ||
@@ -34815,3 +34777,12 @@ bool IsComputedColumn(Oid adrelid, int2 asnum)
     relation_close(attrdef, AccessShareLock);
     return res;
 }
+
+template HeapTupleData* EvaluateGenExpr<HeapTuple, TAM_HEAP>(
+    AlteredTableInfo* info,
+    HeapTupleData* tuple,
+    tupleDesc* desc,
+    ExprContext* ctx,
+    unsigned long* flag,
+    bool* is_null
+);

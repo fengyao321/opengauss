@@ -254,7 +254,7 @@ static relopt_int intRelOpts[] = {
         RELOPT_KIND_HEAP | RELOPT_KIND_PSORT },
         REDIS_REL_NORMAL,     /* not using append mode */
         REDIS_REL_INVALID,    /* min value of append mode */
-        REDIS_REL_DESTINATION /* REDIS_REL_DESTINATION is the max value of append mode that can set by users. */
+        ONLINE_DDL_APPEND_MODE /* REDIS_REL_DESTINATION is the max value of append mode that can set by users. */
     },
 
     {{ "rel_cn_oid", "rel oid on coordinator", RELOPT_KIND_HEAP }, 0, 0, 2000000000 },
@@ -1432,6 +1432,39 @@ bool CheckRelOptionValue(Datum options, const char *opt_name)
     return ret;
 }
 
+bool ListALLRelOptions(Datum options)
+{
+    int i;
+    bool ret = false;
+
+    if (options == (Datum)0) {
+        return false;
+    }
+
+    /* Done if no options */
+    if (PointerIsValid(DatumGetPointer(options))) {
+        ArrayType *array = NULL;
+        Datum *optiondatums = NULL;
+        int noptions;
+
+        array = DatumGetArrayTypeP(options);
+
+        Assert(ARR_ELEMTYPE(array) == TEXTOID);
+
+        deconstruct_array(array, TEXTOID, -1, false, 'i', &optiondatums, NULL, &noptions);
+
+        for (i = 0; i < noptions; i++) {
+            const char *s = TextDatumGetCString(optiondatums[i]);
+
+            ereport(NOTICE, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                            errmsg("paras: %s", s)));
+        }
+    }
+
+    return ret;
+}
+
+
 /*
  * Given the result from parseRelOptions, allocate a struct that's of the
  * specified base size plus any extra space that's needed for string variables.
@@ -2562,8 +2595,9 @@ static void ValidateStrOptVersion(const char *val)
  */
 void check_append_mode(const char *value)
 {
-    if (value == NULL || (strcmp(value, "on") != 0 && strcmp(value, "off") != 0 && strcmp(value, "refresh") != 0 &&
-                          strcmp(value, "read_only") != 0 && strcmp(value, "end_catchup") != 0)) {
+    if (value == NULL || (strcmp(value, "on") != 0 && strcmp(value, "off") != 0 &&
+                          strcmp(value, "refresh") != 0 && strcmp(value, "read_only") != 0 &&
+                          strcmp(value, "end_catchup") != 0 && strcmp(value, "online_ddl"))) {
         ereport(ERROR,
                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("invalid value for \"append_mode\" option"),
                  errdetail("Valid values are \"on\", \"off\", \"refresh\", \"read_only\" and \"end_catchup\".")));

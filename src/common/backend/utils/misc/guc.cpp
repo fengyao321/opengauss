@@ -62,6 +62,7 @@
 #include "commands/vacuum.h"
 #include "commands/variable.h"
 #include "commands/dbcommands.h"
+#include "commands/online_ddl_util.h"
 #include "commands/tablespace.h"
 #include "commands/trigger.h"
 #include "funcapi.h"
@@ -2454,6 +2455,19 @@ static void InitConfigureNamesInt()
             NULL,
             NULL,
             show_log_file_mode},
+        {{"log_online_ddl_level",
+            PGC_SIGHUP,
+            NODE_SINGLENODE,
+            LOGGING_WHAT,
+            gettext_noop("Logs each online ddl."),
+            NULL},
+            &u_sess->attr.attr_common.log_online_ddl_level,
+            LOG_ONLINE_DDL_DEFAULT,
+            LOG_ONLINE_DDL_DEFAULT,
+            LOG_ONLINE_DDL_NOTICE,
+            NULL,
+            NULL,
+            NULL},
         {{"bbox_dump_count",
             PGC_USERSET,
             NODE_ALL,

@@ -1100,6 +1100,13 @@ static void knl_g_smb_init(knl_g_smb_context* smb_cxt)
     smb_cxt->stderrFd = -1;
 }
 
+static void knl_g_online_ddl_context_init(knl_g_online_ddl_context* online_ddl_cxt)
+{
+    online_ddl_cxt->isInited = false;
+    online_ddl_cxt->globalInfoHash = NULL;
+    online_ddl_cxt->context = NULL;
+}
+
 void knl_instance_init()
 {
     g_instance.binaryupgrade = false;
@@ -1214,6 +1221,7 @@ void knl_instance_init()
 
     knl_g_datadir_init(&g_instance.datadir_cxt);
     knl_g_listen_sock_init(&g_instance.listen_cxt);
+    knl_g_online_ddl_context_init(&g_instance.online_ddl_cxt);
 
     g_instance.pq_inited = false;
     g_instance.diskann_pq_inited = false;

@@ -433,7 +433,7 @@ Relation CopyRelationData(Relation newrel, Relation rel, MemoryContext rules_cxt
      * otherwise, do the copy work here
      * if the variable changed, there is no lock and no rel inval msg,
      * set it zero and reinit it when copy into local */
-#define RD_SIZE 600
+#define RD_SIZE 608
     Assert(sizeof(RelationData) == RD_SIZE);
     /* all copied exclude pointer */
     *newrel = *rel;
@@ -495,6 +495,7 @@ Relation CopyRelationData(Relation newrel, Relation rel, MemoryContext rules_cxt
     newrel->entry = NULL;
     newrel->rd_ind_partition_all_usable = rel->rd_ind_partition_all_usable;
     newrel->rd_optionsValid = rel->rd_optionsValid;
+    newrel->rd_online_ddl_operators = rel->rd_online_ddl_operators;
     return newrel;
 }
 

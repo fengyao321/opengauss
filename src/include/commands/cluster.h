@@ -41,7 +41,8 @@ extern void finishPartitionHeapSwap(Oid partitionOid, Oid tempTableOid, bool swa
     TransactionId frozenXid, MultiXactId multiXid, bool tempTableIsPartition = false, AlteredTableInfo* tab = NULL);
 
 extern void finish_heap_swap(Oid OIDOldHeap, Oid OIDNewHeap, bool is_system_catalog, bool swap_toast_by_content,
-    bool check_constraints, TransactionId frozenXid, MultiXactId frozenMulti, AdaptMem* memInfo = NULL, AlteredTableInfo* tab = NULL);
+                             bool check_constraints, TransactionId frozenXid, MultiXactId frozenMulti,
+                             AdaptMem* memInfo = NULL, AlteredTableInfo* tab = NULL, bool skipReindex = false);
 
 extern void vacuumFullPart(Oid partOid, VacuumStmt* vacstmt, int freeze_min_age, int freeze_table_age);
 extern void GpiVacuumFullMainPartiton(Oid parentOid);
@@ -51,5 +52,6 @@ extern List* GetIndexPartitionListByOrder(Relation indexRelation, LOCKMODE lockm
 extern bool IsNeedToTransfer(Relation rel1, Relation rel2);
 extern void swapRelationIndicesRelfileNode(Relation rel1, Relation rel2, bool swapBucket, bool swapIndex);
 extern int IndexGetindisusable(Oid indexOid);
+extern void OnlineDDLSwapRelationIndexes(List* srcIndexOidList, List* destIndexOidList, AlteredTableInfo* tab);
 
 #endif /* CLUSTER_H */

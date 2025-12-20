@@ -166,6 +166,7 @@ inline bool HasCompressOption(TableCreateSupport *tableCreateSupport)
 #define APPEND_MODE_REFRESH   "refresh"
 #define APPEND_MODE_READ_ONLY "read_only"
 #define APPEND_MODE_DEST      "dest"
+#define APPEND_MODE_ONLINE_DDL "online_ddl"
 
 /*
  * These macros exist for the convenience of amoptions writers (but consider
@@ -304,6 +305,7 @@ extern void ForbidToSetOptionsForRowTbl(List* options);
 extern void ForbidUserToSetDefinedOptions(List* options);
 extern void ForbidUserToSetDefinedIndexOptions(Relation rel, List *options);
 extern bool CheckRelOptionValue(Datum options, const char* opt_name);
+extern bool ListALLRelOptions(Datum options);
 extern void forbid_to_set_options_for_timeseries_tbl(List* options);
 extern List* RemoveRelOption(List* options, const char* optName, bool* removed);
 void RowTblCheckCompressionOption(List *options, int8 rowCompress = REL_CMPRS_PAGE_PLAIN);

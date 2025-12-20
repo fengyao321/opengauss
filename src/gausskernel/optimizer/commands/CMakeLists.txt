@@ -6,6 +6,7 @@ if("${ENABLE_LITE_MODE}" STREQUAL "ON")
 endif()
 
 set(CMAKE_MODULE_PATH
+    ${CMAKE_CURRENT_SOURCE_DIR}/online_ddl
     ${CMAKE_CURRENT_SOURCE_DIR}/sequence
 )
 
@@ -22,6 +23,7 @@ set(TGT_commands_INC
     ${LIBCURL_INCLUDE_PATH}
 )
 
+add_subdirectory(online_ddl)
 add_subdirectory(sequence)
 
 set(commands_DEF_OPTIONS ${MACRO_OPTIONS} -DOBS_SERVER)

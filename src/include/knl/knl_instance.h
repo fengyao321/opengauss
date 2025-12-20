@@ -1553,6 +1553,17 @@ typedef struct knl_g_smb_context {
     volatile uint32 curSMBWriterIndex;
 } knl_g_smb_context;
 
+typedef struct knl_g_online_ddl_context {
+    volatile bool isInited = false;
+    /*
+     * The hash table for online DDL global info, the key is relfilenode.
+     * The value is the online DDL global info.
+     */
+    HTAB* globalInfoHash;
+    int executingCount; /* The number of executing online DDL */
+    MemoryContext context;
+} knl_g_online_ddl_context;
+
 typedef struct knl_instance_context {
     knl_virtual_role role;
     volatile int status;
@@ -1715,6 +1726,7 @@ typedef struct knl_instance_context {
     knl_g_npu_context npu_cxt;
     knl_g_smb_context smb_cxt;
     knl_g_rack_mem_cleaner_context rackMemCleanerCxt;
+    knl_g_online_ddl_context online_ddl_cxt;
 } knl_instance_context;
 
 extern long random();

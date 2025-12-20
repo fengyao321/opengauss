@@ -141,6 +141,7 @@ const module_data module_map[] = {{MOD_ALL, "ALL"},
     {MOD_SRF, "SRF"},
     {MOD_SS_TXNSTATUS, "SS_TXNSTATUS"},
     {MOD_HTAP, "HTAP"},
+    {MOD_ONLINE_DDL, "ONLINE_DDL"},
 
     /* add your module name above */
     {MOD_MAX, "BACKEND"}};
