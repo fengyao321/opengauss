@@ -46,6 +46,7 @@ struct OnlineDDLAppender {
     int indexNum;
 };
 
+/* return true if a < b, else return false */
 inline bool CompareItemPointer(ItemPointer a, ItemPointer b)
 {
     if (ItemPointerGetBlockNumberNoCheck(a) < ItemPointerGetBlockNumberNoCheck(b)) {

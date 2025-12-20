@@ -100,6 +100,7 @@
 #include "gs_policy/gs_policy_masking.h"
 #include "optimizer/gplanmgr.h"
 #include "catalog/pg_constraint.h"
+#include "commands/online_ddl_deltalog.h"
 
 /* Hooks for plugins to get control in ExecutorStart/Run/Finish/End */
 THR_LOCAL ExecutorStart_hook_type ExecutorStart_hook = NULL;
@@ -1657,6 +1658,9 @@ void CheckValidResultRel(Relation resultRel, CmdType operation)
                         errmsg("cannot change ledger relation \"%s\"", RelationGetRelationName(resultRel))));
             }
             CheckCmdReplicaIdentity(resultRel, operation);
+            if (resultRel->rd_rel->relpersistence == RELPERSISTENCE_UNLOGGED) {
+                ErrorIfOnlineDDLDeltaLog(resultRel, false);
+            }
             break;
         case RELKIND_SEQUENCE:
         case RELKIND_LARGE_SEQUENCE:

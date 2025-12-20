@@ -89,6 +89,7 @@
 #include "commands/explain.h"
 #include "commands/sec_rls_cmds.h"
 #include "commands/sequence.h"
+#include "commands/online_ddl_deltalog.h"
 #include "streaming/streaming_catalog.h"
 #include "instruments/instr_unique_sql.h"
 #include "streaming/init.h"
@@ -1423,6 +1424,10 @@ static Query* transformDeleteStmt(ParseState* pstate, DeleteStmt* stmt)
             (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                 errmsg("Un-supported feature"),
                 errdetail("UStore relations cannot be used with other storage types in DELETE statement")));
+    }
+
+    if (unlikely(targetrel != NULL &&targetrel->rd_rel->relpersistence == RELPERSISTENCE_UNLOGGED)) {
+        ErrorIfOnlineDDLDeltaLog(targetrel, false);
     }
 
     /* done building the range table and jointree */
@@ -4614,6 +4619,10 @@ static Query* transformUpdateStmt(ParseState* pstate, UpdateStmt* stmt)
         }
     }
 
+    if (unlikely(rel != NULL && rel->rd_rel->relpersistence == RELPERSISTENCE_UNLOGGED)) {
+        ErrorIfOnlineDDLDeltaLog(rel, false);
+    }
+
     /* subqueries in FROM cannot access the result relation */
     int nsitem_count = list_length(pstate->p_varnamespace);
     foreach(l, pstate->p_varnamespace) {
@@ -6837,6 +6846,10 @@ static void CheckInsertTargetRelation(ParseState* pstate, InsertStmt* stmt, Rela
         RelationInClusterResizingWriteErrorMode(targetrel))) {
         ereport(ERROR, (errcode(ERRCODE_READ_ONLY_SQL_TRANSACTION),
                 errmsg("%s is redistributing, please retry later.", targetrel->rd_rel->relname.data)));
+    }
+
+    if (unlikely(targetrel != NULL && targetrel->rd_rel->relpersistence == RELPERSISTENCE_UNLOGGED)) {
+        ErrorIfOnlineDDLDeltaLog(targetrel, false);
     }
 }
 

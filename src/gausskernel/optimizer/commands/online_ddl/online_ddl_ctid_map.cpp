@@ -29,3 +29,129 @@
 #include "utils/builtins.h"
 #include "commands/online_ddl_util.h"
 #include "commands/online_ddl_ctid_map.h"
+
+#define DatumGetItemPointer(X) ((ItemPointer)DatumGetPointer(X))
+
+const char* ONLINE_DDL_CTID_MAP_RELNAME = "ctid_map";
+const char* ONLINE_DDL_CTID_MAP_INDEXNAME = "ctid_map_index";
+const uint32 CTID_MAP_ATTR_NUM = 2; /* old_tup_ctid, new_tup_ctid */
+ItemPointerData CTID_MAP_DEFAULT_CTID = (ItemPointerData){(BlockIdData){(uint16)0, (uint16)0}, (OffsetNumber)1};
+ItemPointerData CTID_MAP_INVALID_CTID = (ItemPointerData){(BlockIdData){(uint16)0, (uint16)0}, (OffsetNumber)0};
+
+static Oid CreateCtidMap(char* schemaName)
+{
+    Oid ctidMapOid = InvalidOid;
+    Oid relid = InvalidOid;
+    StringInfo query = makeStringInfo();
+    appendStringInfo(query, "CREATE UNLOGGED TABLE %s.%s", schemaName, ONLINE_DDL_CTID_MAP_RELNAME);
+    appendStringInfo(query, "("
+                            "old_tup_ctid TID NOT NULL, "
+                            "new_tup_ctid TID NOT NULL"
+                            ")");
+    OnlineDDLExecuteCommand(query->data);
+    DestroyStringInfo(query);
+    relid = get_relname_relid(ONLINE_DDL_CTID_MAP_RELNAME, get_namespace_oid(schemaName, false));
+    if (!OidIsValid(relid)) {
+        ereport(ERROR, (errcode(ERRCODE_UNDEFINED_TABLE),
+                        errmsg("failed to get ctid map relation oid, during online ddl, relation: %s.%s.", schemaName,
+                               ONLINE_DDL_CTID_MAP_RELNAME)));
+    }
+
+    query = makeStringInfo();
+    appendStringInfo(query, "CREATE INDEX %s.%s on %s.%s using btree (old_tup_ctid, new_tup_ctid);", schemaName,
+                     ONLINE_DDL_CTID_MAP_INDEXNAME, schemaName, ONLINE_DDL_CTID_MAP_RELNAME);
+    OnlineDDLExecuteCommand(query->data);
+    DestroyStringInfo(query);
+    return relid;
+}
+
+/**
+ * @brief Create a ctid map table for the given relation.
+ *
+ * @param rel
+ * @return Oid the oid of the created ctid map table
+ */
+Oid OnlineDDLCreateCtidMap(StringInfo tempSchemaName)
+{
+    Assert(tempSchemaName != NULL && tempSchemaName->len > 0);
+    return CreateCtidMap(tempSchemaName->data);
+}
+
+bool OnlineDDLInsertCtidMap(ItemPointer oldTid, ItemPointer newTid, Relation relation)
+{
+    List* indexOidList = NIL;
+    ListCell* l = NULL;
+    if (relation == NULL || oldTid == NULL || newTid == NULL) {
+        ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                        errmsg("relation or old/new ctid is null, during online ddl.")));
+    }
+    indexOidList = RelationGetIndexList(relation);
+    Assert(list_length(indexOidList) == 1);
+    foreach (l, indexOidList) {
+        Oid indexOid = lfirst_oid(l);
+        Relation indexDesc;
+        Datum values[CTID_MAP_ATTR_NUM];
+        bool isnull[CTID_MAP_ATTR_NUM];
+        indexDesc = index_open(indexOid, AccessShareLock);
+        values[0] = PointerGetDatum(oldTid);
+        values[1] = PointerGetDatum(newTid);
+        errno_t rc = memset_s(isnull, sizeof(isnull), 0, sizeof(isnull));
+        securec_check_c(rc, "\0", "\0");
+        index_insert(indexDesc, values, isnull, &CTID_MAP_DEFAULT_CTID, relation, UNIQUE_CHECK_PARTIAL);
+        CommandCounterIncrement();
+        index_close(indexDesc, AccessShareLock);
+    }
+    list_free_ext(indexOidList);
+    return true;
+}
+
+ItemPointerData OnlineDDLGetTargetCtid(ItemPointer oldTid, Relation relation, Relation indexRelation)
+{
+    if (ItemPointerIsValid(oldTid) == false) {
+        ereport(ERROR,
+                (errcode(ERRCODE_UNEXPECTED_NULL_VALUE), errmsg("OnlineDDLGetTargetCtid error: old ctid is invalid.")));
+    }
+    if (oldTid == NULL) {
+        ereport(ERROR,
+                (errcode(ERRCODE_UNEXPECTED_NULL_VALUE), errmsg("OnlineDDLGetTargetCtid error: old ctid is null.")));
+    }
+    if (indexRelation == NULL) {
+        ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                        errmsg("OnlineDDLGetTargetCtid error: index relation is null.")));
+    }
+
+    Datum values[CTID_MAP_ATTR_NUM];
+    bool isnull[CTID_MAP_ATTR_NUM];
+    ItemPointerData result = CTID_MAP_INVALID_CTID;
+
+    IndexScanDesc indexScanDesc;
+    ScanState* scanState = makeNode(ScanState);
+    bool bucketChanged = false;
+
+    ScanKeyData scanKey[CTID_MAP_ATTR_NUM];
+    const AttrNumber keyNum = 1;
+    const int oldCtidAttrId = 1;
+    /* function oid of tideq */
+    const RegProcedure TIDEQ_OID = 1292;
+    ItemPointer tid = NULL;
+    ScanKeyEntryInitialize(&scanKey[0], 0, oldCtidAttrId, BTEqualStrategyNumber, TIDOID, 0, TIDEQ_OID,
+                           PointerGetDatum(oldTid));
+    ScanDirection scandirection = ForwardScanDirection;
+    indexScanDesc = scan_handler_idx_beginscan(relation, indexRelation, SnapshotNow, keyNum, 0, scanState);
+    indexScanDesc->xs_want_itup = true;
+    scan_handler_idx_rescan_local(indexScanDesc, scanKey, keyNum, NULL, 0);
+    if ((tid = scan_handler_idx_getnext_tid(indexScanDesc, scandirection, &bucketChanged)) != NULL) {
+        IndexScanDesc indexdesc = GetIndexScanDesc(indexScanDesc);
+        index_deform_tuple(indexdesc->xs_itup, RelationGetDescr(indexRelation), values, isnull);
+#ifdef USE_ASSERT_CHECKING
+        ItemPointer resultOldTid = DatumGetItemPointer(values[0]);
+        Assert(ItemPointerEquals(resultOldTid, oldTid));
+#endif
+        ItemPointerSetBlockNumber(&result, ItemPointerGetBlockNumber(DatumGetItemPointer(values[1])));
+        ItemPointerSetOffsetNumber(&result, ItemPointerGetOffsetNumber(DatumGetItemPointer(values[1])));
+    }
+    pfree(scanState);
+    scan_handler_idx_endscan(indexScanDesc);
+
+    return result;
+}
