@@ -130,3 +130,7 @@ int UadkAggGetTableRowsize(handle_t h_sess)
     return g_uadkAggFunc.wd_agg_get_table_rowsize(h_sess);
 }
 
+int UadkAggSetHashTable(handle_t h_sess, struct wd_dae_hash_table *info)
+{
+    return g_uadkAggFunc.wd_agg_set_hash_table(h_sess, info);
+}

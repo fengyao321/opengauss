@@ -54,6 +54,7 @@ typedef struct knl_session_attr_sql {
     bool enable_sonic_optspill;
     bool enable_sonic_hashjoin;
     bool enable_sonic_hashagg;
+    bool enable_dpa_hashagg;
     bool enable_upsert_to_merge;
     bool enable_csqual_pushdown;
     bool enable_change_hjcost;

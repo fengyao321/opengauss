@@ -26,6 +26,17 @@
 #define VECHASHAGG_H_
 
 #include "vecexecutor/vecagg.h"
+#include "storage/wd_agg_wrapper.h"
+
+constexpr int EXT_RATIO = 4;
+constexpr int HASH_TABLE_ROW_NUM = 65536;
+constexpr int CHAR_BITS = 8;
+constexpr int DEFAULT_ROW_NUM = 30000;
+constexpr int MAX_CHAR_SIZE = 32;
+constexpr int EXT_ROW_SIZE1 = 32;
+constexpr int EXT_ROW_BYTES1 = 3;
+constexpr int EXT_ROW_SIZE2 = 64;
+constexpr int EXT_ROW_BYTES2 = 1;
 
 struct AggStateLog {
     bool restore;
@@ -37,7 +48,7 @@ struct AggStateLog {
 class HashAggRunner : public BaseAggRunner {
 public:
     HashAggRunner(VecAggState* runtime);
-    ~HashAggRunner(){};
+    ~HashAggRunner();
 
     bool ResetNecessary(VecAggState* node);
 
@@ -82,6 +93,33 @@ private:
 
     void Profile(char* stats, bool* can_wlm_warning_statistics);
 
+    bool DaeSessionInit(VectorBatch* batch);
+    void DaeSessionCleanup();
+    bool DaeIsSessionReady();
+    
+    void DaeAllocHTBL(struct wd_dae_hash_table *table_, struct wd_dae_hash_table *new_table, __u32 row_size);
+    void DaeFreeHTBL(struct wd_dae_hash_table *table);
+    
+    bool DaeCollectKeyCollInfo(struct wd_key_col_info *key_cols_info, const Oid colType, int idx, int4 typeMod);
+    bool DaeCollectAggCollInfo(struct wd_agg_col_info *agg_cols_info, Oid inputColType, Oid outputColType, int idx,
+        int4 typeMod, Oid aggFuncOid);
+    bool DaeCreateSession(VectorBatch* batch, struct wd_agg_sess_setup &setup);
+    
+    wd_agg_alg MapAggFuncOidToAlg(Oid aggFuncOid);
+    wd_dae_data_type MapOidToDAEType(Oid oid);
+    
+    bool DaeInitInputOutputMem(struct wd_agg_sess_setup *setup, VectorBatch* batch);
+    bool DaeInitKeyOutputAddress(struct wd_agg_sess_setup *setup);
+    bool DaeInitKeyInputAddress(struct wd_agg_sess_setup *setup, VectorBatch* batch);
+    bool DaeInitAggOutputAddress(struct wd_agg_sess_setup *setup);
+    bool DaeInitAggInputAddress(struct wd_agg_sess_setup *setup, VectorBatch* batch);
+    void DaeFreeInputOutputMem();
+    
+    bool ParallelBuildKeyValue(VectorBatch* batch);
+    bool ParallelBuildAggValue(VectorBatch* batch);
+    void DaeParallelBuild(VectorBatch* batch);
+    void DaeParallelProbe();
+
 private:
     /* Some status log.*/
     AggStateLog m_statusLog;
@@ -104,6 +142,25 @@ private:
     int64 m_hashSize;                 /* total hash size */
     void (HashAggRunner::*m_buildFun)(VectorBatch* batch);
     int m_spill_times; /* spill time */
+
+    enum DaeSessionState {
+        DAE_SESS_UNINIT = 0,
+        DAE_SESS_INITIALIZING,
+        DAE_SESS_READY,
+        DAE_SESS_ERROR
+    };
+
+    bool use_dpa = false;
+    MemoryContext m_dpaContext = nullptr;  /* DPA session context, independent from m_hashContext */
+    DaeSessionState daeSessionState_ = DAE_SESS_UNINIT;
+    handle_t daeSess_ = 0;
+    struct wd_agg_req daeReq_ = {0};
+    struct wd_dae_hash_table daeHashTable_ = {0};
+    
+    struct wd_key_col_info* daeKeyCols_ = nullptr;
+    struct wd_agg_col_info* daeAggCols_ = nullptr;
+    __u32 daeKeyColsNum_ = 0;
+    __u32 daeAggColsNum_ = 0;
 };
 
 #endif
