@@ -230,6 +230,7 @@
 #include "utils/memprot.h"
 #include "pgstat.h"
 #include "storage/matrix_mem.h"
+#include "storage/wd_agg_wrapper.h"
 
 #include "distributelayer/streamMain.h"
 #include "distributelayer/streamProducer.h"
@@ -2855,6 +2856,7 @@ int PostmasterMain(int argc, char* argv[])
 
 #ifdef __aarch64__
     MatrixMemFuncInit(g_instance.attr.attr_storage.ubs_mem_path);
+    UadkAggFuncInit(g_instance.attr.attr_storage.uadk_path);
 #endif
 
     /*
@@ -10065,6 +10067,7 @@ void ExitPostmaster(int status)
 
 #ifdef __aarch64__
     MatrixMemFuncUnInit();
+    UadkAggFuncUnInit();
 #endif
 
     // flush stdout buffer before _exit
