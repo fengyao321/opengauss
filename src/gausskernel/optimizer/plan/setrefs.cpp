@@ -298,6 +298,38 @@ Plan* set_plan_references(PlannerInfo* root, Plan* plan)
     return set_plan_refs(root, plan, rtoffset);
 }
 
+static void assign_lockrows_targetlist(Plan* plan, Plan* subplan, List* resultRelation)
+{
+    ListCell* lcrr = NULL;
+    ListCell* lctl = NULL;
+    int resultRelationNum = list_length(resultRelation);
+    List** temp = (List**)palloc0(resultRelationNum * sizeof(List*));
+    int i = 0;
+    TargetEntry* tle = NULL;
+    TargetEntry* copy_tle = NULL;
+
+    foreach (lcrr, resultRelation) {
+        Index rtindex = (Index)lfirst_int(lcrr);
+        foreach (lctl, subplan->targetlist) {
+            tle = (TargetEntry*)lfirst(lctl);
+            if (rtindex == tle->rtindex || tle->rtindex == 0) {
+                copy_tle = (TargetEntry*)copyObject((void*)tle);
+                temp[i] = lappend(temp[i], copy_tle);
+            }
+        }
+        i++;
+    }
+    plan->targetlist = NIL;
+    for (i = 0; i < resultRelationNum; i++) {
+        plan->targetlist = list_concat(plan->targetlist, temp[i]);
+    }
+    int new_resno = 1;
+    foreach (lctl, plan->targetlist) {
+        tle = (TargetEntry*)lfirst(lctl);
+        tle->resno = new_resno++;
+    }
+}
+
 /*
  * set_plan_refs: recurse through the Plan nodes of a single subquery level
  */
@@ -908,15 +940,24 @@ static Plan* set_plan_refs(PlannerInfo* root, Plan* plan, int rtoffset)
                 List* resultRelations = (List*)lfirst(lc);
                 Plan* subplan = (Plan*)lfirst(l);
 
-                lfirst(l) = set_plan_refs(root, subplan, rtoffset);
                 /*
                  * If the DML has mutil-relation to modify, The targetlist of each target table is arranged on the
                  * subplan->targetlist. transform and split the original subplan->targetlist to splan->targetlists.
                  */
                 if (list_length(resultRelations) > 1) {
-                    Assert(subplan->type == T_NestLoop || subplan->type == T_HashJoin || subplan->type == T_MergeJoin ||
-                           subplan->type == T_BaseResult);
-                    fix_assign_targetlists(splan, subplan, resultRelations);
+                    Assert(subplan->type == T_LockRows);
+                    Plan* subplan_left = subplan->lefttree;
+                    Assert(subplan_left->type == T_NestLoop || subplan_left->type == T_HashJoin ||
+                           subplan_left->type == T_MergeJoin || subplan_left->type == T_BaseResult);
+                    List* tmp_result_relation = list_copy(resultRelations);
+                    make_sorted_list(tmp_result_relation, list_sorted_int_cmp);
+                    assign_lockrows_targetlist(subplan, subplan_left, tmp_result_relation);
+                    lfirst(l) = set_plan_refs(root, subplan, rtoffset);
+
+                    fix_assign_targetlists(splan, subplan_left, tmp_result_relation);
+                    list_free_ext(tmp_result_relation);
+                } else {
+                    lfirst(l) = set_plan_refs(root, subplan, rtoffset);
                 }
             }
 
@@ -1117,30 +1158,46 @@ static void fix_assign_targetlists(ModifyTable* plan, Plan* subplan, List* resul
 {
     ListCell* lcrr = NULL;
     ListCell* lctl = NULL;
+    List* modify_subplan_targetlist = NIL;
     int resultRelationNum = list_length(resultRelation);
     List **temp = (List**)palloc0(resultRelationNum * sizeof(List*));
     int i = 0;
+    TargetEntry* tle = NULL;
+    TargetEntry* copy_tle = NULL;
 
     foreach (lcrr, resultRelation) {
         Index rtindex = (Index)lfirst_int(lcrr);
         int new_resno = 1;
         foreach (lctl, subplan->targetlist) {
-            TargetEntry* tle = (TargetEntry*)lfirst(lctl);
+            tle = (TargetEntry*)lfirst(lctl);
             if (tle->rtindex == 0) {
+                copy_tle = (TargetEntry*)copyObject((void*)tle);
                 tle = (TargetEntry*)copyObject((void*)tle);
-                tle->resno = new_resno++;
-                temp[i] = lappend(temp[i], tle);
+                temp[i] = lappend(temp[i], copy_tle);
+                modify_subplan_targetlist = lappend(modify_subplan_targetlist, tle);
             } else if (rtindex == tle->rtindex) {
-                tle->resno = new_resno++;
-                temp[i] = lappend(temp[i], tle);
+                copy_tle = (TargetEntry*)copyObject((void*)tle);
+                temp[i] = lappend(temp[i], copy_tle);
+                modify_subplan_targetlist = lappend(modify_subplan_targetlist, tle);
             }
         }
         i++;
     }
+    int new_resno = 1;
     for (i = 0; i < resultRelationNum; i++) {
+        new_resno = 1;
+        foreach (lctl, temp[i]) {
+            tle = (TargetEntry*)lfirst(lctl);
+            tle->resno = new_resno++;
+        }
         plan->targetlists = lappend(plan->targetlists, temp[i]);
     }
-    subplan->targetlist = (List*)linitial(plan->targetlists);
+    new_resno = 1;
+    foreach (lctl, modify_subplan_targetlist) {
+        tle = (TargetEntry*)lfirst(lctl);
+        tle->resno = new_resno++;
+    }
+    subplan->targetlist = modify_subplan_targetlist;
 }
 
 /*

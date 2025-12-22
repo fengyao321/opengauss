@@ -107,12 +107,12 @@ delete t_t_mutil_t1 a,mate_multiview1 b,mate_multiview2 c ;
 drop MATERIALIZED VIEW mate_multiview1;
 drop MATERIALIZED VIEW mate_multiview2;
 -- different explain plan
-explain(verbose) delete/*+nestloop(a b)*/ from t_t_mutil_t1 a,t_t_mutil_t2 b where a.col2=b.col2;
-explain(verbose) delete/*+hashjoin(a b)*/ from t_t_mutil_t1 a,t_t_mutil_t2 b where a.col2=b.col2;
-explain(verbose) delete/*+mergejoin(a b)*/ from t_t_mutil_t1 a,t_t_mutil_t2 b where a.col2=b.col2;
-explain(format xml) delete from t_t_mutil_t1 a,t_t_mutil_t2 b where a.col2=b.col2;
-explain(format json) delete from t_t_mutil_t1 a,t_t_mutil_t2 b where a.col2=b.col2;
-explain(format yaml) delete from t_t_mutil_t1 a,t_t_mutil_t2 b where a.col2=b.col2;
+explain(costs off, verbose) delete/*+nestloop(a b)*/ from t_t_mutil_t1 a,t_t_mutil_t2 b where a.col2=b.col2;
+explain(costs off, verbose) delete/*+hashjoin(a b)*/ from t_t_mutil_t1 a,t_t_mutil_t2 b where a.col2=b.col2;
+explain(costs off, verbose) delete/*+mergejoin(a b)*/ from t_t_mutil_t1 a,t_t_mutil_t2 b where a.col2=b.col2;
+explain(costs off, format xml) delete from t_t_mutil_t1 a,t_t_mutil_t2 b where a.col2=b.col2;
+explain(costs off, format json) delete from t_t_mutil_t1 a,t_t_mutil_t2 b where a.col2=b.col2;
+explain(costs off, format yaml) delete from t_t_mutil_t1 a,t_t_mutil_t2 b where a.col2=b.col2;
 -- temp table
 drop table if exists t_t_mutil_t1;
 drop table if exists t_t_mutil_t2;

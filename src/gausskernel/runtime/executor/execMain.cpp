@@ -1314,7 +1314,9 @@ void InitPlan(QueryDesc *queryDesc, int eflags)
         resultRelInfo = resultRelInfos;
         foreach (lc, resultRelations) {
             List* resultRels = (List*)lfirst(lc);
-            foreach (l, resultRels) {
+            List* tmp_resultRels = list_copy(resultRels);
+            make_sorted_list(tmp_resultRels, list_sorted_int_cmp);
+            foreach (l, tmp_resultRels) {
                 Index resultRelationIndex = lfirst_int(l);
                 Oid resultRelationOid;
                 Relation resultRelation;
@@ -1330,6 +1332,7 @@ void InitPlan(QueryDesc *queryDesc, int eflags)
                 InitResultRelInfo(resultRelInfo, resultRelation, resultRelationIndex, estate->es_instrument);
                 resultRelInfo++;
             }
+            list_free_ext(tmp_resultRels);
         }
         estate->es_result_relations = resultRelInfos;
         estate->es_num_result_relations = numResultRelations;
@@ -3883,7 +3886,7 @@ TupleTableSlot *EvalPlanQualNext(EPQState *epqstate)
 
     TupleTableSlot *slot = ExecProcNode(epqstate->planstate);
     /* for multiple modify, fetch the current read slot corresponding to the result relation. */
-    if (resultRelation > 0 && !epqstate->plan->isinherit) {
+    if (resultRelation > 0 && !epqstate->plan->isinherit && slot != NULL) {
         origExprContext = epqstate->projInfos[resultRelation]->pi_exprContext;
         epqstate->projInfos[resultRelation]->pi_exprContext = epqstate->planstate->ps_ExprContext;
 

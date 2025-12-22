@@ -1825,3 +1825,41 @@ List* list_insert_nth_oid(List* list, int pos, Oid datum)
     return list;
 }
 
+void make_sorted_list(List* list, int (*cmp)(const void* a, const void* b))
+{
+    int len = list_length(list);
+    if (len == 0 || len == 1) {
+        return;
+    }
+
+    void** ptr_array = (void**)palloc(len * sizeof(void*));
+    ListCell* cell = NULL;
+
+    int idx = 0;
+    ListCell* lc = NULL;
+    foreach (lc, list) {
+        ptr_array[idx++] = (void*)lfirst(lc);
+    }
+
+    qsort(ptr_array, len, sizeof(void*), cmp);
+
+    idx = 0;
+    foreach (lc, list) {
+        lfirst(lc) = ptr_array[idx++];
+    }
+
+    pfree_ext(ptr_array);
+}
+
+int list_sorted_int_cmp(const void *p1, const void *p2)
+{
+    int l_num = *(const int*)p1;
+    int r_num = *(const int*)p2;
+    int result = 0;
+    if (l_num < r_num) {
+        result = -1;
+    } else if (l_num > r_num) {
+        result = 1;
+    }
+    return result;
+}

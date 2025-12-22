@@ -419,5 +419,7 @@ extern int length(List* list);
 #endif /* ENABLE_LIST_COMPAT */
 
 extern int dlength(DList* list);
+extern void make_sorted_list(List* list, int (*cmp)(const void* a, const void* b));
+extern int list_sorted_int_cmp(const void *p1, const void *p2);
 
 #endif /* PG_LIST_H */
