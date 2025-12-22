@@ -944,7 +944,9 @@ typedef enum NodeTag {
     /* Tags for TidRangeScan */
     T_TidRangeScan = 7000,
     T_TidRangePath,
-    T_TidRangeScanState
+    T_TidRangeScanState,
+
+    T_DolphinStrictTag
 } NodeTag;
 
 /* if you add to NodeTag also need to add nodeTagToString */
