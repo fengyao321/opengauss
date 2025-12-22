@@ -435,6 +435,7 @@ extern "C" Datum real2sqlvariant(PG_FUNCTION_ARGS);
 extern "C" Datum numeric2sqlvariant(PG_FUNCTION_ARGS);
 extern "C" Datum money2sqlvariant(PG_FUNCTION_ARGS);
 extern "C" Datum bigint2sqlvariant(PG_FUNCTION_ARGS);
+extern "C" Datum int16_sqlvariant(PG_FUNCTION_ARGS);
 extern "C" Datum int2sqlvariant(PG_FUNCTION_ARGS);
 extern "C" Datum smallint2sqlvariant(PG_FUNCTION_ARGS);
 extern "C" Datum tinyint2sqlvariant(PG_FUNCTION_ARGS);
@@ -451,6 +452,7 @@ PG_FUNCTION_INFO_V1(real2sqlvariant);
 PG_FUNCTION_INFO_V1(numeric2sqlvariant);
 PG_FUNCTION_INFO_V1(money2sqlvariant);
 PG_FUNCTION_INFO_V1(bigint2sqlvariant);
+PG_FUNCTION_INFO_V1(int16_sqlvariant);
 PG_FUNCTION_INFO_V1(int2sqlvariant);
 PG_FUNCTION_INFO_V1(smallint2sqlvariant);
 PG_FUNCTION_INFO_V1(tinyint2sqlvariant);
@@ -498,6 +500,11 @@ Datum money2sqlvariant(PG_FUNCTION_ARGS)
 Datum bigint2sqlvariant(PG_FUNCTION_ARGS)
 {
     return to_sql_variant_internal(PG_GETARG_DATUM(0), INT8OID, PG_GETARG_INT32(1));
+}
+
+Datum int16_sqlvariant(PG_FUNCTION_ARGS)
+{
+    return to_sql_variant_internal(PG_GETARG_DATUM(0), INT16OID, PG_GETARG_INT32(1));
 }
 
 Datum int2sqlvariant(PG_FUNCTION_ARGS)

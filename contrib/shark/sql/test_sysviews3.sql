@@ -149,15 +149,15 @@ select seed_value, increment_value, last_value from sys.identity_columns where o
 create table test_identity3(col1 int identity(100,3), col2 serial, col3 varchar(50));
 select * from pg_get_serial_sequence('test_identity3', 'col1');
 select * from pg_get_serial_sequence('test_identity3', 'col2');
-select * from get_sequence_start_value('test_identity3_col1_seq_identity');
-select * from get_sequence_increment_value('test_identity3_col1_seq_identity');
-select * from get_sequence_last_value('test_identity3_col1_seq_identity');
-select * from get_sequence_start_value('test_identity3_col2_seq');
-select * from get_sequence_increment_value('test_identity3_col2_seq');
-select * from get_sequence_last_value('test_identity3_col2_seq');
+select start_value from pg_sequence_all_parameters('test_identity3_col1_seq_identity');
+select increment from pg_sequence_all_parameters('test_identity3_col1_seq_identity');
+select last_used_value from pg_sequence_all_parameters('test_identity3_col1_seq_identity');
+select start_value from pg_sequence_all_parameters('test_identity3_col2_seq');
+select increment from pg_sequence_all_parameters('test_identity3_col2_seq');
+select last_used_value from pg_sequence_all_parameters('test_identity3_col2_seq');
 insert into test_identity3(col3) values('test');
-select * from get_sequence_last_value('test_identity3_col1_seq_identity');
-select * from get_sequence_last_value('test_identity3_col2_seq');
+select last_used_value from pg_sequence_all_parameters('test_identity3_col1_seq_identity');
+select last_used_value from pg_sequence_all_parameters('test_identity3_col2_seq');
 
 drop table if exists test_identity;
 create table test_identity(col1 int identity(100,3), col2 varchar(50));
@@ -189,6 +189,12 @@ create table test_identity_large_sequence3(col1 bigint identity(1, 9223372036854
 select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity_large_sequence3');
 insert into test_identity_large_sequence3(col2) values('test1');
 select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity_large_sequence3');
+
+drop table if exists test_identity_large_sequence4;
+create table test_identity_large_sequence4(col1 numeric(30,0) identity(12345678901234567890, 12345678901234567890), col2 varchar(50));
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity_large_sequence4');
+insert into test_identity_large_sequence4(col2) values('test1');
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity_large_sequence4');
 
 reset search_path;
 drop schema sys_view_test3 cascade;

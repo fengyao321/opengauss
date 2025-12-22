@@ -336,53 +336,53 @@ select * from pg_get_serial_sequence('test_identity3', 'col2');
  sys_view_test3.test_identity3_col2_seq
 (1 row)
 
-select * from get_sequence_start_value('test_identity3_col1_seq_identity');
- get_sequence_start_value 
---------------------------
-                      100
+select start_value from pg_sequence_all_parameters('test_identity3_col1_seq_identity');
+ start_value 
+-------------
+         100
 (1 row)
 
-select * from get_sequence_increment_value('test_identity3_col1_seq_identity');
- get_sequence_increment_value 
-------------------------------
-                            3
+select increment from pg_sequence_all_parameters('test_identity3_col1_seq_identity');
+ increment 
+-----------
+         3
 (1 row)
 
-select * from get_sequence_last_value('test_identity3_col1_seq_identity');
- get_sequence_last_value 
--------------------------
-                        
+select last_used_value from pg_sequence_all_parameters('test_identity3_col1_seq_identity');
+ last_used_value 
+-----------------
+                
 (1 row)
 
-select * from get_sequence_start_value('test_identity3_col2_seq');
- get_sequence_start_value 
---------------------------
-                        1
+select start_value from pg_sequence_all_parameters('test_identity3_col2_seq');
+ start_value 
+-------------
+           1
 (1 row)
 
-select * from get_sequence_increment_value('test_identity3_col2_seq');
- get_sequence_increment_value 
-------------------------------
-                            1
+select increment from pg_sequence_all_parameters('test_identity3_col2_seq');
+ increment 
+-----------
+         1
 (1 row)
 
-select * from get_sequence_last_value('test_identity3_col2_seq');
- get_sequence_last_value 
--------------------------
-                        
+select last_used_value from pg_sequence_all_parameters('test_identity3_col2_seq');
+ last_used_value 
+-----------------
+                
 (1 row)
 
 insert into test_identity3(col3) values('test');
-select * from get_sequence_last_value('test_identity3_col1_seq_identity');
- get_sequence_last_value 
--------------------------
-                     100
+select last_used_value from pg_sequence_all_parameters('test_identity3_col1_seq_identity');
+ last_used_value 
+-----------------
+             100
 (1 row)
 
-select * from get_sequence_last_value('test_identity3_col2_seq');
- get_sequence_last_value 
--------------------------
-                       1
+select last_used_value from pg_sequence_all_parameters('test_identity3_col2_seq');
+ last_used_value 
+-----------------
+               1
 (1 row)
 
 drop table if exists test_identity;
@@ -481,9 +481,26 @@ select seed_value, increment_value, last_value from sys.identity_columns where o
  1          | 9223372036854775806 | 1
 (1 row)
 
+drop table if exists test_identity_large_sequence4;
+NOTICE:  table "test_identity_large_sequence4" does not exist, skipping
+create table test_identity_large_sequence4(col1 numeric(30,0) identity(12345678901234567890, 12345678901234567890), col2 varchar(50));
+NOTICE:  CREATE TABLE will create implicit sequence "test_identity_large_sequence4_col1_seq_identity" for serial column "test_identity_large_sequence4.col1"
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity_large_sequence4');
+      seed_value      |   increment_value    | last_value 
+----------------------+----------------------+------------
+ 12345678901234567890 | 12345678901234567890 | 
+(1 row)
+
+insert into test_identity_large_sequence4(col2) values('test1');
+select seed_value, increment_value, last_value from sys.identity_columns where object_id = object_id('test_identity_large_sequence4');
+      seed_value      |   increment_value    |      last_value      
+----------------------+----------------------+----------------------
+ 12345678901234567890 | 12345678901234567890 | 12345678901234567890
+(1 row)
+
 reset search_path;
 drop schema sys_view_test3 cascade;
-NOTICE:  drop cascades to 11 other objects
+NOTICE:  drop cascades to 12 other objects
 DETAIL:  drop cascades to table sys_view_test3.products
 drop cascades to view sys_view_test3.view1
 drop cascades to view sys_view_test3.view2
@@ -495,3 +512,4 @@ drop cascades to table sys_view_test3.test_identity
 drop cascades to table sys_view_test3.test_identity_large_sequence1
 drop cascades to table sys_view_test3.test_identity_large_sequence2
 drop cascades to table sys_view_test3.test_identity_large_sequence3
+drop cascades to table sys_view_test3.test_identity_large_sequence4

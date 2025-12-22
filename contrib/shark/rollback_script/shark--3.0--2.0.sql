@@ -812,3 +812,7 @@ drop view if exists sys.trigger_events;
 drop view if exists sys.configurations;
 drop view if exists sys.syscurconfigs;
 drop view if exists sys.sysconfigures;
+drop view if exists sys.sequences;
+
+drop cast if exists (int16 as sys.varbinary) cascade;
+drop function if exists sys.int16_sqlvariant(int16, int);
