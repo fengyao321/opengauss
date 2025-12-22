@@ -179,6 +179,7 @@ partition p5
 );
 insert into tab_hash select t,t,t from generate_series(1,10) t;
 analyse tab_hash;
+select pg_sleep(1);
 select relname, pg_stat_get_live_tuples(oid) live_tuples from pg_partition
 where parentid='tab_hash'::regclass and parttype='p' order by relname;
 
