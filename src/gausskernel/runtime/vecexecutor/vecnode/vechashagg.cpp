@@ -136,6 +136,23 @@ HashAggRunner::HashAggRunner(VecAggState* runtime) : BaseAggRunner(runtime, true
     if (m_runtime->ss.ps.instrument) {
         m_runtime->ss.ps.instrument->sorthashinfo.hashtable_expand_times = 0;
     }
+    
+    m_dpaContext = AllocSetContextCreate(CurrentMemoryContext,
+        "DpaSessionContext",
+        ALLOCSET_DEFAULT_MINSIZE,
+        ALLOCSET_DEFAULT_INITSIZE,
+        ALLOCSET_DEFAULT_MAXSIZE);
+    use_dpa = ENABLE_UADK_AGG && u_sess->attr.attr_sql.enable_dpa_hashagg;
+}
+
+HashAggRunner::~HashAggRunner()
+{
+    DaeSessionCleanup();
+    
+    if (m_dpaContext != nullptr) {
+        MemoryContextDelete(m_dpaContext);
+        m_dpaContext = nullptr;
+    }
 }
 
 void HashAggRunner::BindingFp()
@@ -390,11 +407,35 @@ void HashAggRunner::Build()
     VectorBatch* outer_batch = NULL;
 
     WaitState old_status = pgstat_report_waitstatus(STATE_EXEC_HASHAGG_BUILD_HASH);
+
+	// first batch
+    if (use_dpa && !DaeIsSessionReady()) {
+        outer_batch = m_hashSource->getBatch();
+        if (unlikely(BatchIsNull(outer_batch))) {
+            (void)pgstat_report_waitstatus(old_status);
+            return;
+        }
+        
+        if (!DaeSessionInit(outer_batch)) {
+            ereport(WARNING,
+                (errmsg("DPA: Failed to initialize DAE session, fallback to CPU aggregation")));
+            use_dpa = false;
+            (this->*m_buildFun)(outer_batch);
+        } else {
+            DaeParallelBuild(outer_batch);
+        }
+    }
+    
     for (;;) {
         outer_batch = m_hashSource->getBatch();
         if (unlikely(BatchIsNull(outer_batch)))
             break;
-        (this->*m_buildFun)(outer_batch);
+        
+        if (use_dpa) {
+            DaeParallelBuild(outer_batch);
+        } else {
+            (this->*m_buildFun)(outer_batch);
+        }
     }
     (void)pgstat_report_waitstatus(old_status);
 
@@ -428,6 +469,14 @@ VectorBatch* HashAggRunner::Probe()
     m_scanBatch->Reset();
 
     ResetExprContext(m_runtime->ss.ps.ps_ExprContext);
+
+    if (use_dpa) {
+        DaeParallelProbe();
+        if (m_scanBatch->m_rows > 0) {
+            return ProducerBatch();
+        }
+        return NULL;
+    }
 
     while (BatchIsNull(m_scanBatch)) {
         if (m_statusLog.restore) {
@@ -1026,4 +1075,604 @@ void HashAggRunner::HashTableGrowUp()
     if (m_runtime->ss.ps.instrument) {
         m_runtime->ss.ps.instrument->sorthashinfo.hashtable_expand_times++;
     }
+}
+
+void HashAggRunner::DaeAllocHTBL(struct wd_dae_hash_table *table_, struct wd_dae_hash_table *new_table, __u32 row_size)
+{
+    __u64 size;
+    if (table_) {
+        new_table->std_table_row_num = EXT_RATIO * table_->std_table_row_num;
+        new_table->ext_table_row_num = EXT_RATIO * table_->ext_table_row_num;
+    } else {
+        new_table->std_table_row_num = HASH_TABLE_ROW_NUM;
+        new_table->ext_table_row_num = HASH_TABLE_ROW_NUM;
+    }
+
+    new_table->table_row_size = row_size;
+	/* Use DPA context for DPA hash table memory */
+    MemoryContext oldContext = MemoryContextSwitchTo(m_dpaContext);
+    new_table->std_table = palloc(row_size * new_table->std_table_row_num);
+    if (row_size == EXT_ROW_SIZE1) {
+        size = (__u64)row_size * (new_table->ext_table_row_num + EXT_ROW_BYTES1);
+    } else if (row_size == EXT_ROW_SIZE2) {
+        size = (__u64)row_size * (new_table->ext_table_row_num + EXT_ROW_BYTES2);
+    } else {
+        size = (__u64)row_size * new_table->ext_table_row_num;
+    }
+
+    new_table->ext_table = palloc(size);
+    if (row_size == EXT_ROW_SIZE1) {
+        new_table->ext_table += EXT_ROW_SIZE1 * EXT_ROW_BYTES1;
+    } else if (row_size == EXT_ROW_SIZE2) {
+        new_table->ext_table += EXT_ROW_SIZE2 * EXT_ROW_BYTES2;
+    }
+    new_table->table_row_size = row_size;
+    (void)MemoryContextSwitchTo(oldContext);
+}
+
+wd_dae_data_type HashAggRunner::MapOidToDAEType(Oid oid)
+{
+    switch (oid) {
+        case INT4OID:
+            return WD_DAE_INT;
+        case INT8OID:
+            return WD_DAE_LONG;
+        case BPCHAROID:
+            return WD_DAE_CHAR;
+        case VARCHAROID:
+            return WD_DAE_VARCHAR;
+        default:
+            return WD_DAE_DATA_TYPE_MAX;
+    }
+}
+
+wd_agg_alg HashAggRunner::MapAggFuncOidToAlg(Oid aggFuncOid)
+{
+    switch (aggFuncOid) {
+        case 2108:  // sum(int8) -> numeric (agg func OID)
+        case 1842:  // int8_sum (transfer OID, sum(int8))
+            return WD_AGG_SUM;
+        case 2147:  // count(any) -> int8
+        case 2804:  // count(int4) -> int8
+            return WD_AGG_COUNT;
+        case 2109:  // sum(int4) -> int8
+        case 2110:  // sum(int2) -> int8
+        case 2111:  // sum(float4) -> float4
+        case 2112:  // sum(float8) -> float8
+        case 2114:  // sum(numeric) -> numeric
+        case 2803:  // count(*) -> int8
+            return WD_AGG_ALG_TYPE_MAX;
+        default:
+            return WD_AGG_ALG_TYPE_MAX;
+    }
+}
+
+bool HashAggRunner::DaeCollectKeyCollInfo(struct wd_key_col_info *key_cols_info, const Oid colType,
+    int idx, int4 typeMod)
+{
+    if (colType == BPCHAROID) {
+        key_cols_info[idx].input_data_type = WD_DAE_CHAR;
+        if (typeMod > (int32)VARHDRSZ) {
+            key_cols_info[idx].col_data_info = typeMod - VARHDRSZ;
+        } else {
+            ereport(WARNING, (errmsg("DPA: Invalid BPCHAR typeMod: %d", typeMod)));
+            return false;
+        }
+    } else if (colType == VARCHAROID) {
+        key_cols_info[idx].input_data_type = WD_DAE_VARCHAR;
+        key_cols_info[idx].col_data_info = 0;
+    } else if (colType == INT8OID) {
+        key_cols_info[idx].input_data_type = WD_DAE_LONG;
+        key_cols_info[idx].col_data_info = sizeof(int64);
+    } else if (colType == INT4OID) {
+        key_cols_info[idx].input_data_type = WD_DAE_INT;
+        key_cols_info[idx].col_data_info = sizeof(int32);
+    } else {
+        ereport(WARNING, (errmsg("DPA: Unsupported key column type OID: %u", colType)));
+        return false;
+    }
+    return true;
+}
+
+bool HashAggRunner::DaeCollectAggCollInfo(struct wd_agg_col_info *agg_cols_info, Oid inputColType, Oid outputColType,
+    int idx, int4 typeMod, Oid aggFuncOid)
+{
+    agg_cols_info[idx].col_alg_num = 1;
+    wd_agg_alg aggAlg = MapAggFuncOidToAlg(aggFuncOid);
+    if (aggAlg == WD_AGG_ALG_TYPE_MAX) {
+        ereport(WARNING, (errmsg("DPA: Unsupported aggregation function OID: %u", aggFuncOid)));
+        return false;
+    }
+    
+    if (aggAlg == WD_AGG_SUM) {
+        if (inputColType != INT8OID) {
+            ereport(WARNING, (errmsg("DPA: SUM aggregation only supports INT8, got type OID: %u", inputColType)));
+            return false;
+        }
+        agg_cols_info[idx].input_data_type = WD_DAE_LONG;
+        agg_cols_info[idx].col_data_info = sizeof(int64);
+    } else if (aggAlg == WD_AGG_COUNT) {
+        if (inputColType == BPCHAROID) {
+            agg_cols_info[idx].input_data_type = WD_DAE_CHAR;
+            if (typeMod > (int32)VARHDRSZ) {
+                agg_cols_info[idx].col_data_info = typeMod - VARHDRSZ;
+            } else {
+                ereport(WARNING, (errmsg("DPA: Invalid BPCHAR typeMod: %d for COUNT aggregation", typeMod)));
+                return false;
+            }
+        } else if (inputColType == VARCHAROID) {
+            agg_cols_info[idx].input_data_type = WD_DAE_VARCHAR;
+            agg_cols_info[idx].col_data_info = 0;
+        } else if (inputColType == INT8OID) {
+            agg_cols_info[idx].input_data_type = WD_DAE_LONG;
+            agg_cols_info[idx].col_data_info = sizeof(int64);
+        } else if (inputColType == INT4OID) {
+            agg_cols_info[idx].input_data_type = WD_DAE_INT;
+            agg_cols_info[idx].col_data_info = sizeof(int32);
+        } else {
+            ereport(WARNING,
+				(errmsg("DPA: COUNT aggregation only supports INT4/INT8/VARCHAR/CHAR, got type OID: %u",
+					inputColType)));
+            return false;
+        }
+    } else {
+        ereport(WARNING, (errmsg("DPA: Unknown aggregation algorithm type")));
+        return false;
+    }
+
+    for (int j = 0; j < agg_cols_info[idx].col_alg_num; j++) {
+        agg_cols_info[idx].output_data_types[j] = MapOidToDAEType(outputColType);
+        if (agg_cols_info[idx].output_data_types[j] == WD_DAE_DATA_TYPE_MAX) {
+            ereport(WARNING, (errmsg("DPA: Unsupported aggregation output column type OID: %u", outputColType)));
+            return false;
+        }
+        agg_cols_info[idx].output_col_algs[j] = aggAlg;
+    }
+    return true;
+}
+
+void HashAggRunner::DaeFreeHTBL(struct wd_dae_hash_table *table)
+{
+    if (!table) {
+        return;
+    }
+    
+    if (table->std_table) {
+        pfree(table->std_table);
+        table->std_table = nullptr;
+    }
+    
+    if (table->ext_table) {
+        if (table->table_row_size == EXT_ROW_SIZE1) {
+            table->ext_table -= EXT_ROW_SIZE1 * EXT_ROW_BYTES1;
+        } else if (table->table_row_size == EXT_ROW_SIZE2) {
+            table->ext_table -= EXT_ROW_SIZE2 * EXT_ROW_BYTES2;
+        }
+        pfree(table->ext_table);
+        table->ext_table = nullptr;
+    }
+}
+
+static void DaeFreeValueAddr(struct wd_dae_col_addr *cols, int num)
+{
+    if (!cols) {
+        return;
+    }
+
+    for (int i = 0; i < num; i++) {
+        if (cols[i].offset) {
+            pfree(cols[i].offset);
+        }
+        pfree(cols[i].empty);
+        pfree(cols[i].value);
+    }
+    pfree(cols);
+}
+
+void HashAggRunner::DaeFreeInputOutputMem()
+{
+    if (daeReq_.key_cols) {
+        DaeFreeValueAddr(daeReq_.key_cols, daeReq_.key_cols_num);
+        daeReq_.key_cols = nullptr;
+    }
+    
+    if (daeReq_.out_key_cols) {
+        DaeFreeValueAddr(daeReq_.out_key_cols, daeReq_.out_key_cols_num);
+        daeReq_.out_key_cols = nullptr;
+    }
+    
+    if (daeReq_.agg_cols) {
+        DaeFreeValueAddr(daeReq_.agg_cols, daeReq_.agg_cols_num);
+        daeReq_.agg_cols = nullptr;
+    }
+    
+    if (daeReq_.out_agg_cols) {
+        DaeFreeValueAddr(daeReq_.out_agg_cols, daeReq_.out_agg_cols_num);
+        daeReq_.out_agg_cols = nullptr;
+    }
+    
+    errno_t rc = memset_s(&daeReq_, sizeof(daeReq_), 0, sizeof(daeReq_));
+    securec_check_c(rc, "\0", "\0");
+}
+
+static bool DaeAllocValueAddr(struct wd_dae_col_addr *col, __u32 row_num, enum wd_dae_data_type type,
+    __u16 data_info, int index)
+{
+    col[index].empty = (__u8*)palloc0(sizeof(char) * row_num);
+    if (!col[index].empty) {
+        return true;
+    }
+    col[index].empty_size = row_num;
+    switch (type) {
+        case WD_DAE_INT:
+            col[index].value = palloc(sizeof(int) * row_num);
+            col[index].value_size = sizeof(int) * row_num;
+            break;
+        case WD_DAE_LONG:
+            col[index].value = palloc(sizeof(long long) * row_num);
+            col[index].value_size = sizeof(long long) * row_num;
+            break;
+        case WD_DAE_CHAR:
+            col[index].value = palloc(data_info * row_num);
+            col[index].value_size = data_info * row_num;
+            break;
+        case WD_DAE_VARCHAR:
+            col[index].offset_size = sizeof(int) * (row_num + 1);
+            col[index].offset = (__u32*)palloc((row_num + 1) * sizeof(int));
+            if (!col[index].offset) {
+                pfree(col[index].empty);
+                col[index].empty = nullptr;
+                return true;
+            }
+            col[index].value = palloc(MAX_CHAR_SIZE * row_num);
+            col[index].value_size = MAX_CHAR_SIZE * row_num;
+            break;
+        default:
+            return true;
+    }
+
+    if (!col[index].value) {
+        if (col[index].offset) {
+            pfree(col[index].offset);
+            col[index].offset = nullptr;
+        }
+        pfree(col[index].empty);
+        col[index].empty = nullptr;
+        return true;
+    }
+    return false;
+}
+
+bool HashAggRunner::DaeInitKeyInputAddress(struct wd_agg_sess_setup *setup, VectorBatch* batch)
+{
+    struct wd_dae_col_addr *key_in_cols;
+    int i;
+    bool ret;
+
+    key_in_cols = (wd_dae_col_addr*)palloc(setup->key_cols_num * sizeof(struct wd_dae_col_addr));
+    if (!key_in_cols) {
+        return true;
+    }
+
+    for (i = 0; i < setup->key_cols_num; i++) {
+        ret = DaeAllocValueAddr(key_in_cols, DEFAULT_ROW_NUM, setup->key_cols_info[i].input_data_type,
+            setup->key_cols_info[i].col_data_info, i);
+        if (ret) {
+            DaeFreeValueAddr(key_in_cols, i);
+            return true;
+        }
+
+        key_in_cols[i].empty_size = batch->m_rows * sizeof(key_in_cols[i].empty[0]);
+        key_in_cols[i].value_size = batch->m_rows * setup->key_cols_info[i].col_data_info;
+        key_in_cols[i].offset_size = sizeof(int);
+    }
+
+    daeReq_.key_cols = key_in_cols;
+    return false;
+}
+
+bool HashAggRunner::DaeInitKeyOutputAddress(struct wd_agg_sess_setup *setup)
+{
+    struct wd_dae_col_addr *key_out_cols;
+    int i;
+    bool ret;
+
+    key_out_cols = (wd_dae_col_addr*)palloc(setup->key_cols_num * sizeof(struct wd_dae_col_addr));
+    if (!key_out_cols) {
+        return true;
+    }
+
+    for (i = 0; i < setup->key_cols_num; i++) {
+        ret = DaeAllocValueAddr(key_out_cols, DEFAULT_ROW_NUM, setup->key_cols_info[i].input_data_type,
+            setup->key_cols_info[i].col_data_info, i);
+        if (ret) {
+            DaeFreeValueAddr(key_out_cols, i);
+            return true;
+        }
+    }
+
+    daeReq_.out_key_cols = key_out_cols;
+    return false;
+}
+
+bool HashAggRunner::DaeInitAggInputAddress(struct wd_agg_sess_setup *setup, VectorBatch* batch)
+{
+    struct wd_dae_col_addr *agg_in_cols;
+    int i;
+    bool ret;
+
+    agg_in_cols = (wd_dae_col_addr*)palloc(setup->agg_cols_num * sizeof(struct wd_dae_col_addr));
+    if (!agg_in_cols) {
+        return true;
+    }
+
+    for (i = 0; i < setup->agg_cols_num; i++) {
+        ret = DaeAllocValueAddr(agg_in_cols, DEFAULT_ROW_NUM, setup->agg_cols_info[i].input_data_type,
+            setup->agg_cols_info[i].col_data_info, i);
+        if (ret) {
+            DaeFreeValueAddr(agg_in_cols, i);
+            return true;
+        }
+        agg_in_cols[i].empty_size = batch->m_rows * sizeof(agg_in_cols[i].empty[0]);
+        agg_in_cols[i].value_size = batch->m_rows * setup->agg_cols_info[i].col_data_info;
+        agg_in_cols[i].offset_size = sizeof(int);
+    }
+
+    daeReq_.agg_cols = agg_in_cols;
+    return false;
+}
+
+bool HashAggRunner::DaeInitAggOutputAddress(struct wd_agg_sess_setup *setup)
+{
+    struct wd_dae_col_addr *agg_out_cols;
+    int i;
+    bool ret;
+    int j;
+    int k = 0;
+
+    agg_out_cols = (wd_dae_col_addr*)palloc(setup->agg_cols_num * sizeof(struct wd_dae_col_addr));
+    if (!agg_out_cols) {
+        return true;
+    }
+
+    for (i = 0; i < setup->agg_cols_num; i++) {
+        for (j = 0; j < setup->agg_cols_info[i].col_alg_num; j++) {
+            ret = DaeAllocValueAddr(agg_out_cols, DEFAULT_ROW_NUM, setup->agg_cols_info[i].output_data_types[j],
+                setup->agg_cols_info[i].col_data_info, k);
+            if (ret) {
+                DaeFreeValueAddr(agg_out_cols, k);
+                return true;
+            }
+            ++k;
+        }
+    }
+
+    if (setup->is_count_all) {
+        ret = DaeAllocValueAddr(agg_out_cols, DEFAULT_ROW_NUM, WD_DAE_LONG, 0, k);
+        if (ret) {
+            DaeFreeValueAddr(agg_out_cols, k);
+            return true;
+        }
+    }
+    daeReq_.out_agg_cols = agg_out_cols;
+    return false;
+}
+
+bool HashAggRunner::DaeInitInputOutputMem(struct wd_agg_sess_setup *setup, VectorBatch* batch)
+{
+    if (DaeInitKeyInputAddress(setup, batch)) {
+        return true;
+    }
+    if (DaeInitKeyOutputAddress(setup)) {
+        return true;
+    }
+    if (DaeInitAggInputAddress(setup, batch)) {
+        return true;
+    }
+    if (DaeInitAggOutputAddress(setup)) {
+        return true;
+    }
+
+    daeReq_.out_row_count = DEFAULT_ROW_NUM;
+    daeReq_.in_row_count = batch->m_rows;
+    daeReq_.out_key_cols_num = setup->key_cols_num;
+    daeReq_.out_agg_cols_num = setup->agg_cols_num;
+    daeReq_.key_cols_num = setup->key_cols_num;
+    daeReq_.agg_cols_num = setup->agg_cols_num;
+
+    return false;
+}
+
+bool HashAggRunner::ParallelBuildKeyValue(VectorBatch* batch)
+{
+    return false;
+}
+
+bool HashAggRunner::ParallelBuildAggValue(VectorBatch* batch)
+{
+    return false;
+}
+
+void HashAggRunner::DaeParallelBuild(VectorBatch* batch)
+{
+    if (!DaeIsSessionReady()) {
+        ereport(ERROR,
+            (errcode(ERRCODE_INTERNAL_ERROR),
+             	errmsg("DPA: Session not ready for build operation")));
+        return;
+    }
+    
+    daeReq_.in_row_count = batch->m_rows;
+    if (!ParallelBuildKeyValue(batch)) {
+        ereport(ERROR, (errmsg("DPA: Failed to build key values")));
+        return;
+    }
+    
+    if (!ParallelBuildAggValue(batch)) {
+        ereport(ERROR, (errmsg("DPA: Failed to build agg values")));
+        return;
+    }
+    
+    int ret = UadkAggAddInputSync(daeSess_, &daeReq_);
+    if (ret != 0) {
+        ereport(ERROR,
+            (errcode(ERRCODE_INTERNAL_ERROR),
+             errmsg("DPA: UadkAggAddInputSync failed, ret = %d, state = %u",
+                    ret, daeReq_.state)));
+        return;
+    }
+    
+    if (daeReq_.state != WD_AGG_TASK_DONE && daeReq_.state != WD_AGG_SUM_OVERFLOW) {
+        ereport(WARNING,
+            (errmsg("DPA: Aggregation task returned state: %u, processed rows: %u",
+                    daeReq_.state, daeReq_.real_in_row_count)));
+    }
+    m_rows += daeReq_.real_in_row_count;
+}
+
+void HashAggRunner::DaeParallelProbe()
+{
+    return;
+}
+
+bool HashAggRunner::DaeIsSessionReady()
+{
+    return daeSessionState_ == DAE_SESS_READY;
+}
+
+bool HashAggRunner::DaeSessionInit(VectorBatch* batch)
+{
+    if (daeSessionState_ == DAE_SESS_READY) {
+        ereport(WARNING, (errmsg("DPA: Session already initialized")));
+        return true;
+    }
+    
+    if (daeSessionState_ == DAE_SESS_INITIALIZING) {
+        ereport(WARNING, (errmsg("DPA: Session is being initialized")));
+        return false;
+    }
+    
+    daeSessionState_ = DAE_SESS_INITIALIZING;
+    daeKeyColsNum_ = m_key;
+    daeAggColsNum_ = m_aggNum;
+    
+    MemoryContext oldContext = MemoryContextSwitchTo(m_dpaContext);
+    daeKeyCols_ = (struct wd_key_col_info*)palloc0(daeKeyColsNum_ * sizeof(struct wd_key_col_info));
+    daeAggCols_ = (struct wd_agg_col_info*)palloc0(daeAggColsNum_ * sizeof(struct wd_agg_col_info));
+    (void)MemoryContextSwitchTo(oldContext);
+    
+    struct wd_agg_sess_setup setup;
+    setup.key_cols_num = daeKeyColsNum_;
+    setup.key_cols_info = daeKeyCols_;
+    setup.agg_cols_num = daeAggColsNum_;
+    setup.agg_cols_info = daeAggCols_;
+    
+    for (uint32 i = 0; i < setup.key_cols_num; i++) {
+        const Oid colType = batch->m_arr[m_keyIdx[i]].m_desc.typeId;
+        const int4 typeMod = batch->m_arr[m_keyIdx[i]].m_desc.typeMod;
+        if (!DaeCollectKeyCollInfo(setup.key_cols_info, colType, i, typeMod)) {
+            DaeSessionCleanup();
+            ereport(WARNING, (errmsg("DPA: Failed to collect key column info, index: %u", i)));
+            return false;
+        }
+    }
+    
+    for (uint32 i = 0; i < setup.agg_cols_num; i++) {
+        const Oid aggFuncOid = m_runtime->aggInfo[i].vec_agg_function.flinfo->fn_oid;
+        
+        wd_agg_alg aggAlg = MapAggFuncOidToAlg(aggFuncOid);
+        if (aggAlg == WD_AGG_ALG_TYPE_MAX) {
+            DaeSessionCleanup();
+            ereport(WARNING, (errmsg("DPA: Unsupported agg function OID: %u, fallback to CPU", aggFuncOid)));
+            return false;
+        }
+        
+        const Oid inputColType = m_runtime->pervecagg[m_aggNum - 1 - i].evalproj->pi_batch->m_arr->m_desc.typeId;
+        const int4 inputTypeMod = m_runtime->pervecagg[m_aggNum - 1 - i].evalproj->pi_batch->m_arr->m_desc.typeMod;
+        const Oid outputColType = m_runtime->aggInfo[i].vec_agg_function.flinfo->fn_rettype;
+        if (!DaeCollectAggCollInfo(setup.agg_cols_info, inputColType, outputColType, i, inputTypeMod, aggFuncOid)) {
+            DaeSessionCleanup();
+            ereport(WARNING, (errmsg("DPA: Failed to collect agg column info, index: %u", i)));
+            return false;
+        }
+    }
+    
+    setup.sched_param = nullptr;
+    setup.is_count_all = false;
+    setup.count_all_data_type = WD_DAE_LONG;
+    daeSess_ = UadkAggAllocSess(&setup);
+    if (!daeSess_) {
+        DaeSessionCleanup();
+        ereport(WARNING, (errmsg("DPA: Failed to allocate DAE session")));
+        return false;
+    }
+    
+    __u32 row_size = UadkAggGetTableRowsize(daeSess_);
+    if (row_size <= 0) {
+        DaeSessionCleanup();
+        ereport(WARNING, (errmsg("DPA: Invalid hash table row size: %u", row_size)));
+        return false;
+    }
+    
+    DaeAllocHTBL(NULL, &daeHashTable_, row_size);
+    if (!daeHashTable_.std_table || !daeHashTable_.ext_table) {
+        DaeSessionCleanup();
+        ereport(WARNING, (errmsg("DPA: Failed to allocate hash table")));
+        return false;
+    }
+    
+    int ret = UadkAggSetHashTable(daeSess_, &daeHashTable_);
+    if (ret != 0) {
+        DaeSessionCleanup();
+        ereport(WARNING, (errmsg("DPA: Failed to set hash table, ret: %d", ret)));
+        return false;
+    }
+    
+    if (DaeInitInputOutputMem(&setup, batch)) {
+        DaeSessionCleanup();
+        ereport(WARNING, (errmsg("DPA: Failed to initialize input/output memory")));
+        return false;
+    }
+    
+    daeSessionState_ = DAE_SESS_READY;
+    ereport(DEBUG1,
+        (errmsg("DPA: Session initialized successfully, key_cols: %u, agg_cols: %u, row_size: %u",
+                daeKeyColsNum_, daeAggColsNum_, row_size)));
+    return true;
+}
+
+void HashAggRunner::DaeSessionCleanup()
+{
+    if (daeSessionState_ == DAE_SESS_UNINIT) {
+        return;
+    }
+    
+    ereport(DEBUG1, (errmsg("DPA: Cleaning up DAE session")));
+    
+    DaeFreeInputOutputMem();
+    
+    if (daeHashTable_.std_table || daeHashTable_.ext_table) {
+        DaeFreeHTBL(&daeHashTable_);
+        errno_t rc = memset_s(&daeHashTable_, sizeof(daeHashTable_), 0, sizeof(daeHashTable_));
+        securec_check_c(rc, "\0", "\0");
+    }
+    
+    if (daeSess_) {
+        UadkAggFreeSess(daeSess_);
+        daeSess_ = 0;
+    }
+    
+    if (daeKeyCols_) {
+        pfree(daeKeyCols_);
+        daeKeyCols_ = nullptr;
+    }
+    
+    if (daeAggCols_) {
+        pfree(daeAggCols_);
+        daeAggCols_ = nullptr;
+    }
+    
+    daeKeyColsNum_ = 0;
+    daeAggColsNum_ = 0;
+    daeSessionState_ = DAE_SESS_UNINIT;
 }
