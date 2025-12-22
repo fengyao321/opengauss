@@ -29,7 +29,7 @@
 #include "storage/file/fio_device.h"
 
 #include <memory>
-#define BLOCKSIZE (8 * 1024)
+#define BLOCKSIZE (BLCKSZ)
 
 /*
  * Currently open target file.

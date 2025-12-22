@@ -24,7 +24,7 @@
 #include "storage/smgr/fd.h"
 #include "storage/cfs/cfs_converter.h"
 
-#define BLOCKSIZE (8 * 1024)
+#define BLOCKSIZE (BLCKSZ)
 #define BUILD_PATH_LEN 2560 /* (MAXPGPATH*2 + 512) */
 const int FILE_NAME_MAX_LEN = 1024;
 const int MATCH_ONE = 1;

@@ -187,6 +187,7 @@ static void assign_phony_autocommit(bool newval, void* extra);
 static bool check_enable_data_replicate(bool* newval, void** extra, GucSource source);
 static bool check_adio_debug_guc(bool* newval, void** extra, GucSource source);
 static bool check_adio_function_guc(bool* newval, void** extra, GucSource source);
+static bool check_enable_segment_guc(bool* newval, void** extra, GucSource source);
 static bool check_temp_buffers(int* newval, void** extra, GucSource source);
 static bool check_replication_type(int* newval, void** extra, GucSource source);
 static void plog_merge_age_assign(int newval, void* extra);
@@ -1067,7 +1068,7 @@ static void InitStorageConfigureNamesBool()
             NULL},
             &u_sess->attr.attr_storage.enable_segment,
             false,
-            NULL,
+            check_enable_segment_guc,
             NULL,
             NULL},
 
@@ -5922,6 +5923,15 @@ static bool check_adio_function_guc(bool* newval, void** extra, GucSource source
         *newval = false;
     }
 #endif
+
+    return true;
+}
+
+static bool check_enable_segment_guc(bool* newval, void** extra, GucSource source)
+{
+    if (*newval == true && BLCKSZ == 4096) {
+        *newval = false;
+    }
 
     return true;
 }

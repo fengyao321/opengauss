@@ -15,6 +15,7 @@ declare version_mode='release'
 declare binarylib_dir='None'
 declare make_check='off'
 declare separate_symbol='on'
+declare block_size='8192'
 
 function print_help()
 {
@@ -29,6 +30,7 @@ function print_help()
     -s|--symbol_mode       whether separate symbol in debug mode, the default value is on.
     -co|--cmake_opt        more cmake options
     -T|--tassl             build with tassl
+    -bs|--block_size       support set block size value, only 4096 or 8192, default: 8192
     --cmake                build by cmake
 "
 }
@@ -125,6 +127,14 @@ while [ $# -gt 0 ]; do
             build_with_tassl="YES"
             shift 1
             ;;
+	-bs|--block_size)
+            if [ "$2"X = X ]; then
+                echo "no given block size values"
+                exit 1
+            fi
+            block_size=$2
+            shift 2
+            ;;
         --cmake)
             CMAKE_PKG="Y"
             shift 1
@@ -165,6 +175,15 @@ else
             declare CMAKE_OPT="-DENABLE_MULTIPLE_NODES=OFF -DENABLE_THREAD_SAFETY=ON -DENABLE_READLINE=ON -DENABLE_MOT=ON -DENABLE_OPENSSL3=ON ${extra_cmake_opt}"
         fi
     fi
+    if [[ -e "/etc/openEuler-release" && "$(cat /etc/openEuler-release | awk '{print $3}')" == "22.03" ]]; then
+        CMAKE_OPT="$CMAKE_OPT -DENABLE_OPENEULER_MAJOR=ON"
+    fi
+
+    if [ "$block_size" == "4096" ]; then
+        CMAKE_OPT="$CMAKE_OPT -DENABLE_BLCKSZ_4K=ON"
+    fi
+
+    echo "CMAKE_OPT----> $CMAKE_OPT"
     echo "[cmake options] cmake options is:${CMAKE_OPT}" >> "$LOG_FILE" 2>&1
     source $SCRIPT_DIR/utils/cmake_compile.sh || exit 1
 fi

@@ -47,6 +47,7 @@ declare -a DEPENDENCIES_YUM_EULER=(
 
 declare missing_deps=()
 declare pkg_manager=""
+declare block_size='8192'
 #########################################################################
 ##read command line paramenters
 #######################################################################
@@ -65,6 +66,7 @@ function print_help()
     -pm|--product_mode                this values of paramenter is opengauss or lite or finance, the default value is opengauss.
     -nls|--enable_nls                 enable Native Language Support
     --relocation                      generate gaussdb.map with relocation(GCC >=10.3).
+    -bs|--block_size                  support set block size value, only 4096 or 8192, default: 8192
     --cmake                           use cmake to build openGauss, which is faster than traditional configure/autoconf
     "
 }
@@ -201,6 +203,14 @@ while [ $# -gt 0 ]; do
             extra_config_opt="$extra_config_opt --config_opt --enable-relocation "
             shift 1
             ;;
+	-bs|--block_size)
+            if [ "$2"X = X ]; then
+                echo "no given block size values"
+                exit 1
+            fi
+            block_size=$2
+            shift 2
+            ;;
         -C|--cmake)
             build_by_cmake='--cmake'
             shift 1
@@ -222,12 +232,16 @@ while [ $# -gt 0 ]; do
 done
 
 check_dependencies
+if [ "$block_size" != "4096" ] && [ "$block_size" != "8192" ]; then
+    echo "Unsupport block_size: $block_size"
+    exit 1
+fi
 
 ROOT_DIR=$(cd $(dirname "${BASH_SOURCE[0]}") && pwd)
 echo "ROOT_DIR : $ROOT_DIR"
 cd build/script
 chmod a+x build_opengauss.sh
-./build_opengauss.sh -m ${build_version_mode} -3rd ${build_binarylib_dir} ${not_optimized} -pkg server ${build_with_tassl} -pm ${product_mode} ${extra_config_opt} ${build_by_cmake} ${cmake_opt_val}
+./build_opengauss.sh -m ${build_version_mode} -3rd ${build_binarylib_dir} ${not_optimized} -pkg server ${build_with_tassl} -pm ${product_mode} ${extra_config_opt} -bs ${block_size} ${build_by_cmake} ${cmake_opt_val}
 if [ $? -ne 0 ]; then
     echo "build_opengauss.sh failed, aborting."
     exit 1

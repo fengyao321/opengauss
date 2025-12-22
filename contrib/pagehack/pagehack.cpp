@@ -4547,7 +4547,7 @@ static int parse_clog_file(char* filename)
     char* byteptr = NULL;
     int status;
     char* xid_status_name[] = {"IN_PROGRESS", "COMMITTED", "ABORTED", "SUB_COMMITTED"};
-    char buffer[8192];
+    char buffer[BLCKSZ];
 
     if (!HexStringToInt(filename, &segnum)) {
         fprintf(stderr, "%s input error \n", filename);
@@ -4603,7 +4603,7 @@ static int parse_csnlog_file(char* filename)
     CommitSeqNo csn = 0;
     int nread = 0;
     int entry = 0;
-    char buffer[8192];
+    char buffer[BLCKSZ];
 
     if (!HexStringToInt(filename, &segnum)) {
         fprintf(stderr, "%s input error \n", filename);

@@ -255,7 +255,7 @@ typedef struct LsnXlogFlushData {
  * changes, so that ReadControlFile will deliver a suitable wrong-version
  * message instead of a read error if it's looking at an incompatible file.
  */
-#define PG_CONTROL_SIZE        8192
+#define PG_CONTROL_SIZE BLCKSZ
 
 #define MIN_INSTANCEID   0
 #define MAX_INSTANCEID   63

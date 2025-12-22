@@ -204,7 +204,7 @@ Size ComputeTotalSizeOfShmem()
         size = add_size(size, t_thrd.storage_cxt.total_addin_request);
 
         /* might as well round it off to a multiple of a typical page size */
-        size = add_size(size, 8192 - (size % 8192));
+        size = add_size(size, BLCKSZ - (size % BLCKSZ));
 
         /* pca buffer size */
         size = add_size(size, pca_buffer_size());
