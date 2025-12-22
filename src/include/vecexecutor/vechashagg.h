@@ -30,6 +30,8 @@
 
 constexpr int EXT_RATIO = 4;
 constexpr int HASH_TABLE_ROW_NUM = 65536;
+constexpr int MAX_KEY_COLS_NUM = 16;
+constexpr int MAX_AGG_COLS_NUM = 16;
 constexpr int CHAR_BITS = 8;
 constexpr int DEFAULT_ROW_NUM = 30000;
 constexpr int MAX_CHAR_SIZE = 32;
@@ -37,6 +39,13 @@ constexpr int EXT_ROW_SIZE1 = 32;
 constexpr int EXT_ROW_BYTES1 = 3;
 constexpr int EXT_ROW_SIZE2 = 64;
 constexpr int EXT_ROW_BYTES2 = 1;
+
+constexpr int DPA_MAX_KEY_COLS = 9;
+constexpr int DPA_MAX_INPUT_COLS = 9;
+constexpr int DPA_MAX_OUTPUT_COLS = 9;
+constexpr int DPA_MAX_CHAR_COL_NUM = 5;
+constexpr int DPA_MAX_CHAR_SIZE = 32;
+constexpr int DPA_MAX_VCHAR_SIZE = 30;
 
 struct AggStateLog {
     bool restore;
@@ -105,9 +114,6 @@ private:
         int4 typeMod, Oid aggFuncOid);
     bool DaeCreateSession(VectorBatch* batch, struct wd_agg_sess_setup &setup);
     
-    wd_agg_alg MapAggFuncOidToAlg(Oid aggFuncOid);
-    wd_dae_data_type MapOidToDAEType(Oid oid);
-    
     bool DaeInitInputOutputMem(struct wd_agg_sess_setup *setup, VectorBatch* batch);
     bool DaeInitKeyOutputAddress(struct wd_agg_sess_setup *setup);
     bool DaeInitKeyInputAddress(struct wd_agg_sess_setup *setup, VectorBatch* batch);
@@ -151,7 +157,8 @@ private:
     };
 
     bool use_dpa = false;
-    MemoryContext m_dpaContext = nullptr;  /* DPA session context, independent from m_hashContext */
+    /* DPA session context, independent from m_hashContext */
+    MemoryContext m_dpaContext = nullptr;
     DaeSessionState daeSessionState_ = DAE_SESS_UNINIT;
     handle_t daeSess_ = 0;
     struct wd_agg_req daeReq_ = {0};
