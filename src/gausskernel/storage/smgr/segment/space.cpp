@@ -489,7 +489,6 @@ void get_space_shrink_target(SegExtentGroup *seg, BlockNumber *target_size, int 
     *new_group_count = 1;
     BlockNumber group_blocks = seg->extent_size * DF_MAP_GROUP_SIZE * DF_MAP_BIT_CNT;
 
-    // 使用临时变量来判断
     BlockNumber remaining_data = total_data_blocks;
     while (remaining_data > group_blocks) {
         /* If current map group can not contain the rest data blocks, we need more map group */
