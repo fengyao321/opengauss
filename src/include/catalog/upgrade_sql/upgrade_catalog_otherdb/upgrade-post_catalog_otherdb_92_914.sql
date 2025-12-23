@@ -2,7 +2,7 @@ DO $DO$
 DECLARE
 ans boolean;
 BEGIN
-select case when count(*) = 1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+select case when count(*) = 1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
 IF ans = true then
 DROP FUNCTION IF EXISTS DBE_PERF.get_global_full_sql_by_timestamp();
 DROP FUNCTION IF EXISTS DBE_PERF.get_global_slow_sql_by_timestamp();
@@ -246,7 +246,7 @@ ans boolean;
     username text;
     querystr text;
 BEGIN
-select case when count(*) = 1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+select case when count(*) = 1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
 IF ans = true then
 CREATE VIEW DBE_PERF.statement_history AS
 select * from pg_catalog.statement_history;
@@ -601,7 +601,7 @@ do $$
 DECLARE
 ans boolean;
 BEGIN
-    for ans in select case when count(*)=1 then true else false end as ans  from (select extname from pg_extension where extname='dolphin')
+    for ans in select case when count(*)=1 then true else false end as ans  from (select extname from pg_catalog.pg_extension where extname='dolphin')
     LOOP
         if ans = true then
             ALTER EXTENSION dolphin UPDATE TO '3.0';

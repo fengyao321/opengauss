@@ -50,7 +50,7 @@ DECLARE
 query_str text; 
 ans bool;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select *from pg_class where relname='snapshot_sequence') into ans;
+    select case when count(*)=1 then true else false end as ans from (select *from pg_catalog.pg_class where relname='snapshot_sequence') into ans;
     if ans = false then
         query_str := 'CREATE SEQUENCE db4ai.snapshot_sequence;';
         EXECUTE IMMEDIATE query_str;
@@ -534,7 +534,7 @@ BEGIN
            pg_catalog.string_agg('t' || s_id::TEXT || '.f' || ordinal_position::TEXT || ' AS ' || ident::TEXT, ', ')
     FROM ( SELECT ordinal_position, pg_catalog.quote_ident(column_name) AS ident
         FROM information_schema.columns
-        WHERE table_schema = (SELECT nspname FROM pg_namespace WHERE oid=pg_catalog.pg_my_temp_schema())
+        WHERE table_schema = (SELECT nspname FROM pg_catalog.pg_namespace WHERE oid=pg_catalog.pg_my_temp_schema())
             AND table_name = '_db4ai_tmp_x' || s_id::TEXT
             ORDER BY ordinal_position
     ) INTO STRICT proj_cmd, i_commands[4], i_commands[5];

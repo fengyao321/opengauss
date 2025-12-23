@@ -57,7 +57,7 @@ SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0,
 DECLARE
 ans boolean;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
 -----------------------------------------------------------------------------------------------------------------------------------------------------
 	DROP VIEW IF EXISTS DBE_PERF.local_active_session cascade;
@@ -96,7 +96,7 @@ DECLARE
   user_name text;
   query_str text;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
     SELECT SESSION_USER INTO user_name;
 	query_str := 'GRANT INSERT,SELECT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER ON TABLE DBE_PERF.local_active_session TO ' || quote_ident(user_name) || ';';
@@ -114,7 +114,7 @@ CREATE EXTENSION IF NOT EXISTS security_plugin;
 DECLARE
   ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS DBE_PERF.get_global_full_sql_by_timestamp() cascade;
         DROP FUNCTION IF EXISTS DBE_PERF.get_global_slow_sql_by_timestamp() cascade;
@@ -421,7 +421,7 @@ DECLARE
   user_name text;
   grant_query text;
 BEGIN
-select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
 
 -----------------------------------------------------------------------------
 -- DROP: pg_catalog.pg_replication_slots
@@ -473,7 +473,7 @@ CREATE OR REPLACE VIEW dbe_perf.replication_slots AS
     L.catalog_xmin,
     L.restart_lsn,
     L.dummy_standby
-    FROM pg_get_replication_slots() AS L
+    FROM pg_catalog.pg_get_replication_slots() AS L
          LEFT JOIN pg_catalog.pg_database D ON (L.datoid = D.oid);
  
 END IF;
@@ -518,7 +518,7 @@ SELECT
         S.query,
         S.node_group,
         T.top_cpu_dn
-FROM pg_stat_activity_ng AS S, pg_catalog.pg_stat_get_wlm_realtime_session_info(NULL) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S, pg_catalog.pg_stat_get_wlm_realtime_session_info(NULL) AS T
 WHERE S.sessionid = T.threadid;
 GRANT SELECT ON TABLE pg_catalog.gs_session_cpu_statistics TO PUBLIC;
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 9050, 9051, 0, 0;
@@ -618,7 +618,7 @@ BEGIN
                       gs_session_memory_context S
                       LEFT JOIN
                      (SELECT DISTINCT thrdtype, tid
-                      FROM gs_thread_memory_context) T
+                      FROM pg_catalog.gs_thread_memory_context) T
                       on S.threadid = T.tid
                    ),
                    TM AS
@@ -636,7 +636,7 @@ BEGIN
                       gs_thread_memory_context T
                       LEFT JOIN
                       (SELECT DISTINCT sessid, threadid
-                       FROM gs_session_memory_context) S
+                       FROM pg_catalog.gs_session_memory_context) S
                       ON T.tid = S.threadid
                    )
                    SELECT * from SM

@@ -15,7 +15,7 @@ DROP VIEW IF EXISTS pg_catalog.pg_stat_subscription CASCADE;
 
 do $$DECLARE ans boolean;
 BEGIN
-    for ans in select case when count(*)=1 then true else false end as ans  from (select relname from pg_class where relname='pg_subscription')
+    for ans in select case when count(*)=1 then true else false end as ans  from (select relname from pg_catalog.pg_class where relname='pg_subscription')
     LOOP
         if ans = true then
             CREATE VIEW pg_catalog.pg_stat_subscription AS
@@ -28,7 +28,7 @@ BEGIN
                         st.last_msg_receipt_time,
                         st.latest_end_lsn,
                         st.latest_end_time
-                FROM pg_subscription su
+                FROM pg_catalog.pg_subscription su
                         LEFT JOIN pg_catalog.pg_stat_get_subscription(NULL) st
                                 ON (st.subid = su.oid);
         end if;

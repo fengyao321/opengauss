@@ -79,7 +79,7 @@ where s.query_id = t.queryid and t.ec_operator > 0;
 
 CREATE OR REPLACE VIEW pg_catalog.gs_wlm_operator_statistics AS
 SELECT t.*
-FROM pg_stat_activity AS s, pg_stat_get_wlm_realtime_operator_info(NULL) as t
+FROM pg_catalog.pg_stat_activity AS s, pg_stat_get_wlm_realtime_operator_info(NULL) as t
 where s.query_id = t.queryid;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
@@ -89,14 +89,14 @@ CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
 			S.datname AS dbname,
 			S.backend_start,
 			S.query
-	FROM pg_pool_validate(false, ' ') AS C LEFT JOIN pg_stat_activity AS S
+	FROM pg_catalog.pg_pool_validate(false, ' ') AS C LEFT JOIN pg_stat_activity AS S
 			ON (C.pid = S.sessionid);
 
 DO $DO$
 DECLARE
 ans boolean;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
 	DROP VIEW IF EXISTS DBE_PERF.global_session_stat_activity cascade;
 	DROP FUNCTION IF EXISTS DBE_PERF.get_global_session_stat_activity() cascade;
@@ -178,7 +178,7 @@ BEGIN
 		END AS resource_pool,
 			  S.query_id,
 			  S.query
-	  FROM pg_database D, pg_stat_get_activity(NULL) AS S, pg_authid U, gs_wlm_session_respool(0) AS T
+	  FROM pg_catalog.pg_database D, pg_stat_get_activity(NULL) AS S, pg_authid U, gs_wlm_session_respool(0) AS T
 		WHERE S.datid = D.oid AND
 			  S.usesysid = U.oid AND
 			  T.threadid = S.pid;
@@ -282,7 +282,7 @@ BEGIN
 		W.receiver_replay_location,
 		W.sync_priority,
 		W.sync_state
-		FROM pg_stat_get_activity(NULL) AS S, pg_authid U,
+		FROM pg_catalog.pg_stat_get_activity(NULL) AS S, pg_authid U,
 			 pg_stat_get_wal_senders() AS W
 		WHERE S.usesysid = U.oid AND
 			  S.pid = W.pid;
@@ -368,7 +368,7 @@ BEGIN
 				S.query_id,
 				S.query,
 				N.node_group
-		FROM pg_database D, pg_catalog.pg_stat_get_activity(NULL) AS S, pg_stat_get_activity_ng(NULL) AS N, pg_authid U, gs_wlm_session_respool(0) AS T
+		FROM pg_catalog.pg_database D, pg_catalog.pg_stat_get_activity(NULL) AS S, pg_stat_get_activity_ng(NULL) AS N, pg_authid U, gs_wlm_session_respool(0) AS T
 		WHERE S.datid = D.oid AND
 				S.usesysid = U.oid AND
 				T.sessionid = S.sessionid AND
@@ -547,7 +547,7 @@ SELECT
         S.query,
         S.node_group,
         T.top_cpu_dn
-FROM pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
 WHERE S.pid = T.threadid;
 	  
 CREATE OR REPLACE VIEW pg_catalog.gs_wlm_session_statistics AS
@@ -601,7 +601,7 @@ SELECT
         S.node_group,
         T.top_cpu_dn,
         T.top_mem_dn
-FROM pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
 WHERE S.pid = T.threadid;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_stat_replication AS
@@ -621,7 +621,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_replication AS
             W.receiver_replay_location,
             W.sync_priority,
             W.sync_state
-    FROM pg_stat_get_activity(NULL) AS S, pg_authid U,
+    FROM pg_catalog.pg_stat_get_activity(NULL) AS S, pg_authid U,
             pg_stat_get_wal_senders() AS W
     WHERE S.usesysid = U.oid AND
             S.pid = W.pid;
@@ -630,7 +630,7 @@ DO $DO$
 DECLARE
 ans boolean;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
 	DROP VIEW IF EXISTS DBE_PERF.global_locks cascade;
 	DROP FUNCTION IF EXISTS DBE_PERF.get_global_locks(OUT node_name name, OUT locktype text, OUT database oid, OUT relation oid, OUT page integer, OUT tuple smallint, OUT bucket integer, OUT virtualxid text, OUT transactionid xid, OUT classid oid, OUT objid oid, OUT objsubid smallint, OUT virtualtransaction text, OUT pid bigint, OUT sessionid bigint, OUT mode text, OUT granted boolean, OUT fastpath boolean, OUT locktag text) cascade;
@@ -730,7 +730,7 @@ DO $DO$
 DECLARE
 ans boolean;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
 	DROP VIEW IF EXISTS DBE_PERF.global_thread_wait_status cascade;
 	DROP FUNCTION IF EXISTS DBE_PERF.get_global_thread_wait_status() cascade;
@@ -832,7 +832,7 @@ DECLARE
   user_name text;
   query_str text;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
     SELECT SESSION_USER INTO user_name;
     query_str := 'GRANT INSERT,SELECT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER ON TABLE DBE_PERF.session_stat_activity TO ' || quote_ident(user_name) || ';';
@@ -930,7 +930,7 @@ DO $DO$
 DECLARE
 ans boolean;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select * from pg_tables where tablename = 'snap_global_thread_wait_status' and schemaname = 'snapshot' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select * from pg_catalog.pg_tables where tablename = 'snap_global_thread_wait_status' and schemaname = 'snapshot' limit 1) into ans;
   if ans = true then
     alter table snapshot.snap_global_thread_wait_status
 		DROP COLUMN IF EXISTS snap_global_sessionid;

@@ -47,18 +47,18 @@ SELECT labelname
     ,labeltype
     ,fqdntype
     ,CASE fqdntype
-        WHEN 'column' THEN (select nspname from pg_namespace where oid = fqdnnamespace)
-        WHEN 'table' THEN (select nspname from pg_namespace where oid = fqdnnamespace)
-        WHEN 'view' THEN (select nspname from pg_namespace where oid = fqdnnamespace)
-        WHEN 'schema' THEN (select nspname from pg_namespace where oid = fqdnnamespace)
-        WHEN 'function' THEN (select nspname from pg_namespace where oid = fqdnnamespace)
+        WHEN 'column' THEN (select nspname from pg_catalog.pg_namespace where oid = fqdnnamespace)
+        WHEN 'table' THEN (select nspname from pg_catalog.pg_namespace where oid = fqdnnamespace)
+        WHEN 'view' THEN (select nspname from pg_catalog.pg_namespace where oid = fqdnnamespace)
+        WHEN 'schema' THEN (select nspname from pg_catalog.pg_namespace where oid = fqdnnamespace)
+        WHEN 'function' THEN (select nspname from pg_catalog.pg_namespace where oid = fqdnnamespace)
         ELSE ''
     END AS schemaname
     ,CASE fqdntype
-        WHEN 'column' THEN (select relname from pg_class where oid = fqdnid)
-        WHEN 'table' THEN (select relname from pg_class where oid = fqdnid)
-        WHEN 'view' THEN (select relname from pg_class where oid = fqdnid)
-        WHEN 'function' THEN (select proname from pg_proc where oid=fqdnid)
+        WHEN 'column' THEN (select relname from pg_catalog.pg_class where oid = fqdnid)
+        WHEN 'table' THEN (select relname from pg_catalog.pg_class where oid = fqdnid)
+        WHEN 'view' THEN (select relname from pg_catalog.pg_class where oid = fqdnid)
+        WHEN 'function' THEN (select proname from pg_catalog.pg_proc where oid=fqdnid)
         WHEN 'label' THEN relcolumn
         ELSE ''
     END AS fqdnname
@@ -66,7 +66,7 @@ SELECT labelname
         WHEN 'column' THEN relcolumn
         ELSE ''
     END AS columnname
-FROM gs_policy_label WHERE length(fqdntype)>0 ORDER BY labelname, labeltype ,fqdntype;
+FROM pg_catalog.gs_policy_label WHERE length(fqdntype)>0 ORDER BY labelname, labeltype ,fqdntype;
 
 GRANT SELECT ON TABLE pg_catalog.gs_policy_label TO PUBLIC;
 GRANT SELECT ON TABLE pg_catalog.gs_labels TO PUBLIC;
@@ -139,7 +139,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_roles_v1 AS
         pgxc_group.group_name as nodegroup,
         roltempspace,
         rolspillspace
-    FROM pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
+    FROM pg_catalog.pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
     ON (pg_authid.oid = setrole AND setdatabase = 0)
     LEFT JOIN pg_catalog.pgxc_group
     ON (pg_authid.rolnodegroup = pgxc_group.oid);
@@ -162,7 +162,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_user_v1 AS
         pgxc_group.group_name AS nodegroup,
         roltempspace AS tempspacelimit,
         rolspillspace AS spillspacelimit
-    FROM pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
+    FROM pg_catalog.pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
     ON (pg_authid.oid = setrole AND setdatabase = 0)
     LEFT JOIN pg_catalog.pgxc_group
     ON (pg_authid.rolnodegroup = pgxc_group.oid)
@@ -185,7 +185,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_shadow_v1 AS
         setconfig AS useconfig,
         roltempspace AS tempspacelimit,
         rolspillspace AS spillspacelimit
-    FROM pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
+    FROM pg_catalog.pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
     ON (pg_authid.oid = setrole AND setdatabase = 0)
     WHERE rolcanlogin;
 
@@ -377,7 +377,7 @@ BEGIN
         USING HINT = 'please assure you have the privilege';
     END IF;
     /* check table owner privilege end */
-    sql := 'SELECT a.attname  FROM pg_catalog.pg_attribute a WHERE a.attrelid = (SELECT oid FROM PG_CLASS WHERE relname = ''' || relationname || '''
+    sql := 'SELECT a.attname  FROM pg_catalog.pg_attribute a WHERE a.attrelid = (SELECT oid FROM pg_catalog.PG_CLASS WHERE relname = ''' || relationname || '''
         ) AND a.attnum > 0 AND NOT a.attisdropped AND a.attkvtype = 1 ORDER BY a.attnum;';
     FOR attname IN EXECUTE(sql) LOOP
       IF attnames IS NULL THEN
@@ -459,7 +459,7 @@ BEGIN
         USING HINT = 'please assure you have the privilege';
     END IF;
     /* check table owner privilege end */
-    sql := 'SELECT a.attname  FROM pg_catalog.pg_attribute a WHERE a.attrelid = (SELECT oid FROM PG_CLASS WHERE relname = ''' || relationname || '''
+    sql := 'SELECT a.attname  FROM pg_catalog.pg_attribute a WHERE a.attrelid = (SELECT oid FROM pg_catalog.PG_CLASS WHERE relname = ''' || relationname || '''
         ) AND a.attnum > 0 AND NOT a.attisdropped AND a.attkvtype = 1 ORDER BY a.attnum;';
     count = 0;
     FOR attname IN EXECUTE(sql) LOOP
@@ -748,7 +748,7 @@ SELECT
         S.mem_top5_value,
         S.top_mem_dn,
         S.top_cpu_dn
-FROM gs_wlm_session_query_info_all S;
+FROM pg_catalog.gs_wlm_session_query_info_all S;
 
 CREATE VIEW pg_catalog.gs_wlm_session_history AS
 SELECT
@@ -1034,9 +1034,9 @@ create view pg_catalog.gs_auditing_access as
         END AS access_object,
         (select
             logicaloperator
-            from gs_auditing_policy_filters
+            from pg_catalog.gs_auditing_policy_filters
             where p.Oid=policyoid) as filter_name
-    from gs_auditing_policy p
+    from pg_catalog.gs_auditing_policy p
         left join pg_catalog.gs_auditing_policy_access a ON (a.policyoid=p.Oid)
         left join pg_catalog.gs_labels l ON (a.labelname=l.labelname)
     where length(a.accesstype) > 0 order by 1,3;
@@ -1060,17 +1060,17 @@ create view pg_catalog.gs_auditing_privilege as
         END AS priv_object,
         (select
             logicaloperator
-            from gs_auditing_policy_filters
+            from pg_catalog.gs_auditing_policy_filters
             where p.Oid=policyoid) as filter_name
-        from gs_auditing_policy p
+        from pg_catalog.gs_auditing_policy p
             left join pg_catalog.gs_auditing_policy_privileges priv ON (priv.policyoid=p.Oid)
             left join pg_catalog.gs_labels l ON (priv.labelname=l.labelname)
         where length(priv.privilegetype) > 0 order by 1,3;
 
 create view pg_catalog.gs_auditing as
-    select * from gs_auditing_privilege
+    select * from pg_catalog.gs_auditing_privilege
     union all
-    select * from gs_auditing_access order by polname;
+    select * from pg_catalog.gs_auditing_access order by polname;
 
 GRANT SELECT ON TABLE pg_catalog.gs_auditing_policy TO PUBLIC;
 GRANT SELECT ON TABLE pg_catalog.gs_auditing_policy_access TO PUBLIC;
@@ -1169,9 +1169,9 @@ CASE l.fqdntype
         END AS masking_object,
 (select
     logicaloperator
-    from gs_masking_policy_filters
+    from pg_catalog.gs_masking_policy_filters
     where p.Oid=policyoid) as filter_name
-from gs_masking_policy p join pg_catalog.gs_masking_policy_actions a ON (p.Oid=a.policyoid ) join gs_labels l ON (a.actlabelname=l.labelname) WHERE l.fqdntype='column' or l.fqdntype='table' order by polname;
+from pg_catalog.gs_masking_policy p join pg_catalog.gs_masking_policy_actions a ON (p.Oid=a.policyoid ) join gs_labels l ON (a.actlabelname=l.labelname) WHERE l.fqdntype='column' or l.fqdntype='table' order by polname;
 
 GRANT SELECT ON TABLE pg_catalog.gs_masking TO PUBLIC;
 
@@ -1250,22 +1250,22 @@ BEGIN
                 pg_catalog.pg_table_is_visible(c.oid) and pg_catalog.pg_get_userbyid(c.relowner) = ''' || username || ''';';
     EXECUTE sql INTO relation_oid;
 
-    sql := 'SELECT COUNT(a.job_id) from pg_job a , pg_job_proc b where b.what like ''%proc_add_partition%('''''|| relationname ||'''''%''
+    sql := 'SELECT COUNT(a.job_id) from pg_catalog.pg_job a , pg_job_proc b where b.what like ''%proc_add_partition%('''''|| relationname ||'''''%''
                   and a.job_id = b.job_id and a.priv_user='''|| username ||''' and a.dbname ='''|| dbname ||'''  ; ';
     EXECUTE sql INTO job_num;
     IF job_num = 1 THEN
-        sql := 'SELECT a.job_id from pg_job a , pg_job_proc b where b.what like ''%proc_add_partition%('''''|| relationname ||'''''%''
+        sql := 'SELECT a.job_id from pg_catalog.pg_job a , pg_job_proc b where b.what like ''%proc_add_partition%('''''|| relationname ||'''''%''
                       and a.job_id = b.job_id and a.priv_user='''|| username ||''' and a.dbname ='''|| dbname ||'''  ; ';
         EXECUTE sql INTO job_id;
         sql := 'SELECT pg_catalog.add_job_class_depend(' || job_id || ',' || relation_oid || ')';
         EXECUTE sql;
     END IF;
 
-    sql := 'SELECT COUNT(a.job_id) from pg_job a , pg_job_proc b where b.what like ''%proc_drop_partition%('''''|| relationname ||'''''%''
+    sql := 'SELECT COUNT(a.job_id) from pg_catalog.pg_job a , pg_job_proc b where b.what like ''%proc_drop_partition%('''''|| relationname ||'''''%''
                   and a.job_id = b.job_id and a.priv_user='''|| username ||''' and a.dbname ='''|| dbname ||'''  ; ';
     EXECUTE sql INTO job_num;
     IF job_num = 1 THEN
-        sql := 'SELECT a.job_id from pg_job a , pg_job_proc b where b.what like ''%proc_drop_partition%('''''|| relationname ||'''''%''
+        sql := 'SELECT a.job_id from pg_catalog.pg_job a , pg_job_proc b where b.what like ''%proc_drop_partition%('''''|| relationname ||'''''%''
                       and a.job_id = b.job_id and a.priv_user='''|| username ||''' and a.dbname ='''|| dbname ||'''  ; ';
         EXECUTE sql INTO job_id;
         sql := 'SELECT pg_catalog.add_job_class_depend(' || job_id || ',' || relation_oid || ')';
@@ -1302,7 +1302,7 @@ RETURNS SETOF record LANGUAGE INTERNAL ROWS 1000 VOLATILE STRICT as 'pg_lock_sta
 
 DROP VIEW IF EXISTS pg_catalog.pg_locks CASCADE;
 CREATE OR REPLACE VIEW pg_catalog.pg_locks AS
-  SELECT DISTINCT * from pg_lock_status();
+  SELECT DISTINCT * from pg_catalog.pg_lock_status();
 
 GRANT SELECT ON pg_catalog.pg_locks TO public;
 
@@ -1370,7 +1370,7 @@ drop view if exists pg_catalog.V$SESSION_LONGOPS CASCADE;
 DROP SCHEMA IF EXISTS dbms_job cascade;
 
 CREATE OR REPLACE VIEW pg_catalog.gs_wlm_user_session_info AS
-SELECT * FROM gs_wlm_session_info
+SELECT * FROM pg_catalog.gs_wlm_session_info
 WHERE username = CURRENT_USER::text;
 
 --some function will use the new column that use
@@ -1391,7 +1391,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_PART_TABLES AS
 		END AS PARTITIONING_TYPE,
 	----------------------------------------------------------------------
 
-		(SELECT count(*) FROM pg_partition ps WHERE ps.parentid = c.oid AND ps.parttype = 'p') AS PARTITION_COUNT,
+		(SELECT count(*) FROM pg_catalog.pg_partition ps WHERE ps.parentid = c.oid AND ps.parttype = 'p') AS PARTITION_COUNT,
 
 	----------------------------------------------------------------------
 		array_length(p.partkey,1)as PARTITIONING_KEY_COUNT,
@@ -1399,7 +1399,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_PART_TABLES AS
 		CASE
 			WHEN c.reltablespace = 0 THEN 'DEFAULT TABLESPACE'::name
 			ELSE
-			(SELECT spc.spcname FROM pg_tablespace spc WHERE c.reltablespace = spc.oid)
+			(SELECT spc.spcname FROM pg_catalog.pg_tablespace spc WHERE c.reltablespace = spc.oid)
 		END
 			AS DEF_TABLESPACE_NAME,
 	----------------------------------------------------------------------
@@ -1418,7 +1418,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_PART_TABLES AS
 CREATE OR REPLACE VIEW pg_catalog.MY_PART_TABLES AS
 	SELECT
 		*
-	FROM ADM_PART_TABLES
+	FROM pg_catalog.ADM_PART_TABLES
 	WHERE TABLE_OWNER	= CURRENT_USER;
 
 CREATE OR REPLACE VIEW pg_catalog.ADM_TAB_PARTITIONS AS
@@ -1433,7 +1433,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_TAB_PARTITIONS AS
 	----------------------------------------------------------------------
 		CASE
 			WHEN p.reltablespace = 0 THEN 'DEFAULT TABLESPACE'::name
-			ELSE (SELECT spc.spcname FROM pg_tablespace spc WHERE p.reltablespace = spc.oid)
+			ELSE (SELECT spc.spcname FROM pg_catalog.pg_tablespace spc WHERE p.reltablespace = spc.oid)
 		END
 		AS TABLESPACE_NAME,
 	----------------------------------------------------------------------
@@ -1455,7 +1455,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_TAB_PARTITIONS AS
 CREATE OR REPLACE VIEW pg_catalog.MY_TAB_PARTITIONS AS
 	SELECT
 		*
-	FROM ADM_TAB_PARTITIONS
+	FROM pg_catalog.ADM_TAB_PARTITIONS
 	WHERE TABLE_OWNER	= CURRENT_USER;
 
 CREATE OR REPLACE VIEW pg_catalog.ADM_PART_INDEXES AS
@@ -1464,7 +1464,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_PART_INDEXES AS
 		CASE
 			WHEN ci.reltablespace = 0 THEN 'DEFAULT TABLESPACE'::name
 			ELSE
-			(SELECT spc.spcname FROM pg_tablespace spc WHERE ci.reltablespace = spc.oid)
+			(SELECT spc.spcname FROM pg_catalog.pg_tablespace spc WHERE ci.reltablespace = spc.oid)
 		END
 			AS DEF_TABLESPACE_NAME,
 		----------------------------------------------------------------------
@@ -1472,7 +1472,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_PART_INDEXES AS
 		----------------------------------------------------------------------
 		CAST(ci.relname AS varchar2(64)) AS INDEX_NAME,
 		----------------------------------------------------------------------
-		(SELECT count(*) FROM pg_partition ps WHERE ps.parentid = ct.oid AND ps.parttype = 'p')
+		(SELECT count(*) FROM pg_catalog.pg_partition ps WHERE ps.parentid = ct.oid AND ps.parttype = 'p')
 		AS PARTITION_COUNT,
 		----------------------------------------------------------------------
 		array_length(p.partkey,1)as PARTITIONING_KEY_COUNT,
@@ -1510,7 +1510,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_PART_INDEXES AS
 CREATE OR REPLACE VIEW pg_catalog.MY_PART_INDEXES AS
 	SELECT
 		*
-	FROM ADM_PART_INDEXES
+	FROM pg_catalog.ADM_PART_INDEXES
 	WHERE INDEX_OWNER	= CURRENT_USER;
 
 CREATE OR REPLACE VIEW pg_catalog.ADM_IND_PARTITIONS AS
@@ -1524,7 +1524,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_IND_PARTITIONS AS
 		CASE
 			WHEN pi.reltablespace = 0 THEN 'DEFAULT TABLESPACE'::name
 			ELSE
-			(SELECT spc.spcname FROM pg_tablespace spc WHERE pi.reltablespace = spc.oid)
+			(SELECT spc.spcname FROM pg_catalog.pg_tablespace spc WHERE pi.reltablespace = spc.oid)
 		END
 			AS DEF_TABLESPACE_NAME,
 		----------------------------------------------------------------------
@@ -1553,7 +1553,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_IND_PARTITIONS AS
 CREATE OR REPLACE VIEW pg_catalog.MY_IND_PARTITIONS AS
 	SELECT
 		*
-	FROM ADM_IND_PARTITIONS
+	FROM pg_catalog.ADM_IND_PARTITIONS
 	WHERE INDEX_OWNER	= CURRENT_USER;
 
 
@@ -1564,7 +1564,7 @@ CREATE OR REPLACE VIEW pg_catalog.DV_SESSIONS AS
 		0::integer AS SERIAL#,
 		sa.usesysid AS USER#,
 		ad.rolname AS USERNAME
-	FROM pg_stat_get_activity(NULL) AS sa
+	FROM pg_catalog.pg_stat_get_activity(NULL) AS sa
 	LEFT JOIN pg_catalog.pg_authid ad ON(sa.usesysid = ad.oid)
 	WHERE sa.application_name <> 'JobScheduler';
 
@@ -1576,7 +1576,7 @@ CREATE OR REPLACE VIEW pg_catalog.DV_SESSION_LONGOPS AS
         0::integer AS SERIAL#,
         NULL::integer AS SOFAR,
         NULL::integer AS TOTALWORK
-    FROM pg_stat_activity sa
+    FROM pg_catalog.pg_stat_activity sa
     WHERE sa.application_name <> 'JobScheduler';
 
 REVOKE ALL on PG_CATALOG.DV_SESSIONS FROM public;
@@ -1638,7 +1638,7 @@ BEGIN
     /* check partition table end */
 
     /* iteratively checking time range for every partition*/
-    sql := 'SELECT boundaries[1] FROM pg_partition WHERE parentid = ' || rel_oid ||' AND boundaries IS NOT NULL ORDER BY
+    sql := 'SELECT boundaries[1] FROM pg_catalog.pg_partition WHERE parentid = ' || rel_oid ||' AND boundaries IS NOT NULL ORDER BY
             EXTRACT(epoch FROM CAST(boundaries[1] as timestamptz)) DESC LIMIT 1';
     EXECUTE sql INTO part_boundary;
 
@@ -1663,7 +1663,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
     DROP FUNCTION IF EXISTS DBE_PERF.get_global_pg_asp() cascade;
   end if;
@@ -1802,7 +1802,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select relname from pg_class where relname='gs_asp' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select relname from pg_catalog.pg_class where relname='gs_asp' limit 1) into ans;
   if ans = true then
     SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0, 0, 0, 2999;
     CREATE INDEX gs_asp_sampletime_index ON pg_catalog.gs_asp USING BTREE(sample_time timestamptz_ops);

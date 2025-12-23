@@ -7,7 +7,7 @@ DROP FUNCTION IF EXISTS pg_catalog.connect_by_root(text) cascade;
 DROP FUNCTION IF EXISTS pg_catalog.sys_connect_by_path(text, text) cascade;
 do $$DECLARE ans boolean;
 BEGIN
-    for ans in select case when count(*) = 1 then true else false end as ans from (select typname from pg_type where typname = 'int16' limit 1)
+    for ans in select case when count(*) = 1 then true else false end as ans from (select typname from pg_catalog.pg_type where typname = 'int16' limit 1)
     LOOP
         if ans = true then
             DROP OPERATOR IF EXISTS +  (int16, int16) CASCADE;
@@ -94,7 +94,7 @@ DROP VIEW IF EXISTS pg_catalog.pg_statio_all_sequences;
 do $$DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
         DROP VIEW IF EXISTS DBE_PERF.global_streaming_hadr_rto_and_rpo_stat CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.gs_hadr_local_rto_and_rpo_stat();
@@ -114,9 +114,9 @@ user_name text;
 query_str text;
 BEGIN
 
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
-        select case when count(*)=1 then true else false end as func from (select * from pg_proc where proname='local_single_flush_dw_stat' limit 1) into func;
+        select case when count(*)=1 then true else false end as func from (select * from pg_catalog.pg_proc where proname='local_single_flush_dw_stat' limit 1) into func;
         DROP FUNCTION IF EXISTS pg_catalog.local_single_flush_dw_stat();
         DROP FUNCTION IF EXISTS pg_catalog.remote_single_flush_dw_stat();
 	DROP VIEW IF EXISTS DBE_PERF.global_single_flush_dw_status CASCADE;
@@ -175,7 +175,7 @@ DROP FUNCTION IF EXISTS pg_catalog.gs_streaming_dr_service_truncation_check() ca
 
 do $$DECLARE ans boolean;
 BEGIN
-    for ans in select case when count(*)=1 then true else false end as ans  from (select nspname from pg_namespace where nspname='dbe_pldebugger' limit 1)
+    for ans in select case when count(*)=1 then true else false end as ans  from (select nspname from pg_catalog.pg_namespace where nspname='dbe_pldebugger' limit 1)
     LOOP
         if ans = true then
             DROP FUNCTION IF EXISTS dbe_pldebugger.backtrace(OUT frameno integer, OUT funcname text, OUT lineno integer, OUT query text, OUT funcoid oid);
@@ -217,7 +217,7 @@ DROP FUNCTION IF EXISTS pg_catalog.array_intersect_distinct(anyarray, anyarray) 
 DROP FUNCTION IF EXISTS pg_catalog.array_except(anyarray, anyarray) cascade;
 DROP FUNCTION IF EXISTS pg_catalog.array_except_distinct(anyarray, anyarray) cascade;do $$DECLARE ans boolean;
 BEGIN
-    for ans in select case when count(*) = 1 then true else false end as ans from (select typname from pg_type where typname = 'int16' limit 1)
+    for ans in select case when count(*) = 1 then true else false end as ans from (select typname from pg_catalog.pg_type where typname = 'int16' limit 1)
     LOOP
         if ans = true then
             DROP CAST IF EXISTS (numeric AS boolean) CASCADE;
@@ -257,7 +257,7 @@ BEGIN
                 CAST((pg_sequence_parameters(c.oid)).maximum_value AS character_data) AS maximum_value,
                 CAST((pg_sequence_parameters(c.oid)).increment AS character_data) AS increment,
                 CAST(CASE WHEN (pg_sequence_parameters(c.oid)).cycle_option THEN 'YES' ELSE 'NO' END AS yes_or_no) AS cycle_option
-            FROM pg_namespace nc, pg_class c
+            FROM pg_catalog.pg_namespace nc, pg_class c
             WHERE c.relnamespace = nc.oid
                 AND c.relkind = 'S'
                 AND (NOT pg_is_other_temp_schema(nc.oid))
@@ -278,13 +278,13 @@ BEGIN
                     CAST('USAGE' AS character_data) AS privilege_type,
                     CAST('NO' AS yes_or_no) AS is_grantable
 
-                FROM pg_authid u,
+                FROM pg_catalog.pg_authid u,
                     pg_namespace n,
                     pg_collation c
 
                 WHERE u.oid = c.collowner
                     AND c.collnamespace = n.oid
-                    AND collencoding IN (-1, (SELECT encoding FROM pg_database WHERE datname = current_database()))
+                    AND collencoding IN (-1, (SELECT encoding FROM pg_catalog.pg_database WHERE datname = current_database()))
 
                 UNION ALL
 
@@ -304,12 +304,12 @@ BEGIN
                             THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
 
                 FROM (
-                        SELECT oid, typname, typnamespace, typtype, typowner, (aclexplode(coalesce(typacl, acldefault('T', typowner)))).* FROM pg_type
+                        SELECT oid, typname, typnamespace, typtype, typowner, (aclexplode(coalesce(typacl, acldefault('T', typowner)))).* FROM pg_catalog.pg_type
                     ) AS t (oid, typname, typnamespace, typtype, typowner, grantor, grantee, prtype, grantable),
                     pg_namespace n,
                     pg_authid u_grantor,
                     (
-                    SELECT oid, rolname FROM pg_authid
+                    SELECT oid, rolname FROM pg_catalog.pg_authid
                     UNION ALL
                     SELECT 0::oid, 'PUBLIC'
                     ) AS grantee (oid, rolname)
@@ -341,11 +341,11 @@ BEGIN
                             THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
 
                 FROM (
-                        SELECT fdwname, fdwowner, (aclexplode(coalesce(fdwacl, acldefault('F', fdwowner)))).* FROM pg_foreign_data_wrapper
+                        SELECT fdwname, fdwowner, (aclexplode(coalesce(fdwacl, acldefault('F', fdwowner)))).* FROM pg_catalog.pg_foreign_data_wrapper
                     ) AS fdw (fdwname, fdwowner, grantor, grantee, prtype, grantable),
                     pg_authid u_grantor,
                     (
-                    SELECT oid, rolname FROM pg_authid
+                    SELECT oid, rolname FROM pg_catalog.pg_authid
                     UNION ALL
                     SELECT 0::oid, 'PUBLIC'
                     ) AS grantee (oid, rolname)
@@ -375,11 +375,11 @@ BEGIN
                             THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
 
                 FROM (
-                        SELECT srvname, srvowner, (aclexplode(coalesce(srvacl, acldefault('S', srvowner)))).* FROM pg_foreign_server
+                        SELECT srvname, srvowner, (aclexplode(coalesce(srvacl, acldefault('S', srvowner)))).* FROM pg_catalog.pg_foreign_server
                     ) AS srv (srvname, srvowner, grantor, grantee, prtype, grantable),
                     pg_authid u_grantor,
                     (
-                    SELECT oid, rolname FROM pg_authid
+                    SELECT oid, rolname FROM pg_catalog.pg_authid
                     UNION ALL
                     SELECT 0::oid, 'PUBLIC'
                     ) AS grantee (oid, rolname)
@@ -409,12 +409,12 @@ BEGIN
                             THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
 
                 FROM (
-                        SELECT oid, relname, relnamespace, relkind, relowner, (aclexplode(coalesce(relacl, acldefault('r', relowner)))).* FROM pg_class
+                        SELECT oid, relname, relnamespace, relkind, relowner, (aclexplode(coalesce(relacl, acldefault('r', relowner)))).* FROM pg_catalog.pg_class
                     ) AS c (oid, relname, relnamespace, relkind, relowner, grantor, grantee, prtype, grantable),
                     pg_namespace n,
                     pg_authid u_grantor,
                     (
-                    SELECT oid, rolname FROM pg_authid
+                    SELECT oid, rolname FROM pg_catalog.pg_authid
                     UNION ALL
                     SELECT 0::oid, 'PUBLIC'
                     ) AS grantee (oid, rolname)
@@ -444,7 +444,7 @@ DROP FUNCTION IF EXISTS pg_catalog.copy_summary_create() CASCADE;
 do $$DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
         DROP VIEW IF EXISTS DBE_PERF.global_candidate_status CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.local_candidate_stat();
@@ -504,7 +504,7 @@ has_version_proc boolean;
 need_upgrade boolean;
 BEGIN
   need_upgrade = false;
-  select case when count(*)=1 then true else false end as has_version_proc from (select * from pg_proc where proname = 'working_version_num' limit 1) into has_version_proc;
+  select case when count(*)=1 then true else false end as has_version_proc from (select * from pg_catalog.pg_proc where proname = 'working_version_num' limit 1) into has_version_proc;
   IF has_version_proc = true  then
     select working_version_num >= 92305 as v5r1c20_and_later_version from working_version_num() into v5r1c20_and_later_version;
     IF v5r1c20_and_later_version = true then

@@ -1,7 +1,7 @@
 do $$
 DECLARE ans boolean;
 BEGIN
-    select case when oid = 3807 then true else false end into ans from pg_type where typname = '_jsonb';
+    select case when oid = 3807 then true else false end into ans from pg_catalog.pg_type where typname = '_jsonb';
     if ans = false then
         DROP TYPE IF EXISTS pg_catalog.jsonb;
         DROP TYPE IF EXISTS pg_catalog._jsonb;

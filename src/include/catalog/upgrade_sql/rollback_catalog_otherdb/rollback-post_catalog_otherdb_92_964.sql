@@ -209,7 +209,7 @@ CREATE OR REPLACE VIEW DBE_PERF.global_statement_complex_history AS
   SELECT * FROM DBE_PERF.get_global_statement_complex_history();
 
 CREATE OR REPLACE VIEW DBE_PERF.statement_complex_history_table AS
-  SELECT * FROM gs_wlm_session_info;
+  SELECT * FROM pg_catalog.gs_wlm_session_info;
 
 CREATE OR REPLACE FUNCTION dbe_perf.get_global_statement_complex_history_table()
 RETURNS setof dbe_perf.statement_complex_history_table

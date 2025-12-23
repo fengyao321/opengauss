@@ -24,7 +24,7 @@ DECLARE
     ans boolean;
     check_version boolean;
 BEGIN
-        SELECT case WHEN count(*)=1 THEN true ELSE false END AS ans FROM (SELECT nspname FROM pg_namespace WHERE nspname='dbe_perf' LIMIT 1) INTO ans;
+        SELECT case WHEN count(*)=1 THEN true ELSE false END AS ans FROM (SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname='dbe_perf' LIMIT 1) INTO ans;
         IF ans = true THEN
             DROP VIEW IF EXISTS DBE_PERF.statement_history cascade;
             DROP FUNCTION IF EXISTS DBE_PERF.standby_statement_history(boolean);
@@ -337,7 +337,7 @@ DECLARE
     username text;
     querystr text;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     IF ans = true then
         CREATE VIEW DBE_PERF.statement_history AS select * from pg_catalog.statement_history;
 
@@ -360,7 +360,7 @@ DECLARE
     username text;
     querystr text;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     IF ans = true THEN
         DROP FUNCTION IF EXISTS DBE_PERF.get_global_full_sql_by_timestamp(timestamp with time zone, timestamp with time zone) cascade;
         DROP FUNCTION IF EXISTS DBE_PERF.get_global_slow_sql_by_timestamp(timestamp with time zone, timestamp with time zone) cascade;

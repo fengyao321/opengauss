@@ -22,7 +22,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_session_iostat AS
         S.query,
         S.node_group,
         T.curr_io_limits as curr_io_limits
-FROM pg_stat_activity_ng AS S,  pg_stat_get_wlm_session_iostat_info(0) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S,  pg_stat_get_wlm_session_iostat_info(0) AS T
 WHERE S.pid = T.threadid;
 
 DROP VIEW IF EXISTS dbe_perf.statement_iostat_complex_runtime cascade;
@@ -41,5 +41,5 @@ CREATE OR REPLACE VIEW dbe_perf.statement_iostat_complex_runtime AS
      S.query,
      S.node_group,
      T.curr_io_limits as curr_io_limits
-   FROM pg_stat_activity_ng AS S, pg_stat_get_wlm_session_iostat_info(0) AS T
+   FROM pg_catalog.pg_stat_activity_ng AS S, pg_stat_get_wlm_session_iostat_info(0) AS T
      WHERE S.pid = T.threadid;

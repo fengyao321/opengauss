@@ -21,6 +21,6 @@ CREATE VIEW pg_catalog.pg_stat_subscription AS
             st.last_msg_receipt_time,
             st.latest_end_lsn,
             st.latest_end_time
-    FROM pg_subscription su
+    FROM pg_catalog.pg_subscription su
             LEFT JOIN pg_catalog.pg_stat_get_subscription(NULL) st
                       ON (st.subid = su.oid);

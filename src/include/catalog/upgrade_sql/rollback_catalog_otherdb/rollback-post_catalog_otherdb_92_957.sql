@@ -56,8 +56,8 @@ CREATE FUNCTION pg_catalog.gs_stat_walrecvwriter(
 )
 RETURNS SETOF record LANGUAGE INTERNAL ROWS 1 as 'gs_stat_walrecvwriter' stable;
 
-delete from pg_description where classoid = 2607 and description = 'conversion for GB18030_2022 to UTF8';
-delete from pg_description where classoid = 2607 and description = 'conversion for UTF8 to GB18030_2022';
+delete from pg_catalog.pg_description where classoid = 2607 and description = 'conversion for GB18030_2022 to UTF8';
+delete from pg_catalog.pg_description where classoid = 2607 and description = 'conversion for UTF8 to GB18030_2022';
 
 DROP FUNCTION IF EXISTS pg_catalog.gs_hot_standby_space_info() cascade;
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_PROC, 6218;
@@ -83,7 +83,7 @@ DO $$
 DECLARE
     ans boolean;
 BEGIN
-select case when count(*)=1 then true else false end from (select nspname from pg_namespace where nspname='coverage' limit 1) into ans;
+select case when count(*)=1 then true else false end from (select nspname from pg_catalog.pg_namespace where nspname='coverage' limit 1) into ans;
     if ans = true THEN
         DROP table IF EXISTS coverage.proc_coverage;
         DROP SEQUENCE IF EXISTS coverage.proc_coverage_coverage_id_seq;
@@ -117,7 +117,7 @@ DO $gs_slow_query_info$
 DECLARE
     ans boolean;
 BEGIN
-select case when count(*)=1 then true else false end from (select relname from pg_class where relname='gs_slow_query_info' and relnamespace=4988 limit 1) into ans;
+select case when count(*)=1 then true else false end from (select relname from pg_catalog.pg_class where relname='gs_slow_query_info' and relnamespace=4988 limit 1) into ans;
     if ans = true THEN
         CREATE OR REPLACE FUNCTION dbe_perf.global_slow_query_info_bytime(text, TIMESTAMP, TIMESTAMP, int)
         RETURNS setof dbe_perf.gs_slow_query_info
@@ -135,7 +135,7 @@ DECLARE
                                         return;
                                 END IF;
                                 --Get all the node names
-                                query_str_nodes := 'SELECT node_name FROM pgxc_node WHERE node_type=''C'' AND nodeis_active = true';
+                                query_str_nodes := 'SELECT node_name FROM pg_catalog.pgxc_node WHERE node_type=''C'' AND nodeis_active = true';
                                 query_str_cn := 'SELECT * FROM dbe_perf.gs_slow_query_info where '||$1||'>'''''||$2||''''' and '||$1||'<'''''||$3||''''' limit '||$4;
                                 FOR row_name IN EXECUTE(query_str_nodes) LOOP
                                                 query_str := 'EXECUTE DIRECT ON (' || row_name.node_name || ') ''' || query_str_cn||''';';

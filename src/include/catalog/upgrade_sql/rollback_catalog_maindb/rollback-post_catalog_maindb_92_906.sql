@@ -2,7 +2,7 @@ do $$
 DECLARE
 ans boolean;
 BEGIN
-    for ans in select case when count(*)=1 then true else false end as ans  from (select extname from pg_extension where extname='dolphin' and extversion = '2.0')
+    for ans in select case when count(*)=1 then true else false end as ans  from (select extname from pg_catalog.pg_extension where extname='dolphin' and extversion = '2.0')
     LOOP
         if ans = true then
             ALTER EXTENSION dolphin UPDATE TO '2.0.1';
@@ -28,7 +28,7 @@ DROP FUNCTION IF EXISTS pg_catalog.ss_txnstatus_cache_stat() CASCADE;
 --  dbe_perf     | global_slow_query_history     | db_time  -- view
 --  dbe_perf     | global_slow_query_info        | db_time  -- view
 -- those proc will recreated.
--- openGauss=# select proname, pronamespace  from pg_proc where proargnames @> array['db_time'];
+-- openGauss=# select proname, pronamespace  from pg_catalog.pg_proc where proargnames @> array['db_time'];
 --              proname              | pronamespace
 -- ----------------------------------+--------------
 --  get_instr_unique_sql             |           11
@@ -746,7 +746,7 @@ SELECT
         S.mem_top5_value,
         S.top_mem_dn,
         S.top_cpu_dn
-FROM gs_wlm_session_query_info_all S;
+FROM pg_catalog.gs_wlm_session_query_info_all S;
 
 CREATE VIEW pg_catalog.gs_wlm_session_history AS
 SELECT
@@ -876,7 +876,7 @@ SELECT
 		S.pl_compilation_time,
 		S.net_send_time,
 		S.data_io_time
-FROM gs_wlm_session_query_info_all S where S.is_slow_query = 1;
+FROM pg_catalog.gs_wlm_session_query_info_all S where S.is_slow_query = 1;
 
 CREATE OR REPLACE VIEW dbe_perf.gs_slow_query_history AS
 SELECT
@@ -920,7 +920,7 @@ DECLARE
 		query_str_nodes text;
 		BEGIN
 				--Get all the node names
-				query_str_nodes := 'SELECT node_name FROM pgxc_node WHERE node_type=''C'' AND nodeis_active = true';
+				query_str_nodes := 'SELECT node_name FROM pg_catalog.pgxc_node WHERE node_type=''C'' AND nodeis_active = true';
 				FOR row_name IN EXECUTE(query_str_nodes) LOOP
 						query_str := 'EXECUTE DIRECT ON (' || row_name.node_name || ') ''SELECT * FROM dbe_perf.gs_slow_query_history''';
 						FOR row_data IN EXECUTE(query_str) LOOP
@@ -941,7 +941,7 @@ DECLARE
 		query_str_nodes text;
 		BEGIN
 				--Get all the node names
-				query_str_nodes := 'SELECT node_name FROM pgxc_node WHERE node_type=''C'' AND nodeis_active = true';
+				query_str_nodes := 'SELECT node_name FROM pg_catalog.pgxc_node WHERE node_type=''C'' AND nodeis_active = true';
 				FOR row_name IN EXECUTE(query_str_nodes) LOOP
 						query_str := 'EXECUTE DIRECT ON (' || row_name.node_name || ') ''SELECT * FROM dbe_perf.gs_slow_query_info''';
 						FOR row_data IN EXECUTE(query_str) LOOP
@@ -972,7 +972,7 @@ do $$
 DECLARE
 ans boolean;
 BEGIN
-    for ans in select case when count(*)=1 then true else false end as ans  from (select extname from pg_extension where extname='dolphin' and extversion = '2.0.1')
+    for ans in select case when count(*)=1 then true else false end as ans  from (select extname from pg_catalog.pg_extension where extname='dolphin' and extversion = '2.0.1')
     LOOP
         if ans = true then
             ALTER EXTENSION dolphin UPDATE TO '2.0';

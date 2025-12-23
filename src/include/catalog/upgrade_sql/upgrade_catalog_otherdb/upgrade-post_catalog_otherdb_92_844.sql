@@ -79,7 +79,7 @@ AS 'gs_validate_ext_listen_ip';DO $DO$
 DECLARE
   ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS DBE_PERF.get_global_full_sql_by_timestamp(timestamp with time zone, timestamp with time zone) cascade;
         DROP FUNCTION IF EXISTS DBE_PERF.get_global_slow_sql_by_timestamp(timestamp with time zone, timestamp with time zone) cascade;
@@ -154,7 +154,7 @@ DECLARE
   username text;
   querystr text;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     IF ans = true then
         CREATE VIEW DBE_PERF.statement_history AS select * from pg_catalog.statement_history;
 
@@ -439,7 +439,7 @@ DO $DO$
 DECLARE
   ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS dbe_perf.standby_statement_history(boolean);
         SET LOCAL inplace_upgrade_next_system_object_oids = IUO_PROC, 3118;

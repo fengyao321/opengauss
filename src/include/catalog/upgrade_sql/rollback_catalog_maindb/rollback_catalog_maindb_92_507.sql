@@ -6,33 +6,33 @@ CREATE OR REPLACE VIEW pg_catalog.pg_statio_all_sequences AS
             pg_stat_get_blocks_fetched(C.oid) -
                     pg_stat_get_blocks_hit(C.oid) AS blks_read,
             pg_stat_get_blocks_hit(C.oid) AS blks_hit
-    FROM pg_class C
+    FROM pg_catalog.pg_class C
             LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind = 'S';
 GRANT SELECT ON pg_catalog.pg_statio_all_sequences TO PUBLIC;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_statio_sys_sequences AS
-    SELECT * FROM pg_statio_all_sequences
+    SELECT * FROM pg_catalog.pg_statio_all_sequences
     WHERE schemaname IN ('pg_catalog', 'information_schema') OR
           schemaname ~ '^pg_toast';
 GRANT SELECT ON pg_catalog.pg_statio_sys_sequences TO PUBLIC;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_statio_user_sequences AS
-    SELECT * FROM pg_statio_all_sequences
+    SELECT * FROM pg_catalog.pg_statio_all_sequences
     WHERE schemaname NOT IN ('pg_catalog', 'information_schema') AND
           schemaname !~ '^pg_toast';
 GRANT SELECT ON pg_catalog.pg_statio_user_sequences TO PUBLIC;
 
 do $$DECLARE ans boolean;
 BEGIN
-    for ans in select case when count(*) = 1 then true else false end as ans from (select proname from pg_proc where proname = 'pg_gtt_attached_pid' and pronargs = 1 limit 1)
+    for ans in select case when count(*) = 1 then true else false end as ans from (select proname from pg_catalog.pg_proc where proname = 'pg_gtt_attached_pid' and pronargs = 1 limit 1)
     LOOP
         if ans = true then -- base version is after 92-255, create older view
             CREATE OR REPLACE VIEW pg_catalog.pg_gtt_attached_pids WITH (security_barrier) AS
             SELECT n.nspname AS schemaname,
                 c.relname AS tablename,
                 c.oid AS relid,
-                array(select pid from pg_gtt_attached_pid(c.oid)) AS pids
+                array(select pid from pg_catalog.pg_gtt_attached_pid(c.oid)) AS pids
             FROM
                 pg_class c
                 LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -195,7 +195,7 @@ DROP TABLE IF EXISTS pg_catalog.gs_job_argument;
 
 do $$DECLARE ans boolean;
 BEGIN
-    for ans in select case when count(*) = 1 then true else false end as ans from (select typname from pg_type where typname = 'int16' limit 1)
+    for ans in select case when count(*) = 1 then true else false end as ans from (select typname from pg_catalog.pg_type where typname = 'int16' limit 1)
     LOOP
         if ans = true then
             SET search_path = dbe_perf;
@@ -207,7 +207,7 @@ BEGIN
                 pg_stat_get_blocks_fetched(C.oid) -
                 pg_stat_get_blocks_hit(C.oid) AS blks_read,
                 pg_stat_get_blocks_hit(C.oid) AS blks_hit
-            FROM pg_class C
+            FROM pg_catalog.pg_class C
                 LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
                 WHERE C.relkind = 'S';
             
@@ -227,7 +227,7 @@ END$$;
 RESET search_path;
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0, 0, 0, 0;do $$DECLARE ans boolean;
 BEGIN
-    for ans in select case when count(*)=1 then true else false end as ans  from (select nspname from pg_namespace where nspname='dbe_pldeveloper' limit 1)
+    for ans in select case when count(*)=1 then true else false end as ans  from (select nspname from pg_catalog.pg_namespace where nspname='dbe_pldeveloper' limit 1)
     LOOP
         if ans = true then
             DROP TABLE IF EXISTS dbe_pldeveloper.gs_source;

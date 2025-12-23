@@ -13,7 +13,7 @@ SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0,
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_extension where extname = 'security_plugin' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * from pg_catalog.pg_extension where extname = 'security_plugin' limit 1) into ans;
     if ans = true then
         drop extension if exists security_plugin cascade;
         create extension security_plugin;
@@ -26,7 +26,7 @@ DECLARE
   user_name text;
   grant_query text;
 BEGIN
-select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
 
 -----------------------------------------------------------------------------
 -- DROP: pg_catalog.pg_replication_slots
@@ -77,7 +77,7 @@ CREATE OR REPLACE VIEW dbe_perf.replication_slots AS
     L.catalog_xmin,
     L.restart_lsn,
     L.dummy_standby
-    FROM pg_get_replication_slots() AS L
+    FROM pg_catalog.pg_get_replication_slots() AS L
          LEFT JOIN pg_catalog.pg_database D ON (L.datoid = D.oid);
  
 END IF;
@@ -124,7 +124,7 @@ has_version_proc boolean;
 BEGIN
   FOR ans in select case when count(*) = 1 then true else false end as ans from (select 1 from pg_catalog.pg_extension where extname = 'hdfs_fdw' limit 1) LOOP
     IF ans = false then
-      select case when count(*)=1 then true else false end as has_version_proc from (select * from pg_proc where proname = 'working_version_num' limit 1) into has_version_proc;
+      select case when count(*)=1 then true else false end as has_version_proc from (select * from pg_catalog.pg_proc where proname = 'working_version_num' limit 1) into has_version_proc;
       IF has_version_proc = true then
         select working_version_num < 92608 as old_version from working_version_num() into old_version;
         IF old_version = true then

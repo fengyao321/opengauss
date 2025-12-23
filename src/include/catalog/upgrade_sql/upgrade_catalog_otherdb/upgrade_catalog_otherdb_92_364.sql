@@ -4,7 +4,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_namespace where nspname = 'blockchain' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * from pg_catalog.pg_namespace where nspname = 'blockchain' limit 1) into ans;
     if ans = false then
         create schema blockchain;
         COMMENT ON schema blockchain IS 'blockchain schema';

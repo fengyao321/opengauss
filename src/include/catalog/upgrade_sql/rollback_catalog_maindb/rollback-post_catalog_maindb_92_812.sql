@@ -29,7 +29,7 @@ delete from pg_catalog.pg_opfamily where oid = 8646;
 DECLARE
 cnt int;
 BEGIN
-    select count(*) into cnt from pg_type where oid = 3272;
+    select count(*) into cnt from pg_catalog.pg_type where oid = 3272;
     if cnt = 1 then
         DROP CAST IF EXISTS (anyset AS int2) CASCADE;
         DROP CAST IF EXISTS (int2 AS anyset) CASCADE;
@@ -61,7 +61,7 @@ END;
 DECLARE
 cnt int;
 BEGIN
-    select count(*) into cnt from pg_type where oid = 3272;
+    select count(*) into cnt from pg_catalog.pg_type where oid = 3272;
     if cnt = 1 then
         DROP OPERATOR IF EXISTS pg_catalog.=(anyset, anyset) CASCADE;
         DROP OPERATOR IF EXISTS pg_catalog.<>(anyset, anyset) CASCADE;
@@ -127,7 +127,7 @@ END;
 DECLARE
 cnt int;
 BEGIN
-    select count(*) into cnt from pg_type where oid = 3272;
+    select count(*) into cnt from pg_catalog.pg_type where oid = 3272;
     if cnt = 1 then
         DROP FUNCTION IF EXISTS pg_catalog.setlt(anyset, anyset) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.setint2lt(anyset, int2) CASCADE;
@@ -229,7 +229,7 @@ END;
 
 DECLARE
   stmt text;
-  cursor r is select typname from pg_type where typcategory = 'H';
+  cursor r is select typname from pg_catalog.pg_type where typcategory = 'H';
   tname r%rowtype;
 BEGIN
   for tname in r loop

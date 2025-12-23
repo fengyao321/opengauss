@@ -21,7 +21,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_session_iostat AS
              WHEN T.io_priority = 50 THEN 'High'::text END AS io_priority,
         S.query,
         S.node_group
-FROM pg_stat_activity_ng AS S,  pg_stat_get_wlm_session_iostat_info(0) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S,  pg_stat_get_wlm_session_iostat_info(0) AS T
 WHERE S.pid = T.threadid;
 
 DROP VIEW IF EXISTS dbe_perf.statement_iostat_complex_runtime cascade;
@@ -39,5 +39,5 @@ CREATE OR REPLACE VIEW dbe_perf.statement_iostat_complex_runtime AS
           WHEN T.io_priority = 80 THEN 'High'::text END AS io_priority,
      S.query,
      S.node_group
-   FROM pg_stat_activity_ng AS S, pg_stat_get_wlm_session_iostat_info(0) AS T
+   FROM pg_catalog.pg_stat_activity_ng AS S, pg_stat_get_wlm_session_iostat_info(0) AS T
      WHERE S.pid = T.threadid;

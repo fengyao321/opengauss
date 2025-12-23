@@ -10,7 +10,7 @@ DROP FUNCTION IF EXISTS pg_catalog.pg_ls_waldir() CASCADE;
 DECLARE
 ans boolean;
 BEGIN
-select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
 if ans = true then
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -50,7 +50,7 @@ ans boolean;
   user_name text;
   query_str text;
 BEGIN
-select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
 if ans = true then
 SELECT SESSION_USER INTO user_name;
 
@@ -66,7 +66,7 @@ END;
 DECLARE
   ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS DBE_PERF.get_global_full_sql_by_timestamp() cascade;
         DROP FUNCTION IF EXISTS DBE_PERF.get_global_slow_sql_by_timestamp() cascade;
@@ -363,12 +363,12 @@ SELECT
         S.query,
         S.node_group,
         T.top_cpu_dn
-FROM pg_stat_activity_ng AS S, pg_catalog.pg_stat_get_wlm_realtime_session_info(NULL) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S, pg_catalog.pg_stat_get_wlm_realtime_session_info(NULL) AS T
 WHERE S.sessionid = T.threadid;
 GRANT SELECT ON TABLE pg_catalog.gs_session_cpu_statistics TO PUBLIC;
 DECLARE ans boolean;
 BEGIN
-    for ans in select case when count(*)=1 then true else false end as ans  from (select nspname from pg_namespace where nspname='dbe_sql_util' limit 1)
+    for ans in select case when count(*)=1 then true else false end as ans  from (select nspname from pg_catalog.pg_namespace where nspname='dbe_sql_util' limit 1)
     LOOP
         if ans = true then
             DROP FUNCTION IF EXISTS dbe_sql_util.create_hint_sql_patch(name, bigint, text, text, boolean);
@@ -412,7 +412,7 @@ BEGIN
                       gs_session_memory_context S
                       LEFT JOIN
                      (SELECT DISTINCT thrdtype, tid
-                      FROM gs_thread_memory_context) T
+                      FROM pg_catalog.gs_thread_memory_context) T
                       on S.threadid = T.tid
                    ),
                    TM AS
@@ -430,7 +430,7 @@ BEGIN
                       gs_thread_memory_context T
                       LEFT JOIN
                       (SELECT DISTINCT sessid, threadid
-                       FROM gs_session_memory_context) S
+                       FROM pg_catalog.gs_session_memory_context) S
                       ON T.tid = S.threadid
                    )
                    SELECT * from SM

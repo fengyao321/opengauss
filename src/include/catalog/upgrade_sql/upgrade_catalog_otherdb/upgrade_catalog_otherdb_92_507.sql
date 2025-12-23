@@ -37,7 +37,7 @@ SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0,
 GRANT SELECT ON TABLE pg_catalog.gs_job_attribute TO PUBLIC;
 GRANT SELECT ON TABLE pg_catalog.gs_job_argument TO PUBLIC;do $$DECLARE ans boolean;
 BEGIN
-    for ans in select case when count(*)=1 then true else false end as ans  from (select nspname from pg_namespace where nspname='dbe_pldeveloper' limit 1)
+    for ans in select case when count(*)=1 then true else false end as ans  from (select nspname from pg_catalog.pg_namespace where nspname='dbe_pldeveloper' limit 1)
     LOOP
         if ans = true then
             DROP TABLE IF EXISTS dbe_pldeveloper.gs_source;

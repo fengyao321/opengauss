@@ -74,7 +74,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'jsonb' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * from pg_catalog.pg_type where typname = 'jsonb' limit 1) into ans;
     if ans = true then
         DROP CAST IF EXISTS (json AS jsonb) CASCADE;
         DROP CAST IF EXISTS (jsonb AS json) CASCADE;
@@ -119,7 +119,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'jsonb' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * from pg_catalog.pg_type where typname = 'jsonb' limit 1) into ans;
     if ans = true then
         DROP OPERATOR IF EXISTS pg_catalog.->(jsonb, text) cascade;
         DROP OPERATOR IF EXISTS pg_catalog.->>(jsonb, text) cascade;
@@ -185,7 +185,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'jsonb' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * from pg_catalog.pg_type where typname = 'jsonb' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.jsonb_array_element(jsonb, integer) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.jsonb_array_element_text(jsonb, integer) CASCADE;
@@ -247,7 +247,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'jsonb' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * from pg_catalog.pg_type where typname = 'jsonb' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.jsonb_out(jsonb) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.jsonb_send(jsonb) CASCADE;
@@ -272,5 +272,5 @@ SELECT
         S.query,
         S.node_group,
         T.top_cpu_dn
-FROM pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
 WHERE S.pid = T.threadid;
