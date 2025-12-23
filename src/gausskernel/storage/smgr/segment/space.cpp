@@ -481,21 +481,24 @@ void get_space_shrink_target(SegExtentGroup *seg, BlockNumber *target_size, int 
     *old_group_count = map_head->group_count;
     SegUnlockReleaseBuffer(buffer);
 
-    BlockNumber data_blocks = extents * seg->extent_size;
-    data_blocks += DF_FILE_EXTEND_STEP_BLOCKS; // contains extra 128 MB data
+    BlockNumber total_data_blocks = extents * seg->extent_size;
+    total_data_blocks += DF_FILE_EXTEND_STEP_BLOCKS; // contains extra 128 MB data
 
     /* First map group */
     BlockNumber meta_blocks = DF_MAP_GROUP_SIZE + DF_MAP_HEAD_PAGE + 1 + IPBLOCK_GROUP_SIZE;
     *new_group_count = 1;
     BlockNumber group_blocks = seg->extent_size * DF_MAP_GROUP_SIZE * DF_MAP_BIT_CNT;
-    while (data_blocks > group_blocks) {
+
+    // 使用临时变量来判断
+    BlockNumber remaining_data = total_data_blocks;
+    while (remaining_data > group_blocks) {
         /* If current map group can not contain the rest data blocks, we need more map group */
-        data_blocks -= group_blocks;
+        remaining_data -= group_blocks;
         (*new_group_count)++;
         meta_blocks += DF_MAP_GROUP_SIZE + IPBLOCK_GROUP_SIZE;
     }
 
-    *target_size = data_blocks + meta_blocks;
+    *target_size = total_data_blocks + meta_blocks;
     *target_size = CM_ALIGN_ANY(*target_size, DF_FILE_EXTEND_STEP_BLOCKS);
 
     ereport(INFO, (errmsg("current blocks: %u, target file blocks: %u, old group count: %d, new group count: %d",
