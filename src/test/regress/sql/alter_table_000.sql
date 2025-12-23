@@ -258,6 +258,56 @@ alter table test_hash add column e int default nextval('test_seq1')*10; --not su
 drop table test_hash;
 drop sequence test_seq1;
 
+--test ALTER TABLE ADD ( [IF NOT EXISTS] column_name data_type,...)
+drop table if exists test_add_col;
+create table test_add_col (a int4);
+alter table test_add_col add (a int);
+alter table test_add_col add (IF NOT EXISTS a int);
+alter table  test_add_col add (IF NOT EXISTS a int, IF NOT EXISTS b text);
+insert into test_add_col values(1,'text');
+select * from test_add_col;
+--test ALTER TABLE test_add_col ADD [COLUMN] [IF NOT EXISTS] column_name data_type;
+DROP TABLE test_add_col;
+CREATE TABLE test_add_col (a int4);
+
+ALTER TABLE test_add_col ADD COLUMN a int4; -- error out
+ALTER TABLE test_add_col ADD COLUMN a name; -- error out
+
+INSERT INTO test_add_col (a) VALUES(5);
+SELECT * FROM test_add_col;
+
+-- test [if not exists]
+ALTER TABLE test_add_col ADD COLUMN IF NOT EXISTS a int;
+ALTER TABLE test_add_col ADD a int;
+ALTER TABLE test_add_col ADD IF NOT EXISTS a int;
+
+SELECT * FROM test_add_col;
+
+-- test add multiple column
+ALTER TABLE test_add_col ADD b name;
+ALTER TABLE test_add_col ADD IF NOT EXISTS c text NOCOMPRESS NOT NULL DEFAULT 'default-text';
+ALTER TABLE test_add_col ADD COLUMN d float8 FIRST;
+ALTER TABLE IF EXISTS test_add_col ADD COLUMN IF NOT EXISTS e float4 AFTER b;
+ALTER TABLE test_add_col ADD COLUMN IF NOT EXISTS b int4, add column a name;
+ALTER TABLE test_add_col ADD COLUMN IF NOT EXISTS b int4, add column IF NOT EXISTS a int4, add column f int8;
+
+INSERT INTO test_add_col (d,a,b,e,c,f) VALUES(3.3, 5, 'name', 3.3, 'text',12398734);
+SELECT * FROM test_add_col;
+
+-- test feature in 'B' database
+create database db_add_col with dbcompatibility 'B';
+\c db_add_col
+create table test_add_col (a int4);
+alter table test_add_col add column a int;
+alter table test_add_col add if not exists a int;
+alter table test_add_col add column if not exists b text CHARSET utf8 COLLATE utf8mb4_general_ci;
+insert into test_add_col values(1,'text');
+select * from test_add_col;
+drop table test_add_col;
+\c postgres
+DROP TABLE test_add_col;
+DROP DATABASE db_add_col;
+
 -- check column addition within a view (bug #14876)
 create table at_base_table(id int, stuff text);
 insert into at_base_table values (23, 'skidoo');

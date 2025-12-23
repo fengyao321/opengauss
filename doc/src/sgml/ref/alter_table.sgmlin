@@ -13,7 +13,7 @@
 ALTER TABLE [ IF EXISTS ] { table_name  [*] | ONLY table_name | ONLY ( table_name  )}
     action [, ... ];
 ALTER TABLE [ IF EXISTS ] table_name
-    ADD ( { column_name data_type [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ]} [, ...] );
+    ADD ( [IF NOT EXISTS] { column_name data_type [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ]} [, ...] );
 ALTER TABLE [ IF EXISTS ] table_name
     MODIFY ( { column_name data_type | column_name [ CONSTRAINT constraint_name ] NOT NULL [ ENABLE ] | column_name [ CONSTRAINT constraint_name ] NULL } [, ...] );
 ALTER TABLE [ IF EXISTS ] table_name
@@ -59,7 +59,7 @@ column_clause
 NOTICE: '[ CHARACTER SET | CHARSET ]' is only available in CENTRALIZED mode and B-format database!
 NOTICE: '[ COLLATE ]' is only available in CENTRALIZED mode and B-format database!
 where column_clause can be:
-ADD [ COLUMN ] column_name data_type [ CHARACTER SET | CHARSET charset ] [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ] [ FIRST | AFTER column_name ]
+ADD [ COLUMN ] [IF NOT EXISTS] column_name data_type [ CHARACTER SET | CHARSET charset ] [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ] [ FIRST | AFTER column_name ]
     | MODIFY column_name data_type
     | MODIFY column_name [ CONSTRAINT constraint_name ] NOT NULL [ ENABLE ]
     | MODIFY column_name [ CONSTRAINT constraint_name ] NULL

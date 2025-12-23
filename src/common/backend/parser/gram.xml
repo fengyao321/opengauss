@@ -387,7 +387,7 @@ ALTER TABLE [ IF EXISTS ] { table_name  [*] | ONLY table_name | ONLY ( table_nam
 ]]></MainSentence>
     <MainSentence id="ADD COLUMN"><![CDATA[
 ALTER TABLE [ IF EXISTS ] table_name
-    ADD ( { column_name data_type [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ]} [, ...] );
+    ADD ( [IF NOT EXISTS] { column_name data_type [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ]} [, ...] );
 ]]></MainSentence>
     <MainSentence id="MODIFY COLUMN"><![CDATA[
 ALTER TABLE [ IF EXISTS ] table_name
@@ -429,7 +429,7 @@ ALTER TABLE [ IF EXISTS ] table_name
     | DELETE NODE ( nodename [, ... ] )
 ]]></SubSentence>
     <SubSentence id="column_clause"><![CDATA[
-    ADD [ COLUMN ] column_name data_type [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ]
+    ADD [ COLUMN ] [IF NOT EXISTS] column_name data_type [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ]
     | MODIFY column_name data_type
     | MODIFY column_name [ CONSTRAINT constraint_name ] NOT NULL [ ENABLE ]
     | MODIFY column_name [ CONSTRAINT constraint_name ] NULL

@@ -470,7 +470,7 @@ static bool is_temp_table(const char relpst);
 
 %type <node>	alter_table_cmd alter_partition_cmd alter_type_cmd opt_collate_clause exchange_partition_cmd move_partition_cmd
 				modify_column_cmd reset_partition_cmd modify_partition_cmd
-				replica_identity add_column_first_after event_from_clause 
+				replica_identity add_column_first_after event_from_clause add_column_cmd
 %type <list>	alter_table_cmds alter_partition_cmds alter_table_or_partition alter_type_cmds add_column_cmds modify_column_cmds
 
 %type <dbehavior>	opt_drop_behavior
@@ -4179,19 +4179,30 @@ opt_enable:	ENABLE_P		{}
 			| /* empty */	{}
 			;
 add_column_cmds:
+			add_column_cmd
+				{
+					$$ = list_make1($1);
+				}
+			| add_column_cmds ',' add_column_cmd
+				{
+					$$ = lappend($1, $3);
+				}
+			;
+add_column_cmd:
 			columnDef
 				{
 					AlterTableCmd *n = makeNode(AlterTableCmd);
 					n->subtype = AT_AddColumn;
 					n->def = $1;
-					$$ = list_make1(n);
+					$$ = (Node *)n;
 				}
-			| add_column_cmds ',' columnDef
+			| IF_P NOT EXISTS columnDef
 				{
-				 	AlterTableCmd *n = makeNode(AlterTableCmd);
+					AlterTableCmd *n = makeNode(AlterTableCmd);
 					n->subtype = AT_AddColumn;
-					n->def = $3;
-					$$ = lappend($1, n);
+					n->missing_ok = true;
+					n->def = $4;
+					$$ = (Node *)n;
 				}
 			;
 
@@ -4942,12 +4953,30 @@ alter_table_cmd:
 					n->def = $2;
 					$$ = (Node *)n;
 				}
+			/* ALTER TABLE <name> ADD IF NOT EXISTS <coldef> */
+			| ADD_P IF_P NOT EXISTS columnDef add_column_first_after
+				{
+					AlterTableCmd *n = (AlterTableCmd *)$6;
+					n->subtype = AT_AddColumn;
+					n->missing_ok = true;
+					n->def = $5;
+					$$ = (Node *)n;
+				}
 			/* ALTER TABLE <name> ADD COLUMN <coldef> */
 			| ADD_P COLUMN columnDef add_column_first_after
 				{
 					AlterTableCmd *n = (AlterTableCmd *)$4;
 					n->subtype = AT_AddColumn;
 					n->def = $3;
+					$$ = (Node *)n;
+				}
+			/* ALTER TABLE <name> ADD COLUMN IF NOT EXISTS <coldef> */
+			| ADD_P COLUMN IF_P NOT EXISTS columnDef add_column_first_after
+				{
+					AlterTableCmd *n = (AlterTableCmd *)$7;
+					n->subtype = AT_AddColumn;
+					n->missing_ok = true;
+					n->def = $6;
 					$$ = (Node *)n;
 				}
 			| ADD_P TABLE qualified_name

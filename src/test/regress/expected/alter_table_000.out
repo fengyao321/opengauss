@@ -9,7 +9,7 @@ Syntax:
 ALTER TABLE [ IF EXISTS ] { table_name  [*] | ONLY table_name | ONLY ( table_name  )}
     action [, ... ];
 ALTER TABLE [ IF EXISTS ] table_name
-    ADD ( { column_name data_type [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ]} [, ...] );
+    ADD ( [IF NOT EXISTS] { column_name data_type [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ]} [, ...] );
 ALTER TABLE [ IF EXISTS ] table_name
     MODIFY ( { column_name data_type | column_name [ CONSTRAINT constraint_name ] NOT NULL [ ENABLE ] | column_name [ CONSTRAINT constraint_name ] NULL } [, ...] );
 ALTER TABLE [ IF EXISTS ] table_name
@@ -55,7 +55,7 @@ column_clause
 NOTICE: '[ CHARACTER SET | CHARSET ]' is only available in CENTRALIZED mode and B-format database!
 NOTICE: '[ COLLATE ]' is only available in CENTRALIZED mode and B-format database!
 where column_clause can be:
-ADD [ COLUMN ] column_name data_type [ CHARACTER SET | CHARSET charset ] [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ] [ FIRST | AFTER column_name ]
+ADD [ COLUMN ] [IF NOT EXISTS] column_name data_type [ CHARACTER SET | CHARSET charset ] [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ] [ FIRST | AFTER column_name ]
     | MODIFY column_name data_type
     | MODIFY column_name [ CONSTRAINT constraint_name ] NOT NULL [ ENABLE ]
     | MODIFY column_name [ CONSTRAINT constraint_name ] NULL
@@ -646,6 +646,90 @@ alter table test_hash add column e int default nextval('test_seq1')*10; --not su
 ERROR:  It's not supported to alter table add column default with nextval expression.
 drop table test_hash;
 drop sequence test_seq1;
+--test ALTER TABLE ADD ( [IF NOT EXISTS] column_name data_type,...)
+drop table if exists test_add_col;
+NOTICE:  table "test_add_col" does not exist, skipping
+create table test_add_col (a int4);
+alter table test_add_col add (a int);
+ERROR:  column "a" of relation "test_add_col" already exists
+alter table test_add_col add (IF NOT EXISTS a int);
+NOTICE:  column "a" of relation "test_add_col" already exists, skipping
+alter table  test_add_col add (IF NOT EXISTS a int, IF NOT EXISTS b text);
+NOTICE:  column "a" of relation "test_add_col" already exists, skipping
+insert into test_add_col values(1,'text');
+select * from test_add_col;
+ a |  b   
+---+------
+ 1 | text
+(1 row)
+
+--test ALTER TABLE test_add_col ADD [COLUMN] [IF NOT EXISTS] column_name data_type;
+DROP TABLE test_add_col;
+CREATE TABLE test_add_col (a int4);
+ALTER TABLE test_add_col ADD COLUMN a int4; -- error out
+ERROR:  column "a" of relation "test_add_col" already exists
+ALTER TABLE test_add_col ADD COLUMN a name; -- error out
+ERROR:  column "a" of relation "test_add_col" already exists
+INSERT INTO test_add_col (a) VALUES(5);
+SELECT * FROM test_add_col;
+ a 
+---
+ 5
+(1 row)
+
+-- test [if not exists]
+ALTER TABLE test_add_col ADD COLUMN IF NOT EXISTS a int;
+NOTICE:  column "a" of relation "test_add_col" already exists, skipping
+ALTER TABLE test_add_col ADD a int;
+ERROR:  column "a" of relation "test_add_col" already exists
+ALTER TABLE test_add_col ADD IF NOT EXISTS a int;
+NOTICE:  column "a" of relation "test_add_col" already exists, skipping
+SELECT * FROM test_add_col;
+ a 
+---
+ 5
+(1 row)
+
+-- test add multiple column
+ALTER TABLE test_add_col ADD b name;
+ALTER TABLE test_add_col ADD IF NOT EXISTS c text NOCOMPRESS NOT NULL DEFAULT 'default-text';
+ALTER TABLE test_add_col ADD COLUMN d float8 FIRST;
+ALTER TABLE IF EXISTS test_add_col ADD COLUMN IF NOT EXISTS e float4 AFTER b;
+ALTER TABLE test_add_col ADD COLUMN IF NOT EXISTS b int4, add column a name;
+NOTICE:  column "b" of relation "test_add_col" already exists, skipping
+ERROR:  column "a" of relation "test_add_col" already exists
+ALTER TABLE test_add_col ADD COLUMN IF NOT EXISTS b int4, add column IF NOT EXISTS a int4, add column f int8;
+NOTICE:  column "b" of relation "test_add_col" already exists, skipping
+NOTICE:  column "a" of relation "test_add_col" already exists, skipping
+INSERT INTO test_add_col (d,a,b,e,c,f) VALUES(3.3, 5, 'name', 3.3, 'text',12398734);
+SELECT * FROM test_add_col;
+  d  | a |  b   |  e  |      c       |    f     
+-----+---+------+-----+--------------+----------
+     | 5 |      |     | default-text |         
+ 3.3 | 5 | name | 3.3 | text         | 12398734
+(2 rows)
+
+-- test feature in 'B' database
+create database db_add_col with dbcompatibility 'B';
+\c db_add_col
+create table test_add_col (a int4);
+alter table test_add_col add column a int;
+ERROR:  column "a" of relation "test_add_col" already exists
+alter table test_add_col add if not exists a int;
+NOTICE:  column "a" of relation "test_add_col" already exists, skipping
+alter table test_add_col add column if not exists b text CHARSET utf8 COLLATE utf8mb4_general_ci;
+insert into test_add_col values(1,'text');
+select * from test_add_col;
+ a |  b   
+---+------
+ 1 | text
+(1 row)
+
+drop table test_add_col;
+\c postgres
+DROP TABLE test_add_col;
+ERROR:  table "test_add_col" does not exist
+DROP DATABASE db_add_col;
 -- check column addition within a view (bug #14876)
 create table at_base_table(id int, stuff text);
 insert into at_base_table values (23, 'skidoo');
