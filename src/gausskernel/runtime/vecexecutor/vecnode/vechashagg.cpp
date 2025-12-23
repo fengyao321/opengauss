@@ -1658,7 +1658,7 @@ bool HashAggRunner::ParallelBuildAggValue(VectorBatch* batch)
     int32 rows = batch->m_rows;
 
     for (int i = 0; i < m_aggNum; i++) {
-        VecAggStatePerAgg per_agg_state = &m_runtime->pervecagg[m_aggNum - 1 - i];
+        VecAggStatePerAgg per_agg_state = &m_runtime->pervecagg[i];
         VectorBatch* agg_batch = NULL;
         ScalarVector* p_vector = NULL;
         ExprContext* econtext = NULL;
@@ -1855,22 +1855,27 @@ void HashAggRunner::DaeParallelProbe()
         return;
     }
 
-    ereport(DEBUG2,
-        (errmsg("DPA: Retrieved %d rows, output_done: %d",
-                out_rows, daeReq_.output_done)));
-
     for (uint32 i = 0; i < daeReq_.out_key_cols_num; i++) {
-        ScalarVector* p_vector = &m_scanBatch->m_arr[m_keyIdx[i]];
-        const Oid colType = p_vector->m_desc.typeId;
+        /* Use m_keyIdxInCell to get the correct index in m_scanBatch */
+        int scanBatchIdx = m_keyIdxInCell[i];
+        ScalarVector* p_vector = &m_scanBatch->m_arr[scanBatchIdx];
+        
+        /* Update column descriptor with saved type information */
+        const Oid colType = daeKeyColTypes_[i];
+        const int4 typeMod = daeKeyColTypeMods_[i];
+        p_vector->m_desc.typeId = colType;
+        p_vector->m_desc.typeMod = typeMod;
+        p_vector->m_desc.encoded = COL_IS_ENCODE(colType);
+        
         ScalarValue* vals = p_vector->m_vals;
         uint8* flags = p_vector->m_flag;
         uint8* empty = daeReq_.out_key_cols[i].empty;
         
         if (colType == BPCHAROID) {
-            int data_len = (p_vector->m_desc.typeMod > (int32)VARHDRSZ) ?
-                           (p_vector->m_desc.typeMod - VARHDRSZ) : 0;
+            int data_len = (typeMod > (int32)VARHDRSZ) ?
+                           (typeMod - VARHDRSZ) : 0;
             if (data_len <= 0) {
-                ereport(ERROR, (errmsg("DPA: Invalid BPCHAR typeMod: %d", p_vector->m_desc.typeMod)));
+                ereport(ERROR, (errmsg("DPA: Invalid BPCHAR typeMod: %d", typeMod)));
                 return;
             }
             DaeProbeOutputBpchar(vals, flags, (char *)daeReq_.out_key_cols[i].value, empty,
@@ -1889,8 +1894,25 @@ void HashAggRunner::DaeParallelProbe()
     }
 
     for (uint32 i = 0; i < daeReq_.out_agg_cols_num; i++) {
-        ScalarVector* p_vector = &m_scanBatch->m_arr[m_aggIdx[i]];
-        const Oid colType = p_vector->m_desc.typeId;
+        /*
+         * Agg columns: reverse order to match ProducerBatch projection expectations
+         * out_agg_cols[0] (pervecagg[0]) fills m_scanBatch[m_cellVarLen + m_aggNum - 1]
+         * out_agg_cols[1] (pervecagg[1]) fills m_scanBatch[m_cellVarLen + m_aggNum - 2]
+         */
+        int scanBatchIdx = m_cellVarLen + m_aggNum - 1 - i;
+        ScalarVector* p_vector = &m_scanBatch->m_arr[scanBatchIdx];
+        
+        /*
+         * Get the actual output type from aggInfo (which is in SELECT order)
+         * aggInfo[aggInfo_idx] corresponds to pervecagg[i] based on the mapping
+         */
+        int aggInfo_idx = m_aggNum - 1 - i;
+        const Oid colType = m_runtime->aggInfo[aggInfo_idx].vec_agg_function.flinfo->fn_rettype;
+        
+        /* Update type descriptor to match actual data type */
+        p_vector->m_desc.typeId = colType;
+        p_vector->m_desc.encoded = COL_IS_ENCODE(colType);
+        
         ScalarValue* vals = p_vector->m_vals;
         uint8* flags = p_vector->m_flag;
         uint8* empty = daeReq_.out_agg_cols[i].empty;
@@ -1962,10 +1984,24 @@ bool HashAggRunner::DaeSessionInit(VectorBatch* batch)
         return false;
     }
 
+    if (daeKeyColsNum_ == 0) {
+        ereport(WARNING, (errmsg("DPA: No key columns for GROUP BY, fallback to CPU")));
+        daeSessionState_ = DAE_SESS_UNINIT;
+        return false;
+    }
+    
     MemoryContext oldContext = MemoryContextSwitchTo(m_dpaContext);
     daeKeyCols_ = (struct wd_key_col_info*)palloc0(daeKeyColsNum_ * sizeof(struct wd_key_col_info));
     daeAggCols_ = (struct wd_agg_col_info*)palloc0(daeAggColsNum_ * sizeof(struct wd_agg_col_info));
+    daeKeyColTypes_ = (Oid*)palloc0(daeKeyColsNum_ * sizeof(Oid));
+    daeKeyColTypeMods_ = (int4*)palloc0(daeKeyColsNum_ * sizeof(int4));
     (void)MemoryContextSwitchTo(oldContext);
+    
+    if (daeKeyColTypes_ == nullptr || daeKeyColTypeMods_ == nullptr) {
+        ereport(WARNING, (errmsg("DPA: Failed to allocate memory for key column type arrays")));
+        daeSessionState_ = DAE_SESS_ERROR;
+        return false;
+    }
     
     struct wd_agg_sess_setup setup;
     setup.key_cols_num = daeKeyColsNum_;
@@ -1977,6 +2013,10 @@ bool HashAggRunner::DaeSessionInit(VectorBatch* batch)
     for (uint32 i = 0; i < setup.key_cols_num; i++) {
         const Oid colType = batch->m_arr[m_keyIdx[i]].m_desc.typeId;
         const int4 typeMod = batch->m_arr[m_keyIdx[i]].m_desc.typeMod;
+        
+        /* Save type information for probe output processing */
+        daeKeyColTypes_[i] = colType;
+        daeKeyColTypeMods_[i] = typeMod;
         if (colType == BPCHAROID || colType == VARCHAROID) {
             char_col_count++;
         }
@@ -1997,6 +2037,11 @@ bool HashAggRunner::DaeSessionInit(VectorBatch* batch)
     }
     
     for (uint32 i = 0; i < setup.agg_cols_num; i++) {
+        /*
+         * aggInfo[i] corresponds to pervecagg[m_aggNum - 1 - i] as per vecagg.cpp:686-691
+         * We need to fill agg_cols_info in pervecagg order to match ParallelBuildAggValue
+         */
+        int pervecagg_idx = m_aggNum - 1 - i;
         const Oid aggFuncOid = m_runtime->aggInfo[i].vec_agg_function.flinfo->fn_oid;
         
         wd_agg_alg aggAlg = MapAggFuncOidToAlg(aggFuncOid);
@@ -2006,12 +2051,13 @@ bool HashAggRunner::DaeSessionInit(VectorBatch* batch)
             return false;
         }
         
-        const Oid inputColType = m_runtime->pervecagg[m_aggNum - 1 - i].evalproj->pi_batch->m_arr->m_desc.typeId;
-        const int4 inputTypeMod = m_runtime->pervecagg[m_aggNum - 1 - i].evalproj->pi_batch->m_arr->m_desc.typeMod;
+        const Oid inputColType = m_runtime->pervecagg[pervecagg_idx].evalproj->pi_batch->m_arr->m_desc.typeId;
+        const int4 inputTypeMod = m_runtime->pervecagg[pervecagg_idx].evalproj->pi_batch->m_arr->m_desc.typeMod;
         const Oid outputColType = m_runtime->aggInfo[i].vec_agg_function.flinfo->fn_rettype;
-        if (!DaeCollectAggCollInfo(setup.agg_cols_info, inputColType, outputColType, i, inputTypeMod, aggFuncOid)) {
+        if (!DaeCollectAggCollInfo(setup.agg_cols_info, inputColType, outputColType, pervecagg_idx, inputTypeMod,
+            aggFuncOid)) {
             DaeSessionCleanup();
-            ereport(WARNING, (errmsg("DPA: Failed to collect agg column info, index: %u", i)));
+            ereport(WARNING, (errmsg("DPA: Failed to collect agg column info, index: %u", pervecagg_idx)));
             return false;
         }
     }
