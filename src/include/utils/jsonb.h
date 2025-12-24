@@ -270,6 +270,19 @@ extern Datum jsonb_eq(PG_FUNCTION_ARGS);
 extern Datum jsonb_cmp(PG_FUNCTION_ARGS);
 extern Datum jsonb_hash(PG_FUNCTION_ARGS);
 
+/* jsonb typecast */
+extern Datum jsonb_bool(PG_FUNCTION_ARGS);
+extern Datum jsonb_int1(PG_FUNCTION_ARGS);
+extern Datum jsonb_int2(PG_FUNCTION_ARGS);
+extern Datum jsonb_int4(PG_FUNCTION_ARGS);
+extern Datum jsonb_int8(PG_FUNCTION_ARGS);
+extern Datum jsonb_numeric(PG_FUNCTION_ARGS);
+extern Datum jsonb_float4(PG_FUNCTION_ARGS);
+extern Datum jsonb_float8(PG_FUNCTION_ARGS);
+extern Datum jsonb_date(PG_FUNCTION_ARGS);
+extern Datum jsonb_time(PG_FUNCTION_ARGS);
+extern Datum jsonb_timestamp(PG_FUNCTION_ARGS);
+
 /* GIN support functions */
 extern Datum gin_compare_jsonb(PG_FUNCTION_ARGS);
 extern Datum gin_extract_jsonb(PG_FUNCTION_ARGS);

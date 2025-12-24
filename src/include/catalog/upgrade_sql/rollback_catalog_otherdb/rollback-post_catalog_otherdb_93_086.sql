@@ -1,0 +1,23 @@
+DROP CAST IF EXISTS (jsonb AS bool);
+DROP CAST IF EXISTS (jsonb AS int1);
+DROP CAST IF EXISTS (jsonb AS int2);
+DROP CAST IF EXISTS (jsonb AS int4);
+DROP CAST IF EXISTS (jsonb AS int8);
+DROP CAST IF EXISTS (jsonb AS numeric);
+DROP CAST IF EXISTS (jsonb AS float4);
+DROP CAST IF EXISTS (jsonb AS float8);
+DROP CAST IF EXISTS (jsonb AS "date");
+DROP CAST IF EXISTS (jsonb AS time);
+DROP CAST IF EXISTS (jsonb AS timestamp);
+
+DROP FUNCTION IF EXISTS pg_catalog.jsonb_bool(jsonb);
+DROP FUNCTION IF EXISTS pg_catalog.jsonb_int1(jsonb);
+DROP FUNCTION IF EXISTS pg_catalog.jsonb_int2(jsonb);
+DROP FUNCTION IF EXISTS pg_catalog.jsonb_int4(jsonb);
+DROP FUNCTION IF EXISTS pg_catalog.jsonb_int8(jsonb);
+DROP FUNCTION IF EXISTS pg_catalog.jsonb_numeric(jsonb);
+DROP FUNCTION IF EXISTS pg_catalog.jsonb_float4(jsonb);
+DROP FUNCTION IF EXISTS pg_catalog.jsonb_float8(jsonb);
+DROP FUNCTION IF EXISTS pg_catalog.jsonb_date(jsonb);
+DROP FUNCTION IF EXISTS pg_catalog.jsonb_time(jsonb);
+DROP FUNCTION IF EXISTS pg_catalog.jsonb_timestamp(jsonb);
