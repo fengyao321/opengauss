@@ -5099,5 +5099,6 @@ char* GetCompatOptions(const char* value)
     }
 
     list_free(elemlist);
+    pfree_ext(valueCopy);
     return strInfo.data;
 }
