@@ -1602,3 +1602,61 @@ INNER JOIN pg_object o ON o.object_oid = c.oid
 WHERE relkind IN ('S', 'L')
 AND s.nspname NOT IN ('information_schema', 'pg_catalog', 'sys', 'information_schema_tsql')
 AND (pg_catalog.pg_has_role(c.relowner, 'USAGE') OR pg_catalog.has_sequence_privilege(c.oid, 'SELECT, UPDATE, USAGE'));
+
+
+
+
+-- sys.object_name
+CREATE OR REPLACE FUNCTION sys.object_name(IN object_id int, IN database_id int DEFAULT NULL) RETURNS nvarchar AS '$libdir/shark', 'object_name' LANGUAGE C STABLE;
+CREATE OR REPLACE FUNCTION sys.object_name(IN object_id bigint, IN database_id int DEFAULT NULL) RETURNS nvarchar LANGUAGE SQL STABLE as 'select sys.object_name($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.object_name(IN object_id bit, IN database_id int DEFAULT NULL) RETURNS nvarchar LANGUAGE SQL STABLE as 'select sys.object_name($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.object_name(IN object_id Oid, IN database_id int DEFAULT NULL) RETURNS nvarchar LANGUAGE SQL STABLE as 'select sys.object_name($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.object_name(IN object_id int, IN database_id Oid) RETURNS nvarchar LANGUAGE SQL STABLE as 'select sys.object_name($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.object_name(IN object_id bigint, IN database_id Oid) RETURNS nvarchar LANGUAGE SQL STABLE as 'select sys.object_name($1::int)';
+CREATE OR REPLACE FUNCTION sys.object_name(IN object_id bit, IN database_id Oid) RETURNS nvarchar LANGUAGE SQL STABLE as 'select sys.object_name($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.object_name(IN object_id Oid, IN database_id Oid) RETURNS nvarchar LANGUAGE SQL STABLE as 'select sys.object_name($1::int, $2::int)';
+
+
+-- sys.object_schema_name
+CREATE OR REPLACE FUNCTION sys.object_schema_name(IN object_id INT, IN database_id INT DEFAULT NULL) RETURNS text AS '$libdir/shark', 'object_schema_name' LANGUAGE C STABLE;
+CREATE OR REPLACE FUNCTION sys.object_schema_name(IN object_id bigint, IN database_id int DEFAULT NULL) RETURNS text LANGUAGE SQL STABLE as 'select sys.object_schema_name($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.object_schema_name(IN object_id bit, IN database_id int DEFAULT NULL) RETURNS text LANGUAGE SQL STABLE as 'select sys.object_schema_name($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.object_schema_name(IN object_id Oid, IN database_id int DEFAULT NULL) RETURNS text LANGUAGE SQL STABLE as 'select sys.object_schema_name($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.object_schema_name(IN object_id int, IN database_id Oid) RETURNS text LANGUAGE SQL STABLE as 'select sys.object_schema_name($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.object_schema_name(IN object_id bigint, IN database_id Oid) RETURNS text LANGUAGE SQL STABLE as 'select sys.object_schema_name($1::int)';
+CREATE OR REPLACE FUNCTION sys.object_schema_name(IN object_id bit, IN database_id Oid) RETURNS text LANGUAGE SQL STABLE as 'select sys.object_schema_name($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.object_schema_name(IN object_id Oid, IN database_id Oid) RETURNS text LANGUAGE SQL STABLE as 'select sys.object_schema_name($1::int, $2::int)';
+
+
+-- sys.object_definition
+CREATE OR REPLACE FUNCTION sys.object_definition(IN object_id int) RETURNS varchar AS '$libdir/shark', 'object_define' LANGUAGE C STABLE STRICT;
+CREATE OR REPLACE FUNCTION sys.object_definition(IN object_id bigint) RETURNS nvarchar LANGUAGE SQL STABLE as 'select sys.object_definition($1::int)';
+CREATE OR REPLACE FUNCTION sys.object_definition(IN object_id bit) RETURNS nvarchar LANGUAGE SQL STABLE as 'select sys.object_definition($1::int)';
+CREATE OR REPLACE FUNCTION sys.object_definition(IN object_id Oid) RETURNS nvarchar LANGUAGE SQL STABLE as 'select sys.object_definition($1::int)';
+
+
+-- sys.objectpropertyex
+CREATE OR REPLACE FUNCTION sys.objectpropertyex(id INT, property VARCHAR) RETURNS SQL_VARIANT
+AS $$
+BEGIN
+        property := PG_CATALOG.RTRIM(LOWER(COALESCE(property, '')));
+        IF NOT EXISTS(SELECT ao.object_id FROM sys.all_objects ao WHERE object_id = id)
+        THEN
+            RETURN NULL;
+        END IF;
+        IF property = 'basetype' COLLATE "C" -- BaseType
+        THEN
+            RETURN (SELECT CAST(ao.type AS SYS.SQL_VARIANT) FROM sys.all_objects ao WHERE ao.object_id = id LIMIT 1);
+    END IF;
+    RETURN CAST(OBJECTPROPERTY(id, property) AS SYS.SQL_VARIANT);
+END
+$$
+LANGUAGE plpgsql STABLE;
+
+CREATE OR REPLACE FUNCTION sys.objectpropertyex(IN object_id bigint, property VARCHAR) RETURNS SQL_VARIANT LANGUAGE SQL STABLE as 'select sys.objectpropertyex($1::int, $2)';
+CREATE OR REPLACE FUNCTION sys.objectpropertyex(IN object_id bit, property VARCHAR) RETURNS SQL_VARIANT LANGUAGE SQL STABLE as 'select sys.objectpropertyex($1::int, $2)';
+CREATE OR REPLACE FUNCTION sys.objectpropertyex(IN object_id Oid, property VARCHAR) RETURNS SQL_VARIANT LANGUAGE SQL STABLE as 'select sys.objectpropertyex($1::int, $2)';
+CREATE OR REPLACE FUNCTION sys.objectpropertyex(IN object_id varbinary, property VARCHAR) RETURNS SQL_VARIANT LANGUAGE SQL STABLE as 'select sys.objectpropertyex($1::int, $2)';
+CREATE OR REPLACE FUNCTION sys.objectpropertyex(id INT, property bit) RETURNS SQL_VARIANT LANGUAGE SQL STABLE as 'select sys.objectpropertyex($1, $2::varchar)';
+CREATE OR REPLACE FUNCTION sys.objectpropertyex(id INT, property varbinary) RETURNS SQL_VARIANT LANGUAGE SQL STABLE as 'select sys.objectpropertyex($1, $2::varchar)';
+
