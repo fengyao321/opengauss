@@ -163,7 +163,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
 			S.datname AS dbname,
 			S.backend_start,
 			S.query
-	FROM pg_pool_validate(false, ' ') AS C LEFT JOIN pg_stat_activity AS S
+	FROM pg_pool_validate(false, ' ') AS C LEFT JOIN pg_catalog.pg_stat_activity AS S
 			ON (C.pid = S.sessionid);
 
 DROP FUNCTION IF EXISTS pg_catalog.pg_stat_get_wlm_session_iostat_info(integer) cascade;
@@ -966,7 +966,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
 			S.datname AS dbname,
 			S.backend_start,
 			S.query
-	FROM pg_pool_validate(false, ' ') AS C LEFT JOIN pg_stat_activity AS S
+	FROM pg_pool_validate(false, ' ') AS C LEFT JOIN pg_catalog.pg_stat_activity AS S
 			ON (C.pid = S.sessionid);
 
 DROP FUNCTION IF EXISTS pg_catalog.pg_stat_get_wlm_session_iostat_info(integer) cascade;

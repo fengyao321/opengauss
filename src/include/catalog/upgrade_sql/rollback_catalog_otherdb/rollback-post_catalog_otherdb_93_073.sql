@@ -24,7 +24,7 @@ CREATE OR REPLACE VIEW character_sets AS
            CAST(nc.nspname AS sql_identifier) AS default_collate_schema,
            CAST(c.collname AS sql_identifier) AS default_collate_name
     FROM pg_database d
-         LEFT JOIN (pg_collation c JOIN pg_namespace nc ON (c.collnamespace = nc.oid))
+         LEFT JOIN (pg_catalog.pg_collation c JOIN pg_catalog.pg_namespace nc ON (c.collnamespace = nc.oid))
              ON (datcollate = collcollate AND datctype = collctype)
     WHERE d.datname = pg_catalog.current_database()
     ORDER BY pg_catalog.char_length(c.collname) DESC, c.collname ASC -- prefer full/canonical name
@@ -39,9 +39,9 @@ CREATE OR REPLACE VIEW check_constraints AS
            CAST(substring(pg_catalog.pg_get_constraintdef(con.oid) from 7) AS character_data)
              AS check_clause
     FROM pg_constraint con
-           LEFT OUTER JOIN pg_namespace rs ON (rs.oid = con.connamespace)
-           LEFT OUTER JOIN pg_class c ON (c.oid = con.conrelid)
-           LEFT OUTER JOIN pg_type t ON (t.oid = con.contypid)
+           LEFT OUTER JOIN pg_catalog.pg_namespace rs ON (rs.oid = con.connamespace)
+           LEFT OUTER JOIN pg_catalog.pg_class c ON (c.oid = con.conrelid)
+           LEFT OUTER JOIN pg_catalog.pg_type t ON (t.oid = con.contypid)
     WHERE pg_catalog.pg_has_role(coalesce(c.relowner, t.typowner), 'USAGE')
       AND con.contype = 'c'
 
@@ -195,21 +195,21 @@ CREATE OR REPLACE VIEW columns AS
             CAST(
                CASE WHEN ad.adsrc = 'AUTO_INCREMENT' THEN 'AUTO_INCREMENT' 
                ELSE
-                  CASE WHEN ad.adsrc_on_update is not null THEN CONCAT('DEFAULT_GENERATED on update ', ad.adsrc_on_update)
+                  CASE WHEN ad.adsrc_on_update is not null THEN CONCAT('DEFAULT_GENERATED on update ', pg_catalog.quote_literal(ad.adsrc_on_update))
                   ELSE null
                   END
                END 
                AS character_data)
             AS EXTRA
 
-    FROM (pg_attribute a LEFT JOIN pg_attrdef ad ON attrelid = adrelid AND attnum = adnum)
-         JOIN (pg_class c JOIN pg_namespace nc ON (c.relnamespace = nc.oid)) ON a.attrelid = c.oid
-         JOIN (pg_type t JOIN pg_namespace nt ON (t.typnamespace = nt.oid)) ON a.atttypid = t.oid
-         LEFT JOIN (pg_type bt JOIN pg_namespace nbt ON (bt.typnamespace = nbt.oid))
+    FROM (pg_attribute a LEFT JOIN pg_catalog.pg_attrdef ad ON attrelid = adrelid AND attnum = adnum)
+         JOIN (pg_catalog.pg_class c JOIN pg_catalog.pg_namespace nc ON (c.relnamespace = nc.oid)) ON a.attrelid = c.oid
+         JOIN (pg_catalog.pg_type t JOIN pg_catalog.pg_namespace nt ON (t.typnamespace = nt.oid)) ON a.atttypid = t.oid
+         LEFT JOIN (pg_catalog.pg_type bt JOIN pg_catalog.pg_namespace nbt ON (bt.typnamespace = nbt.oid))
            ON (t.typtype = 'd' AND t.typbasetype = bt.oid)
-         LEFT JOIN (pg_collation co JOIN pg_namespace nco ON (co.collnamespace = nco.oid))
+         LEFT JOIN (pg_catalog.pg_collation co JOIN pg_catalog.pg_namespace nco ON (co.collnamespace = nco.oid))
            ON a.attcollation = co.oid AND (nco.nspname, co.collname) <> ('pg_catalog', 'default')
-         LEFT JOIN pg_description d on d.objoid = a.attrelid  and d.objsubid = a.attnum
+         LEFT JOIN pg_catalog.pg_description d on d.objoid = a.attrelid  and d.objsubid = a.attnum
 
     WHERE (NOT pg_catalog.pg_is_other_temp_schema(nc.oid))
 
@@ -540,9 +540,9 @@ CREATE OR REPLACE VIEW tables AS
            CAST(null AS character_data) AS commit_action,
            CAST(d.description AS information_schema.character_data) AS TABLE_COMMENT
 
-    FROM pg_namespace nc JOIN pg_class c ON (nc.oid = c.relnamespace)
-           LEFT JOIN (pg_type t JOIN pg_namespace nt ON (t.typnamespace = nt.oid)) ON (c.reloftype = t.oid)
-           LEFT JOIN pg_description d on d.objoid = c.oid and objsubid = 0
+    FROM pg_namespace nc JOIN pg_catalog.pg_class c ON (nc.oid = c.relnamespace)
+           LEFT JOIN (pg_catalog.pg_type t JOIN pg_catalog.pg_namespace nt ON (t.typnamespace = nt.oid)) ON (c.reloftype = t.oid)
+           LEFT JOIN pg_catalog.pg_description d on d.objoid = c.oid and objsubid = 0
 
     WHERE c.relkind IN ('r', 'm', 'v', 'f')
           AND (c.relname not like 'mlog\_%' AND c.relname not like 'matviewmap\_%')
@@ -561,7 +561,7 @@ BEGIN
     SELECT EXISTS (
         SELECT 1
         FROM pg_class c
-        JOIN pg_namespace n ON c.relnamespace = n.oid
+        JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
         WHERE c.relname = 'data_type_privileges'
           AND n.nspname = 'information_schema'
           AND c.relkind = 'v'
@@ -598,7 +598,7 @@ BEGIN
     SELECT EXISTS (
         SELECT 1
         FROM pg_class c
-        JOIN pg_namespace n ON c.relnamespace = n.oid
+        JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
         WHERE c.relname = 'element_types'
           AND n.nspname = 'information_schema'
           AND c.relkind = 'v'
@@ -679,7 +679,7 @@ BEGIN
            FROM pg_proc p
 
          ) AS x (objschema, objname, objtype, objdtdid, objtypeid, objcollation)
-         LEFT JOIN (pg_collation co JOIN pg_namespace nco ON (co.collnamespace = nco.oid))
+         LEFT JOIN (pg_catalog.pg_collation co JOIN pg_catalog.pg_namespace nco ON (co.collnamespace = nco.oid))
            ON x.objcollation = co.oid AND (nco.nspname, co.collname) <> ('pg_catalog', 'default')
 
     WHERE n.oid = x.objschema

@@ -39,7 +39,7 @@ BEGIN
           raise info 'Processing sequence APIs';
           FOR i IN 1..rel_array.count LOOP
             raise info '%.%',rel_array[i],att_array[i];
-            query_str := 'UPDATE ' || rel_array[i] || ' SET ' || att_array[i] || ' = large_seq_rollback_ntree(' || att_array[i] || ' ) WHERE ' || att_array[i] || ' LIKE ''%:funcid 1574 :%'' OR ' || att_array[i] || ' LIKE ''%:funcid 1575 :%'' OR ' || att_array[i] || ' LIKE ''%:funcid 2559 :%'';';
+            query_str := 'UPDATE ' || pg_catalog.quote_ident(rel_array[i]) || ' SET ' || pg_catalog.quote_ident(att_array[i]) || ' = large_seq_rollback_ntree(' || pg_catalog.quote_ident(att_array[i]) || ' ) WHERE ' || pg_catalog.quote_ident(att_array[i]) || ' LIKE ''%:funcid 1574 :%'' OR ' || pg_catalog.quote_ident(att_array[i]) || ' LIKE ''%:funcid 1575 :%'' OR ' || pg_catalog.quote_ident(att_array[i]) || ' LIKE ''%:funcid 2559 :%'';';
             EXECUTE query_str;
           END LOOP;
         END IF;

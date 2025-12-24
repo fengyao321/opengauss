@@ -16,8 +16,8 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
-	JOIN pg_namespace nsp ON rel.relnamespace = nsp.oid
+	JOIN pg_catalog.pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
+	JOIN pg_catalog.pg_namespace nsp ON rel.relnamespace = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -32,10 +32,10 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
-	JOIN pg_attribute att
+	JOIN pg_catalog.pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
+	JOIN pg_catalog.pg_attribute att
 	     ON rel.oid = att.attrelid AND l.objsubid = att.attnum
-	JOIN pg_namespace nsp ON rel.relnamespace = nsp.oid
+	JOIN pg_catalog.pg_namespace nsp ON rel.relnamespace = nsp.oid
 WHERE
 	l.objsubid != 0
 UNION ALL
@@ -52,8 +52,8 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_proc pro ON l.classoid = pro.tableoid AND l.objoid = pro.oid
-	JOIN pg_namespace nsp ON pro.pronamespace = nsp.oid
+	JOIN pg_catalog.pg_proc pro ON l.classoid = pro.tableoid AND l.objoid = pro.oid
+	JOIN pg_catalog.pg_namespace nsp ON pro.pronamespace = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -69,8 +69,8 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_type typ ON l.classoid = typ.tableoid AND l.objoid = typ.oid
-	JOIN pg_namespace nsp ON typ.typnamespace = nsp.oid
+	JOIN pg_catalog.pg_type typ ON l.classoid = typ.tableoid AND l.objoid = typ.oid
+	JOIN pg_catalog.pg_namespace nsp ON typ.typnamespace = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -82,7 +82,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_largeobject_metadata lom ON l.objoid = lom.oid
+	JOIN pg_catalog.pg_largeobject_metadata lom ON l.objoid = lom.oid
 WHERE
 	l.classoid = 'pg_catalog.pg_largeobject'::regclass AND l.objsubid = 0
 UNION ALL
@@ -94,7 +94,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_language lan ON l.classoid = lan.tableoid AND l.objoid = lan.oid
+	JOIN pg_catalog.pg_language lan ON l.classoid = lan.tableoid AND l.objoid = lan.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -118,7 +118,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_shseclabel l
-	JOIN pg_database dat ON l.classoid = dat.tableoid AND l.objoid = dat.oid
+	JOIN pg_catalog.pg_database dat ON l.classoid = dat.tableoid AND l.objoid = dat.oid
 UNION ALL
 SELECT
 	l.objoid, l.classoid, 0::int4 AS objsubid,
@@ -128,7 +128,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_shseclabel l
-	JOIN pg_tablespace spc ON l.classoid = spc.tableoid AND l.objoid = spc.oid
+	JOIN pg_catalog.pg_tablespace spc ON l.classoid = spc.tableoid AND l.objoid = spc.oid
 UNION ALL
 SELECT
 	l.objoid, l.classoid, 0::int4 AS objsubid,
@@ -138,7 +138,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_shseclabel l
-	JOIN pg_authid rol ON l.classoid = rol.tableoid AND l.objoid = rol.oid;
+	JOIN pg_catalog.pg_authid rol ON l.classoid = rol.tableoid AND l.objoid = rol.oid;
 --rollback TABLE
 DROP INDEX IF EXISTS pg_event_trigger_evtname_index;
 DROP INDEX IF EXISTS pg_event_trigger_oid_index;

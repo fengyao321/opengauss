@@ -7,7 +7,7 @@ DECLARE
 BEGIN	
 	SELECT s.setting INTO sql_mode_value
     FROM (SELECT 1) AS dummy
-    LEFT JOIN pg_settings s ON s.name = $1;
+    LEFT JOIN pg_catalog.pg_settings s ON s.name = $1;
     RETURN sql_mode_value;
 END;
 $$ LANGUAGE plpgsql;
@@ -85,7 +85,7 @@ CREATE OR REPLACE VIEW character_sets AS
                ELSE 1 END as int) AS maxlen,
            CAST(null AS varchar(2048)) AS description
     FROM pg_database d
-         LEFT JOIN (pg_collation c JOIN pg_namespace nc ON (c.collnamespace = nc.oid))
+         LEFT JOIN (pg_collation c JOIN pg_catalog.pg_namespace nc ON (c.collnamespace = nc.oid))
              ON (datcollate = collcollate AND datctype = collctype)
     WHERE d.datname = pg_catalog.current_database()
     ORDER BY pg_catalog.char_length(c.collname) DESC, c.collname ASC -- prefer full/canonical name
@@ -100,9 +100,9 @@ CREATE OR REPLACE VIEW check_constraints AS
              AS check_clause,
            CAST(c.relname AS sql_identifier) AS table_name
     FROM pg_constraint con
-           LEFT OUTER JOIN pg_namespace rs ON (rs.oid = con.connamespace)
-           LEFT OUTER JOIN pg_class c ON (c.oid = con.conrelid)
-           LEFT OUTER JOIN pg_type t ON (t.oid = con.contypid)
+           LEFT OUTER JOIN pg_catalog.pg_namespace rs ON (rs.oid = con.connamespace)
+           LEFT OUTER JOIN pg_catalog.pg_class c ON (c.oid = con.conrelid)
+           LEFT OUTER JOIN pg_catalog.pg_type t ON (t.oid = con.contypid)
     WHERE pg_catalog.pg_has_role(coalesce(c.relowner, t.typowner), 'USAGE')
       AND con.contype = 'c'
 
@@ -258,7 +258,7 @@ CREATE OR REPLACE VIEW columns AS
             CAST(
                CASE WHEN ad.adsrc = 'AUTO_INCREMENT' THEN 'AUTO_INCREMENT' 
                ELSE
-                  CASE WHEN ad.adsrc_on_update is not null THEN CONCAT('DEFAULT_GENERATED on update ', ad.adsrc_on_update)
+                  CASE WHEN ad.adsrc_on_update is not null THEN CONCAT('DEFAULT_GENERATED on update ', pg_catalog.quote_literal(ad.adsrc_on_update))
                   ELSE null
                   END
                END 
@@ -273,14 +273,14 @@ CREATE OR REPLACE VIEW columns AS
             CAST(pg_get_index_type(c.oid, a.attnum) AS varchar(3)) AS column_key,
             CAST(null AS int) AS srs_id
 
-    FROM (pg_attribute a LEFT JOIN pg_attrdef ad ON attrelid = adrelid AND attnum = adnum)
-         JOIN (pg_class c JOIN pg_namespace nc ON (c.relnamespace = nc.oid)) ON a.attrelid = c.oid
-         JOIN (pg_type t JOIN pg_namespace nt ON (t.typnamespace = nt.oid)) ON a.atttypid = t.oid
-         LEFT JOIN (pg_type bt JOIN pg_namespace nbt ON (bt.typnamespace = nbt.oid))
+    FROM (pg_attribute a LEFT JOIN pg_catalog.pg_attrdef ad ON attrelid = adrelid AND attnum = adnum)
+         JOIN (pg_class c JOIN pg_catalog.pg_namespace nc ON (c.relnamespace = nc.oid)) ON a.attrelid = c.oid
+         JOIN (pg_type t JOIN pg_catalog.pg_namespace nt ON (t.typnamespace = nt.oid)) ON a.atttypid = t.oid
+         LEFT JOIN (pg_type bt JOIN pg_catalog.pg_namespace nbt ON (bt.typnamespace = nbt.oid))
            ON (t.typtype = 'd' AND t.typbasetype = bt.oid)
-         LEFT JOIN (pg_collation co JOIN pg_namespace nco ON (co.collnamespace = nco.oid))
+         LEFT JOIN (pg_collation co JOIN pg_catalog.pg_namespace nco ON (co.collnamespace = nco.oid))
            ON a.attcollation = co.oid AND (nco.nspname, co.collname) <> ('pg_catalog', 'default')
-         LEFT JOIN pg_description d on d.objoid = a.attrelid  and d.objsubid = a.attnum
+         LEFT JOIN pg_catalog.pg_description d on d.objoid = a.attrelid  and d.objsubid = a.attnum
 
     WHERE (NOT pg_catalog.pg_is_other_temp_schema(nc.oid))
 
@@ -329,11 +329,11 @@ CREATE OR REPLACE VIEW key_column_usage AS
                 AND c.contype IN ('p', 'u', 'f')
                 AND r.relkind = 'r'
                 AND (NOT pg_catalog.pg_is_other_temp_schema(nr.oid)) ) AS ss
-         LEFT JOIN pg_class ref_rel 
+         LEFT JOIN pg_catalog.pg_class ref_rel 
             ON ss.contype = 'f' AND ss.confrelid = ref_rel.oid
-         LEFT JOIN pg_namespace ref_ns 
+         LEFT JOIN pg_catalog.pg_namespace ref_ns 
             ON ss.contype = 'f' AND ref_rel.relnamespace = ref_ns.oid
-         LEFT JOIN pg_attribute ref_att 
+         LEFT JOIN pg_catalog.pg_attribute ref_att 
             ON ss.contype = 'f' 
             AND ref_rel.oid = ref_att.attrelid 
             AND ref_att.attnum = ss.confkey[(ss.x).n] 		
@@ -437,21 +437,21 @@ CREATE OR REPLACE VIEW referential_constraints AS
            CAST(c2.relname AS varchar(64)) AS referenced_table_name
 
     FROM (pg_namespace ncon
-          INNER JOIN pg_constraint con ON ncon.oid = con.connamespace
-          INNER JOIN pg_class c ON con.conrelid = c.oid AND con.contype = 'f')
-         LEFT JOIN pg_depend d1  -- find constraint's dependency on an index
+          INNER JOIN pg_catalog.pg_constraint con ON ncon.oid = con.connamespace
+          INNER JOIN pg_catalog.pg_class c ON con.conrelid = c.oid AND con.contype = 'f')
+         LEFT JOIN pg_catalog.pg_depend d1  -- find constraint's dependency on an index
           ON d1.objid = con.oid AND d1.classid = 'pg_constraint'::regclass
              AND d1.refclassid = 'pg_class'::regclass AND d1.refobjsubid = 0
-         LEFT JOIN pg_depend d2  -- find pkey/unique constraint for that index
+         LEFT JOIN pg_catalog.pg_depend d2  -- find pkey/unique constraint for that index
           ON d2.refclassid = 'pg_constraint'::regclass
              AND d2.classid = 'pg_class'::regclass
              AND d2.objid = d1.refobjid AND d2.objsubid = 0
              AND d2.deptype = 'i'
-         LEFT JOIN pg_constraint pkc ON pkc.oid = d2.refobjid
+         LEFT JOIN pg_catalog.pg_constraint pkc ON pkc.oid = d2.refobjid
             AND pkc.contype IN ('p', 'u')
             AND pkc.conrelid = con.confrelid
-         LEFT JOIN pg_namespace npkc ON pkc.connamespace = npkc.oid
-         LEFT JOIN pg_class c2 on c2.oid = con.confrelid
+         LEFT JOIN pg_catalog.pg_namespace npkc ON pkc.connamespace = npkc.oid
+         LEFT JOIN pg_catalog.pg_class c2 on c2.oid = con.confrelid
 
     WHERE pg_catalog.pg_has_role(c.relowner, 'USAGE')
           -- SELECT privilege omitted, per SQL standard
@@ -564,14 +564,14 @@ CREATE OR REPLACE VIEW routines AS
            CAST(db.datcollate AS varchar(64)) AS database_collation
           
           FROM pg_namespace n
-          INNER JOIN pg_proc p ON n.oid = p.pronamespace  
-          INNER JOIN pg_language l ON p.prolang = l.oid 
-          INNER JOIN pg_type t ON p.prorettype = t.oid 
-          INNER JOIN pg_namespace nt ON t.typnamespace = nt.oid
-          INNER JOIN pg_description d ON d.objoid = p.oid 
-          INNER JOIN pg_class c ON d.classoid = c.oid
-          LEFT JOIN pg_user u ON p.proowner = u.usesysid
-          LEFT JOIN pg_database db ON db.datname = current_database()
+          INNER JOIN pg_catalog.pg_proc p ON n.oid = p.pronamespace  
+          INNER JOIN pg_catalog.pg_language l ON p.prolang = l.oid 
+          INNER JOIN pg_catalog.pg_type t ON p.prorettype = t.oid 
+          INNER JOIN pg_catalog.pg_namespace nt ON t.typnamespace = nt.oid
+          INNER JOIN pg_catalog.pg_description d ON d.objoid = p.oid 
+          INNER JOIN pg_catalog.pg_class c ON d.classoid = c.oid
+          LEFT JOIN pg_catalog.pg_user u ON p.proowner = u.usesysid
+          LEFT JOIN pg_catalog.pg_database db ON db.datname = current_database()
            WHERE 
              (pg_catalog.pg_has_role(p.proowner, 'USAGE')
               OR pg_catalog.has_function_privilege(p.oid, 'EXECUTE'));
@@ -710,11 +710,11 @@ CREATE OR REPLACE VIEW tables AS
            CAST(null AS bigint) AS checksum,
            CAST(c.reloptions AS varchar(256)) AS create_options
 
-    FROM pg_namespace nc JOIN pg_class c ON (nc.oid = c.relnamespace)
-           LEFT JOIN (pg_type t JOIN pg_namespace nt ON (t.typnamespace = nt.oid)) ON (c.reloftype = t.oid)
-           LEFT JOIN pg_description d on d.objoid = c.oid and objsubid = 0
-      	   LEFT JOIN pg_object po on c.oid = po.object_oid and c.relkind = po.object_type
-           LEFT JOIN pg_tablespace ts ON c.reltablespace = ts.oid
+    FROM pg_namespace nc JOIN pg_catalog.pg_class c ON (nc.oid = c.relnamespace)
+           LEFT JOIN (pg_catalog.pg_type t JOIN pg_catalog.pg_namespace nt ON (t.typnamespace = nt.oid)) ON (c.reloftype = t.oid)
+           LEFT JOIN pg_catalog.pg_description d on d.objoid = c.oid and objsubid = 0
+      	   LEFT JOIN pg_catalog.pg_object po on c.oid = po.object_oid and c.relkind = po.object_type
+           LEFT JOIN pg_catalog.pg_tablespace ts ON c.reltablespace = ts.oid
 
     WHERE c.relkind IN ('r', 'm', 'v', 'f')
           AND (c.relname not like 'mlog\_%' AND c.relname not like 'matviewmap\_%')
@@ -776,13 +776,13 @@ SELECT
     CAST(pg_get_expr(idx.indexprs, t.oid) AS TEXT) AS expression
 FROM
     pg_class t
-    JOIN pg_namespace n ON t.relnamespace = n.oid
-    JOIN pg_index idx ON idx.indrelid = t.oid
-    JOIN pg_class i ON i.oid = idx.indexrelid
-    JOIN pg_am am ON i.relam = am.oid
+    JOIN pg_catalog.pg_namespace n ON t.relnamespace = n.oid
+    JOIN pg_catalog.pg_index idx ON idx.indrelid = t.oid
+    JOIN pg_catalog.pg_class i ON i.oid = idx.indexrelid
+    JOIN pg_catalog.pg_am am ON i.relam = am.oid
     JOIN generate_series(1, array_length(idx.indkey, 1)) AS pos ON true
-    JOIN pg_attribute a ON a.attrelid = t.oid AND (a.attnum = idx.indkey[pos - 1] or attnum_used_by_indexprs(idx.indexprs, a.attnum))
-    left JOIN pg_description d on d.objoid = idx.indexrelid and d.objsubid = 0	
+    JOIN pg_catalog.pg_attribute a ON a.attrelid = t.oid AND (a.attnum = idx.indkey[pos - 1] or attnum_used_by_indexprs(idx.indexprs, a.attnum))
+    left JOIN pg_catalog.pg_description d on d.objoid = idx.indexrelid and d.objsubid = 0	
 WHERE
     t.relkind = 'r'
     AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast');
@@ -827,7 +827,7 @@ SELECT CAST(pg_catalog.current_database() AS varchar(64)) AS table_catalog,
 	FROM pg_catalog.pg_class c INNER JOIN pg_catalog.pg_partition p on p.parentid = c.oid
 	INNER JOIN pg_catalog.pg_authid a on c.relowner = a.oid
 	INNER JOIN pg_catalog.pg_namespace nc on c.relnamespace = nc.oid
-        LEFT JOIN pg_object po on c.oid = po.object_oid and c.relkind = po.object_type
+        LEFT JOIN pg_catalog.pg_object po on c.oid = po.object_oid and c.relkind = po.object_type
 	where p.parttype = 'p' AND
     (
         pg_catalog.pg_has_role(c.relowner, 'usage')
@@ -871,7 +871,7 @@ SELECT CAST(pg_catalog.current_database() AS varchar(64)) AS table_catalog,
 	INNER JOIN pg_catalog.pg_partition sp on sp.parentid = p.oid
 	INNER JOIN pg_catalog.pg_authid a on c.relowner = a.oid
 	INNER JOIN pg_catalog.pg_namespace nc on c.relnamespace = nc.oid
-   LEFT JOIN pg_object po on c.oid = po.object_oid and c.relkind = po.object_type
+   LEFT JOIN pg_catalog.pg_object po on c.oid = po.object_oid and c.relkind = po.object_type
 	where p.parttype = 'p' AND
     sp.parttype = 's' AND
     (
@@ -908,9 +908,9 @@ CREATE OR REPLACE VIEW events AS
     CAST(pg_catalog.get_param_values('client_encoding'::text) AS varchar(64)) AS character_set_client,
     CAST(db.datcollate AS varchar(64)) AS collation_connection,
     CAST(db.datcollate AS varchar(64)) AS database_collation
-    from pg_job job join pg_job_proc job_proc on job.job_id = job_proc.job_id
-      join pg_authid au on job.log_user = au.rolname
-   JOIN pg_database db ON db.datname = pg_catalog.current_database()
+    from pg_job job join pg_catalog.pg_job_proc job_proc on job.job_id = job_proc.job_id
+      join pg_catalog.pg_authid au on job.log_user = au.rolname
+   JOIN pg_catalog.pg_database db ON db.datname = pg_catalog.current_database()
       where pg_catalog.pg_has_role(au.oid, 'USAGE') AND db.datname = pg_catalog.current_database();
 
 GRANT SELECT ON events TO PUBLIC; 

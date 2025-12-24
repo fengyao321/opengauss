@@ -18,7 +18,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_gtt_attached_pids WITH (security_barrier) A
     array(select pid from pg_catalog.pg_gtt_attached_pid(c.oid)) AS pids
  FROM
      pg_class c
-     LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
  WHERE c.relpersistence='g' AND c.relkind in('r', 'S', 'L');
 GRANT SELECT ON pg_catalog.pg_gtt_attached_pids TO PUBLIC;
 

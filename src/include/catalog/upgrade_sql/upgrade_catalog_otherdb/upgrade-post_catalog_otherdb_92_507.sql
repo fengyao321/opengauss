@@ -3297,7 +3297,7 @@ CREATE VIEW pg_catalog.pg_publication_tables AS
         N.nspname AS schemaname,
         C.relname AS tablename
     FROM pg_publication P, pg_class C
-         JOIN pg_namespace N ON (N.oid = C.relnamespace)
+         JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.oid IN (SELECT relid FROM pg_get_publication_tables(P.pubname));
 
 DROP VIEW IF EXISTS pg_catalog.pg_stat_subscription CASCADE;
@@ -3312,7 +3312,7 @@ CREATE VIEW pg_catalog.pg_stat_subscription AS
             st.latest_end_lsn,
             st.latest_end_time
     FROM pg_subscription su
-            LEFT JOIN pg_stat_get_subscription(NULL) st
+            LEFT JOIN pg_catalog.pg_stat_get_subscription(NULL) st
                       ON (st.subid = su.oid);
 
 DROP VIEW IF EXISTS pg_catalog.pg_replication_origin_status CASCADE;

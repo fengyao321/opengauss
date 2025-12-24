@@ -233,7 +233,7 @@ DECLARE
   tname r%rowtype;
 BEGIN
   for tname in r loop
-    stmt := 'DROP TYPE IF EXISTS pg_catalog.' || tname.typname || ' CASCADE';
+    stmt := 'DROP TYPE IF EXISTS pg_catalog.' || pg_catalog.quote_ident(tname.typname) || ' CASCADE';
     execute immediate stmt;
   end loop;
 END;

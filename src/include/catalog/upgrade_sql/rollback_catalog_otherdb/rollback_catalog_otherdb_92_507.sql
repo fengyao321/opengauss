@@ -7,7 +7,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_statio_all_sequences AS
                     pg_stat_get_blocks_hit(C.oid) AS blks_read,
             pg_stat_get_blocks_hit(C.oid) AS blks_hit
     FROM pg_class C
-            LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+            LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind = 'S';
 GRANT SELECT ON pg_catalog.pg_statio_all_sequences TO PUBLIC;
 
@@ -206,7 +206,7 @@ BEGIN
                 pg_stat_get_blocks_hit(C.oid) AS blks_read,
                 pg_stat_get_blocks_hit(C.oid) AS blks_hit
             FROM pg_class C
-                LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+                LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
                 WHERE C.relkind = 'S';
             
             CREATE OR REPLACE VIEW DBE_PERF.statio_user_sequences AS

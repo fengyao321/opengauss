@@ -28,9 +28,9 @@ CREATE OR REPLACE VIEW pg_catalog.pg_roles AS
         rolmonitoradmin,
         roloperatoradmin,
         rolpolicyadmin
-    FROM pg_authid LEFT JOIN pg_db_role_setting s
+    FROM pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
     ON (pg_authid.oid = setrole AND setdatabase = 0)
-    LEFT JOIN pgxc_group
+    LEFT JOIN pg_catalog.pgxc_group
     ON (pg_authid.rolnodegroup = pgxc_group.oid);
 
 GRANT SELECT ON TABLE pg_catalog.pg_roles TO PUBLIC;
@@ -57,9 +57,9 @@ CREATE OR REPLACE VIEW pg_catalog.pg_user AS
         rolmonitoradmin AS usemonitoradmin,
         roloperatoradmin AS useoperatoradmin,
         rolpolicyadmin AS usepolicyadmin
-    FROM pg_authid LEFT JOIN pg_db_role_setting s
+    FROM pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
     ON (pg_authid.oid = setrole AND setdatabase = 0)
-    LEFT JOIN pgxc_group
+    LEFT JOIN pg_catalog.pgxc_group
     ON (pg_authid.rolnodegroup = pgxc_group.oid)
     WHERE rolcanlogin;
 
@@ -86,7 +86,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_shadow AS
         rolmonitoradmin AS usemonitoradmin,
         roloperatoradmin AS useoperatoradmin,
         rolpolicyadmin AS usepolicyadmin
-    FROM pg_authid LEFT JOIN pg_db_role_setting s
+    FROM pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
     ON (pg_authid.oid = setrole AND setdatabase = 0)
     WHERE rolcanlogin;
 
@@ -286,7 +286,7 @@ CREATE OR REPLACE VIEW pg_catalog.DB_OBJECTS AS
 		cs.relnamespace AS NAMESPACE,
 		po.ctime AS CREATED,
 		po.mtime AS LAST_DDL_TIME
-	FROM pg_class cs left join pg_object po
+	FROM pg_class cs left join pg_catalog.pg_object po
 		on (po.object_oid = cs.oid and po.object_type in('r', 'f', 'i', 's', 'v'))
 		where cs.relkind in('r', 'f', 'i', 'S', 'v')
 	UNION
@@ -298,7 +298,7 @@ CREATE OR REPLACE VIEW pg_catalog.DB_OBJECTS AS
 		pc.pronamespace AS NAMESPACE,
 		po.ctime AS CREATED,
 		po.mtime AS LAST_DDL_TIME
-	FROM pg_proc pc left join pg_object po
+	FROM pg_proc pc left join pg_catalog.pg_object po
 		on (po.object_oid = pc.oid and po.object_type = 'P')
 	UNION
 	SELECT
@@ -310,7 +310,7 @@ CREATE OR REPLACE VIEW pg_catalog.DB_OBJECTS AS
 		NULL::timestamptz AS CREATED,
 		NULL::timestamptz AS LAST_DDL_TIME
 	FROM pg_rewrite re
-		LEFT JOIN pg_class cs ON (cs.oid = re.ev_class)
+		LEFT JOIN pg_catalog.pg_class cs ON (cs.oid = re.ev_class)
 	UNION
 	SELECT
 		pg_get_userbyid(cs.relowner) AS OWNER,
@@ -321,7 +321,7 @@ CREATE OR REPLACE VIEW pg_catalog.DB_OBJECTS AS
 		NULL::timestamptz AS CREATED,
 		NULL::timestamptz AS LAST_DDL_TIME
 	FROM pg_trigger tr
-		LEFT JOIN pg_class cs ON (cs.oid = tr.tgrelid)
+		LEFT JOIN pg_catalog.pg_class cs ON (cs.oid = tr.tgrelid)
 	UNION
 	SELECT
 		pg_get_userbyid(te.typowner) AS OWNER,
@@ -370,7 +370,7 @@ CREATE OR REPLACE VIEW pg_catalog.MY_OBJECTS AS
 		cs.relnamespace AS NAMESPACE,
 		po.ctime AS CREATED,
 		po.mtime AS LAST_DDL_TIME
-	FROM pg_class cs left join pg_object po
+	FROM pg_class cs left join pg_catalog.pg_object po
 		on (po.object_oid = cs.oid and po.object_type in('r', 'f', 'i', 's', 'v'))
 	WHERE cs.relkind in('r', 'f', 'i', 'S', 'v')
 		AND pg_get_userbyid(cs.relowner)=current_user::text
@@ -382,7 +382,7 @@ CREATE OR REPLACE VIEW pg_catalog.MY_OBJECTS AS
 		pc.pronamespace AS NAMESPACE,
 		po.ctime AS CREATED,
 		po.mtime AS LAST_DDL_TIME
-	FROM pg_proc pc left join pg_object po
+	FROM pg_proc pc left join pg_catalog.pg_object po
 		on (po.object_oid = pc.oid and po.object_type = 'P')
 	WHERE pg_get_userbyid(pc.proowner)=current_user::text
 	UNION
@@ -394,7 +394,7 @@ CREATE OR REPLACE VIEW pg_catalog.MY_OBJECTS AS
 		NULL::timestamptz AS CREATED,
 		NULL::timestamptz AS LAST_DDL_TIME
 	FROM pg_rewrite re
-		LEFT JOIN pg_class cs ON (cs.oid = re.ev_class)
+		LEFT JOIN pg_catalog.pg_class cs ON (cs.oid = re.ev_class)
 	WHERE pg_get_userbyid(cs.relowner)=current_user::text
 	UNION
 	SELECT
@@ -405,7 +405,7 @@ CREATE OR REPLACE VIEW pg_catalog.MY_OBJECTS AS
 		NULL::timestamptz AS CREATED,
 		NULL::timestamptz AS LAST_DDL_TIME
 	FROM pg_trigger tr
-		LEFT JOIN pg_class cs ON (cs.oid = tr.tgrelid)
+		LEFT JOIN pg_catalog.pg_class cs ON (cs.oid = tr.tgrelid)
 	WHERE pg_get_userbyid(cs.relowner)=current_user::text
 	UNION
 	SELECT
@@ -456,7 +456,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_OBJECTS AS
 		cs.relnamespace AS NAMESPACE,
 		po.ctime AS CREATED,
 		po.mtime AS LAST_DDL_TIME
-	FROM pg_class cs left join pg_object po
+	FROM pg_class cs left join pg_catalog.pg_object po
 		on (po.object_oid = cs.oid and po.object_type in('r', 'f', 'i', 's', 'v'))
 		where cs.relkind in('r', 'f', 'i', 'S', 'v')
 	UNION
@@ -468,7 +468,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_OBJECTS AS
 		pc.pronamespace AS NAMESPACE,
 		po.ctime AS CREATED,
 		po.mtime AS LAST_DDL_TIME
-	FROM pg_proc pc left join pg_object po
+	FROM pg_proc pc left join pg_catalog.pg_object po
 		on (po.object_oid = pc.oid and po.object_type = 'P')
 	UNION
 	SELECT
@@ -480,7 +480,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_OBJECTS AS
 		NULL::timestamptz AS CREATED,
 		NULL::timestamptz AS LAST_DDL_TIME
 	FROM pg_rewrite re
-		LEFT JOIN pg_class cs ON (cs.oid = re.ev_class)
+		LEFT JOIN pg_catalog.pg_class cs ON (cs.oid = re.ev_class)
 	UNION
 	SELECT
 		pg_get_userbyid(cs.relowner) AS OWNER,
@@ -491,7 +491,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_OBJECTS AS
 		NULL::timestamptz AS CREATED,
 		NULL::timestamptz AS LAST_DDL_TIME
 	FROM pg_trigger tr
-		LEFT JOIN pg_class cs ON (cs.oid = tr.tgrelid)
+		LEFT JOIN pg_catalog.pg_class cs ON (cs.oid = tr.tgrelid)
 	UNION
 	SELECT
 		pg_get_userbyid(te.typowner) AS OWNER,
@@ -655,7 +655,7 @@ CREATE OR REPLACE VIEW DBE_PERF.workload_sql_count AS
     sum(S.dml_count)::bigint AS dml_count,
     sum(S.dcl_count)::bigint AS dcl_count
     FROM
-      pg_user left join pg_stat_get_sql_count() AS S on pg_user.usename = S.user_name
+      pg_user left join pg_catalog.pg_stat_get_sql_count() AS S on pg_user.usename = S.user_name
     GROUP by pg_user.respool;
 
 CREATE OR REPLACE VIEW DBE_PERF.workload_sql_elapse_time AS
@@ -678,7 +678,7 @@ CREATE OR REPLACE VIEW DBE_PERF.workload_sql_elapse_time AS
     MIN(S.min_delete_elapse) AS min_delete_elapse,
     ((sum(S.total_delete_elapse) / greatest(sum(S.delete_count), 1))::bigint) AS avg_delete_elapse
     FROM
-      pg_user left join pg_stat_get_sql_count() AS S on pg_user.usename = S.user_name
+      pg_user left join pg_catalog.pg_stat_get_sql_count() AS S on pg_user.usename = S.user_name
     GROUP by pg_user.respool;
 
 CREATE OR REPLACE FUNCTION dbe_perf.get_summary_workload_sql_count
@@ -2031,7 +2031,7 @@ CREATE OR REPLACE VIEW DBE_PERF.statio_all_indexes AS
   FROM pg_class C JOIN
        pg_index X ON C.oid = X.indrelid JOIN
        pg_class I ON I.oid = X.indexrelid
-       LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+       LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind IN ('r', 't');
 
 CREATE OR REPLACE FUNCTION DBE_PERF.get_global_statio_all_indexes
@@ -2080,10 +2080,10 @@ DECLARE
         S.relname AS relname,
         T.relname AS toastname,
         CI.relname AS toastindexname
-    FROM pg_class S JOIN pg_namespace N ON N.oid = S.relnamespace
-        LEFT JOIN pg_class T on T.oid = S.reltoastrelid
-        JOIN pg_index I ON T.oid = I.indrelid
-        JOIN pg_class CI ON CI.oid = I.indexrelid
+    FROM pg_class S JOIN pg_catalog.pg_namespace N ON N.oid = S.relnamespace
+        LEFT JOIN pg_catalog.pg_class T on T.oid = S.reltoastrelid
+        JOIN pg_catalog.pg_index I ON T.oid = I.indrelid
+        JOIN pg_catalog.pg_class CI ON CI.oid = I.indexrelid
     WHERE S.relkind IN (''r'', ''t'') AND T.relname is not NULL';
     return query execute query_str;
   END; $$
@@ -2113,8 +2113,8 @@ DECLARE
         T.idx_blks_read AS idx_blks_read,
         T.idx_blks_hit AS idx_blks_hit
       FROM DBE_PERF.statio_all_indexes T
-        LEFT JOIN pg_class C ON T.relid = C.reltoastrelid
-        LEFT JOIN pg_namespace N ON C.relnamespace = N.oid';
+        LEFT JOIN pg_catalog.pg_class C ON T.relid = C.reltoastrelid
+        LEFT JOIN pg_catalog.pg_namespace N ON C.relnamespace = N.oid';
       FOR row_data IN EXECUTE(query_str) LOOP
         schemaname := row_data.schemaname;
         IF row_data.toastrelname IS NULL THEN
@@ -2153,7 +2153,7 @@ CREATE OR REPLACE VIEW DBE_PERF.statio_all_sequences AS
     pg_stat_get_blocks_hit(C.oid) AS blks_read,
     pg_stat_get_blocks_hit(C.oid) AS blks_hit
   FROM pg_class C
-       LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+       LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind = 'S';
 
 CREATE OR REPLACE FUNCTION dbe_perf.get_global_statio_all_sequences
@@ -2215,7 +2215,7 @@ CREATE OR REPLACE VIEW DBE_PERF.statio_all_tables AS
        pg_index I ON C.oid = I.indrelid LEFT JOIN
        pg_class T ON C.reltoastrelid = T.oid LEFT JOIN
        pg_class X ON T.reltoastidxid = X.oid
-       LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+       LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind IN ('r', 't')
   GROUP BY C.oid, N.nspname, C.relname, T.oid, X.oid;
 
@@ -2288,8 +2288,8 @@ DECLARE
             C.tidx_blks_read AS tidx_blks_read,
             C.tidx_blks_hit AS tidx_blks_hit
         FROM dbe_perf.statio_all_tables C
-            LEFT JOIN pg_class O ON C.relid = O.reltoastrelid
-            LEFT JOIN pg_namespace N ON O.relnamespace = N.oid';
+            LEFT JOIN pg_catalog.pg_class O ON C.relid = O.reltoastrelid
+            LEFT JOIN pg_catalog.pg_namespace N ON O.relnamespace = N.oid';
       FOR row_data IN EXECUTE(query_str) LOOP
         schemaname := row_data.schemaname;
         IF row_data.toastrelname IS NULL THEN
@@ -2325,8 +2325,8 @@ DECLARE
         N.nspname as shemaname,
         S.relname as relname,
         T.relname as toastname
-    FROM pg_class S JOIN pg_namespace N ON N.oid = S.relnamespace
-        LEFT JOIN pg_class T on T.oid=S.reltoastrelid
+    FROM pg_class S JOIN pg_catalog.pg_namespace N ON N.oid = S.relnamespace
+        LEFT JOIN pg_catalog.pg_class T on T.oid=S.reltoastrelid
         WHERE T.relname is not NULL';
     return query execute query_str;
   END; $$
@@ -2404,8 +2404,8 @@ DECLARE
         T.idx_blks_read AS idx_blks_read,
         T.idx_blks_hit AS idx_blks_hit
       FROM dbe_perf.statio_sys_indexes T
-        LEFT JOIN pg_class C ON T.relid = C.reltoastrelid
-        LEFT JOIN pg_namespace N ON C.relnamespace = N.oid';
+        LEFT JOIN pg_catalog.pg_class C ON T.relid = C.reltoastrelid
+        LEFT JOIN pg_catalog.pg_namespace N ON C.relnamespace = N.oid';
       FOR row_data IN EXECUTE(query_str) LOOP
         schemaname := row_data.schemaname;
         IF row_data.toastrelname IS NULL THEN
@@ -2555,8 +2555,8 @@ DECLARE
           C.tidx_blks_read AS tidx_blks_read,
           C.tidx_blks_hit AS tidx_blks_hit
       FROM dbe_perf.statio_sys_tables C
-          LEFT JOIN pg_class O ON C.relid = O.reltoastrelid
-          LEFT JOIN pg_namespace N ON O.relnamespace = N.oid';
+          LEFT JOIN pg_catalog.pg_class O ON C.relid = O.reltoastrelid
+          LEFT JOIN pg_catalog.pg_namespace N ON O.relnamespace = N.oid';
       FOR row_data IN EXECUTE(query_str) LOOP
         schemaname := row_data.schemaname;
         IF row_data.toastrelname IS NULL THEN
@@ -2656,8 +2656,8 @@ DECLARE
         T.idx_blks_read AS idx_blks_read,
         T.idx_blks_hit AS idx_blks_hit
       FROM dbe_perf.statio_user_indexes T
-        LEFT JOIN pg_class C ON T.relid = C.reltoastrelid
-        LEFT JOIN pg_namespace N ON C.relnamespace = N.oid';
+        LEFT JOIN pg_catalog.pg_class C ON T.relid = C.reltoastrelid
+        LEFT JOIN pg_catalog.pg_namespace N ON C.relnamespace = N.oid';
       FOR row_data IN EXECUTE(query_str) LOOP
         schemaname := row_data.schemaname;
         IF row_data.toastrelname IS NULL THEN
@@ -2808,8 +2808,8 @@ DECLARE
         C.tidx_blks_read AS tidx_blks_read,
         C.tidx_blks_hit AS tidx_blks_hit
       FROM dbe_perf.statio_user_tables C
-        LEFT JOIN pg_class O ON C.relid = O.reltoastrelid
-        LEFT JOIN pg_namespace N ON O.relnamespace = N.oid';
+        LEFT JOIN pg_catalog.pg_class O ON C.relid = O.reltoastrelid
+        LEFT JOIN pg_catalog.pg_namespace N ON O.relnamespace = N.oid';
       FOR row_data IN EXECUTE(query_str) LOOP
         schemaname := row_data.schemaname;
         IF row_data.toastrelname IS NULL THEN
@@ -2906,7 +2906,7 @@ CREATE OR REPLACE VIEW DBE_PERF.stat_all_tables AS
     pg_stat_get_autoanalyze_count(C.oid) AS autoanalyze_count
     FROM pg_class C LEFT JOIN
          pg_index I ON C.oid = I.indrelid
-         LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+         LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
       WHERE C.relkind IN ('r', 't')
     GROUP BY C.oid, N.nspname, C.relname;
 
@@ -2954,8 +2954,8 @@ DECLARE
                     T.analyze_count AS analyze_count,
                     T.autoanalyze_count AS autoanalyze_count
                 FROM dbe_perf.stat_all_tables T
-                    LEFT JOIN pg_class C ON T.relid = C.reltoastrelid
-                    LEFT JOIN pg_namespace N ON C.relnamespace = N.oid';
+                    LEFT JOIN pg_catalog.pg_class C ON T.relid = C.reltoastrelid
+                    LEFT JOIN pg_catalog.pg_namespace N ON C.relnamespace = N.oid';
             FOR row_data IN EXECUTE(query_str) LOOP
                 schemaname := row_data.schemaname;
                 IF row_data.toastrelname IS NULL THEN
@@ -3003,7 +3003,7 @@ CREATE OR REPLACE VIEW DBE_PERF.stat_all_indexes AS
     FROM pg_class C JOIN
          pg_index X ON C.oid = X.indrelid JOIN
          pg_class I ON I.oid = X.indexrelid
-         LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+         LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
       WHERE C.relkind IN ('r', 't');
 
 CREATE OR REPLACE FUNCTION dbe_perf.get_global_stat_all_indexes
@@ -3067,8 +3067,8 @@ DECLARE
         T.idx_tup_read AS idx_tup_read,
         T.idx_tup_fetch AS idx_tup_fetch
       FROM dbe_perf.stat_all_indexes T
-        LEFT JOIN pg_class C ON T.relid = C.reltoastrelid
-        LEFT JOIN pg_namespace N ON C.relnamespace = N.oid';
+        LEFT JOIN pg_catalog.pg_class C ON T.relid = C.reltoastrelid
+        LEFT JOIN pg_catalog.pg_namespace N ON C.relnamespace = N.oid';
       FOR row_data IN EXECUTE(query_str) LOOP
         schemaname := row_data.schemaname;
         IF row_data.toastrelname IS NULL THEN
@@ -3201,8 +3201,8 @@ DECLARE
         T.analyze_count AS analyze_count,
         T.autoanalyze_count AS autoanalyze_count
       FROM dbe_perf.stat_sys_tables T
-        LEFT JOIN pg_class C ON T.relid = C.reltoastrelid
-        LEFT JOIN pg_namespace N ON C.relnamespace = N.oid';
+        LEFT JOIN pg_catalog.pg_class C ON T.relid = C.reltoastrelid
+        LEFT JOIN pg_catalog.pg_namespace N ON C.relnamespace = N.oid';
       FOR row_data IN EXECUTE(query_str) LOOP
         schemaname := row_data.schemaname;
         IF row_data.toastrelname IS NULL THEN
@@ -3318,8 +3318,8 @@ DECLARE
         T.idx_tup_read AS idx_tup_read,
         T.idx_tup_fetch AS idx_tup_fetch
       FROM dbe_perf.stat_sys_indexes T
-        LEFT JOIN pg_class C ON T.relid = C.reltoastrelid
-        LEFT JOIN pg_namespace N ON C.relnamespace = N.oid';
+        LEFT JOIN pg_catalog.pg_class C ON T.relid = C.reltoastrelid
+        LEFT JOIN pg_catalog.pg_namespace N ON C.relnamespace = N.oid';
       FOR row_data IN EXECUTE(query_str) LOOP
         schemaname := row_data.schemaname;
         IF row_data.toastrelname IS NULL THEN
@@ -3452,8 +3452,8 @@ DECLARE
         T.analyze_count AS analyze_count,
         T.autoanalyze_count AS autoanalyze_count
       FROM dbe_perf.stat_user_tables T
-        LEFT JOIN pg_class C ON T.relid = C.reltoastrelid
-        LEFT JOIN pg_namespace N ON C.relnamespace = N.oid';
+        LEFT JOIN pg_catalog.pg_class C ON T.relid = C.reltoastrelid
+        LEFT JOIN pg_catalog.pg_namespace N ON C.relnamespace = N.oid';
       FOR row_data IN EXECUTE(query_str) LOOP
         schemaname := row_data.schemaname;
         IF row_data.toastrelname IS NULL THEN
@@ -3569,8 +3569,8 @@ DECLARE
         T.idx_tup_read AS idx_tup_read,
         T.idx_tup_fetch AS idx_tup_fetch
       FROM dbe_perf.stat_user_indexes T
-        LEFT JOIN pg_class C ON T.relid = C.reltoastrelid
-        LEFT JOIN pg_namespace N ON C.relnamespace = N.oid';
+        LEFT JOIN pg_catalog.pg_class C ON T.relid = C.reltoastrelid
+        LEFT JOIN pg_catalog.pg_namespace N ON C.relnamespace = N.oid';
       FOR row_data IN EXECUTE(query_str) LOOP
         schemaname := row_data.schemaname;
         IF row_data.toastrelname IS NULL THEN
@@ -3764,7 +3764,7 @@ CREATE OR REPLACE VIEW DBE_PERF.stat_xact_all_tables AS
     pg_stat_get_xact_tuples_hot_updated(C.oid) AS n_tup_hot_upd
   FROM pg_class C LEFT JOIN
        pg_index I ON C.oid = I.indrelid
-       LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+       LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind IN ('r', 't')
   GROUP BY C.oid, N.nspname, C.relname;
 
@@ -3858,8 +3858,8 @@ DECLARE
             T.n_tup_del AS n_tup_del,
             T.n_tup_hot_upd AS n_tup_hot_upd
         FROM dbe_perf.stat_xact_all_tables T
-            LEFT JOIN pg_class C ON T.relid = C.reltoastrelid
-            LEFT JOIN pg_namespace N ON C.relnamespace = N.oid';
+            LEFT JOIN pg_catalog.pg_class C ON T.relid = C.reltoastrelid
+            LEFT JOIN pg_catalog.pg_namespace N ON C.relnamespace = N.oid';
         FOR row_data IN EXECUTE(query_str) LOOP
             schemaname := row_data.schemaname;
             IF row_data.toastrelname IS NULL THEN
@@ -3969,8 +3969,8 @@ DECLARE
         T.n_tup_del AS n_tup_del,
         T.n_tup_hot_upd AS n_tup_hot_upd
       FROM dbe_perf.stat_xact_sys_tables T
-        LEFT JOIN pg_class C ON T.relid = C.reltoastrelid
-        LEFT JOIN pg_namespace N ON C.relnamespace = N.oid';
+        LEFT JOIN pg_catalog.pg_class C ON T.relid = C.reltoastrelid
+        LEFT JOIN pg_catalog.pg_namespace N ON C.relnamespace = N.oid';
       FOR row_data IN EXECUTE(query_str) LOOP
         schemaname := row_data.schemaname;
         IF row_data.toastrelname IS NULL THEN
@@ -4080,8 +4080,8 @@ DECLARE
         T.n_tup_del AS n_tup_del,
         T.n_tup_hot_upd AS n_tup_hot_upd
       FROM dbe_perf.stat_xact_user_tables T
-        LEFT JOIN pg_class C ON T.relid = C.reltoastrelid
-        LEFT JOIN pg_namespace N ON C.relnamespace = N.oid';
+        LEFT JOIN pg_catalog.pg_class C ON T.relid = C.reltoastrelid
+        LEFT JOIN pg_catalog.pg_namespace N ON C.relnamespace = N.oid';
       FOR row_data IN EXECUTE(query_str) LOOP
         schemaname := row_data.schemaname;
         IF row_data.toastrelname IS NULL THEN
@@ -4123,7 +4123,7 @@ CREATE OR REPLACE VIEW DBE_PERF.stat_user_functions AS
             pg_stat_get_function_calls(P.oid) AS calls,
             pg_stat_get_function_total_time(P.oid) AS total_time,
             pg_stat_get_function_self_time(P.oid) AS self_time
-    FROM pg_proc P LEFT JOIN pg_namespace N ON (N.oid = P.pronamespace)
+    FROM pg_proc P LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = P.pronamespace)
     WHERE P.prolang != 12  -- fast check to eliminate built-in functions
           AND pg_stat_get_function_calls(P.oid) IS NOT NULL;
 
@@ -4174,7 +4174,7 @@ CREATE OR REPLACE VIEW DBE_PERF.stat_xact_user_functions AS
     pg_stat_get_xact_function_calls(P.oid) AS calls,
     pg_stat_get_xact_function_total_time(P.oid) AS total_time,
     pg_stat_get_xact_function_self_time(P.oid) AS self_time
-  FROM pg_proc P LEFT JOIN pg_namespace N ON (N.oid = P.pronamespace)
+  FROM pg_proc P LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = P.pronamespace)
     WHERE P.prolang != 12  -- fast check to eliminate built-in functions
           AND pg_stat_get_xact_function_calls(P.oid) IS NOT NULL;
 
@@ -4478,7 +4478,7 @@ CREATE OR REPLACE VIEW DBE_PERF.replication_slots AS
     L.restart_lsn,
     L.dummy_standby
     FROM pg_get_replication_slots() AS L
-         LEFT JOIN pg_database D ON (L.datoid = D.oid);
+         LEFT JOIN pg_catalog.pg_database D ON (L.datoid = D.oid);
 
 CREATE OR REPLACE FUNCTION dbe_perf.get_global_replication_slots
   (OUT node_name name,
@@ -4720,8 +4720,8 @@ CREATE OR REPLACE VIEW DBE_PERF.transactions_prepared_xacts AS
   SELECT P.transaction, P.gid, P.prepared,
          U.rolname AS owner, D.datname AS database
     FROM pg_prepared_xact() AS P
-         LEFT JOIN pg_authid U ON P.ownerid = U.oid
-         LEFT JOIN pg_database D ON P.dbid = D.oid;
+         LEFT JOIN pg_catalog.pg_authid U ON P.ownerid = U.oid
+         LEFT JOIN pg_catalog.pg_database D ON P.dbid = D.oid;
 
 CREATE OR REPLACE FUNCTION dbe_perf.get_global_transactions_prepared_xacts()
 RETURNS setof dbe_perf.transactions_prepared_xacts
@@ -5021,7 +5021,7 @@ CREATE OR REPLACE VIEW DBE_PERF.class_vital_info AS
     N.nspname AS schemaname,
     C.relname AS relname,
     C.relkind AS relkind
-    FROM pg_class C LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+    FROM pg_class C LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
       WHERE C.relkind IN ('r', 't', 'i');
 
 CREATE OR REPLACE FUNCTION dbe_perf.get_global_record_reset_time(OUT node_name text, OUT reset_time timestamp with time zone)
@@ -6143,7 +6143,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_user_functions AS
             pg_catalog.pg_stat_get_function_calls(P.oid) AS calls,
             pg_catalog.pg_stat_get_function_total_time(P.oid) AS total_time,
             pg_catalog.pg_stat_get_function_self_time(P.oid) AS self_time
-    FROM pg_proc P LEFT JOIN pg_namespace N ON (N.oid = P.pronamespace)
+    FROM pg_proc P LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = P.pronamespace)
     WHERE P.prolang != 12  -- fast check to eliminate built-in functions
           AND pg_catalog.pg_stat_get_function_calls(P.oid) IS NOT NULL;
 
@@ -6155,7 +6155,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_xact_user_functions AS
             pg_catalog.pg_stat_get_xact_function_calls(P.oid) AS calls,
             pg_catalog.pg_stat_get_xact_function_total_time(P.oid) AS total_time,
             pg_catalog.pg_stat_get_xact_function_self_time(P.oid) AS self_time
-    FROM pg_proc P LEFT JOIN pg_namespace N ON (N.oid = P.pronamespace)
+    FROM pg_proc P LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = P.pronamespace)
     WHERE P.prolang != 12  -- fast check to eliminate built-in functions
           AND pg_catalog.pg_stat_get_xact_function_calls(P.oid) IS NOT NULL;
 
@@ -6166,7 +6166,7 @@ CREATE OR REPLACE VIEW pg_catalog.DV_SESSIONS AS
                 sa.usesysid AS USER#,
                 ad.rolname AS USERNAME
         FROM pg_catalog.pg_stat_get_activity(NULL) AS sa
-        LEFT JOIN pg_authid ad ON(sa.usesysid = ad.oid)
+        LEFT JOIN pg_catalog.pg_authid ad ON(sa.usesysid = ad.oid)
         WHERE sa.application_name <> 'JobScheduler';
 
 CREATE OR REPLACE FUNCTION pg_catalog.login_audit_messages(in flag boolean) returns table (username text, database text, logintime timestamp with time zone, mytype text, result text, client_conninfo text) AUTHID DEFINER
@@ -6383,7 +6383,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
             S.datname AS dbname,
             S.backend_start,
             S.query
-    FROM pg_catalog.pg_pool_validate(false, ' ') AS C LEFT JOIN pg_stat_activity AS S
+    FROM pg_catalog.pg_pool_validate(false, ' ') AS C LEFT JOIN pg_catalog.pg_stat_activity AS S
         ON (C.pid = S.sessionid);
 
 CREATE OR REPLACE VIEW pg_catalog.gs_wlm_operator_statistics AS
@@ -6505,7 +6505,7 @@ DECLARE
     row_data record;
     row_part_info record;
     BEGIN
-        query_info_str := 'SELECT C.oid,C.reldeltarelid,C.parttype FROM pg_class C LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)  WHERE C.relname = '''|| rel ||''' and N.nspname = '''|| schema_name ||'''';
+        query_info_str := 'SELECT C.oid,C.reldeltarelid,C.parttype FROM pg_class C LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)  WHERE C.relname = '''|| rel ||''' and N.nspname = '''|| schema_name ||'''';
         FOR row_info_data IN EXECUTE(query_info_str) LOOP
         IF row_info_data.parttype = 'n' THEN
             query_str := 'SELECT relname,oid from pg_class where oid= '||row_info_data.reldeltarelid||'';
@@ -6688,7 +6688,7 @@ BEGIN
                     (
                         (SELECT
                             (case pg_catalog.pg_table_size(c.oid)/1024/1024/1024 > ' || threshold_size_gb || '
-                                when true then pg_catalog.concat(concat(n.nspname, ''.''), c.relname)
+                                when true then pg_catalog.concat(concat(pg_catalog.quote_ident(n.nspname), ''.''), pg_catalog.quote_ident(c.relname))
                                 else ''null''
                                 end
                             ) relname
@@ -6842,7 +6842,7 @@ DECLARE
     row_data record;
     row_part_info record;
     BEGIN
-        query_info_str := 'SELECT C.oid,C.reldeltarelid,C.parttype FROM pg_class C LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)  WHERE C.relname = $1 and N.nspname = $2';
+        query_info_str := 'SELECT C.oid,C.reldeltarelid,C.parttype FROM pg_class C LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)  WHERE C.relname = $1 and N.nspname = $2';
         FOR row_info_data IN EXECUTE query_info_str USING rel, schema_name LOOP
         IF row_info_data.parttype = 'n' THEN
             query_str := 'SELECT relname,oid from pg_class where oid= '||row_info_data.reldeltarelid||'';
@@ -6925,9 +6925,9 @@ CREATE OR REPLACE VIEW pg_catalog.pg_roles AS
         rolmonitoradmin,
         roloperatoradmin,
         rolpolicyadmin
-    FROM pg_authid LEFT JOIN pg_db_role_setting s
+    FROM pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
     ON (pg_authid.oid = setrole AND setdatabase = 0)
-    LEFT JOIN pgxc_group
+    LEFT JOIN pg_catalog.pgxc_group
     ON (pg_authid.rolnodegroup = pgxc_group.oid)
     WHERE pg_authid.rolname = current_user
     OR (SELECT rolcreaterole FROM pg_authid WHERE pg_authid.rolname = current_user)
@@ -7372,7 +7372,7 @@ CREATE OR REPLACE VIEW pg_catalog.DV_SESSIONS AS
             sa.usesysid AS USER#,
             ad.rolname AS USERNAME
     FROM pg_catalog.pg_stat_get_activity(NULL) AS sa
-        LEFT JOIN pg_authid ad ON(sa.usesysid = ad.oid)
+        LEFT JOIN pg_catalog.pg_authid ad ON(sa.usesysid = ad.oid)
     WHERE sa.application_name <> 'JobScheduler';
 
 CREATE OR REPLACE VIEW pg_catalog.gs_wlm_workload_records AS
@@ -7480,8 +7480,8 @@ CREATE VIEW pg_catalog.gs_matviews AS
         T.spcname AS tablespace,
         C.relhasindex AS hasindexes,
         pg_get_viewdef(C.oid) AS definition
-    FROM pg_class C LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
-         LEFT JOIN pg_tablespace T ON (T.oid = C.reltablespace)
+    FROM pg_class C LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
+         LEFT JOIN pg_catalog.pg_tablespace T ON (T.oid = C.reltablespace)
     WHERE C.relkind = 'm';
 
 DO $DO$
@@ -8013,7 +8013,7 @@ BEGIN
                     (
                         (SELECT
                             (case pg_catalog.pg_table_size(c.oid)/1024/1024/1024 > ' || threshold_size_gb || '
-                                when true then pg_catalog.concat(concat(n.nspname, ''.''), c.relname)
+                                when true then pg_catalog.concat(concat(pg_catalog.quote_ident(n.nspname), ''.''), pg_catalog.quote_ident(c.relname))
                                 else ''null''
                                 end
                             ) relname
@@ -8306,7 +8306,7 @@ CREATE OR REPLACE VIEW pg_catalog.DV_SESSIONS AS
             sa.usesysid AS USER#,
             ad.rolname AS USERNAME
     FROM pg_catalog.pg_stat_get_activity(NULL) AS sa
-        LEFT JOIN pg_authid ad ON(sa.usesysid = ad.oid)
+        LEFT JOIN pg_catalog.pg_authid ad ON(sa.usesysid = ad.oid)
     WHERE sa.application_name <> 'JobScheduler';
 
 CREATE OR REPLACE VIEW pg_catalog.gs_wlm_workload_records AS
@@ -8662,7 +8662,7 @@ CREATE VIEW pg_catalog.pg_gtt_relstats WITH (security_barrier) AS
     (select relminmxid from pg_get_gtt_relstats(c.oid))
  FROM
      pg_class c
-     LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
  WHERE c.relpersistence='g' AND c.relkind in('r','p','i','t');
 GRANT SELECT ON TABLE pg_catalog.pg_gtt_relstats TO PUBLIC;
 
@@ -8674,7 +8674,7 @@ CREATE VIEW pg_catalog.pg_gtt_attached_pids WITH (security_barrier) AS
     array(select pid from pg_gtt_attached_pid(c.oid)) AS pids
  FROM
      pg_class c
-     LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
  WHERE c.relpersistence='g' AND c.relkind in('r','S');
 GRANT SELECT ON TABLE pg_catalog.pg_gtt_attached_pids TO PUBLIC;
 
@@ -8761,8 +8761,8 @@ SELECT s.nspname AS schemaname,
         (select stavalues5 from pg_get_gtt_statistics(c.oid, a.attnum, ''::text)) as stavalues5
        FROM
          pg_class c
-         JOIN pg_attribute a ON c.oid = a.attrelid
-         LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+         JOIN pg_catalog.pg_attribute a ON c.oid = a.attrelid
+         LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
       WHERE c.relpersistence='g' AND c.relkind in('r','p','i','t') and a.attnum > 0 and NOT a.attisdropped AND has_column_privilege(c.oid, a.attnum, 'select'::text)) s;
 GRANT SELECT ON TABLE pg_catalog.pg_gtt_stats TO PUBLIC;
 
@@ -8807,7 +8807,7 @@ BEGIN
         N.nspname AS schemaname,
         C.relname AS relname,
         C.relkind AS relkind
-      FROM pg_class C LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+      FROM pg_class C LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
       WHERE C.relkind IN ('r', 't', 'i', 'I');
   end if;
 END $DO$;
@@ -8819,10 +8819,10 @@ CREATE OR REPLACE VIEW pg_catalog.pg_indexes AS
         I.relname AS indexname,
         T.spcname AS tablespace,
         pg_get_indexdef(I.oid) AS indexdef
-    FROM pg_index X JOIN pg_class C ON (C.oid = X.indrelid)
-         JOIN pg_class I ON (I.oid = X.indexrelid)
-         LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
-         LEFT JOIN pg_tablespace T ON (T.oid = I.reltablespace)
+    FROM pg_index X JOIN pg_catalog.pg_class C ON (C.oid = X.indrelid)
+         JOIN pg_catalog.pg_class I ON (I.oid = X.indexrelid)
+         LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
+         LEFT JOIN pg_catalog.pg_tablespace T ON (T.oid = I.reltablespace)
     WHERE C.relkind IN ('r','m') AND I.relkind IN ('i','I');
 
 DROP TABLE IF EXISTS snapshot.snap_global_operator_runtime;
@@ -10121,7 +10121,7 @@ CREATE OR REPLACE VIEW column_privileges AS
                   pr_a.grantable,
                   c.relowner
            FROM (SELECT attrelid, attname, (aclexplode(coalesce(attacl, acldefault('c', relowner)))).*
-                 FROM pg_attribute a JOIN pg_class cc ON (a.attrelid = cc.oid)
+                 FROM pg_attribute a JOIN pg_catalog.pg_class cc ON (a.attrelid = cc.oid)
                  WHERE attnum > 0
                        AND NOT attisdropped
                 ) pr_a (attrelid, attname, grantor, grantee, prtype, grantable),
@@ -10770,13 +10770,13 @@ DECLARE
     num_check int :=0;
     sqltmp text;
     BEGIN
-        sqltmp := 'select count(*) from pg_attribute join pg_class on pg_attribute.attrelid = pg_class.oid where pg_class.relname =' || quote_literal(table_name) ||' and pg_attribute.attname = ' ||quote_literal($2);
+        sqltmp := 'select count(*) from pg_attribute join pg_catalog.pg_class on pg_attribute.attrelid = pg_class.oid where pg_class.relname =' || quote_literal(table_name) ||' and pg_attribute.attname = ' ||quote_literal($2);
         EXECUTE immediate sqltmp into num_check;
         if num_check = 0 then
             return;
         end if;
         -- make sure not to affect the logic for non-range/list distribution tables
-        EXECUTE immediate 'select a.pclocatortype from (pgxc_class a join pg_class b on a.pcrelid = b.oid join pg_namespace c on c.oid = b.relnamespace)
+        EXECUTE immediate 'select a.pclocatortype from (pgxc_class a join pg_catalog.pg_class b on a.pcrelid = b.oid join pg_namespace c on c.oid = b.relnamespace)
                             where b.relname = quote_ident(:1) and c.nspname in (select unnest(current_schemas(false)))' into dist_type using table_name;
         if dist_type <> 'G' and dist_type <> 'L' then
             dist_type = 'H'; -- dist type used to be hardcoded as 'H'
@@ -11293,8 +11293,8 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
-	JOIN pg_namespace nsp ON rel.relnamespace = nsp.oid
+	JOIN pg_catalog.pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
+	JOIN pg_catalog.pg_namespace nsp ON rel.relnamespace = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -11309,10 +11309,10 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
-	JOIN pg_attribute att
+	JOIN pg_catalog.pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
+	JOIN pg_catalog.pg_attribute att
 	     ON rel.oid = att.attrelid AND l.objsubid = att.attnum
-	JOIN pg_namespace nsp ON rel.relnamespace = nsp.oid
+	JOIN pg_catalog.pg_namespace nsp ON rel.relnamespace = nsp.oid
 WHERE
 	l.objsubid != 0
 UNION ALL
@@ -11329,8 +11329,8 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_proc pro ON l.classoid = pro.tableoid AND l.objoid = pro.oid
-	JOIN pg_namespace nsp ON pro.pronamespace = nsp.oid
+	JOIN pg_catalog.pg_proc pro ON l.classoid = pro.tableoid AND l.objoid = pro.oid
+	JOIN pg_catalog.pg_namespace nsp ON pro.pronamespace = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -11346,8 +11346,8 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_type typ ON l.classoid = typ.tableoid AND l.objoid = typ.oid
-	JOIN pg_namespace nsp ON typ.typnamespace = nsp.oid
+	JOIN pg_catalog.pg_type typ ON l.classoid = typ.tableoid AND l.objoid = typ.oid
+	JOIN pg_catalog.pg_namespace nsp ON typ.typnamespace = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -11359,7 +11359,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_largeobject_metadata lom ON l.objoid = lom.oid
+	JOIN pg_catalog.pg_largeobject_metadata lom ON l.objoid = lom.oid
 WHERE
 	l.classoid = 'pg_catalog.pg_largeobject'::regclass AND l.objsubid = 0
 UNION ALL
@@ -11371,7 +11371,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_language lan ON l.classoid = lan.tableoid AND l.objoid = lan.oid
+	JOIN pg_catalog.pg_language lan ON l.classoid = lan.tableoid AND l.objoid = lan.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -11383,7 +11383,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_namespace nsp ON l.classoid = nsp.tableoid AND l.objoid = nsp.oid
+	JOIN pg_catalog.pg_namespace nsp ON l.classoid = nsp.tableoid AND l.objoid = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -11395,7 +11395,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_shseclabel l
-	JOIN pg_database dat ON l.classoid = dat.tableoid AND l.objoid = dat.oid
+	JOIN pg_catalog.pg_database dat ON l.classoid = dat.tableoid AND l.objoid = dat.oid
 UNION ALL
 SELECT
 	l.objoid, l.classoid, 0::int4 AS objsubid,
@@ -11405,7 +11405,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_shseclabel l
-	JOIN pg_tablespace spc ON l.classoid = spc.tableoid AND l.objoid = spc.oid
+	JOIN pg_catalog.pg_tablespace spc ON l.classoid = spc.tableoid AND l.objoid = spc.oid
 UNION ALL
 SELECT
 	l.objoid, l.classoid, 0::int4 AS objsubid,
@@ -11415,7 +11415,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_shseclabel l
-	JOIN pg_authid rol ON l.classoid = rol.tableoid AND l.objoid = rol.oid;
+	JOIN pg_catalog.pg_authid rol ON l.classoid = rol.tableoid AND l.objoid = rol.oid;
 
 CREATE OR REPLACE VIEW pg_catalog.gs_session_memory_context AS SELECT * FROM pv_session_memory_detail();
 CREATE OR REPLACE VIEW pg_catalog.gs_thread_memory_context AS SELECT * FROM pv_thread_memory_detail();

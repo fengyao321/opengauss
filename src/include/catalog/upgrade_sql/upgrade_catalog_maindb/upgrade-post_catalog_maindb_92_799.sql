@@ -456,7 +456,7 @@ CREATE VIEW pg_catalog.pg_replication_slots AS
             L.dummy_standby,
             L.confirmed_flush
     FROM pg_catalog.pg_get_replication_slots() AS L
-            LEFT JOIN pg_database D ON (L.datoid = D.oid);
+            LEFT JOIN pg_catalog.pg_database D ON (L.datoid = D.oid);
 
 -- CREATE: dbe_perf.replication_slots
 IF ans = true THEN
@@ -474,7 +474,7 @@ CREATE OR REPLACE VIEW dbe_perf.replication_slots AS
     L.restart_lsn,
     L.dummy_standby
     FROM pg_get_replication_slots() AS L
-         LEFT JOIN pg_database D ON (L.datoid = D.oid);
+         LEFT JOIN pg_catalog.pg_database D ON (L.datoid = D.oid);
  
 END IF;
 
