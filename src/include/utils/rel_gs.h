@@ -846,6 +846,21 @@ static inline bool RelationEnableWaitCleanGpi(Relation relation)
     return false;
 }
 
+static inline BlockNumber OnlineDDLRelationGetEndCtidInternal(Relation rel)
+{
+    Assert(rel != NULL);
+    if (RelationIsRelation(rel) && rel->rd_options) {
+        BlockNumber blocknum = 0;
+        OffsetNumber offsetnum = 0;
+        char* endCtidInternal = StdRdOptionsGetStringData((rel)->rd_options, end_ctid_internal, NULL);
+        sscanf_s(endCtidInternal, "%u.%u", &blocknum, &offsetnum);
+        return blocknum;
+    }
+
+    /* Otherwise just return zero */
+    return InvalidBlockNumber;
+}
+
 /* routines in utils/cache/relcache.c */
 extern bool RelationIsPaxFormatByOid(Oid relid);
 #ifdef ENABLE_MOT

@@ -1056,8 +1056,11 @@ Datum pg_stat_statements(PG_FUNCTION_ARGS)
         int i = 0;
         Counters tmp;
 
-        memset(values, 0, sizeof(values));
-        memset(nulls, 0, sizeof(nulls));
+        errno_t rc;
+        rc = memset_s(values, sizeof(values), 0, sizeof(values));
+        securec_check(rc, "\0", "\0");
+        rc = memset_s(nulls, sizeof(nulls), 0, sizeof(nulls));
+        securec_check(rc, "\0", "\0");
 
         values[i++] = ObjectIdGetDatum(entry->key.userid);
         values[i++] = ObjectIdGetDatum(entry->key.dbid);

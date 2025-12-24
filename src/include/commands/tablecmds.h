@@ -21,6 +21,7 @@
 #include "catalog/pg_partition_fn.h"
 #include "nodes/parsenodes.h"
 #include "nodes/plannodes.h"
+#include "nodes/execnodes.h"
 #include "rewrite/rewriteRlsPolicy.h"
 #include "storage/lock/lock.h"
 #include "utils/relcache.h"
@@ -107,6 +108,44 @@ typedef struct AlteredTableInfo {
     Datum oldOptions; /* relOptions of relation before update */
     Datum newOptions;
 } AlteredTableInfo;
+
+/*
+ * Struct describing one new column value that needs to be computed during
+ * Phase 3 copy (this could be either a new column with a non-null default, or
+ * a column that we're changing the type of).  Columns without such an entry
+ * are just copied from the old table during ATRewriteTable.  Note that the
+ * expr is an expression over *old* table values.
+ */
+typedef struct NewColumnValue {
+    AttrNumber attnum;    /* which column */
+    Expr* expr;           /* expression to compute */
+    ExprState* exprstate; /* execution state */
+    bool is_generated;     /* is it a GENERATED expression? */
+    bool is_autoinc;
+    bool is_addloc;          /* is add column first or after */
+    bool is_alter_using;          /* have alter type using clause */
+    bool make_dml_change;
+    AttrNumber newattnum;   /* is modify column first or after
+                               -1 denote add;
+                               0 denote modify without first|after;
+                               > 0 denote modify with first|after */
+    char *col_name;
+    AttrNumber generate_attnum;
+    bool is_updated;
+} NewColumnValue;
+
+/* Struct describing one new constraint to check in Phase 3 scan */
+/* Note: new NOT NULL constraints are handled elsewhere */
+typedef struct NewConstraint {
+    char* name;         /* Constraint name, or NULL if none */
+    ConstrType contype; /* CHECK or FOREIGN */
+    Oid refrelid;       /* PK rel, if FOREIGN */
+    Oid refindid;       /* OID of PK's index, if FOREIGN */
+    Oid conid;          /* OID of pg_constraint entry, if FOREIGN */
+    Node* qual;         /* Check expr or CONSTR_FOREIGN Constraint */
+    List* qualstate;    /* Execution state for CHECK */
+    bool isdisable;
+} NewConstraint;
 
 typedef struct ViewInfoForAdd {
     Oid ev_class;
@@ -273,4 +312,19 @@ extern void spq_btbuild_update_pg_class(Relation heap, Relation index);
 #endif
 typedef void (*InvokePreDropColumnHookType) (Relation rel, AttrNumber attnum);
 extern bool IsComputedColumn(Oid adrelid, int2 asnum);
+
+extern void SetRelAutoIncrement(Relation rel, TupleDesc desc, int128 autoinc);
+extern void CopyTempAutoIncrement(Relation oldrel, Relation newrel);
+extern void UpdateValueModifyFirstAfter(NewColumnValue *ex, Datum* values, bool* isnull);
+extern void SetRelAutoIncrement(Relation rel, TupleDesc desc, int128 autoinc);
+extern void CopyTempAutoIncrement(Relation oldrel, Relation newrel);
+extern void UpdateGeneratedColumnIsnull(AlteredTableInfo* tab, bool* isnull, bool has_generated);
+extern int128 EvaluateAutoIncrement(Relation rel, TupleDesc desc, AttrNumber attnum, Datum* value, bool* is_null);
+extern bool OnlineDDLCheckSetCompressOptFeasible(Relation rel, List* defList, AlterTableType operation,
+                                                 LOCKMODE lockmode, AlteredTableInfo* tab);
+extern bool OnlineDDLCheckAlterModifyColumnFeasible(AlteredTableInfo* tab, Relation rel, AlterTableCmd* cmd);
+extern bool OnlineDDLCheckSetNotNullFeasible(Relation rel, const char* colName, LOCKMODE lockmode);
+template <typename T, TableAmType amtype>
+extern T EvaluateGenExpr(AlteredTableInfo* tab, T tuple, TupleDesc newTupDesc, ExprContext* econtext, Datum* values,
+                         bool* isnull);
 #endif /* TABLECMDS_H */

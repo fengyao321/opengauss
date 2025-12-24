@@ -469,6 +469,7 @@ select name,vartype,unit,min_val,max_val from pg_settings where name <> 'qunit_c
  log_min_duration_statement                       | integer | ms   | -1        | 2147483647
  log_min_error_statement                          | enum    |      |           | 
  log_min_messages                                 | enum    |      |           | 
+ log_online_ddl_level                             | integer |      | 0         | 2
  log_pagewriter                                   | bool    |      |           | 
  log_parser_stats                                 | bool    |      |           | 
  log_planner_stats                                | bool    |      |           | 

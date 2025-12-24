@@ -408,6 +408,32 @@ void performDeletion(const ObjectAddress* object, DropBehavior behavior, int fla
     heap_close(depRel, RowExclusiveLock);
 }
 
+/* print dependent objects for white box testing */
+void showRelationDependentObjects(Oid relId)
+{
+    ObjectAddresses* targetObjects = NULL;
+    ObjectAddress object;
+    object.classId = RelationRelationId;
+    object.objectId = relId;
+    object.objectSubId = 0;
+    Relation depRel;
+    depRel = heap_open(DependRelationId, RowExclusiveLock);
+    targetObjects = new_object_addresses();
+    findDependentObjects(&object, DEPFLAG_ORIGINAL, NULL, targetObjects, NULL, &depRel);
+    for (int i = 0; i < targetObjects->numrefs; i++) {
+        ObjectAddress* obj = &targetObjects->refs[i];
+        ObjectAddressExtra* extra = &targetObjects->extras[i];
+        char* relName = get_rel_name(obj->objectId);
+        ereport(NOTICE, (errmsg("Find rel relid: %d, dependent: classid: %d, objid: %d, objsubid: %d, "
+                                "tbDropMode: %d, deptype: %d, relname: %s",
+                                object.objectId, obj->classId, obj->objectId, obj->objectSubId, obj->rbDropMode,
+                                (int)obj->deptype, relName != NULL ? relName : "NULL")));
+        pfree_ext(relName);
+    }
+    free_object_addresses(targetObjects);
+    heap_close(depRel, RowExclusiveLock);
+}
+
 /*
  * performMultipleDeletions: Similar to performDeletion, but act on multiple
  * objects at once.
@@ -1375,7 +1401,6 @@ static void doDeletion(const ObjectAddress* object, int flags)
             if (mlogid != 0 && !u_sess->attr.attr_sql.enable_cluster_resize) {
                 delete_matdep_table(mlogid);
             }
-            
             if (relKind == RELKIND_INDEX || relKind == RELKIND_GLOBAL_INDEX) {
                 bool concurrent = (((uint32)flags & PERFORM_DELETION_CONCURRENTLY) == PERFORM_DELETION_CONCURRENTLY);
                 bool concurrent_lock_mode = (((uint32)flags & PERFORM_DELETION_CONCURRENTLY_LOCK) == PERFORM_DELETION_CONCURRENTLY_LOCK);

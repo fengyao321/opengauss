@@ -155,6 +155,7 @@ enum ModuleId {
     MOD_SRF, /* debug info for SRF */
     MOD_SS_TXNSTATUS, /* debug info for SS TXNSTATUS */
     MOD_HTAP, /* debug info for HTAP */
+    MOD_ONLINE_DDL, /* debug info for online ddl */
 
     /*
      * Add your module id above.

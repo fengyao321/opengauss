@@ -37,7 +37,6 @@
 #include "utils/partitionmap.h"
 #include "catalog/pg_hashbucket_fn.h"
 
-
 #ifndef HDFS
 #define HDFS "hdfs"
 #endif
@@ -323,6 +322,8 @@ typedef struct RelationData {
 
     /* used only for datavec hnsw lsg */
     float* sampleVec;
+    /* used only for online ddl, if the relation is performing online ddl */
+    void* rd_online_ddl_operators;
 } RelationData;
 
 /*
@@ -356,7 +357,8 @@ typedef enum RedisRelAction {
     REDIS_REL_READ_ONLY,
     REDIS_REL_END_CATCHUP,
     REDIS_REL_DESTINATION,
-    REDIS_REL_RESET_CTID
+    REDIS_REL_RESET_CTID,
+    ONLINE_DDL_APPEND_MODE
 } RedisHtlAction;
 
 /* PageCompressOpts->compressType values */

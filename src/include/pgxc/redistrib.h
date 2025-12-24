@@ -76,7 +76,8 @@ extern RedistribState* makeRedistribState(Oid relOid);
 extern void FreeRedistribState(RedistribState* state);
 extern void FreeRedistribCommand(RedistribCommand* command);
 
-extern List* AlterTableSetRedistribute(Relation rel, RedisRelAction action, char *merge_list);
+extern List* AlterTableSetRedistribute(Relation rel, RedisRelAction action, char* merge_list,
+                                       bool alterAppendmode = false);
 extern void AlterTableSetPartRelOptions(
     Relation rel, List* defList, AlterTableType operation, LOCKMODE lockmode, char *merge_list, RedisRelAction action);
 extern void RelationGetCtids(Relation rel, ItemPointer start_ctid, ItemPointer end_ctid);
@@ -84,11 +85,11 @@ extern uint32 RelationGetEndBlock(Relation rel);
 extern void get_redis_rel_ctid(
     const char* rel_name, const char* partition_name, RedisCtidType ctid_type, ItemPointer result);
 #ifdef ENABLE_MULTIPLE_NODES
-extern void CheckRedistributeOption(List* options, Oid* rel_cn_oid, 
-                RedisHtlAction* action, char **merge_list, Relation rel);
+extern void CheckRedistributeOption(List* options, Oid* rel_cn_oid, RedisHtlAction* action, char** merge_list,
+                                    Relation rel, bool* alterAppendmode);
 #else
-extern void CheckRedistributeOption(List* options, Oid* rel_cn_oid, 
-                RedisHtlAction* action, Relation rel);
+extern void CheckRedistributeOption(List* options, Oid* rel_cn_oid, RedisHtlAction* action, Relation rel,
+                                    bool* alterAppendmode);
 #endif
 
 

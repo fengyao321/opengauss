@@ -108,6 +108,7 @@ set(gaussdb_objects
     $<TARGET_OBJECTS:gausskernel_optimizer_rewrite>
     $<TARGET_OBJECTS:gausskernel_optimizer_aioptimizer>
     $<TARGET_OBJECTS:gausskernel_optimizer_commands>
+    $<TARGET_OBJECTS:gausskernel_optimizer_commands_online_ddl>
     $<TARGET_OBJECTS:gausskernel_optimizer_commands_sequence>
     $<TARGET_OBJECTS:gausskernel_optimizer_sqladvisor>
     $<TARGET_OBJECTS:gausskernel_optimizer_sqlpatch>

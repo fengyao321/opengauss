@@ -33,6 +33,7 @@
 #include "nodes/execnodes.h"
 #include "commands/copy.h"
 #include "commands/copypartition.h"
+#include "commands/online_ddl_globalhash.h"
 
 /*
  * * Bitmask values for the flags argument to the scan_begin callback.
@@ -795,6 +796,7 @@ static inline ItemPointer tableam_tops_get_t_self(Relation relation, Tuple tup)
     return relation->rd_tam_ops->tops_get_t_self(tup);
 }
 
+/* not support in openGauss */
 static inline void tableam_tops_exec_delete_index_tuples(TupleTableSlot *slot, Relation relation,
     ModifyTableState *node, ItemPointer tupleid, ExecIndexTuplesState exec_index_tuples_state,
     Bitmapset *modifiedIdxAttrs)
@@ -816,6 +818,10 @@ static inline uint32 tableam_tops_get_tuple_type(Relation relation)
     return relation->rd_tam_ops->tops_get_tuple_type();
 }
 
+/**
+ * @brief  insert into t1 select * from t2;
+ * no need to adapt, tops_copy_from_insert_batch -> tableam_tuple_multi_insert
+ */
 static inline void tableam_tops_copy_from_insert_batch(Relation rel, EState* estate, CommandId mycid, int hiOptions,
         ResultRelInfo* resultRelInfo, TupleTableSlot* myslot, BulkInsertState bistate, int nBufferedTuples,
         Tuple* bufferedTuples, Partition partition, int2 bucketId)
@@ -876,21 +882,33 @@ static inline void tableam_tuple_get_latest_tid(Relation relation, Snapshot snap
 static inline Oid tableam_tuple_insert(Relation relation, Tuple tup, CommandId cid, int options,
     struct BulkInsertStateData *bistate)
 {
-    return relation->rd_tam_ops->tuple_insert(relation, tup, cid, options, bistate);
+    Oid oid = relation->rd_tam_ops->tuple_insert(relation, tup, cid, options, bistate);
+    if (unlikely(RelationGetOnlineDDLCtl(relation) != NULL)) {
+        RelationGetOnlineDDLCtl(relation)->recordTupleInsert(relation, &((HeapTuple)tup)->t_self);
+    }
+    return oid;
 }
 
 static inline int tableam_tuple_multi_insert(Relation relation, Relation parent, Tuple *tuples, int ntuples,
     CommandId cid, int options, struct BulkInsertStateData *bistate, HeapMultiInsertExtraArgs *args)
 {
-    return relation->rd_tam_ops->tuple_multi_insert(relation, parent, tuples, ntuples, cid,
+    int ndone = relation->rd_tam_ops->tuple_multi_insert(relation, parent, tuples, ntuples, cid,
         options, bistate, args);
+    if (unlikely(RelationGetOnlineDDLCtl(relation) != NULL) && ndone == ntuples) {
+        RelationGetOnlineDDLCtl(relation)->recordTupleMultiInsert(relation, tuples, ntuples);
+    }
+    return ndone;
 }
 
 static inline TM_Result tableam_tuple_delete(Relation relation, ItemPointer tid, CommandId cid, Snapshot crosscheck,
     Snapshot snapshot, bool wait, TupleTableSlot **oldslot, TM_FailureData *tmfd, bool allow_delete_self = false)
 {
-    return relation->rd_tam_ops->tuple_delete(relation, tid, cid, crosscheck, snapshot, wait,
+    TM_Result result = relation->rd_tam_ops->tuple_delete(relation, tid, cid, crosscheck, snapshot, wait,
         oldslot, tmfd, allow_delete_self);
+    if (unlikely(RelationGetOnlineDDLCtl(relation) != NULL) && result == TM_Ok) {
+        RelationGetOnlineDDLCtl(relation)->recordTupleDelete(relation, tid);
+    }
+    return result;
 }
 
 static inline TM_Result tableam_tuple_update(Relation relation, Relation parentRelation, ItemPointer otid, Tuple newtup,
@@ -898,9 +916,13 @@ static inline TM_Result tableam_tuple_update(Relation relation, Relation parentR
     bool *update_indexes, Bitmapset **modifiedIdxAttrs, bool allow_update_self = false,
     bool allow_inplace_update = true, LockTupleMode *lockmode = NULL)
 {
-    return relation->rd_tam_ops->tuple_update(relation, parentRelation, otid, newtup, cid,
+    TM_Result result = relation->rd_tam_ops->tuple_update(relation, parentRelation, otid, newtup, cid,
         crosscheck, snapshot, wait, oldslot, tmfd, lockmode, update_indexes, modifiedIdxAttrs, allow_update_self,
         allow_inplace_update);
+    if (unlikely(RelationGetOnlineDDLCtl(relation) != NULL) && result == TM_Ok) {
+        RelationGetOnlineDDLCtl(relation)->recordTupleUpdate(relation, otid, &((HeapTuple)newtup)->t_self);
+    }
+    return result;
 }
 
 static inline TM_Result tableam_tuple_lock(Relation relation, Tuple tuple, Buffer *buffer, CommandId cid,
