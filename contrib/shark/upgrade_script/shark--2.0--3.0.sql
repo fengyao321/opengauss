@@ -1490,7 +1490,7 @@ SELECT
   CAST(NULL AS NCHAR(128)) AS nt_username,
   CAST(NULL AS NCHAR(12)) AS net_address,
   CAST(NULL AS NCHAR(12)) AS net_library,
-  CAST(blocked_activity.usename AS NCHAR(128)) AS loginname,
+  CAST(blocked_activity.usename AS NCHAR(128)) AS loginame,
   CAST(NULL AS VARBINARY(128)) AS context_info,
   CAST(NULL AS VARBINARY(20)) AS sql_handle,
   0 AS stmt_start,
