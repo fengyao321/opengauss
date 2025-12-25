@@ -882,6 +882,7 @@ inline static bool CStoreSupportConstraint(Constraint* cons)
         case CONSTR_NULL:
         case CONSTR_NOTNULL:
         case CONSTR_DEFAULT:
+        case CONSTR_IDENTITY:
         case CONSTR_CLUSTER:
             ret = true;
             break;

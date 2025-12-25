@@ -554,5 +554,14 @@ select * from t_identity_numeric_t6_1 order by id;
 drop table t_identity_numeric_t6;
 drop table t_identity_numeric_t6_1;
 
+-- column storage
+create table t_ident (id int identity, col text) with (orientation=column);
+\d+ t_ident;
+insert into t_ident(col) values('column1');
+insert into t_ident(col) values('column2');
+select SCOPE_IDENTITY();
+select ident_current('t_ident');
+drop table t_ident;
+
 reset current_schema;
 drop schema identity_schema;

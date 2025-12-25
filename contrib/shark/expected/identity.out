@@ -1114,5 +1114,32 @@ select * from t_identity_numeric_t6_1 order by id;
 
 drop table t_identity_numeric_t6;
 drop table t_identity_numeric_t6_1;
+-- column storage
+create table t_ident (id int identity, col text) with (orientation=column);
+NOTICE:  CREATE TABLE will create implicit sequence "t_ident_id_seq_identity" for serial column "t_ident.id"
+\d+ t_ident;
+                                             Table "identity_schema.t_ident"
+ Column |  Type   |                           Modifiers                           | Storage  | Stats target | Description 
+--------+---------+---------------------------------------------------------------+----------+--------------+-------------
+ id     | integer | not null default nextval('t_ident_id_seq_identity'::regclass) | plain    |              | 
+ col    | text    |                                                               | extended |              | 
+Has OIDs: no
+Options: orientation=column, compression=low
+
+insert into t_ident(col) values('column1');
+insert into t_ident(col) values('column2');
+select SCOPE_IDENTITY();
+ scope_identity 
+----------------
+              2
+(1 row)
+
+select ident_current('t_ident');
+ ident_current 
+---------------
+             2
+(1 row)
+
+drop table t_ident;
 reset current_schema;
 drop schema identity_schema;
