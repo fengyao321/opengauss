@@ -1089,8 +1089,8 @@ static float GetCandidateDistance(char *base, HnswElement element, Datum q, Fmgr
 {
     Datum value = HnswGetValue(base, element);
 
-    float iso1 = ((Vector *)q)->isoValue;
-    float iso2 = ((Vector *)value)->isoValue;
+    float iso1 = Float16ToFloat32(((Vector *)q)->isoValue);
+    float iso2 = Float16ToFloat32(((Vector *)value)->isoValue);
     float isoWeight = iso1 * iso2;
     float realDis = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, q, value));
     return isoWeight * realDis;

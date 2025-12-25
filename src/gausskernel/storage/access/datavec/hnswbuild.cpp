@@ -1773,6 +1773,11 @@ void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildSt
             ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg("Before LSG_VERSION_NUM VERSION NUM %u, we do not support lsg.", LSG_VERSION_NUM)));
         }
+        if (buildstate->procinfo->fn_oid != L2_FUNC_OID && buildstate->procinfo->fn_oid != IP_FUNC_OID) {
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                            errmsg("HNSW LSG only supports L2 distance, IP distance, and cosine distance calculations "
+                                   "for vector data types, and does not support the halfvector type.")));
+        }
         GetLsgSample(buildstate);
     }
 

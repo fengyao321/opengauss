@@ -356,17 +356,13 @@ Datum vector_recv(PG_FUNCTION_ARGS)
     int32 typmod = PG_GETARG_INT32(2);
     Vector *result;
     int16 dim;
-    int16 unused;
+    uint16 isoValue;
 
     dim = pq_getmsgint(buf, sizeof(int16));
-    unused = pq_getmsgint(buf, sizeof(int16));
+    isoValue = pq_getmsgint(buf, sizeof(uint16));
 
     CheckDim(dim);
     CheckExpectedDim(typmod, dim);
-
-    if (unused != 0) {
-        ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION), errmsg("expected unused to be 0, not %d", unused)));
-    }
 
     result = InitVector(dim);
     for (int i = 0; i < dim; i++) {
@@ -388,7 +384,7 @@ Datum vector_send(PG_FUNCTION_ARGS)
 
     pq_begintypsend(&buf);
     pq_sendint(&buf, vec->dim, sizeof(int16));
-    pq_sendint(&buf, vec->unused, sizeof(int16));
+    pq_sendint(&buf, vec->isoValue, sizeof(uint16));
     for (int i = 0; i < vec->dim; i++)
         pq_sendfloat4(&buf, vec->x[i]);
 

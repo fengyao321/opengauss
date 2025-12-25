@@ -76,7 +76,7 @@
 typedef struct HalfVector {
     int32 vl_len_; /* varlena header (do not touch directly!) */
     int16 dim;     /* number of dimensions */
-    int16 unused;  /* reserved for future use, always zero */
+    uint16 isoValue = 1;
     half x[FLEXIBLE_ARRAY_MEMBER];
 } HalfVector;
 
