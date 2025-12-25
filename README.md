@@ -405,13 +405,14 @@ openGauss支持以下操作系统：
 | unixODBC-devel| 2.3.1-2.3.9      |
 | java-1.8.0-openjdk-devel| 1.8     |
 | openblas-devel| 0.3.3及以上     |
-
+| which         | 2.21           |
+| python3       | 3.6及以上   |
+| binutils      | 2.27及以上  |
 注意：
 openblas-devel的头文件安装在/usr/include下，一般是默认路径
-lsb_release：仅在readhat系列系统需要安装
 
 ```shell
-yum install libaio-devel flex bison ncurses-devel glibc-devel patch readline-devel libedit-devel libxml2-devel lz4-devel numactl-devel unixODBC-devel java-1.8.0-openjdk-devel openblas-devel
+yum install libaio-devel flex bison ncurses-devel glibc-devel patch readline-devel libedit-devel libxml2-devel lz4-devel numactl-devel unixODBC-devel java-1.8.0-openjdk-devel openblas-devel which python3 binutils
 ### centos中安装lsb_release
 yum install redhat-lsb-core
 ### centos中安装openblas-devel
@@ -419,6 +420,8 @@ yum install epel-release
 yum install openblas-devel
 ### openEuler安装lsb_release
 yum install dkms
+# openEuler默认将lsb_release安装在/usr/lib/dkms路径下，可通过建立软链接的形式实现命令直接调用
+ln -s /usr/lib/dkms/lsb_release /usr/bin/lsb_release
 ```
 
 ### 下载openGauss

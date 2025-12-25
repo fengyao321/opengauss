@@ -15,7 +15,7 @@ declare config_file=''
 declare product_mode='opengauss'
 declare extra_config_opt=''
 
-declare -a DEPENDENCIES_YUM=(
+declare -a DEPENDENCIES_YUM_COMMON=(
     "libedit-devel"
     "libxml2-devel"
     "lz4-devel"
@@ -31,6 +31,18 @@ declare -a DEPENDENCIES_YUM=(
     "glibc-devel"
     "patch"
     "readline-devel"
+    "openblas-devel"
+    "which"
+    "python3"
+)
+
+declare -a DEPENDENCIES_YUM_CENTOS7=(
+    "epel-release"
+    "redhat-lsb-core"
+)
+
+declare -a DEPENDENCIES_YUM_EULER=(
+    "dkms"
 )
 
 declare missing_deps=()
@@ -68,11 +80,44 @@ detect_pkg_manager() {
     fi
 }
 
+check_centos_dependencies() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        if [ "$ID" = "centos" ] && [ "$VERSION_ID" = "7" ]; then
+            for dep in "${DEPENDENCIES_YUM_CENTOS7[@]}"; do
+                if ! rpm -q "$dep" >/dev/null 2>&1; then
+                    missing_deps+=("$dep")
+                fi
+            done
+        fi
+    else
+        echo "warning: /etc/os-release not found. Not a modern Linux distro."
+    fi
+}
+
+check_euler_dependencies() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        if [[ "$ID" == "openEuler" || "$ID" == "openeuler" ]]; then
+            for dep in "${DEPENDENCIES_YUM_EULER[@]}"; do
+                if ! rpm -q "$dep" >/dev/null 2>&1; then
+                    missing_deps+=("$dep")
+                fi
+            done
+        fi
+    else
+        echo "warning: /etc/os-release not found. Not a modern Linux distro."
+    fi
+}
+
+
 check_dependencies() {
-    detect_pkg_manager
+    detect_pkg_manager 
+    check_centos_dependencies
+    check_euler_dependencies
 
     if [ "$pkg_manager" == "yum" ]; then
-        for dep in "${DEPENDENCIES_YUM[@]}"; do
+        for dep in "${DEPENDENCIES_YUM_COMMON[@]}"; do
             if ! rpm -q "$dep" >/dev/null 2>&1; then
                 missing_deps+=("$dep")
             fi
