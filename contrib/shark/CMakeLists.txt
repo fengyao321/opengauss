@@ -101,6 +101,7 @@ add_cmd_gen_when_configure(flex_target shark_parser_cmd_src)
 
 set(TGT_shark_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/shark.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sharksysfuncs.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/dbcc.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/varlena.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sqlvariant.cpp

@@ -816,3 +816,38 @@ drop view if exists sys.sequences;
 
 drop cast if exists (int16 as sys.varbinary) cascade;
 drop function if exists sys.int16_sqlvariant(int16, int);
+-- sys.objectpropertyex
+drop function if exists sys.objectpropertyex(id INT, property varbinary);
+drop function if exists sys.objectpropertyex(id INT, property bit);
+drop function if exists sys.objectpropertyex(IN object_id varbinary, property VARCHAR);
+drop function if exists sys.objectpropertyex(IN object_id Oid, property VARCHAR);
+drop function if exists sys.objectpropertyex(IN object_id bit, property VARCHAR);
+drop function if exists sys.objectpropertyex(IN object_id bigint, property VARCHAR);
+drop function if exists sys.objectpropertyex(id INT, property VARCHAR);
+
+-- sys.object_definition
+drop function if exists sys.object_definition(IN object_id Oid);
+drop function if exists sys.object_definition(IN object_id bit);
+drop function if exists sys.object_definition(IN object_id bigint);
+drop function if exists sys.object_definition(IN object_id int);
+
+
+-- sys.object_schema_name
+drop function if exists sys.object_schema_name(IN object_id Oid, IN database_id Oid);
+drop function if exists sys.object_schema_name(IN object_id bit, IN database_id Oid);
+drop function if exists sys.object_schema_name(IN object_id bigint, IN database_id Oid);
+drop function if exists sys.object_schema_name(IN object_id int, IN database_id Oid);
+drop function if exists sys.object_schema_name(IN object_id Oid, IN database_id int);
+drop function if exists sys.object_schema_name(IN object_id bit, IN database_id int);
+drop function if exists sys.object_schema_name(IN object_id bigint, IN database_id int);
+drop function if exists sys.object_schema_name(IN object_id INT, IN database_id INT);
+
+-- sys.object_name
+drop function if exists sys.object_name(IN object_id Oid, IN database_id Oid);
+drop function if exists sys.object_name(IN object_id bit, IN database_id Oid);
+drop function if exists sys.object_name(IN object_id bigint, IN database_id Oid);
+drop function if exists sys.object_name(IN object_id int, IN database_id Oid);
+drop function if exists sys.object_name(IN object_id Oid, IN database_id int);
+drop function if exists sys.object_name(IN object_id bit, IN database_id int);
+drop function if exists sys.object_name(IN object_id bigint, IN database_id int);
+drop function if exists sys.object_name(IN object_id int, IN database_id int);

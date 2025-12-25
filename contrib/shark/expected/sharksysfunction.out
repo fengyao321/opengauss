@@ -1,0 +1,866 @@
+create schema sharksysfunc;
+set search_path to 'sharksysfunc';
+CREATE TABLE students (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    age INT DEFAULT 0,
+    grade DECIMAL(5, 2)
+);
+NOTICE:  CREATE TABLE will create implicit sequence "students_id_seq" for serial column "students.id"
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "students_pkey" for table "students"
+CREATE VIEW student_grades AS
+SELECT name, grade
+FROM students;
+CREATE OR REPLACE FUNCTION calculate_total_grade()
+RETURNS DECIMAL(10, 2) AS $$
+DECLARE
+    total_grade DECIMAL(10, 2) := 0;
+BEGIN
+    SELECT SUM(grade) INTO total_grade FROM students;
+    RETURN total_grade;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE PROCEDURE insert_student(
+    student_name VARCHAR(100),
+    student_age INT,
+    student_grade DECIMAL(5, 2)
+) AS
+BEGIN
+    INSERT INTO students (name, age, grade) VALUES (student_name, student_age, student_grade);
+END;
+/
+CREATE OR REPLACE FUNCTION update_total_grade()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE NOTICE 'Total grade updated: %', calculate_total_grade();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER trigger_update_total_grade
+AFTER INSERT OR UPDATE OR DELETE ON students
+FOR EACH STATEMENT EXECUTE PROCEDURE update_total_grade();
+CREATE TYPE test_type1 AS (a int, b text);
+create table test_serial(c1 serial);
+NOTICE:  CREATE TABLE will create implicit sequence "test_serial_c1_seq" for serial column "test_serial.c1"
+create table check_table(c1 int, c2 int, CONSTRAINT constraint_name22 CHECK (c1 > 1));
+select object_name(object_id('students', 'U'));
+ object_name 
+-------------
+ students
+(1 row)
+
+select object_name(object_id('students_pkey', 'PK'));
+  object_name  
+---------------
+ students_pkey
+(1 row)
+
+select object_name(object_id('student_grades', 'V'));
+  object_name   
+----------------
+ student_grades
+(1 row)
+
+select object_name(object_id('calculate_total_grade', 'FN'));
+      object_name      
+-----------------------
+ calculate_total_grade
+(1 row)
+
+select object_name(object_id('insert_student', 'P'));
+  object_name   
+----------------
+ insert_student
+(1 row)
+
+select object_name(object_id('trigger_update_total_grade', 'TR'));
+        object_name         
+----------------------------
+ trigger_update_total_grade
+(1 row)
+
+select object_name(object_id('sharksysfunc.students'));
+ object_name 
+-------------
+ students
+(1 row)
+
+select object_name(object_id('contrib_regression.sharksysfunc.students'));
+ object_name 
+-------------
+ students
+(1 row)
+
+select object_name(object_id('students', ''));
+ object_name 
+-------------
+ 
+(1 row)
+
+select object_name(object_id('students','s'));
+ object_name 
+-------------
+ 
+(1 row)
+
+select object_name(object_id('students','S'));
+ object_name 
+-------------
+ 
+(1 row)
+
+select object_name(object_id('students','u'));
+ object_name 
+-------------
+ students
+(1 row)
+
+select object_name(object_id('students',' u'));
+ object_name 
+-------------
+ 
+(1 row)
+
+select object_name(object_id('students','v'));
+ object_name 
+-------------
+ 
+(1 row)
+
+select object_name(object_id('students','u '));
+ object_name 
+-------------
+ students
+(1 row)
+
+select object_name(object_id('sys.objects'));
+ object_name 
+-------------
+ objects
+(1 row)
+
+select object_name(object_id('test_type1'));
+ object_name 
+-------------
+ test_type1
+(1 row)
+
+select object_name(object_id('test_serial'));
+ object_name 
+-------------
+ test_serial
+(1 row)
+
+select object_name(object_id('test_serial_c1_seq'));
+    object_name     
+--------------------
+ test_serial_c1_seq
+(1 row)
+
+select object_name(0);
+ object_name 
+-------------
+ 
+(1 row)
+
+select object_name(1);
+ object_name 
+-------------
+ 
+(1 row)
+
+select object_name(-1);
+ object_name 
+-------------
+ 
+(1 row)
+
+select object_name(888);
+ object_name 
+-------------
+ cash_eq
+(1 row)
+
+-- cross database
+DO $$
+DECLARE
+    database_oid oid;
+	results nvarchar(128);
+BEGIN
+    SELECT oid INTO database_oid FROM pg_database WHERE datname = current_database();
+    select object_name(object_id('students', 'U'), database_oid) into results;
+	RAISE NOTICE 'results: %', results;
+    select object_name(object_id('students_pkey', 'PK'), database_oid) into results;
+	RAISE NOTICE 'results: %', results;
+    select object_name(object_id('student_grades', 'V'), database_oid) into results;
+    RAISE NOTICE 'results: %', results;
+	select object_name(object_id('calculate_total_grade', 'FN'), database_oid) into results;
+    RAISE NOTICE 'results: %', results;
+	select object_name(object_id('insert_student', 'P'), database_oid) into results;
+    RAISE NOTICE 'results: %', results;
+	select object_name(object_id('trigger_update_total_grade', 'TR'), database_oid) into results;
+	RAISE NOTICE 'results: %', results;
+END $$;
+NOTICE:  results: students
+NOTICE:  results: students_pkey
+NOTICE:  results: student_grades
+NOTICE:  results: calculate_total_grade
+NOTICE:  results: insert_student
+NOTICE:  results: trigger_update_total_grade
+select object_name(object_id('students_pkey', 'PK'), 11);
+ object_name 
+-------------
+ 
+(1 row)
+
+select object_name(object_id('student_grades', 'V'), 11);
+ object_name 
+-------------
+ 
+(1 row)
+
+select object_name(object_id('calculate_total_grade', 'FN'), 11);
+ object_name 
+-------------
+ 
+(1 row)
+
+select object_name(object_id('insert_student', 'P'), 11);
+ object_name 
+-------------
+ 
+(1 row)
+
+select object_name(object_id('trigger_update_total_grade', 'TR'), 11);
+ object_name 
+-------------
+ 
+(1 row)
+
+-- test input type
+create table test_type_table_column_name
+(
+   int1_col tinyint,
+   int2_col smallint,
+   int4_col integer,
+   int8_col bigint,
+   float4_col float4,
+   float8_col float8,
+   numeric_col decimal(20, 6),
+   bit1_col bit(1),
+   boolean_col boolean,
+   char_col char(100),
+   varchar_col varchar(100), 
+   nvarchar_col nvarchar(10),
+   varbinary_col varbinary(100)
+);
+insert into test_type_table_column_name values (1, 1, 1, 1, 1, 1, 1, b'1', 1, 1, 1, 1, 1);
+select 
+    object_name(int1_col), 
+	object_name(int2_col), 
+	object_name(int4_col), 
+	object_name(int8_col), 
+	object_name(float4_col), 
+	object_name(float8_col), 
+	object_name(numeric_col), 
+	object_name(bit1_col), 
+	object_name(boolean_col),
+	object_name(char_col), 
+	object_name(varchar_col), 
+	object_name(nvarchar_col), 
+	object_name(varbinary_col)
+from test_type_table_column_name;
+ object_name | object_name | object_name | object_name | object_name | object_name | object_name | object_name | object_name | object_name | object_name | object_name | object_name 
+-------------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+-------------
+             |             |             |             |             |             |             |             |             |             |             |             | 
+(1 row)
+
+-- sys.object_schema_name 函数
+select object_schema_name(object_id('students', 'U'));
+ object_schema_name 
+--------------------
+ sharksysfunc
+(1 row)
+
+select object_schema_name(object_id('students_pkey', 'PK'));
+ object_schema_name 
+--------------------
+ sharksysfunc
+(1 row)
+
+select object_schema_name(object_id('student_grades', 'V'));
+ object_schema_name 
+--------------------
+ sharksysfunc
+(1 row)
+
+select object_schema_name(object_id('calculate_total_grade', 'FN'));
+ object_schema_name 
+--------------------
+ sharksysfunc
+(1 row)
+
+select object_schema_name(object_id('insert_student', 'P'));
+ object_schema_name 
+--------------------
+ sharksysfunc
+(1 row)
+
+select object_schema_name(object_id('trigger_update_total_grade', 'TR'));
+ object_schema_name 
+--------------------
+ sharksysfunc
+(1 row)
+
+select object_schema_name(object_id('sharksysfunc.students'));
+ object_schema_name 
+--------------------
+ sharksysfunc
+(1 row)
+
+select object_schema_name(object_id('contrib_regression.sharksysfunc.students'));
+ object_schema_name 
+--------------------
+ sharksysfunc
+(1 row)
+
+select object_schema_name(object_id('students', ''));
+ object_schema_name 
+--------------------
+ 
+(1 row)
+
+select object_schema_name(object_id('students','s'));
+ object_schema_name 
+--------------------
+ 
+(1 row)
+
+select object_schema_name(object_id('students','S'));
+ object_schema_name 
+--------------------
+ 
+(1 row)
+
+select object_schema_name(object_id('students','u'));
+ object_schema_name 
+--------------------
+ sharksysfunc
+(1 row)
+
+select object_schema_name(object_id('students',' u'));
+ object_schema_name 
+--------------------
+ 
+(1 row)
+
+select object_schema_name(object_id('students','v'));
+ object_schema_name 
+--------------------
+ 
+(1 row)
+
+select object_schema_name(object_id('students','u '));
+ object_schema_name 
+--------------------
+ sharksysfunc
+(1 row)
+
+select object_schema_name(object_id('sys.objects'));
+ object_schema_name 
+--------------------
+ sys
+(1 row)
+
+select object_schema_name(0);
+ object_schema_name 
+--------------------
+ 
+(1 row)
+
+select object_schema_name(1);
+ object_schema_name 
+--------------------
+ 
+(1 row)
+
+select object_schema_name(-1);
+ object_schema_name 
+--------------------
+ 
+(1 row)
+
+select object_schema_name(888);
+ object_schema_name 
+--------------------
+ pg_catalog
+(1 row)
+
+-- cross database
+DO $$
+DECLARE
+    database_oid oid;
+	results nvarchar(128);
+BEGIN
+    SELECT oid INTO database_oid FROM pg_database WHERE datname = current_database();
+    select object_schema_name(object_id('students', 'U'), database_oid) into results;
+	RAISE NOTICE 'results: %', results;
+    select object_schema_name(object_id('students_pkey', 'PK'), database_oid) into results;
+	RAISE NOTICE 'results: %', results;
+    select object_schema_name(object_id('student_grades', 'V'), database_oid) into results;
+    RAISE NOTICE 'results: %', results;
+	select object_schema_name(object_id('calculate_total_grade', 'FN'), database_oid) into results;
+    RAISE NOTICE 'results: %', results;
+	select object_schema_name(object_id('insert_student', 'P'), database_oid) into results;
+    RAISE NOTICE 'results: %', results;
+	select object_schema_name(object_id('trigger_update_total_grade', 'TR'), database_oid) into results;
+	RAISE NOTICE 'results: %', results;
+END $$;
+NOTICE:  results: sharksysfunc
+NOTICE:  results: sharksysfunc
+NOTICE:  results: sharksysfunc
+NOTICE:  results: sharksysfunc
+NOTICE:  results: sharksysfunc
+NOTICE:  results: sharksysfunc
+select object_schema_name(object_id('students_pkey', 'PK'), 11);
+ object_schema_name 
+--------------------
+ 
+(1 row)
+
+select object_schema_name(object_id('student_grades', 'V'), 11);
+ object_schema_name 
+--------------------
+ 
+(1 row)
+
+select object_schema_name(object_id('calculate_total_grade', 'FN'), 11);
+ object_schema_name 
+--------------------
+ 
+(1 row)
+
+select object_schema_name(object_id('insert_student', 'P'), 11);
+ object_schema_name 
+--------------------
+ 
+(1 row)
+
+select object_schema_name(object_id('trigger_update_total_grade', 'TR'), 11);
+ object_schema_name 
+--------------------
+ 
+(1 row)
+
+select 
+    object_schema_name(int1_col), 
+	object_schema_name(int2_col), 
+	object_schema_name(int4_col), 
+	object_schema_name(int8_col), 
+	object_schema_name(float4_col), 
+	object_schema_name(float8_col), 
+	object_schema_name(numeric_col), 
+	object_schema_name(bit1_col), 
+	object_schema_name(boolean_col),
+	object_schema_name(char_col), 
+	object_schema_name(varchar_col), 
+	object_schema_name(nvarchar_col), 
+	object_schema_name(varbinary_col)
+from test_type_table_column_name;
+ object_schema_name | object_schema_name | object_schema_name | object_schema_name | object_schema_name | object_schema_name | object_schema_name | object_schema_name | object_schema_name | object_schema_name | object_schema_name | object_schema_name | object_schema_name 
+--------------------+--------------------+--------------------+--------------------+--------------------+--------------------+--------------------+--------------------+--------------------+--------------------+--------------------+--------------------+--------------------
+                    |                    |                    |                    |                    |                    |                    |                    |                    |                    |                    |                    | 
+(1 row)
+
+-- sys.object_definition 函数
+select object_definition(object_id('students', 'U'));
+ object_definition 
+-------------------
+ 
+(1 row)
+
+select object_definition(object_id('students_pkey', 'PK'));
+ object_definition 
+-------------------
+ 
+(1 row)
+
+select object_definition(object_id('student_grades', 'V'));
+                  object_definition                  
+-----------------------------------------------------
+ SELECT students.name, students.grade FROM students;
+(1 row)
+
+select object_definition(object_id('calculate_total_grade', 'FN'));
+                        object_definition                        
+-----------------------------------------------------------------
+ CREATE OR REPLACE FUNCTION sharksysfunc.calculate_total_grade()+
+  RETURNS numeric                                               +
+  LANGUAGE plpgsql                                              +
+  NOT FENCED NOT SHIPPABLE                                      +
+ AS $function$                                                  +
+ DECLARE                                                        +
+     total_grade DECIMAL(10, 2) := 0;                           +
+ BEGIN                                                          +
+     SELECT SUM(grade) INTO total_grade FROM students;          +
+     RETURN total_grade;                                        +
+ END;                                                           +
+ $function$;                                                    +
+ 
+(1 row)
+
+select object_definition(object_id('insert_student', 'P'));
+                                       object_definition                                        
+------------------------------------------------------------------------------------------------
+ CREATE OR REPLACE PROCEDURE sharksysfunc.insert_student(                                      +
+     student_name VARCHAR(100),                                                                +
+     student_age INT,                                                                          +
+     student_grade DECIMAL(5, 2)                                                               +
+ )                                                                                             +
+ AS  DECLARE BEGIN                                                                             +
+     INSERT INTO students (name, age, grade) VALUES (student_name, student_age, student_grade);+
+ END;                                                                                          +
+ /                                                                                             +
+ 
+(1 row)
+
+select object_definition(object_id('trigger_update_total_grade', 'TR'));
+                                                                object_definition                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ CREATE TRIGGER trigger_update_total_grade AFTER INSERT OR DELETE OR UPDATE ON students FOR EACH STATEMENT EXECUTE PROCEDURE update_total_grade()
+(1 row)
+
+select object_definition(object_id('sharksysfunc.students'));
+ object_definition 
+-------------------
+ 
+(1 row)
+
+select object_definition(object_id('contrib_regression.sharksysfunc.students'));
+ object_definition 
+-------------------
+ 
+(1 row)
+
+select object_definition(object_id('students', ''));
+ object_definition 
+-------------------
+ 
+(1 row)
+
+select object_definition(object_id('students','s'));
+ object_definition 
+-------------------
+ 
+(1 row)
+
+select object_definition(object_id('students','S'));
+ object_definition 
+-------------------
+ 
+(1 row)
+
+select object_definition(object_id('students','u'));
+ object_definition 
+-------------------
+ 
+(1 row)
+
+select object_definition(object_id('students',' u'));
+ object_definition 
+-------------------
+ 
+(1 row)
+
+select object_definition(object_id('students','v'));
+ object_definition 
+-------------------
+ 
+(1 row)
+
+select object_definition(object_id('students','u '));
+ object_definition 
+-------------------
+ 
+(1 row)
+
+select object_definition(object_id('sys.objects'));
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               object_definition                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ ((((((SELECT t.name, t.object_id, t.principal_id, t.schema_id, t.parent_object_id, t.type, t.type_desc, t.create_date, t.modify_date, t.is_ms_shipped, t.is_published, t.is_schema_published FROM tables t UNION ALL SELECT c.relname AS name, c.oid AS object_id, CASE s.nspowner WHEN c.relowner THEN NULL::oid ELSE c.relowner END AS principal_id, s.oid AS schema_id, (0)::oid AS parent_object_id, 'SO'::character(2) AS type, 'SEQUENCE_OBJECT'::nvarchar2(60) AS type_desc, (o.ctime)::timestamp without time zone AS create_date, (o.mtime)::timestamp without time zone AS modify_date, (0)::bit(1) AS is_ms_shipped, (0)::bit(1) AS is_published, (0)::bit(1) AS is_schema_published FROM ((pg_class c JOIN pg_namespace s ON ((s.oid = c.relnamespace))) JOIN pg_object o ON ((o.object_oid = c.oid))) WHERE (((c.relkind = ANY (ARRAY['S'::"char", 'L'::"char"])) AND (s.nspname <> ALL (ARRAY['information_schema'::name, 'pg_catalog'::name, 'sys'::name, 'information_schema_tsql'::name]))) AND has_table_privilege(((quote_ident((s.nspname)::text) || '.'::text) || quote_ident((c.relname)::text)), 'SELECT'::text))) UNION ALL SELECT v.name, v.object_id, v.principal_id, v.schema_id, v.parent_object_id, v.type, v.type_desc, v.create_date, v.modify_date, v.is_ms_shipped, v.is_published, v.is_schema_published FROM views v) UNION ALL SELECT p.name, p.object_id, p.principal_id, p.schema_id, p.parent_object_id, p.type, p.type_desc, p.create_date, p.modify_date, p.is_ms_shipped, p.is_published, p.is_schema_published FROM procedures p) UNION ALL SELECT con.conname AS name, con.oid AS object_id, NULL::oid AS principal_id, con.connamespace AS schema_id, con.conrelid AS parent_object_id, (CASE con.contype WHEN 'c'::"char" THEN 'C'::text WHEN 'p'::"char" THEN 'PK'::text WHEN 'u'::"char" THEN 'UQ'::text WHEN 'f'::"char" THEN 'F'::text ELSE NULL::text END)::character(2) AS type, (CASE con.contype WHEN 'c'::"char" THEN 'CHECK_CONSTRAINT'::text WHEN 'p'::"char" THEN 'PRIMARY_KEY_CONSTRAINT'::text WHEN 'u'::"char" THEN 'UNIQUE_CONSTRAINT'::text WHEN 'f'::"char" THEN 'FOREIGN_KEY_CONSTRAINT'::text ELSE NULL::text END)::nvarchar2(60) AS type_desc, NULL::timestamp without time zone AS create_date, NULL::timestamp without time zone AS modify_date, (0)::bit(1) AS is_ms_shipped, (0)::bit(1) AS is_published, (0)::bit(1) AS is_schema_published FROM ((pg_constraint con JOIN pg_class c ON ((c.oid = con.conrelid))) JOIN pg_namespace s ON ((s.oid = con.connamespace))) WHERE (((con.contype = ANY (ARRAY['c'::"char", 'p'::"char", 'u'::"char", 'f'::"char"])) AND has_table_privilege(((quote_ident((s.nspname)::text) || '.'::text) || quote_ident((c.relname)::text)), 'SELECT'::text)) AND (s.nspname <> ALL (ARRAY['information_schema'::name, 'pg_catalog'::name, 'sys'::name, 'information_schema_tsql'::name])))) UNION ALL SELECT tg.tgname AS name, tg.oid AS object_id, NULL::oid AS principal_id, c.relnamespace AS schema_id, tg.tgrelid AS parent_object_id, 'TR'::character(2) AS type, 'SQL DML trigger'::nvarchar2(60) AS type_desc, (o.ctime)::timestamp without time zone AS create_date, (o.mtime)::timestamp without time zone AS modify_date, (0)::bit(1) AS is_ms_shipped, (0)::bit(1) AS is_published, (0)::bit(1) AS is_schema_published FROM (((pg_trigger tg JOIN pg_class c ON ((c.oid = tg.tgrelid))) JOIN pg_namespace s ON ((s.oid = c.relnamespace))) JOIN pg_object o ON ((o.object_oid = tg.oid))) WHERE (has_table_privilege(((quote_ident((s.nspname)::text) || '.'::text) || quote_ident((c.relname)::text)), 'SELECT'::text) AND (s.nspname <> ALL (ARRAY['information_schema'::name, 'pg_catalog'::name, 'sys'::name, 'information_schema_tsql'::name])))) UNION ALL SELECT NULL::name AS name, ad.oid AS object_id, NULL::oid AS principal_id, c.relnamespace AS schema_id, ad.adrelid AS parent_object_id, 'D'::character(2) AS type, 'DEFAULT'::nvarchar2(60) AS type_desc, (o.ctime)::timestamp without time zone AS create_date, (o.mtime)::timestamp without time zone AS modify_date, (0)::bit(1) AS is_ms_shipped, (0)::bit(1) AS is_published, (0)::bit(1) AS is_schema_published FROM (((pg_attrdef ad JOIN pg_class c ON ((c.oid = ad.adrelid))) JOIN pg_namespace s ON ((s.oid = c.relnamespace))) JOIN pg_object o ON ((o.object_oid = ad.adrelid))) WHERE (has_table_privilege(((quote_ident((s.nspname)::text) || '.'::text) || quote_ident((c.relname)::text)), 'SELECT'::text) AND (s.nspname <> ALL (ARRAY['information_schema'::name, 'pg_catalog'::name, 'sys'::name, 'information_schema_tsql'::name])))) UNION ALL SELECT syn.synname AS name, syn.oid AS object_id, CASE s.nspowner WHEN syn.synowner THEN NULL::oid ELSE syn.synowner END AS principal_id, syn.synnamespace AS schema_id, (0)::oid AS parent_object_id, 'SN'::character(2) AS type, 'Synonym'::nvarchar2(60) AS type_desc, NULL::timestamp without time zone AS create_date, NULL::timestamp without time zone AS modify_date, (0)::bit(1) AS is_ms_shipped, (0)::bit(1) AS is_published, (0)::bit(1) AS is_schema_published FROM (pg_synonym syn JOIN pg_namespace s ON ((s.oid = syn.synnamespace))) WHERE (s.nspname <> ALL (ARRAY['information_schema'::name, 'pg_catalog'::name, 'sys'::name, 'information_schema_tsql'::name]));
+(1 row)
+
+select object_definition(object_id('constraint_name22'));
+                               object_definition                                
+--------------------------------------------------------------------------------
+ ALTER TABLE ONLY check_table ADD CONSTRAINT constraint_name22 CHECK ((c1 > 1))
+(1 row)
+
+select object_definition(0);
+ object_definition 
+-------------------
+ 
+(1 row)
+
+select object_definition(1);
+ object_definition 
+-------------------
+ 
+(1 row)
+
+select object_definition(-1);
+ object_definition 
+-------------------
+ 
+(1 row)
+
+select object_definition(888);
+                      object_definition                      
+-------------------------------------------------------------
+ CREATE OR REPLACE FUNCTION pg_catalog.cash_eq(money, money)+
+  RETURNS boolean                                           +
+  LANGUAGE internal                                         +
+  IMMUTABLE STRICT LEAKPROOF NOT FENCED NOT SHIPPABLE       +
+ AS $function$cash_eq$function$;                            +
+ 
+(1 row)
+
+select 
+    object_definition(int1_col), 
+	object_definition(int2_col), 
+	object_definition(int4_col), 
+	object_definition(int8_col), 
+	object_definition(float4_col), 
+	object_definition(float8_col), 
+	object_definition(numeric_col), 
+	object_definition(bit1_col), 
+	object_definition(boolean_col),
+	object_definition(char_col), 
+	object_definition(varchar_col), 
+	object_definition(nvarchar_col), 
+	object_definition(varbinary_col)
+from test_type_table_column_name;
+ object_definition | object_definition | object_definition | object_definition | object_definition | object_definition | object_definition | object_definition | object_definition | object_definition | object_definition | object_definition | object_definition 
+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------
+                   |                   |                   |                   |                   |                   |                   |                   |                   |                   |                   |                   | 
+(1 row)
+
+-- sys.objectpropertyex
+select objectpropertyex(object_id('students', 'U'), 'BaseType');
+ objectpropertyex 
+------------------
+ U 
+(1 row)
+
+select objectpropertyex(object_id('students_pkey', 'PK'), 'BaseType');
+ objectpropertyex 
+------------------
+ PK
+(1 row)
+
+select objectpropertyex(object_id('student_grades', 'V'), 'BaseType');
+ objectpropertyex 
+------------------
+ V 
+(1 row)
+
+select objectpropertyex(object_id('calculate_total_grade', 'FN'), 'BaseType');
+ objectpropertyex 
+------------------
+ FN
+(1 row)
+
+select objectpropertyex(object_id('insert_student', 'P'), 'BaseType');
+ objectpropertyex 
+------------------
+ P 
+(1 row)
+
+select objectpropertyex(object_id('trigger_update_total_grade', 'TR'), 'BaseType');
+ objectpropertyex 
+------------------
+ TR
+(1 row)
+
+select objectpropertyex(object_id('sharksysfunc.students'), 'BaseType');
+ objectpropertyex 
+------------------
+ U 
+(1 row)
+
+select objectpropertyex(object_id('contrib_regression.sharksysfunc.students'), 'BaseType');
+ objectpropertyex 
+------------------
+ U 
+(1 row)
+
+select objectpropertyex(object_id('students', ''), 'BaseType');
+ objectpropertyex 
+------------------
+ 
+(1 row)
+
+select objectpropertyex(object_id('students','s'), 'BaseType');
+ objectpropertyex 
+------------------
+ 
+(1 row)
+
+select objectpropertyex(object_id('students','S'), 'BaseType');
+ objectpropertyex 
+------------------
+ 
+(1 row)
+
+select objectpropertyex(object_id('students','u'), 'BaseType');
+ objectpropertyex 
+------------------
+ U 
+(1 row)
+
+select objectpropertyex(object_id('students',' u'), 'BaseType');
+ objectpropertyex 
+------------------
+ 
+(1 row)
+
+select objectpropertyex(object_id('students','v'), 'BaseType');
+ objectpropertyex 
+------------------
+ 
+(1 row)
+
+select objectpropertyex(object_id('students','u '), 'BaseType');
+ objectpropertyex 
+------------------
+ U 
+(1 row)
+
+select objectpropertyex(object_id('sys.objects'), 'BaseType');
+ objectpropertyex 
+------------------
+ V 
+(1 row)
+
+select objectpropertyex(0, 'BaseType');
+ objectpropertyex 
+------------------
+ 
+(1 row)
+
+select objectpropertyex(1, 'BaseType');
+ objectpropertyex 
+------------------
+ 
+(1 row)
+
+select objectpropertyex(-1, 'BaseType');
+ objectpropertyex 
+------------------
+ 
+(1 row)
+
+select objectpropertyex(888, 'BaseType');
+ objectpropertyex 
+------------------
+ FN
+(1 row)
+
+select objectpropertyex(object_id('students', 'U'), 'BASETYPE');
+ objectpropertyex 
+------------------
+ U 
+(1 row)
+
+select objectpropertyex(object_id('students', 'U'), 'basetype');
+ objectpropertyex 
+------------------
+ U 
+(1 row)
+
+select objectpropertyex(object_id('students', 'U'), 'BASETYPE       ');
+ objectpropertyex 
+------------------
+ U 
+(1 row)
+
+select objectpropertyex(object_id('students', 'U'), 'BaseType');
+ objectpropertyex 
+------------------
+ U 
+(1 row)
+
+select objectpropertyex(object_id('students', 'U'), 'BaseType');
+ objectpropertyex 
+------------------
+ U 
+(1 row)
+
+select objectpropertyex(object_id('students', 'U'), 'amaoagou');
+ objectpropertyex 
+------------------
+ 
+(1 row)
+
+select objectpropertyex(NULL, 'BASETYPE');
+ objectpropertyex 
+------------------
+ 
+(1 row)
+
+select objectpropertyex(object_id('students', 'U'), NULL);
+ objectpropertyex 
+------------------
+ 
+(1 row)
+
+select 
+    objectpropertyex(int1_col, 'BaseType'), 
+	objectpropertyex(int2_col, 'BaseType'), 
+	objectpropertyex(int4_col, 'BaseType'), 
+	objectpropertyex(int8_col, 'BaseType'), 
+	objectpropertyex(float4_col, 'BaseType'), 
+	objectpropertyex(float8_col, 'BaseType'), 
+	objectpropertyex(numeric_col, 'BaseType'), 
+	objectpropertyex(bit1_col, 'BaseType'), 
+	objectpropertyex(char_col, 'BaseType'), 
+	objectpropertyex(varchar_col, 'BaseType'), 
+	objectpropertyex(nvarchar_col,'BaseType'), 
+	objectpropertyex(varbinary_col, 'BaseType')
+from test_type_table_column_name;
+ objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex 
+------------------+------------------+------------------+------------------+------------------+------------------+------------------+------------------+------------------+------------------+------------------+------------------
+                  |                  |                  |                  |                  |                  |                  |                  |                  |                  |                  | 
+(1 row)
+
+select 
+    objectpropertyex(object_id('students', 'U'), int1_col), 
+	objectpropertyex(object_id('students', 'U'), int2_col), 
+	objectpropertyex(object_id('students', 'U'), int4_col), 
+	objectpropertyex(object_id('students', 'U'), int8_col), 
+	objectpropertyex(object_id('students', 'U'), float4_col), 
+	objectpropertyex(object_id('students', 'U'), float8_col), 
+	objectpropertyex(object_id('students', 'U'), numeric_col), 
+	objectpropertyex(object_id('students', 'U'), bit1_col), 
+	objectpropertyex(object_id('students', 'U'), char_col), 
+	objectpropertyex(object_id('students', 'U'), varchar_col), 
+	objectpropertyex(object_id('students', 'U'), nvarchar_col), 
+	objectpropertyex(object_id('students', 'U'), varbinary_col)
+from test_type_table_column_name;
+ objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex | objectpropertyex 
+------------------+------------------+------------------+------------------+------------------+------------------+------------------+------------------+------------------+------------------+------------------+------------------
+                  |                  |                  |                  |                  |                  |                  |                  |                  |                  |                  | 
+(1 row)
+
+drop TRIGGER trigger_update_total_grade;
+drop view sharksysfunc.student_grades;
+drop function if exists calculate_total_grade();
+drop function if exists insert_student(character varying,integer,numeric);
+drop function if exists update_total_grade();
+drop type if exists test_type1;
+drop table if exists test_serial;
+drop table if exists test_type_table_column_name;
+drop table if exists students;
+drop table if exists check_table;
+reset current_schema;
+drop schema sharksysfunc cascade;
