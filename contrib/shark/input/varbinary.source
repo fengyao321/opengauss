@@ -188,6 +188,10 @@ create table test2(id int,var1 varbinary(10),var2 varbinary(20)default 0x161616 
 insert into test2 (id, var1) VALUES (1, 0x123456);
 select id,var1,var2 from test2;
 
+-- varbinary(max)
+create table testvarbinary(c1 varbinary, c2 varbinary(1), c3 varbinary(max));
+\d+ testvarbinary
+
 -- test dump
 create DATABASE restore_varbinary DBCOMPATIBILITY 'D';
 \c restore_varbinary
@@ -202,6 +206,7 @@ select * from test_varbinary.public.t3;
 \c restore_varbinary
 \d restore_varbinary.public.t3
 select * from restore_varbinary.public.t3;
+\d+ testvarbinary
 
 \c postgres
 DROP DATABASE test_varbinary;
