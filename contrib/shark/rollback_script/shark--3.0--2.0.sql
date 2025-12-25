@@ -816,6 +816,30 @@ drop view if exists sys.sequences;
 
 drop cast if exists (int16 as sys.varbinary) cascade;
 drop function if exists sys.int16_sqlvariant(int16, int);
+
+-- sys.columnproperty
+drop function if exists sys.columnproperty(object_id OID, property TEXT, property_name TEXT);
+
+-- sys.col_name
+drop function if exists sys.COL_NAME(IN table_id INT, IN column_id Oid);
+drop function if exists sys.COL_NAME(IN table_id INT, IN column_id bit);
+drop function if exists sys.COL_NAME(IN table_id INT, IN column_id bigint);
+drop function if exists sys.COL_NAME(IN table_id Oid, IN column_id INT);
+drop function if exists sys.COL_NAME(IN table_id bit, IN column_id INT);
+drop function if exists sys.COL_NAME(IN table_id bigint, IN column_id INT);
+drop function if exists sys.COL_NAME(IN table_id INT, IN column_id INT);
+drop function if exists sys.COL_NAME(IN table_id text, IN column_id text);
+
+
+-- sys.col_length
+drop function if exists sys.col_length(IN object_name text, IN column_name varbinary);
+drop function if exists sys.col_length(IN object_name varbinary, IN column_name TEXT);
+drop function if exists sys.col_length(IN object_name TEXT, IN column_name TEXT);
+drop function if exists sys.translate_pg_type_to_tsql(pgoid oid);
+drop function if exists sys.truncate_identifier(IN object_name TEXT);
+drop function if exists sys.remove_delimiter_pair(IN name TEXT);
+drop function if exists sys.type_max_length_helper_ext(IN type TEXT, IN typelen INT, IN typemod INT, IN for_sys_types boolean, IN used_typmod_array boolean);
+
 -- sys.objectpropertyex
 drop function if exists sys.objectpropertyex(id INT, property varbinary);
 drop function if exists sys.objectpropertyex(id INT, property bit);

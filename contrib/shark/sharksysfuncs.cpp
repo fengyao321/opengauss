@@ -60,6 +60,45 @@ PG_FUNCTION_INFO_V1(object_schema_name);
 extern "C" Datum object_define(PG_FUNCTION_ARGS);
 PG_FUNCTION_INFO_V1(object_define);
 
+extern "C" Datum truncate_identifier(PG_FUNCTION_ARGS);
+PG_FUNCTION_INFO_V1(truncate_identifier);
+
+extern "C" Datum translate_pg_type_to_tsql(PG_FUNCTION_ARGS);
+PG_FUNCTION_INFO_V1(translate_pg_type_to_tsql);
+
+extern "C" Datum columnproperty(PG_FUNCTION_ARGS);
+PG_FUNCTION_INFO_V1(columnproperty);
+
+TypeInfoMap g_type_maps[TOTAL_TYPEMAP_COUNT] = {
+    {"sql_variant", "sql_variant"},
+    {"datetime", "datetime2"},
+    {"smalldatetime", "smalldatetime"},
+    {"date", "date"},
+    {"time", "time"},
+    {"float8", "float"},
+    {"float4", "real"},
+    {"numeric", "numeric"},
+    {"money", "money"},
+    {"int8", "bigint"},
+    {"int4", "int"},
+    {"int2", "smallint"},
+    {"int1", "tinyint"},
+    {"tinyint", "tinyint"},
+    {"bool", "tinyint"},
+    {"bit", "bit"},
+    {"nvarchar", "nvarchar"},
+    {"nvarchar2", "nvarchar"},
+    {"nchar", "nchar"},
+    {"varchar", "varchar"},
+    {"bpchar", "char"},
+    {"varbinary", "varbinary"},
+    {"binary", "binary"},
+    {"text", "text"},
+    {"xml", "xml"},
+    {"bpchar", "char"},
+    {"decimal", "decimal"},
+    {"timestamp", "timestamp"},
+};
 
 void FreeObjectInfo(object_info_t* info)
 {
@@ -349,3 +388,467 @@ Datum object_define(PG_FUNCTION_ARGS)
     }
     PG_RETURN_NULL();
 }
+
+Datum truncate_identifier(PG_FUNCTION_ARGS)
+{
+    char *ident = text_to_cstring(PG_GETARG_TEXT_PP(0));
+    int len = strlen(ident);
+    if (len >= NAMEDATALEN) {
+        len = pg_mbcliplen(ident, len, NAMEDATALEN - 1);
+        ident[len] = '\0';
+    }
+    PG_RETURN_TEXT_P(cstring_to_text(ident));
+}
+
+Datum translate_pg_type_to_tsql(PG_FUNCTION_ARGS)
+{
+    Oid pg_type = PG_GETARG_OID(0);
+    char* type_name = NULL;
+    if (OidIsValid(pg_type)) {
+        type_name = get_typename(pg_type);
+        for (int i = 0; i < TOTAL_TYPEMAP_COUNT; i++) {
+            if (strcmp(g_type_maps[i].pg_typname, type_name) == 0) {
+                pfree_ext(type_name);
+                PG_RETURN_TEXT_P(cstring_to_text(g_type_maps[i].tsql_typname));
+            }
+        }
+    }
+    text* result = cstring_to_text(type_name);
+    pfree_ext(type_name);
+    PG_RETURN_TEXT_P(result);
+}
+
+
+bool is_column_exist(Oid rel_oid, char* colname)
+{
+    HeapTuple attTuple;
+    bool attisdropped;
+    attTuple = SearchSysCache2(ATTNAME, ObjectIdGetDatum(rel_oid), PointerGetDatum(colname));
+    if (!HeapTupleIsValid(attTuple)) {
+        return 0;
+    }
+
+    attisdropped = ((Form_pg_attribute)GETSTRUCT(attTuple))->attisdropped;
+    ReleaseSysCache(attTuple);
+    return !attisdropped;
+}
+
+char* formated_string(text *input)
+{
+    char* input_str = text_to_cstring(input);
+    if (strlen(input_str) < 1) {
+        return NULL;
+    }
+
+    input_str = downcase_truncate_identifier(input_str, strlen(input_str), true);
+    input_str = remove_trailing_spaces(input_str);
+    return input_str;
+}
+
+int get_charmaxlen(Oid rel_oid, char* colname)
+{
+    HeapTuple attTuple;
+    int atttypmod;
+    attTuple = SearchSysCache2(ATTNAME, ObjectIdGetDatum(rel_oid), PointerGetDatum(colname));
+    if (!HeapTupleIsValid(attTuple)) {
+        return -1;
+    }
+
+    atttypmod = ((Form_pg_attribute)GETSTRUCT(attTuple))->atttypmod;
+    ReleaseSysCache(attTuple);
+    if (atttypmod > 0) {
+        return atttypmod - NUMERIC_PRECISION_BASE_LEN;
+    }
+    return -1;
+}
+
+int get_allow_null(Oid rel_oid, char* colname)
+{
+    HeapTuple attTuple;
+    bool attnotnull;
+    attTuple = SearchSysCache2(ATTNAME, ObjectIdGetDatum(rel_oid), PointerGetDatum(colname));
+    if (!HeapTupleIsValid(attTuple)) {
+        return -1;
+    }
+
+    attnotnull = ((Form_pg_attribute)GETSTRUCT(attTuple))->attnotnull;
+    ReleaseSysCache(attTuple);
+    return !attnotnull;
+}
+
+int get_column_id(Oid rel_oid, char* colname)
+{
+    HeapTuple attTuple;
+    int column_id;
+    attTuple = SearchSysCache2(ATTNAME, ObjectIdGetDatum(rel_oid), PointerGetDatum(colname));
+    if (!HeapTupleIsValid(attTuple)) {
+        return -1;
+    }
+
+    column_id = ((Form_pg_attribute)GETSTRUCT(attTuple))->attnum;
+    ReleaseSysCache(attTuple);
+    return column_id;
+}
+
+int get_is_compute(Oid rel_oid, char* colname)
+{
+    HeapTuple attTuple;
+    int attnum;
+    Relation attrdef_rel;
+    ScanKeyData scankeys[TWO];
+    SysScanDesc scan;
+    HeapTuple tuple;
+    bool is_compute = false;
+    attnum = get_column_id(rel_oid, colname);
+
+    attrdef_rel = heap_open(AttrDefaultRelationId, AccessShareLock);
+    ScanKeyInit(&scankeys[0], Anum_pg_attrdef_adrelid, BTEqualStrategyNumber, F_OIDEQ, ObjectIdGetDatum(rel_oid));
+    ScanKeyInit(&scankeys[1], Anum_pg_attrdef_adnum, BTEqualStrategyNumber, F_INT2EQ, Int16GetDatum(attnum));
+    scan = systable_beginscan(attrdef_rel, AttrDefaultIndexId, true, NULL, TWO, scankeys);
+
+    /* There should be at most one matching tuple, but we loop anyway */
+    while (HeapTupleIsValid(tuple = systable_getnext(scan))) {
+        bool isnull = false;
+        Datum val = fastgetattr(tuple, Anum_pg_attrdef_adgencol, attrdef_rel->rd_att, &isnull);
+        if (isnull) {
+            continue;
+        }
+        bool is_gencol = DatumGetBool(val);
+        if (is_gencol) {
+            is_compute = true;
+            break;
+        }
+    }
+    systable_endscan(scan);
+    heap_close(attrdef_rel, AccessShareLock);
+
+    return is_compute;
+}
+
+int get_is_identity(Oid rel_oid, char* colname)
+{
+    bool is_identity = false;
+    char* relname = get_rel_name(rel_oid);
+
+    bool isRetNull = false;
+    Datum result = DirectCall2(&isRetNull, pg_get_serial_sequence, InvalidOid,
+                               CStringGetTextDatum(relname), CStringGetTextDatum(colname));
+    if (isRetNull) {
+        pfree_ext(relname);
+        return 0;
+    }
+    
+    char* seqname =  text_to_cstring(DatumGetTextPP(result));
+    if (StrEndWith(seqname, "_seq_identity")) {
+        is_identity = true;
+    }
+    pfree_ext(relname);
+    pfree_ext(seqname);
+    return is_identity;
+}
+
+int get_is_hidden(Oid rel_oid, char* colname)
+{
+    int attnum;
+    attnum = get_column_id(rel_oid, colname);
+    if (attnum >= 0) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+int get_ordinal(Oid rel_oid, char* colname)
+{
+    HeapTuple attr_tuple;
+    Form_pg_attribute attr_form;
+    int col_position = 0;
+    int current_pos = 0;
+    ScanKeyData scan_key[1];
+    SysScanDesc scan_desc;
+    Relation rel_att;
+    ScanKeyInit(&scan_key[0], Anum_pg_attribute_attrelid, BTEqualStrategyNumber, F_OIDEQ, ObjectIdGetDatum(rel_oid));
+    rel_att = heap_open(AttributeRelationId, AccessShareLock);
+    scan_desc = systable_beginscan(rel_att, AttributeRelidNumIndexId, true, NULL, 1, scan_key);
+    while (HeapTupleIsValid(attr_tuple = systable_getnext(scan_desc))) {
+        attr_form = (Form_pg_attribute)GETSTRUCT(attr_tuple);
+        if (attr_form->attisdropped || attr_form->attnum <= 0) {
+            continue;
+        }
+    
+        current_pos++;
+        if (strcmp(NameStr(attr_form->attname), colname) == 0) {
+            col_position = current_pos;
+            break;
+        }
+    }
+    systable_endscan(scan_desc);
+    heap_close(rel_att, AccessShareLock);
+
+    return col_position;
+}
+
+int get_column_type_andtymod(Oid rel_oid, char* colname, Oid* type, int* tymod)
+{
+    HeapTuple attTuple;
+    int column_id;
+    attTuple = SearchSysCache2(ATTNAME, ObjectIdGetDatum(rel_oid), PointerGetDatum(colname));
+    if (!HeapTupleIsValid(attTuple)) {
+        return -1;
+    }
+
+    *type = ((Form_pg_attribute)GETSTRUCT(attTuple))->atttypid;
+    *tymod = ((Form_pg_attribute)GETSTRUCT(attTuple))->atttypmod;
+    ReleaseSysCache(attTuple);
+    return 0;
+}
+
+int get_type_no_mod_scale(Oid typeoid)
+{
+    int scale = -1;
+    switch (typeoid) {
+        case SMALLDATETIMEOID:
+            scale = 0;
+            break;
+
+        case TIMESTAMPOID:
+        case TIMESTAMPTZOID:
+            scale = TIMESTAMP_DEFAULT_SCALE;
+            break;
+
+        case DATEOID:
+            scale = 0;
+            break;
+
+        case TIMEOID:
+        case TIMETZOID:
+            scale = TIMESTAMP_DEFAULT_SCALE;
+            break;
+
+        case NUMERICOID:
+            scale = NUMERIC_DEFAULT_SCALE;
+            break;
+
+        case CASHOID:
+            scale = CASH_DEFAULT_SCALE;
+            break;
+
+        default:
+            scale = 0;
+            break;
+    }
+
+    return scale;
+}
+
+int get_type_scale(Oid typeoid, int typmod)
+{
+    if (typmod == -1) {
+        return get_type_no_mod_scale(typeoid);
+    }
+    int scale = -1;
+    switch (typeoid) {
+        case NUMERICOID:
+            scale = ((typmod - NUMERIC_PRECISION_BASE_LEN)) & NUMERIC_PRECISION_MASK;
+            break;
+
+        case TIMESTAMPOID:
+        case TIMESTAMPTZOID:
+        case TIMEOID:
+        case TIMETZOID:
+            scale = typmod;
+            break;
+
+        case CHAROID:
+        case VARCHAROID:
+        case BPCHAROID:
+        case TEXTOID:
+            scale = typmod - NUMERIC_PRECISION_BASE_LEN;
+            break;
+
+        default:
+            scale = typmod;
+            break;
+    }
+    return scale;
+}
+
+int get_scale(Oid rel_oid, char* colname)
+{
+    Oid typid = 0;
+    int32 typmod = 0;
+    if (get_column_type_andtymod(rel_oid, colname, &typid, &typmod) == -1) {
+        return -1;
+    }
+    return get_type_scale(typid, typmod);
+}
+
+int get_type_no_mod_precision(Oid typeoid)
+{
+    int precision = -1;
+    switch (typeoid) {
+        case SMALLDATETIMEOID:
+            precision = SMALLDATETIME_DEFAULT_PRECISION;
+            break;
+
+        case TIMESTAMPOID:
+        case TIMESTAMPTZOID:
+            precision = DATETIME_DEFAULT_PRECISION;
+            break;
+
+        case DATEOID:
+            precision = DATE_DEFAULT_PRECISION;
+            break;
+
+        case TIMEOID:
+        case TIMETZOID:
+            precision = TIME_DEFAULT_PRECISION;
+            break;
+
+        case FLOAT8OID:
+            precision = FLOAT8_DEFAULT_PRECISION;
+            break;
+
+        case FLOAT4OID:
+            precision = FLOAT4_DEFAULT_PRECISION;
+            break;
+
+        case NUMERICOID:
+            precision = NUMERIC_DEFAULT_PRECISION;
+            break;
+
+        case CASHOID:
+            precision = CASH_DEFAULT_PRECISION;
+            break;
+
+        case INT8OID:
+            precision = INT8_DEFAULT_PRECISION;
+            break;
+
+        case INT4OID:
+            precision = INT4_DEFAULT_PRECISION;
+            break;
+
+        case INT2OID:
+            precision = INT2_DEFAULT_PRECISION;
+            break;
+
+        case INT1OID:
+            precision = INT1_DEFAULT_PRECISION;
+            break;
+
+        case BITOID:
+            precision = BIT_DEFAULT_PRECISION;
+            break;
+
+        default:
+            precision = 0;
+            break;
+    }
+
+    return precision;
+}
+
+int get_type_precision(Oid typeoid, int typmod)
+{
+    if (typmod == -1) {
+        return get_type_no_mod_precision(typeoid);
+    }
+    int precision = -1;
+    switch (typeoid) {
+        case NUMERICOID:
+            precision = ((typmod - NUMERIC_PRECISION_BASE_LEN) >> SHORT_LENGTH) & NUMERIC_PRECISION_MASK;
+            break;
+
+        case SMALLDATETIMEOID:
+            precision = SMALLDATETIME_DEFAULT_PRECISION;
+            break;
+
+        case TIMESTAMPOID:
+        case TIMESTAMPTZOID:
+            {
+                if (typmod == 0) {
+                    precision = DATETIME_MIN_PRECISION;
+                } else {
+                    precision = DATETIME_MIN_PRECISION + 1 + typmod;
+                }
+            }
+            break;
+
+        case TIMEOID:
+        case TIMETZOID:
+            {
+                if (typmod == 0) {
+                    precision = TIME_MIN_PRECISION;
+                } else {
+                    precision = TIME_MIN_PRECISION + 1 + typmod;
+                }
+            }
+            break;
+
+        case CHAROID:
+        case VARCHAROID:
+        case BPCHAROID:
+        case TEXTOID:
+            precision = typmod - NUMERIC_PRECISION_BASE_LEN;
+            break;
+
+        default:
+            precision = typmod;
+            break;
+    }
+    return precision;
+}
+
+int get_precision(Oid rel_oid, char* colname)
+{
+    Oid typid = 0;
+    int32 typmod = 0;
+    if (get_column_type_andtymod(rel_oid, colname, &typid, &typmod) == -1) {
+        return -1;
+    }
+    return get_type_precision(typid, typmod);
+}
+
+Datum columnproperty(PG_FUNCTION_ARGS)
+{
+    int32 object_id = PG_GETARG_INT32(0);
+    char* column_name = formated_string(PG_GETARG_TEXT_PP(1));
+    char* property = formated_string(PG_GETARG_TEXT_PP(2));
+    int result = -1;
+
+    if (column_name == NULL || property == NULL || !is_column_exist(object_id, column_name)) {
+        pfree_ext(column_name);
+        pfree_ext(property);
+        PG_RETURN_NULL();
+    }
+
+    if (strcmp("charmaxlen", property) == 0) {
+        result = get_charmaxlen(object_id, column_name);
+    } else if (strcmp("allowsnull", property) == 0) {
+        result = get_allow_null(object_id, column_name);
+    } else if (strcmp("iscomputed", property) == 0) {
+        result = get_is_compute(object_id, column_name);
+    } else if (strcmp("columnid", property) == 0) {
+        result = get_column_id(object_id, column_name);
+    } else if (strcmp("ishidden", property) == 0) {
+        result = get_is_hidden(object_id, column_name);
+    } else if (strcmp("isidentity", property) == 0) {
+        result = get_is_identity(object_id, column_name);
+    } else if (strcmp("ordinal", property) == 0) {
+        result = get_ordinal(object_id, column_name);
+    } else if (strcmp("precision", property) == 0) {
+        result = get_precision(object_id, column_name);
+    } else if (strcmp("scale", property) == 0) {
+        result = get_scale(object_id, column_name);
+    }
+
+    pfree_ext(column_name);
+    pfree_ext(property);
+    if (result == -1) {
+        PG_RETURN_NULL();
+    }
+
+    PG_RETURN_INT32(result);
+}
+
