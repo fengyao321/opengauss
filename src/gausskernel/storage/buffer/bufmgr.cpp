@@ -7391,7 +7391,7 @@ extern void AsyncAbortBufferIO(BufferDesc *buffer, bool isForInput, void *desc)
  */
 extern void AsyncTerminateBufferIOByVacuum(BufferDesc *buffer)
 {
-    TerminateBufferIO_common(buffer, true, 0);
+    TerminateBufferIO_common(buffer, false, 0);
 }
 
 /*
@@ -7401,7 +7401,7 @@ extern void AsyncTerminateBufferIOByVacuum(BufferDesc *buffer)
  */
 extern void AsyncAbortBufferIOByVacuum(BufferDesc *buffer)
 {
-    TerminateBufferIO_common(buffer, true, BM_IO_ERROR);
+    TerminateBufferIO_common(buffer, false, BM_IO_ERROR);
 }
 
 /*
