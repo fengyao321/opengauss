@@ -168,6 +168,12 @@ private:
     struct wd_agg_col_info* daeAggCols_ = nullptr;
     __u32 daeKeyColsNum_ = 0;
     __u32 daeAggColsNum_ = 0;
+    
+    /* Store original column types for output processing */
+    /* Array of key column type OIDs */
+    Oid* daeKeyColTypes_ = nullptr;
+    /* Array of key column typeMods */
+    int4* daeKeyColTypeMods_ = nullptr;
 };
 
 #endif
