@@ -817,6 +817,55 @@ drop view if exists sys.sequences;
 drop cast if exists (int16 as sys.varbinary) cascade;
 drop function if exists sys.int16_sqlvariant(int16, int);
 
+-- sys.sysdatetime
+drop function if exists sys.sysdatetime();
+
+-- sys.EOMONTH
+drop function if exists sys.eomonth(text, numeric);
+drop function if exists sys.eomonth(timestamp with time zone, numeric);
+drop function if exists sys.eomonth(timestamp without time zone, numeric);
+drop function if exists sys.eomonth(timestamp with time zone, int);
+drop function if exists sys.eomonth(timestamp without time zone, int);
+drop function if exists sys.eomonth(date,int);
+
+
+-- sys.isdate
+drop function if exists sys.isdate(v int);
+drop function if exists sys.isdate(text);
+
+-- sys.day
+drop function if exists sys.day(input text);
+drop function if exists sys.day(input bit);
+drop function if exists sys.day(input bigint);
+drop function if exists sys.day(input ANYELEMENT);
+drop function if exists sys.day(timestamptz);
+drop function if exists sys.day(abstime);
+drop function if exists sys.day(date);
+drop function if exists sys.day(timestamp(0) with time zone);
+CREATE OR REPLACE FUNCTION sys.day (timestamptz) RETURNS float8 LANGUAGE SQL IMMUTABLE STRICT as 'select pg_catalog.date_part(''day'', $1)';
+CREATE OR REPLACE FUNCTION sys.day (abstime) RETURNS float8 LANGUAGE SQL IMMUTABLE STRICT as 'select pg_catalog.date_part(''day'', $1)';
+CREATE OR REPLACE FUNCTION sys.day (date) RETURNS float8 LANGUAGE SQL IMMUTABLE STRICT as 'select pg_catalog.date_part(''day'', $1)';
+CREATE OR REPLACE FUNCTION sys.day (timestamp(0) with time zone) RETURNS float8 LANGUAGE SQL IMMUTABLE STRICT as 'select pg_catalog.date_part(''day'', $1)';
+
+-- sys.month
+drop function if exists sys.month(input text);
+drop function if exists sys.month(input bit);
+drop function if exists sys.month(input bigint);
+drop function if exists sys.month(input int);
+drop function if exists sys.month(input tinyint);
+drop function if exists sys.month(input time with time zone);
+drop function if exists sys.month(input time without time zone);
+drop function if exists sys.month(input timestamp with time zone);
+drop function if exists sys.month(input timestamp without time zone);
+drop function if exists sys.month(input date);
+
+-- sys.year
+drop function if exists sys.year(input bit);
+drop function if exists sys.year(input bigint);
+drop function if exists sys.year(input text);
+drop function if exists sys.year(input ANYELEMENT);
+
+
 -- sys.columnproperty
 drop function if exists sys.columnproperty(object_id OID, property TEXT, property_name TEXT);
 

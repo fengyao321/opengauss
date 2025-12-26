@@ -1898,3 +1898,177 @@ CREATE OR REPLACE FUNCTION sys.COL_NAME(IN table_id text, IN column_id text) RET
 
 -- sys.columnproperty
 CREATE OR REPLACE FUNCTION sys.columnproperty(object_id OID, property TEXT, property_name TEXT) RETURNS INTEGER AS '$libdir/shark', 'columnproperty' LANGUAGE C STABLE STRICT;
+
+
+-- sys.year
+CREATE OR REPLACE FUNCTION sys.year(input ANYELEMENT) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('year', input);
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+
+CREATE OR REPLACE FUNCTION sys.year(input text) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('year', input::timestamp without time zone);
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+
+CREATE OR REPLACE FUNCTION sys.year(input bigint) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('year', input::int);
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION sys.year(input bit) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('year', input::int);
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+
+
+-- sys.month
+CREATE OR REPLACE FUNCTION sys.month(input date) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('month', input);
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION sys.month(input timestamp without time zone) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('month', input);
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION sys.month(input timestamp with time zone) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('month', input);
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION sys.month(input time without time zone) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('month', input);
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION sys.month(input time with time zone) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('month', input);
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+
+CREATE OR REPLACE FUNCTION sys.month(input tinyint) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('month', input::int);
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION sys.month(input int) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('month', input);
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION sys.month(input bigint) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('month', input::int);
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION sys.month(input bit) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('month', input::int);
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION sys.month(input text) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('month', input::date);
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+-- sys.day
+drop function if exists sys.day(timestamptz);;
+drop function if exists sys.day(abstime);
+drop function if exists sys.day(date);
+drop function if exists sys.day(timestamp(0) with time zone);
+create function sys.day(timestamptz) RETURNS int LANGUAGE SQL IMMUTABLE STRICT as 'select pg_catalog.date_part(''day'', $1)::int';
+create function sys.day(abstime) RETURNS int LANGUAGE SQL IMMUTABLE STRICT as 'select pg_catalog.date_part(''day'', $1)::int';
+create function sys.day(date) RETURNS int LANGUAGE SQL IMMUTABLE STRICT as 'select pg_catalog.date_part(''day'', $1)::int';
+
+CREATE OR REPLACE FUNCTION sys.day(input ANYELEMENT) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('day', input)::int;
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+
+CREATE OR REPLACE FUNCTION sys.day(input bigint) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('day', input::int)::int;
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION sys.day(input bit) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('day', input::int)::int;
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION sys.day(input text) RETURNS INTEGER AS
+$BODY$
+SELECT sys.datepart('day', input::date)::int;
+$BODY$
+STRICT
+LANGUAGE SQL IMMUTABLE;
+
+
+-- sys.isdate
+CREATE OR REPLACE FUNCTION sys.isdate(text) RETURNS int AS '$libdir/shark', 'is_date' LANGUAGE C STABLE;	
+
+create or replace function sys.isdate(v int) returns integer as
+$body$
+begin
+    if v is NULL THEN
+        return 0;
+    else
+        perform v::text::date;
+        return 1;
+    end if;
+    EXCEPTION WHEN others THEN
+    RETURN 0;
+end
+$body$
+language 'plpgsql' STABLE;
+
+-- sys.EOMONTH
+CREATE OR REPLACE FUNCTION sys.eomonth(date, int DEFAULT 0) RETURNS date AS '$libdir/shark', 'eomonth' LANGUAGE C STABLE STRICT;
+CREATE OR REPLACE FUNCTION sys.eomonth(timestamp without time zone, int DEFAULT 0) RETURNS date LANGUAGE SQL STABLE STRICT as 'select sys.eomonth($1::date, $2)';
+CREATE OR REPLACE FUNCTION sys.eomonth(timestamp with time zone, int DEFAULT 0) RETURNS date LANGUAGE SQL STABLE STRICT as 'select sys.eomonth($1::date, $2)';
+CREATE OR REPLACE FUNCTION sys.eomonth(timestamp without time zone, numeric DEFAULT 0) RETURNS date LANGUAGE SQL STABLE STRICT as 'select sys.eomonth($1::date, trunc($2)::int)';
+CREATE OR REPLACE FUNCTION sys.eomonth(timestamp with time zone, numeric DEFAULT 0) RETURNS date LANGUAGE SQL STABLE STRICT as 'select sys.eomonth($1::date, trunc($2)::int)';
+CREATE OR REPLACE FUNCTION sys.eomonth(text, numeric DEFAULT 0) RETURNS date LANGUAGE SQL STABLE STRICT as 'select sys.eomonth($1::date, trunc($2)::int)';
+
+-- sys.sysdatetime
+CREATE OR REPLACE FUNCTION sys.sysdatetime() RETURNS timestamptz AS '$libdir/shark', 'sysdatetime' LANGUAGE C STABLE STRICT;
