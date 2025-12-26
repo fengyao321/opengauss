@@ -862,5 +862,1333 @@ drop table if exists test_serial;
 drop table if exists test_type_table_column_name;
 drop table if exists students;
 drop table if exists check_table;
+--  sys.col_length
+CREATE TABLE col_length_t1(c1 VARCHAR(40), c2 NVARCHAR(40) );  
+SELECT COL_LENGTH('col_length_t1','c1') AS 'VarChar',   COL_LENGTH('col_length_t1','c2') AS 'NVarChar';   --expect 40 80
+ VarChar | NVarChar 
+---------+----------
+      40 |       80
+(1 row)
+
+CREATE TABLE col_length_t2(
+    col_char CHAR(20),
+    col_varchar VARCHAR(30),
+    col_varbinary VARBINARY(40)
+);
+SELECT COL_LENGTH('col_length_t2', 'col_char');
+ col_length 
+------------
+         20
+(1 row)
+
+SELECT COL_LENGTH('col_length_t2', 'col_varchar');
+ col_length 
+------------
+         30
+(1 row)
+
+SELECT COL_LENGTH('col_length_t2', 'col_varbinary');
+ col_length 
+------------
+         40
+(1 row)
+
+SELECT COL_LENGTH('sharksysfunc.col_length_t2', 'col_char');
+ col_length 
+------------
+         20
+(1 row)
+
+SELECT COL_LENGTH('sharksysfunc.col_length_t2', 'col_varchar');
+ col_length 
+------------
+         30
+(1 row)
+
+SELECT COL_LENGTH('sharksysfunc.col_length_t2', 'col_varbinary');
+ col_length 
+------------
+         40
+(1 row)
+
+create table test_type_table_column_name
+(
+    int1_col tinyint,
+    int2_col smallint,
+    int4_col integer,
+    int8_col bigint,
+    float4_col float4,
+    float8_col float8,
+    numeric_col decimal(20, 6),
+    bit1_col bit(1),
+    datetime_col timestamp without time zone,
+    smalldatetime_col smalldatetime,
+    date_col date,
+    time_col time,
+    boolean_col boolean,
+    char_col char(100),
+    varchar_col varchar(100), 
+    nvarchar_col nvarchar(10),
+    varbinary_col varbinary(100),
+    text_col text,
+    col_char_10 CHAR(10),
+    col_varchar_20 VARCHAR(20),
+    col_varbinary_15 VARBINARY(15),
+    col_nchar_8 NCHAR(8),
+    col_nvarchar_16 NVARCHAR(16),
+    col_sql_variant SQL_VARIANT,
+    col_varcharmax VARCHAR(255),
+    col_nvarcharmax NVARCHAR(255),
+    col_varbinarymax VARBINARY(255),
+    col_bit BIT,
+    col_decimal_1 DECIMAL(10,5),
+    col_numeric_1 NUMERIC(3,0)
+);
+insert into test_type_table_column_name values (1, 1, 1, 1, 1, 1, 1, b'1', '2025-10-10 10:10:10', '2025-10-10 10:10:10', '2025-10-10', '10:10:10',
+  1, '1', '1', '1', '1', '1', '1', '1', '1', '1', '1', '1', '1', '1', '1', '1', '1', '1');
+SELECT COL_LENGTH('test_type_table_column_name', 'int1_col');
+ col_length 
+------------
+          1
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'int2_col');
+ col_length 
+------------
+          2
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'int4_col');
+ col_length 
+------------
+          4
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'int8_col');
+ col_length 
+------------
+          8
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'float4_col');
+ col_length 
+------------
+          4
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'float8_col');
+ col_length 
+------------
+          8
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'numeric_col');
+ col_length 
+------------
+         13
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'bit1_col');
+ col_length 
+------------
+          1
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'datetime_col');
+ col_length 
+------------
+          8
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'smalldatetime_col');
+ col_length 
+------------
+          4
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'date_col');
+ col_length 
+------------
+          3
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'time_col');
+ col_length 
+------------
+          5
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'boolean_col');
+ col_length 
+------------
+          1
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'char_col');
+ col_length 
+------------
+        100
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'varchar_col');
+ col_length 
+------------
+        100
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'nvarchar_col');
+ col_length 
+------------
+         20
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'varbinary_col');
+ col_length 
+------------
+        100
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'text_col');
+ col_length 
+------------
+         16
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'col_char_10');
+ col_length 
+------------
+         10
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'col_varchar_20');
+ col_length 
+------------
+         20
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'col_varbinary_15');
+ col_length 
+------------
+         15
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'col_nchar_8');
+ col_length 
+------------
+          8
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'col_nvarchar_16');
+ col_length 
+------------
+         32
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'col_sql_variant');
+ col_length 
+------------
+       8016
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'col_varcharmax');
+ col_length 
+------------
+        255
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'col_nvarcharmax');
+ col_length 
+------------
+        510
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'col_varbinarymax');
+ col_length 
+------------
+        255
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'col_bit');
+ col_length 
+------------
+          1
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'col_decimal_1');
+ col_length 
+------------
+          9
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name', 'col_numeric_1');
+ col_length 
+------------
+          5
+(1 row)
+
+CREATE TYPE compfoo1 AS (f1 int);
+CREATE TYPE compfoo2 AS (f1 float8);
+CREATE TABLE col_length_t3(
+    col_compfoo1 compfoo1,
+    col_compfoo2 compfoo2
+);
+SELECT COL_LENGTH('col_length_t3', 'col_compfoo1');
+ col_length 
+------------
+         -1
+(1 row)
+
+SELECT COL_LENGTH('col_length_t3', 'col_compfoo2');
+ col_length 
+------------
+         -1
+(1 row)
+
+SELECT COL_LENGTH('col_length_t3', 'compfoo1');
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('col_length_t3', 'compfoo2');
+ col_length 
+------------
+           
+(1 row)
+
+-- diff input type
+SELECT COL_LENGTH('test_type_table_column_name'::varchar, 'int1_col'::varchar);
+ col_length 
+------------
+          1
+(1 row)
+
+SELECT COL_LENGTH('test_type_table_column_name'::char(10), 'int1_col'::char(10));
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(int1_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(int2_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(int4_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(int8_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(float4_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(float8_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(numeric_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(datetime_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(smalldatetime_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(date_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(time_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(char_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(varchar_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(nvarchar_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(varbinary_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(text_col, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH(col_nvarchar_16, 'test1') from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', int1_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', int2_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', int4_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', int8_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', float4_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', float8_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', numeric_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', datetime_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', smalldatetime_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', date_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', time_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', char_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', varchar_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', nvarchar_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', varbinary_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', text_col) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+SELECT COL_LENGTH('test1', col_nvarchar_16) from test_type_table_column_name;
+ col_length 
+------------
+           
+(1 row)
+
+drop table if exists test_type_table_column_name;
+-- sys.COL_NAME
+create table test_colname_1(c1 int, c2 int);
+select COL_NAME(OBJECT_ID('test_colname_1'), -1);
+ col_name 
+----------
+ 
+(1 row)
+
+select COL_NAME(OBJECT_ID('test_colname_1'), 0);
+ col_name 
+----------
+ 
+(1 row)
+
+select COL_NAME(OBJECT_ID('test_colname_1'), 1);
+ col_name 
+----------
+ c1
+(1 row)
+
+select COL_NAME(OBJECT_ID('test_colname_1'), 2);
+ col_name 
+----------
+ c2
+(1 row)
+
+select COL_NAME(OBJECT_ID('test_colname_1'), 3);
+ col_name 
+----------
+ 
+(1 row)
+
+select COL_NAME(OBJECT_ID('test_colname_1'), 4);
+ col_name 
+----------
+ 
+(1 row)
+
+select COL_NAME(OBJECT_ID('test_colname_1'), 'abc');
+ col_name 
+----------
+ 
+(1 row)
+
+select COL_NAME(OBJECT_ID('test_colname_1'), NULL);
+ col_name 
+----------
+ 
+(1 row)
+
+select COL_NAME(OBJECT_ID('test_colname_1'), 4);
+ col_name 
+----------
+ 
+(1 row)
+
+select COL_NAME(OBJECT_ID('amapagou'), 4);
+ col_name 
+----------
+ 
+(1 row)
+
+select COL_NAME('0x1A', 3);
+ERROR:  invalid input syntax for type bigint: "0x1A"
+LINE 1: select COL_NAME('0x1A', 3);
+                        ^
+CONTEXT:  referenced column: col_name
+select COL_NAME(7, 'column_name');
+ col_name 
+----------
+ 
+(1 row)
+
+select COL_NAME('0x2F', 'another_column');
+ERROR:  invalid input syntax for integer: "0x2F"
+CONTEXT:  SQL function "col_name" during inlining
+referenced column: col_name
+select COL_NAME('0xAB', '0x8C');
+ERROR:  invalid input syntax for integer: "0xAB"
+CONTEXT:  SQL function "col_name" during inlining
+referenced column: col_name
+select COL_NAME('sample_table', 'some_column');
+ERROR:  invalid input syntax for integer: "sample_table"
+CONTEXT:  SQL function "col_name" during inlining
+referenced column: col_name
+-- diff input type
+create table test_type_table_column_name
+(
+   int1_col tinyint,
+   int2_col smallint,
+   int4_col integer,
+   int8_col bigint,
+   float4_col float4,
+   float8_col float8,
+   numeric_col decimal(20, 6),
+   bit1_col bit(1),
+   boolean_col boolean,
+   char_col char(100),
+   varchar_col varchar(100), 
+   nvarchar_col nvarchar(10),
+   varbinary_col varbinary(100)
+);
+insert into test_type_table_column_name values (1, 1, 1, 1, 1, 1, 1, b'1', 1, 1, 1, 1, 1);
+select 
+  COL_NAME(int1_col, 1),
+  COL_NAME(int2_col, 1),
+  COL_NAME(int4_col, 1),
+  COL_NAME(int8_col, 1),
+  COL_NAME(float4_col, 1),
+  COL_NAME(float8_col, 1),
+  COL_NAME(numeric_col, 1),
+  COL_NAME(bit1_col, 1),
+  COL_NAME(char_col, 1),
+  COL_NAME(varchar_col, 1),
+  COL_NAME(nvarchar_col, 1),
+  COL_NAME(varbinary_col, 1)
+from test_type_table_column_name;
+ col_name | col_name | col_name | col_name | col_name | col_name | col_name | col_name | col_name | col_name | col_name | col_name 
+----------+----------+----------+----------+----------+----------+----------+----------+----------+----------+----------+----------
+          |          |          |          |          |          |          |          |          |          |          | 
+(1 row)
+
+select 
+  COL_NAME(1, int1_col),
+  COL_NAME(1, int2_col),
+  COL_NAME(1, int4_col),
+  COL_NAME(1, int8_col),
+  COL_NAME(1, float4_col),
+  COL_NAME(1, float8_col),
+  COL_NAME(1, numeric_col),
+  COL_NAME(1, bit1_col),
+  COL_NAME(1, char_col),
+  COL_NAME(1, varchar_col),
+  COL_NAME(1, nvarchar_col),
+  COL_NAME(1, varbinary_col)
+from test_type_table_column_name; 
+ col_name | col_name | col_name | col_name | col_name | col_name | col_name | col_name | col_name | col_name | col_name | col_name 
+----------+----------+----------+----------+----------+----------+----------+----------+----------+----------+----------+----------
+          |          |          |          |          |          |          |          |          |          |          | 
+(1 row)
+
+drop table if exists test_type_table_column_name;
+create table test11(c1 int, c2 int, c3 int, c4 int, c5 int);
+select object_id('test11');
+ object_id 
+-----------
+--?.*
+(1 row)
+
+select COL_NAME(object_id('test11'), 1);
+ col_name 
+----------
+ c1
+(1 row)
+
+alter table test11 drop column c1;
+select COL_NAME(object_id('test11'), 1);
+ col_name 
+----------
+ 
+(1 row)
+
+select COL_NAME(object_id('test11'), 2);
+ col_name 
+----------
+ c2
+(1 row)
+
+drop table test11;
+-- sys.columnproperty
+CREATE TABLE t_column_property(
+  cp1 CHAR(1) NOT NULL, 
+  cp2 CHAR(129), 
+  cp3 CHAR(4000) NOT NULL,
+  cp4 VARCHAR(1),
+  cp5 VARCHAR(129) NOT NULL,
+  cp6 VARCHAR(4000),
+  cp7 INT,
+  cp8 INT NOT NULL);
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp1', 'charmaxlen');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp2', 'charmaxlen');
+ columnproperty 
+----------------
+            129
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp3', 'charmaxlen');
+ columnproperty 
+----------------
+           4000
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp4', 'charmaxlen');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp5', 'charmaxlen');
+ columnproperty 
+----------------
+            129
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp6', 'charmaxlen');
+ columnproperty 
+----------------
+           4000
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp1', 'allowsnull');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp2', 'allowsnull');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp3', 'allowsnull');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp4', 'allowsnull');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp5', 'allowsnull');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp6', 'allowsnull');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp7', 'allowsnull');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp8', 'allowsnull');  
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp1', 'iscomputed');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp2', 'iscomputed');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp3', 'iscomputed');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp4', 'iscomputed');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp5', 'iscomputed');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp6', 'iscomputed');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp7', 'iscomputed');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp8', 'iscomputed');  
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp1', 'columnid');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp2', 'columnid');
+ columnproperty 
+----------------
+              2
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp3', 'columnid');
+ columnproperty 
+----------------
+              3
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp4', 'columnid');
+ columnproperty 
+----------------
+              4
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp5', 'columnid');
+ columnproperty 
+----------------
+              5
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp6', 'columnid');
+ columnproperty 
+----------------
+              6
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp7', 'columnid');
+ columnproperty 
+----------------
+              7
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp8', 'columnid');  
+ columnproperty 
+----------------
+              8
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp1', 'ishidden');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp2', 'ishidden');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp3', 'ishidden');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp4', 'ishidden');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp5', 'ishidden');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp6', 'ishidden');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp7', 'ishidden');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp8', 'ishidden');  
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp1', 'isidentity');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp2', 'isidentity');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp3', 'isidentity');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp4', 'isidentity');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp5', 'isidentity');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp6', 'isidentity');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp7', 'isidentity');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp8', 'isidentity');  
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp1', 'ordinal');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp2', 'ordinal');
+ columnproperty 
+----------------
+              2
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp3', 'ordinal');
+ columnproperty 
+----------------
+              3
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp4', 'ordinal');
+ columnproperty 
+----------------
+              4
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp5', 'ordinal');
+ columnproperty 
+----------------
+              5
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp6', 'ordinal');
+ columnproperty 
+----------------
+              6
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp7', 'ordinal');
+ columnproperty 
+----------------
+              7
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp8', 'ordinal');  
+ columnproperty 
+----------------
+              8
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp1', 'precision');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp2', 'precision');
+ columnproperty 
+----------------
+            129
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp3', 'precision');
+ columnproperty 
+----------------
+           4000
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp4', 'precision');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp5', 'precision');
+ columnproperty 
+----------------
+            129
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp6', 'precision');
+ columnproperty 
+----------------
+           4000
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp7', 'precision');
+ columnproperty 
+----------------
+             10
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp8', 'precision');  
+ columnproperty 
+----------------
+             10
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp1', 'scale');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp2', 'scale');
+ columnproperty 
+----------------
+            129
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp3', 'scale');
+ columnproperty 
+----------------
+           4000
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp4', 'scale');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp5', 'scale');
+ columnproperty 
+----------------
+            129
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp6', 'scale');
+ columnproperty 
+----------------
+           4000
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp7', 'scale');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp8', 'scale');  
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp1', 'amaoagou');
+ columnproperty 
+----------------
+               
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp2', 'amaoagou');
+ columnproperty 
+----------------
+               
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp3', 'amaoagou');
+ columnproperty 
+----------------
+               
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp4', 'amaoagou');
+ columnproperty 
+----------------
+               
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp5', 'amaoagou');
+ columnproperty 
+----------------
+               
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp6', 'amaoagou');
+ columnproperty 
+----------------
+               
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp7', 'amaoagou');
+ columnproperty 
+----------------
+               
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp8', 'amaoagou');    
+ columnproperty 
+----------------
+               
+(1 row)
+
+CREATE TABLE t_column_property2 (cp1 INT IDENTITY, cp2 VARCHAR(200), cp3 INT);
+NOTICE:  CREATE TABLE will create implicit sequence "t_column_property2_cp1_seq_identity" for serial column "t_column_property2.cp1"
+SELECT sys.columnproperty(OBJECT_ID('t_column_property2'), 'cp1', 'isidentity');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property2'), 'cp2', 'isidentity');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property2'), 'cp3', 'isidentity');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+CREATE TABLE t_column_property3 (cp1 float(4), cp2 float(8), cp3 numeric(20, 10), cp5 int2, cp6 int4, cp7 int8);
+SELECT sys.columnproperty(OBJECT_ID('t_column_property3'), 'cp1', 'precision');
+ columnproperty 
+----------------
+             24
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property3'), 'cp2', 'precision');
+ columnproperty 
+----------------
+             24
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property3'), 'cp3', 'precision');
+ columnproperty 
+----------------
+             20
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property3'), 'cp4', 'precision');
+ columnproperty 
+----------------
+               
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property3'), 'cp5', 'precision');
+ columnproperty 
+----------------
+              5
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property3'), 'cp6', 'precision');
+ columnproperty 
+----------------
+             10
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property3'), 'cp7', 'precision');
+ columnproperty 
+----------------
+             19
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property3'), 'cp1', 'scale');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property3'), 'cp2', 'scale');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property3'), 'cp3', 'scale');
+ columnproperty 
+----------------
+             10
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property3'), 'cp4', 'scale');
+ columnproperty 
+----------------
+               
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property3'), 'cp5', 'scale');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property3'), 'cp6', 'scale');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property3'), 'cp7', 'scale');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp1', 'allowsnull ');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp1 ', 'allowsnull  ');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cP1', 'AllowSnull');
+ columnproperty 
+----------------
+              0
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'Cp4', 'CharmaxLen ');
+ columnproperty 
+----------------
+              1
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp25', 'IsIdentity');
+ columnproperty 
+----------------
+               
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp6', ' charmaxlen ');
+ columnproperty 
+----------------
+               
+(1 row)
+
+ALTER TABLE t_column_property DROP COLUMN cp4;
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'cp4', 'CharmaxLen');
+ columnproperty 
+----------------
+               
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'Cp4', 'CharmaxLen');
+ columnproperty 
+----------------
+               
+(1 row)
+
+SELECT sys.columnproperty(OBJECT_ID('t_column_property'), 'Cp4', 'CharmaxLen ');
+ columnproperty 
+----------------
+               
+(1 row)
+
+drop table col_length_t1;
+drop table col_length_t2;
+drop table col_length_t3;
+drop table test_colname_1;
+drop table t_column_property;
+drop table t_column_property2;
+drop table t_column_property3;
+drop TYPE compfoo1;
+drop TYPE compfoo2;
 reset current_schema;
 drop schema sharksysfunc cascade;

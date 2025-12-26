@@ -1660,3 +1660,241 @@ CREATE OR REPLACE FUNCTION sys.objectpropertyex(IN object_id varbinary, property
 CREATE OR REPLACE FUNCTION sys.objectpropertyex(id INT, property bit) RETURNS SQL_VARIANT LANGUAGE SQL STABLE as 'select sys.objectpropertyex($1, $2::varchar)';
 CREATE OR REPLACE FUNCTION sys.objectpropertyex(id INT, property varbinary) RETURNS SQL_VARIANT LANGUAGE SQL STABLE as 'select sys.objectpropertyex($1, $2::varchar)';
 
+
+--sys.col_length
+CREATE OR REPLACE FUNCTION sys.type_max_length_helper_ext(IN type TEXT, IN typelen INT, IN typemod INT, IN for_sys_types boolean DEFAULT false, IN used_typmod_array boolean DEFAULT false)
+RETURNS SMALLINT
+AS $$
+DECLARE
+	max_length SMALLINT;
+	precision INT;
+	v_type TEXT COLLATE "default" := type;
+BEGIN
+	-- unknown tsql type
+	IF v_type IS NULL THEN
+		RETURN CAST(typelen as SMALLINT);
+	END IF;
+
+	-- if using typmod_array from pg_proc.probin
+	IF used_typmod_array THEN
+		IF v_type = 'sysname' THEN
+			RETURN 256;
+		ELSIF (v_type in ('char', 'bpchar', 'varchar', 'binary', 'varbinary', 'nchar', 'nvarchar'))
+		THEN
+			IF typemod < 0 THEN -- max value. 
+				RETURN -1;
+			ELSIF v_type in ('nchar', 'nvarchar') THEN
+				RETURN (2 * typemod);
+			ELSE
+				RETURN typemod;
+			END IF;
+		END IF;
+	END IF;
+
+	IF typelen != -1 THEN
+		CASE v_type 
+            WHEN 'tinyint' THEN max_length = 1;
+            WHEN 'date' THEN max_length = 3;
+            WHEN 'smalldatetime' THEN max_length = 4;
+            WHEN 'datetime2' THEN
+                IF typemod = -1 THEN max_length = 8;
+                ELSIF typemod <= 2 THEN max_length = 6;
+                ELSIF typemod <= 4 THEN max_length = 7;
+	            ELSEIF typemod <= 7 THEN max_length = 8;
+			-- typemod = 7 is not possible for datetime2 in Babel
+			END IF;
+		WHEN 'datetimeoffset' THEN
+			IF typemod = -1 THEN max_length = 10;
+			ELSIF typemod <= 2 THEN max_length = 8;
+			ELSIF typemod <= 4 THEN max_length = 9;
+			ELSIF typemod <= 7 THEN max_length = 10;
+			-- typemod = 7 is not possible for datetimeoffset in Babel
+			END IF;
+		WHEN 'time' THEN
+			IF typemod = -1 THEN max_length = 5;
+			ELSIF typemod <= 2 THEN max_length = 3;
+			ELSIF typemod <= 4 THEN max_length = 4;
+			ELSIF typemod <= 7 THEN max_length = 5;
+			END IF;
+		WHEN 'timestamp' THEN max_length = 8;
+		WHEN 'vector' THEN max_length = -1; -- dummy as varchar max
+		WHEN 'halfvec' THEN max_length = -1; -- dummy as varchar max
+		WHEN 'sparsevec' THEN max_length = -1; -- dummy as varchar max
+		ELSE max_length = typelen;
+		END CASE;
+		RETURN max_length;
+	END IF;
+
+	IF typemod = -1 THEN
+		CASE 
+		WHEN v_type in ('image', 'text', 'ntext') THEN max_length = 16;
+		WHEN v_type = 'sql_variant' THEN max_length = 8016;
+		WHEN v_type in ('varbinary', 'varchar', 'nvarchar') THEN 
+			IF for_sys_types THEN max_length = 8000;
+			ELSE max_length = -1;
+			END IF;
+		WHEN v_type in ('binary', 'char', 'bpchar', 'nchar') THEN max_length = 8000;
+		WHEN v_type in ('decimal', 'numeric') THEN max_length = 17;
+		WHEN v_type in ('geometry', 'geography') THEN max_length = -1;
+		ELSE max_length = typemod;
+		END CASE;
+		RETURN max_length;
+	END IF;
+
+	CASE
+	WHEN v_type in ('char', 'bpchar', 'varchar', 'binary', 'varbinary') THEN max_length = typemod - 4;
+	WHEN v_type in ('nchar', 'nvarchar') THEN max_length = (typemod - 4) * 2;
+	WHEN v_type = 'sysname' THEN max_length = (typemod - 4) * 2;
+	WHEN v_type in ('numeric', 'decimal') THEN
+		precision = ((typemod - 4) >> 16) & 65535;
+		IF precision >= 1 and precision <= 9 THEN max_length = 5;
+		ELSIF precision <= 19 THEN max_length = 9;
+		ELSIF precision <= 28 THEN max_length = 13;
+		ELSIF precision <= 38 THEN max_length = 17;
+	ELSE max_length = typelen;
+	END IF;
+	ELSE
+		max_length = typemod;
+	END CASE;
+	RETURN max_length;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE STRICT;
+
+
+CREATE OR REPLACE FUNCTION sys.remove_delimiter_pair(IN name TEXT)
+RETURNS TEXT AS
+$BODY$
+BEGIN
+    IF name collate "default" IN('[', ']', '"') THEN
+        RETURN NULL;
+
+    ELSIF length(name) >= 2 AND left(name, 1) = '[' collate "default" AND right(name, 1) = ']' collate "default" THEN
+        IF length(name) = 2 THEN
+            RETURN '';
+        ELSE
+            RETURN substring(name from 2 for length(name)-2);
+        END IF;
+    ELSIF length(name) >= 2 AND left(name, 1) = '[' collate "default" AND right(name, 1) != ']' collate "default" THEN
+        RETURN NULL;
+    ELSIF length(name) >= 2 AND left(name, 1) != '[' collate "default" AND right(name, 1) = ']' collate "default" THEN
+        RETURN NULL;
+
+    ELSIF length(name) >= 2 AND left(name, 1) = '"' collate "default" AND right(name, 1) = '"' collate "default" THEN
+        IF length(name) = 2 THEN
+            RETURN '';
+        ELSE
+            RETURN substring(name from 2 for length(name)-2);
+        END IF;
+    ELSIF length(name) >= 2 AND left(name, 1) = '"' collate "default" AND right(name, 1) != '"' collate "default" THEN
+        RETURN NULL;
+    ELSIF length(name) >= 2 AND left(name, 1) != '"' collate "default" AND right(name, 1) = '"' collate "default" THEN
+        RETURN NULL;
+
+    END IF;
+    RETURN name;
+END;
+$BODY$
+LANGUAGE plpgsql;
+
+
+CREATE OR REPLACE FUNCTION sys.truncate_identifier(IN object_name TEXT) RETURNS text AS '$libdir/shark', 'truncate_identifier' LANGUAGE C IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION sys.translate_pg_type_to_tsql(pgoid oid) RETURNS TEXT AS '$libdir/shark', 'translate_pg_type_to_tsql' LANGUAGE C IMMUTABLE;
+
+
+CREATE OR REPLACE FUNCTION sys.col_length(IN object_name TEXT, IN column_name TEXT)
+RETURNS SMALLINT AS $BODY$
+DECLARE
+    col_name TEXT;
+    object_id oid;
+    column_id INT;
+    column_length SMALLINT;
+    column_data_type TEXT;
+    typeid oid;
+    typelen INT;
+    typemod INT;
+BEGIN
+    -- Get the object ID for the provided object_name
+    object_id := sys.OBJECT_ID(object_name, 'U');
+    IF object_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    -- Truncate and normalize the column name
+    col_name := sys.truncate_identifier(sys.remove_delimiter_pair(pg_catalog.lower(column_name)));
+
+    -- Get the column ID, typeid, length, and typmod for the provided column_name
+    SELECT attnum, a.atttypid, a.attlen, a.atttypmod
+    INTO column_id, typeid, typelen, typemod
+    FROM pg_attribute a
+    WHERE attrelid = object_id AND pg_catalog.lower(attname) = col_name COLLATE "default";
+
+    IF column_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    -- Get the correct data type
+    column_data_type := sys.translate_pg_type_to_tsql(typeid);
+
+    IF column_data_type = 'sysname' THEN
+        column_length := 256;
+    ELSIF column_data_type IS NULL THEN
+
+        -- Check if it ia user-defined data type
+        SELECT sys.translate_pg_type_to_tsql(typbasetype), typlen, typtypmod 
+        INTO column_data_type, typelen, typemod
+        FROM pg_type
+        WHERE oid = typeid;
+
+        IF column_data_type = 'sysname' THEN
+            column_length := 256;
+        ELSE 
+            -- Calculate column length based on base type information
+            column_length := sys.type_max_length_helper_ext(column_data_type, typelen, typemod);
+        END IF;
+    ELSE
+        -- Calculate column length based on base type information
+        column_length := sys.type_max_length_helper_ext(column_data_type, typelen, typemod);
+    END IF;
+    RETURN column_length;
+EXCEPTION
+    WHEN OTHERS THEN
+	  return NULL;
+END;
+$BODY$
+LANGUAGE plpgsql
+IMMUTABLE
+STRICT;
+
+CREATE OR REPLACE FUNCTION sys.col_length(IN object_name varbinary, IN column_name TEXT) RETURNS SMALLINT LANGUAGE SQL STABLE STRICT as 'select sys.col_length($1::text, $2)';
+CREATE OR REPLACE FUNCTION sys.col_length(IN object_name text, IN column_name varbinary) RETURNS SMALLINT LANGUAGE SQL STABLE STRICT as 'select sys.col_length($1, $2::text)';
+
+-- sys.col_name
+CREATE OR REPLACE FUNCTION sys.COL_NAME(IN table_id INT, IN column_id INT)
+RETURNS text AS $$
+    DECLARE
+        column_name TEXT;
+    BEGIN
+        SELECT case attisdropped when true then NULL else attname end  INTO STRICT column_name
+        FROM pg_attribute
+        WHERE attrelid = table_id AND attnum = column_id AND attnum > 0;
+        RETURN column_name::text;
+    EXCEPTION
+        WHEN OTHERS THEN
+            RETURN NULL;
+    END;
+$$
+LANGUAGE plpgsql IMMUTABLE
+STRICT;
+
+
+CREATE OR REPLACE FUNCTION sys.COL_NAME(IN table_id bigint, IN column_id INT) RETURNS text LANGUAGE SQL STABLE as 'select sys.COL_NAME($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.COL_NAME(IN table_id bit, IN column_id INT) RETURNS text LANGUAGE SQL STABLE as 'select sys.COL_NAME($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.COL_NAME(IN table_id Oid, IN column_id INT) RETURNS text LANGUAGE SQL STABLE as 'select sys.COL_NAME($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.COL_NAME(IN table_id INT, IN column_id bigint) RETURNS text LANGUAGE SQL STABLE as 'select sys.COL_NAME($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.COL_NAME(IN table_id INT, IN column_id bit) RETURNS text LANGUAGE SQL STABLE as 'select sys.COL_NAME($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.COL_NAME(IN table_id INT, IN column_id Oid) RETURNS text LANGUAGE SQL STABLE as 'select sys.COL_NAME($1::int, $2::int)';
+CREATE OR REPLACE FUNCTION sys.COL_NAME(IN table_id text, IN column_id text) RETURNS text LANGUAGE SQL STABLE as 'select sys.COL_NAME($1::int, $2::int)';
+
+
+-- sys.columnproperty
+CREATE OR REPLACE FUNCTION sys.columnproperty(object_id OID, property TEXT, property_name TEXT) RETURNS INTEGER AS '$libdir/shark', 'columnproperty' LANGUAGE C STABLE STRICT;
