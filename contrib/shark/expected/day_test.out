@@ -129,16 +129,13 @@ LINE 1: SELECT DAY(CURRENT_STAMP) AS DayPart;
 CONTEXT:  referenced column: daypart
 -- 异常测试
 SELECT DAY(CURRENT_TIME) AS DayPart;
-ERROR:  function day(time with time zone) does not exist
-LINE 1: SELECT DAY(CURRENT_TIME) AS DayPart;
-               ^
-HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+--?.*
 CONTEXT:  referenced column: daypart
 SELECT DAY('20:12:12') AS DayPart;
-ERROR:  invalid input syntax for type timestamp with time zone: "20:12:12"
-LINE 1: SELECT DAY('20:12:12') AS DayPart;
-                   ^
-CONTEXT:  referenced column: daypart
+ERROR:  invalid input syntax for type date: "20:12:12"
+CONTEXT:  referenced column: datepart
+SQL function "day" statement 1
+referenced column: daypart
 SELECT DAY(NULL) AS DayPart;
  daypart 
 ---------
@@ -146,41 +143,41 @@ SELECT DAY(NULL) AS DayPart;
 (1 row)
 
 SELECT DAY(12345) AS DayPart;
-ERROR:  function day(integer) does not exist
-LINE 1: SELECT DAY(12345) AS DayPart;
-               ^
-HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
-CONTEXT:  referenced column: daypart
+ daypart 
+---------
+      20
+(1 row)
+
 SELECT DAY('abc') AS DayPart;
-ERROR:  invalid input syntax for type timestamp with time zone: "abc"
-LINE 1: SELECT DAY('abc') AS DayPart;
-                   ^
-CONTEXT:  referenced column: daypart
+ERROR:  invalid input syntax for type date: "abc"
+CONTEXT:  referenced column: datepart
+SQL function "day" statement 1
+referenced column: daypart
 SELECT DAY('2023-13-01') AS DayPart; 
 ERROR:  date/time field value out of range: "2023-13-01"
-LINE 1: SELECT DAY('2023-13-01') AS DayPart;
-                   ^
 HINT:  Perhaps you need a different "datestyle" setting.
-CONTEXT:  referenced column: daypart
+CONTEXT:  referenced column: datepart
+SQL function "day" statement 1
+referenced column: daypart
 SELECT DAY('2023-02-30') AS DayPart; 
 ERROR:  date/time field value out of range: "2023-02-30"
-LINE 1: SELECT DAY('2023-02-30') AS DayPart;
-                   ^
-CONTEXT:  referenced column: daypart
+CONTEXT:  referenced column: datepart
+SQL function "day" statement 1
+referenced column: daypart
 SELECT DAY('2023-04-31') AS DayPart; 
 ERROR:  date/time field value out of range: "2023-04-31"
-LINE 1: SELECT DAY('2023-04-31') AS DayPart;
-                   ^
-CONTEXT:  referenced column: daypart
+CONTEXT:  referenced column: datepart
+SQL function "day" statement 1
+referenced column: daypart
 SELECT DAY('2023-00-01') AS DayPart; 
 ERROR:  date/time field value out of range: "2023-00-01"
-LINE 1: SELECT DAY('2023-00-01') AS DayPart;
-                   ^
 HINT:  Perhaps you need a different "datestyle" setting.
-CONTEXT:  referenced column: daypart
+CONTEXT:  referenced column: datepart
+SQL function "day" statement 1
+referenced column: daypart
 SELECT DAY('2023-01-00') AS DayPart; 
 ERROR:  date/time field value out of range: "2023-01-00"
-LINE 1: SELECT DAY('2023-01-00') AS DayPart;
-                   ^
 HINT:  Perhaps you need a different "datestyle" setting.
-CONTEXT:  referenced column: daypart
+CONTEXT:  referenced column: datepart
+SQL function "day" statement 1
+referenced column: daypart

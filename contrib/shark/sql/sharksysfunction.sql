@@ -679,5 +679,353 @@ drop table t_column_property3;
 drop TYPE compfoo1;
 drop TYPE compfoo2;
 
+
+-- sys.year 函数
+select YEAR(NULL);
+SELECT YEAR('2010-04-30T01:01:01.1234567-07:00');
+SELECT YEAR(0);   -- expect 1900
+SELECT YEAR(1);   -- expect 1900
+SELECT YEAR(2020);   -- expect 1905
+SELECT YEAR('2025-10-10');
+SELECT YEAR('2025/10/10');
+SELECT YEAR('2025.10.10');
+SELECT YEAR('20251010');
+SELECT YEAR('2025-10-10 14:30:59');
+SELECT YEAR('2025-10-10 23:59:59.999');
+SELECT YEAR('2025-10-10 00:00:00.000');
+SELECT YEAR(CAST('0001-01-01' AS DATE));
+SELECT YEAR(CAST('1753-01-01' AS timestamp));
+SELECT YEAR(CAST('1900-01-01' AS SMALLDATETIME));
+SELECT YEAR(CAST('9999-12-31' AS DATE));
+SELECT YEAR(CAST('9999-12-31 23:59:59.997' AS timestamp));
+SELECT YEAR(CAST('2079-06-06' AS SMALLDATETIME));
+SELECT YEAR('2020-02-29');
+SELECT YEAR('2019-02-28');
+SELECT YEAR('1900-02-28');
+SELECT YEAR('1900-01-01');
+SELECT YEAR('0001-01-01');
+SELECT YEAR(CURRENT_TIMESTAMP);
+SELECT YEAR('abc');  -- error expect
+SELECT YEAR(333);
+
+-- different data type
+create table test_type_table_column_name
+(
+   int1_col tinyint,
+   int2_col smallint,
+   int4_col integer,
+   int8_col bigint,
+   float4_col float4,
+   float8_col float8,
+   numeric_col decimal(20, 6),
+   bit1_col bit(1),
+   datetime_col timestamp without time zone,
+   smalldatetime_col smalldatetime,
+   date_col date,
+   time_col time,
+   boolean_col boolean,
+   char_col char(100),
+   varchar_col varchar(100), 
+   nvarchar_col nvarchar(10),
+   varbinary_col varbinary(100),
+   text_col text
+);
+
+insert into test_type_table_column_name values (20, 2025, 2025, 2025, 2025, 2025, 2025, b'1', '2025-10-10 10:10:10', '2025-10-10 10:10:10', '2025-10-10', '10:10:10', 1, '2025-10-10', '2025-10-10', '2025-10-10', '2025-10-10', '2025-10-10');
+
+select year(int1_col), year(int2_col), year(int4_col), year(int8_col), year(float4_col), year(float8_col), year(numeric_col), year(bit1_col), year(datetime_col), year(smalldatetime_col), year(date_col), year(boolean_col), year(char_col), year(varchar_col), year(nvarchar_col), year(text_col) from test_type_table_column_name;
+
+drop table if exists test_type_table_column_name;
+
+-- sys.month
+SELECT MONTH('2007-04-30T01:01:01.1234567');   -- expect:  4
+SELECT MONTH(0);                               -- expect:  1
+SELECT MONTH(88);                              -- expect:  3
+SELECT MONTH('2023-05-15');                    -- expect:  5
+SELECT MONTH('2023/12/31');                    -- expect:  12
+SELECT MONTH('2023-01-01');                    -- expect:  1
+SELECT MONTH('2023-08-20 14:30:45');           -- expect:  8
+SELECT MONTH('2023-02-28 23:59:59');           -- expect:  2
+SELECT MONTH('03/10/2023');                    -- expect:  3
+SELECT MONTH('2023年06月01日');                -- expect:  error
+SELECT MONTH('2023-01-01');                    -- expect:  1
+SELECT MONTH('2023-12-31');                    -- expect:  12
+SELECT MONTH('2023-01-31');                    -- expect:  1
+SELECT MONTH('2023-12-01');                    -- expect:  12
+SELECT MONTH('2024-02-29');                    -- expect:  2
+SELECT MONTH('2023-02-28');                    -- expect:  2
+SELECT MONTH('1753-01-01');                    -- expect:  1
+SELECT MONTH('9999-12-31');                    -- expect:  12
+SELECT MONTH(NULL);                            -- expect:  NULL
+SELECT MONTH('2023-13-01');                    -- expect:  error
+SELECT MONTH('2023-02-30');                    -- expect:  error
+SELECT MONTH('abc');                           -- expect:  error
+
+-- different input type
+create table test_type_table_column_name
+(
+   int1_col tinyint,
+   int2_col smallint,
+   int4_col integer,
+   int8_col bigint,
+   float4_col float4,
+   float8_col float8,
+   numeric_col decimal(20, 6),
+   bit1_col bit(1),
+   datetime_col timestamp without time zone,
+   smalldatetime_col smalldatetime,
+   date_col date,
+   time_col time,
+   boolean_col boolean,
+   char_col char(100),
+   varchar_col varchar(100), 
+   nvarchar_col nvarchar(10),
+   varbinary_col varbinary(100),
+   text_col text
+);
+
+insert into test_type_table_column_name values (20, 2025, 2025, 2025, 2025, 2025, 2025, b'1', '2025-10-10 10:10:10', '2025-10-10 10:10:10', '2025-10-10', '10:10:10', 1, '2025-10-10', '2025-10-10', '2025-10-10', '2025', '2025-10-10');
+
+SELECT 
+    MONTH(int1_col),
+	MONTH(int2_col),
+	MONTH(int4_col),
+	MONTH(int8_col),
+	MONTH(float4_col),
+	MONTH(float8_col),
+	MONTH(numeric_col),
+	MONTH(bit1_col),
+	MONTH(datetime_col),
+	MONTH(smalldatetime_col),
+	MONTH(date_col),
+	MONTH(time_col),
+	MONTH(char_col),
+	MONTH(varchar_col),
+	MONTH(nvarchar_col),
+	MONTH(text_col)
+from test_type_table_column_name;
+
+drop table if exists test_type_table_column_name;
+
+-- sys.day
+SELECT day('2007-04-30T01:01:01.1234567');   -- expect:  30
+SELECT day(0);                               -- expect:  1
+SELECT day(88);                              -- expect:  30
+
+SELECT day('2023-05-15');                    -- expect:  15
+SELECT day('2023/12/31');                    -- expect:  31
+SELECT day('2023-01-01');                    -- expect:  1
+
+SELECT day('2023-08-20 14:30:45');           -- expect:  20
+SELECT day('2023-02-28 23:59:59');           -- expect:  28
+SELECT day('03/10/2023');                    -- expect:  10
+
+SELECT day('2023年06月01日');                -- expect:  error
+SELECT day('2023-01-01');                    -- expect:  1
+SELECT day('2023-12-31');                    -- expect:  31
+
+SELECT day('2023-01-31');                    -- expect:  31
+SELECT day('2023-12-01');                    -- expect:  1
+SELECT day('2024-02-29');                    -- expect:  29
+
+SELECT day('2023-02-28');                    -- expect:  28
+SELECT day('1753-01-01');                    -- expect:  1
+SELECT day('9999-12-31');                    -- expect:  31
+
+SELECT day(NULL);                            -- expect:  NULL
+SELECT day('2023-13-01');                    -- expect:  error
+SELECT day('2023-02-30');                    -- expect:  error
+
+SELECT day('abc');                           -- expect:  error
+
+
+-- different input type
+create table test_type_table_column_name
+(
+   int1_col tinyint,
+   int2_col smallint,
+   int4_col integer,
+   int8_col bigint,
+   float4_col float4,
+   float8_col float8,
+   numeric_col decimal(20, 6),
+   bit1_col bit(1),
+   datetime_col timestamp without time zone,
+   smalldatetime_col smalldatetime,
+   date_col date,
+   time_col time,
+   boolean_col boolean,
+   char_col char(100),
+   varchar_col varchar(100), 
+   nvarchar_col nvarchar(10),
+   varbinary_col varbinary(100),
+   text_col text
+);
+
+insert into test_type_table_column_name values (20, 2025, 2025, 2025, 2025, 2025, 2025, b'1', '2025-10-10 10:10:10', '2025-10-10 10:10:10', '2025-10-10', '10:10:10', 1, '2025-10-10', '2025-10-10', '2025-10-10', '2025', '2025-10-10');
+
+SELECT 
+    day(int1_col),
+	day(int2_col),
+	day(int4_col),
+	day(int8_col),
+	day(float4_col),
+	day(float8_col),
+	day(numeric_col),
+	day(bit1_col),
+	day(datetime_col),
+	day(smalldatetime_col),
+	day(date_col),
+	day(char_col),
+	day(varchar_col),
+	day(nvarchar_col),
+	day(text_col)
+from test_type_table_column_name;
+
+drop table if exists test_type_table_column_name;
+
+
+-- sys.isdate
+SELECT ISDATE('2023-10-05');          -- 1
+SELECT ISDATE('2023/10/05');          -- 1
+SELECT ISDATE('2023.10.05');          -- 1
+		 
+SELECT ISDATE('10-05-2023');          -- 1
+SELECT ISDATE('10/05/2023');          -- 1
+SELECT ISDATE('10.05.2023');          -- 1
+		 
+SELECT ISDATE('05-10-2023');          -- 1
+SELECT ISDATE('05/10/2023');          -- 1
+SELECT ISDATE('05.10.2023');          -- 1
+		 
+SELECT ISDATE('2023-10-05 14:30:00');       -- 1
+SELECT ISDATE('2023-10-05T14:30:00');       -- 1
+SELECT ISDATE('2023/10/05 14:30:00.123');   -- 1
+		 
+SELECT ISDATE('10-05-2023 09:00 AM');       -- 1
+SELECT ISDATE('10/05/2023 03:30 PM');       -- 1
+		 
+SELECT ISDATE('14:30:00');                  -- 1 
+SELECT ISDATE('09:00 AM');                  -- 1 
+SELECT ISDATE('03:30 PM');                  -- 1 
+SELECT ISDATE('14:30:00.123');              -- 1 
+		 
+SELECT ISDATE('20231005');                       -- 1
+SELECT ISDATE('2023-10-05 14:30');               -- 1
+SELECT ISDATE('2023-10-05 14:30:00.1234567');    -- 0
+		 
+SELECT ISDATE('2023-13-05');          -- 0
+SELECT ISDATE('2023-10-32');          -- 0
+SELECT ISDATE('2023/13/05');          -- 0
+		 
+SELECT ISDATE('2023/10/32');          -- 0
+SELECT ISDATE('2023-02-29');          -- 0
+SELECT ISDATE('2020-02-30');          -- 0
+		 
+SELECT ISDATE('2023-10-05 14:60:00');   -- 0
+SELECT ISDATE('2023-10-05 25:00:00');   -- 0
+SELECT ISDATE('2023-10-05 14:30:60');   -- 0 
+		 
+SELECT ISDATE('2023-10-05 14:30:00.12345678');   -- 0
+SELECT ISDATE('2023/10/05 14:30:00,123');        -- 0
+SELECT ISDATE('2023年10月05日');                 -- 0
+		 
+SELECT ISDATE('2023-10-05 下午3点30分');        -- 0
+SELECT ISDATE('abc');                           -- 0
+SELECT ISDATE('2023-10-05a');                   -- 0
+		 
+SELECT ISDATE('2023-10-05 14:30:00a');            -- 0
+SELECT ISDATE('2023-10-');                        -- 0
+SELECT ISDATE('10-05-2023 14:30:00 PM');          -- 1 
+		 
+SELECT ISDATE('1752-09-14');                      -- 0
+SELECT ISDATE('1753-01-00');                      -- 0
+SELECT ISDATE('9999-12-31 23:59:59');             -- 1
+		 
+SELECT ISDATE('9999-12-31 24:00:00');             -- 0
+SELECT ISDATE('10000-01-01');                     -- 0
+		 
+SELECT ISDATE(20231005);    -- 1
+SELECT ISDATE(20231305);    -- 0
+SELECT ISDATE(20231032);    -- 0
+		 
+SELECT ISDATE(143000);      -- 0
+SELECT ISDATE(146000);      -- 0
+
+-- sys.eomonth
+select EOMONTH('12/1/2024'::date);           --expect: 2024-12-31
+select EOMONTH('12/1/2024'::varchar);        --expect: 2024-12-31
+select EOMONTH('12/1/2024'::date, 1);        --expect: 2025-01-31
+select EOMONTH('12/1/2024'::date, -1);       --expect: 2024-11-30
+
+SELECT EOMONTH('2023-03-15');                --expect: 2023-03-31
+SELECT EOMONTH('2023-04-15');                --expect: 2023-04-30
+SELECT EOMONTH('2023-02-10');                --expect: 2023-02-28
+SELECT EOMONTH('2024-02-10');                --expect: 2024-02-29
+SELECT EOMONTH('2023-05-01');                --expect: 2023-05-31
+SELECT EOMONTH('2023-06-30');                --expect: 2023-06-30
+SELECT EOMONTH('2023-07-20 14:30:00');       --expect: 2023-07-31
+SELECT EOMONTH('1753-01-01');                --expect: 1753-01-31
+SELECT EOMONTH('9999-12-31');                --expect: 9999-12-31
+SELECT EOMONTH('2000-02-15');                --expect: 2000-02-29
+SELECT EOMONTH('2023-12-05');                --expect: 2023-12-31
+SELECT EOMONTH('2023-12-05');                --expect: 2023-12-31
+SELECT EOMONTH('2023-11-10', 2);             --expect: 2024-01-31
+SELECT EOMONTH('2024-01-10', -1);            --expect: 2023-12-31
+SELECT EOMONTH('2023-05-20', 100);           --expect: 2031-09-30
+SELECT EOMONTH('2023-05-20', -100);          --expect: 2015-01-31
+SELECT EOMONTH('2023/13/01');                --expect: error
+SELECT EOMONTH('2023-02-30');                --expect: error
+SELECT EOMONTH('hello world');               --expect: error
+SELECT EOMONTH(20230515);                    --expect: error
+SELECT EOMONTH(NULL);                        --expect: NULL
+SELECT EOMONTH('2023-05-15', 1.5);           --expect: 2023-06-30
+SELECT EOMONTH('2023-05-15', 1.6);           --expect: 2023-06-30
+SELECT EOMONTH('2023-05-15', -1.5);           --expect: 2023-04-30
+SELECT EOMONTH('2023-05-15', -1.6);           --expect: 2023-04-30
+SELECT EOMONTH('2023-05-15', -2.1);           --expect: 2023-03-31
+SELECT EOMONTH('1753-01-01', -1);            --expect: 1752-12-31
+SELECT EOMONTH('9999-12-31', 1);             --expect: error
+
+
+-- different input type
+create table test_type_table_column_name
+(
+   int1_col tinyint,
+   int2_col smallint,
+   int4_col integer,
+   int8_col bigint,
+   float4_col float4,
+   float8_col float8,
+   numeric_col decimal(20, 6),
+   bit1_col bit(1),
+   datetime_col timestamp without time zone,
+   smalldatetime_col smalldatetime,
+   date_col date,
+   time_col time,
+   boolean_col boolean,
+   char_col char(100),
+   varchar_col varchar(100), 
+   nvarchar_col nvarchar(10),
+   varbinary_col varbinary(100),
+   text_col text
+);
+
+insert into test_type_table_column_name values (20, 2025, 2025, 2025, 2025, 2025, 2025, b'1', '2025-10-10 10:10:10', '2025-10-10 10:10:10', '2025-10-10', '10:10:10', 1, '2025', '2025', '2025', '2025', '2025');
+
+SELECT EOMONTH(datetime_col, 2) from test_type_table_column_name; 
+SELECT EOMONTH(smalldatetime_col, 2) from test_type_table_column_name; 
+SELECT EOMONTH(date_col, 2) from test_type_table_column_name; 
+SELECT EOMONTH(datetime_col, 2.2) from test_type_table_column_name; 
+SELECT EOMONTH(smalldatetime_col, 2.2) from test_type_table_column_name; 
+SELECT EOMONTH(date_col, 2.2) from test_type_table_column_name; 
+
+
+drop table if exists test_type_table_column_name;
+
+-- sys.sysdatetime
+select sysdatetime();
+
+
 reset current_schema;
 drop schema sharksysfunc cascade;

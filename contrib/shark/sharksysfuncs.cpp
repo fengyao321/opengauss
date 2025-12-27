@@ -60,11 +60,21 @@ PG_FUNCTION_INFO_V1(object_schema_name);
 extern "C" Datum object_define(PG_FUNCTION_ARGS);
 PG_FUNCTION_INFO_V1(object_define);
 
+
+extern "C" Datum sysdatetime(PG_FUNCTION_ARGS);
+PG_FUNCTION_INFO_V1(sysdatetime);
+
+extern "C" Datum eomonth(PG_FUNCTION_ARGS);
+PG_FUNCTION_INFO_V1(eomonth);
+
 extern "C" Datum truncate_identifier(PG_FUNCTION_ARGS);
 PG_FUNCTION_INFO_V1(truncate_identifier);
 
 extern "C" Datum translate_pg_type_to_tsql(PG_FUNCTION_ARGS);
 PG_FUNCTION_INFO_V1(translate_pg_type_to_tsql);
+
+extern "C" Datum is_date(PG_FUNCTION_ARGS);
+PG_FUNCTION_INFO_V1(is_date);
 
 extern "C" Datum columnproperty(PG_FUNCTION_ARGS);
 PG_FUNCTION_INFO_V1(columnproperty);
@@ -389,6 +399,58 @@ Datum object_define(PG_FUNCTION_ARGS)
     PG_RETURN_NULL();
 }
 
+Datum sysdatetime(PG_FUNCTION_ARGS)
+{
+    return TimestampTzGetDatum(GetCurrentStatementStartTimestamp());
+}
+
+Datum eomonth(PG_FUNCTION_ARGS)
+{
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    int offset = 0;
+    DateADT date;
+    bool isOffsetGiven = false;
+    bool isOriginalDateOutsideTSQLEndLimit = false;
+
+    if (PG_ARGISNULL(0)) {
+        PG_RETURN_NULL();
+    } else {
+        date = PG_GETARG_DATEADT(0);
+    }
+    if (!PG_ARGISNULL(1)) {
+        offset = PG_GETARG_INT32(1);
+        isOffsetGiven = true;
+    }
+
+    j2date(date + POSTGRES_EPOCH_JDATE, &year, &month, &day);
+    isOriginalDateOutsideTSQLEndLimit = year < 1 || year > MAX_SHARK_YEAR;
+    month += offset;
+
+    if (month > 0) {
+        year += (month - 1) / MONTHS_COUNT_IN_A_YEAR;
+        month = (month - 1) % MONTHS_COUNT_IN_A_YEAR + 1;
+    } else {
+        year += month / MONTHS_COUNT_IN_A_YEAR - 1;
+        month = month % MONTHS_COUNT_IN_A_YEAR + MONTHS_COUNT_IN_A_YEAR;
+    }
+
+    month++;
+    if (year < 1 || year > MAX_SHARK_YEAR) {
+        if (isOffsetGiven && !isOriginalDateOutsideTSQLEndLimit) {
+            ereport(ERROR,
+                (errcode(ERRCODE_DATETIME_FIELD_OVERFLOW),
+                 errmsg("Adding a value to a 'date' column caused an overflow.")));
+        } else {
+            ereport(ERROR,
+                (errcode(ERRCODE_DATETIME_FIELD_OVERFLOW),
+                 errmsg("The date exceeds openGauss compatibility limits.")));
+        }
+    }
+    date = date2j(year, month, 1) - POSTGRES_EPOCH_JDATE - 1;
+    PG_RETURN_DATEADT(date);
+}
 Datum truncate_identifier(PG_FUNCTION_ARGS)
 {
     char *ident = text_to_cstring(PG_GETARG_TEXT_PP(0));
@@ -418,6 +480,118 @@ Datum translate_pg_type_to_tsql(PG_FUNCTION_ARGS)
     PG_RETURN_TEXT_P(result);
 }
 
+bool is_precision_more_than_3(char* timestampstr)
+{
+    int len = strlen(timestampstr);
+    int i = len - 1;
+    while (i >= 0 && timestampstr[i] == ' ') {
+        i--;
+    }
+    while (i >= 0 && timestampstr[i] != '.') {
+        i--;
+    }
+    if (len - i > SHARK_MAX_DATETIME_PRECISION) {
+        return true;
+    }
+    return false;
+}
+
+/*
+ * the fsec precision of datetime2 is greater than 3
+ */
+bool check_is_datetime2(char* timestampstr, Datum timestamp_result)
+{
+    struct pg_tm tt;
+    struct pg_tm* tm = &tt;
+    Timestamp timestampVal = DatumGetTimestamp(timestamp_result);
+    fsec_t fsec;
+    if (timestamp2tm(timestampVal, NULL, tm, &fsec, NULL, NULL) != 0) {
+        return true;
+    }
+    if (fsec != 0) {
+        return is_precision_more_than_3(timestampstr);
+    }
+    return false;
+}
+
+bool check_is_time2(char* timestampstr, Datum timestamp_result)
+{
+    struct pg_tm tt;
+    struct pg_tm* tm = &tt;
+    TimeADT time = DatumGetTimeADT(timestamp_result);
+    fsec_t fsec;
+    if (time2tm(time, tm, &fsec) != 0) {
+        return true;
+    }
+    if (fsec != 0) {
+        return is_precision_more_than_3(timestampstr);
+    }
+    return false;
+}
+
+bool is_time(char* tmp)
+{
+    Datum time_result;
+    bool is_error = false;
+    PG_TRY();
+    {
+        time_result = DirectFunctionCall3(time_in, CStringGetDatum(tmp),
+                                          ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
+    }
+    PG_CATCH();
+    {
+        FlushErrorState();
+        is_error = true;
+    }
+    PG_END_TRY();
+    
+    if (!is_error) {
+        is_error = check_is_time2(tmp, time_result);
+    }
+    return is_error;
+}
+
+
+Datum is_date(PG_FUNCTION_ARGS)
+{
+    if (PG_ARGISNULL(0)) {
+        PG_RETURN_INT32(0);
+    }
+    bool is_error = false;
+    Datum timestamp_result;
+    char* tmp = NULL;
+    struct pg_tm tt;
+    struct pg_tm* tm = &tt;
+    tmp = DatumGetCString(DirectFunctionCall1(textout, PG_GETARG_DATUM(0)));
+
+    PG_TRY();
+    {
+        timestamp_result = DirectFunctionCall1(text_timestamp, PG_GETARG_DATUM(0));
+    }
+    PG_CATCH();
+    {
+        FlushErrorState();
+        is_error = true;
+    }
+    PG_END_TRY();
+
+    if (!is_error) {
+        is_error = check_is_datetime2(tmp, timestamp_result);
+    }
+
+    if (!is_error) {
+        pfree_ext(tmp);
+        PG_RETURN_INT32(1);
+    }
+
+    is_error = is_time(tmp);
+    pfree_ext(tmp);
+    if (is_error) {
+        PG_RETURN_INT32(0);
+    }
+    
+    PG_RETURN_INT32(1);
+}
 
 bool is_column_exist(Oid rel_oid, char* colname)
 {
