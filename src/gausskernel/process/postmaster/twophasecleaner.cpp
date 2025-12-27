@@ -32,6 +32,10 @@
 #include <sys/stat.h>
 
 #include "catalog/pg_database.h"
+#include "commands/online_ddl_deltalog.h"
+#include "commands/online_ddl_globalhash.h"
+#include "commands/online_ddl_util.h"
+
 #include "gssignal/gs_signal.h"
 #include "libpq/libpq-fe.h"
 #include "libpq/pqsignal.h"
@@ -795,6 +799,205 @@ static void DropTempSchema(PGconn* conn, char* nspname)
     PQclear(res);
 }
 
+#define ONLINE_DDL_SQL_LENGTH (2 * NAMEDATALEN + 100)
+static void OnlineDDLDropTempSchema(PGconn* conn, char* nspname)
+{
+    PGresult* res = NULL;
+    int rc;
+
+    /* SQL Statement */
+    char STMT_DROP_TEMP_SCHEMA[ONLINE_DDL_SQL_LENGTH] = {0};
+
+    rc = snprintf_s(STMT_DROP_TEMP_SCHEMA,
+        sizeof(STMT_DROP_TEMP_SCHEMA),
+        ONLINE_DDL_SQL_LENGTH,
+        "DROP SCHEMA %s CASCADE;",
+        nspname);
+    securec_check_ss_c(rc, "\0", "\0");
+
+    res = PQexec(conn, STMT_DROP_TEMP_SCHEMA);
+    /* If exec is not success, give an log and go on. */
+    if (res == NULL || PQresultStatus(res) != PGRES_COMMAND_OK) {
+        char resErrorMsg[MAX_ERRMSG_LENGTH] = {0};
+        errno_t rc;
+        rc = snprintf_s(resErrorMsg, MAX_ERRMSG_LENGTH, MAX_ERRMSG_LENGTH - 1,
+                        "%s", PQresultErrorMessage(res));
+        securec_check_ss(rc, "\0", "\0");
+
+        PQclear(res);
+        PQfinish(conn);
+        conn = NULL;
+        ereport(ERROR, (errcode(ERRCODE_INVALID_STATUS),
+                        errmsg("Could not drop temp schema %s: %s",
+                               nspname, resErrorMsg)));
+    }
+
+    PQclear(res);
+}
+
+static const int FIRST_VALUE_INDEX = 0;
+static const int SECOND_VALUE_INDEX = 1;
+static const int THIRD_VALUE_INDEX = 2;
+static const int FOURTH_VALUE_INDEX = 3;
+
+static void OnlineDDLClearAppendMode(PGconn* conn, Oid relId)
+{
+    PGresult* res = NULL;
+    int rc;
+    int resultCount = 0;
+    int oid = 0;
+    char* relname;
+    int namespaceId = 0;
+    char* reloption;
+    char* nspname;
+
+    char getRelnameStmt[ONLINE_DDL_SQL_LENGTH] = {0};
+    rc = snprintf_s(getRelnameStmt,
+        sizeof(getRelnameStmt),
+        ONLINE_DDL_SQL_LENGTH,
+        "SELECT oid, relname, relnamespace, reloptions FROM pg_class WHERE oid = %d",
+        relId);
+    securec_check_ss_c(rc, "\0", "\0");
+
+    /* get relname */
+    res = PQexec(conn, getRelnameStmt);
+    /* If exec is not success, give an log and go on. */
+    if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK) {
+        char resErrorMsg[MAX_ERRMSG_LENGTH] = {0};
+        errno_t rc;
+        rc = snprintf_s(resErrorMsg, MAX_ERRMSG_LENGTH, MAX_ERRMSG_LENGTH - 1,
+                        "%s", PQresultErrorMessage(res));
+        securec_check_ss(rc, "\0", "\0");
+
+        PQclear(res);
+        PQfinish(conn);
+        conn = NULL;
+        ereport(ERROR, (errcode(ERRCODE_INVALID_STATUS),
+                        errmsg("Could not get relinfo %d: %s",
+                               relId, resErrorMsg)));
+    }
+
+    resultCount = PQntuples(res);
+    if (resultCount == 0) {
+        PQclear(res);
+        ereport(LOG, (errmsg("[Online-DDL] The relation has been dropped, relid: %d.",
+                            relId)));
+        return;
+    }
+
+    if (resultCount > 1) {
+        char resErrorMsg[MAX_ERRMSG_LENGTH] = {0};
+        errno_t rc;
+        rc = snprintf_s(resErrorMsg, MAX_ERRMSG_LENGTH, MAX_ERRMSG_LENGTH - 1,
+                        "%s", PQresultErrorMessage(res));
+        securec_check_ss(rc, "\0", "\0");
+
+        PQclear(res);
+        PQfinish(conn);
+        conn = NULL;
+        ereport(ERROR, (errcode(ERRCODE_INVALID_STATUS),
+                        errmsg("[Online-DDL] There should at most one result of relid %d is pg_class.",
+                               relId)));
+    }
+
+    /* get result */
+    oid = atoi(PQgetvalue(res, 0, FIRST_VALUE_INDEX));
+    relname = pg_strdup(PQgetvalue(res, 0, SECOND_VALUE_INDEX));
+    namespaceId = atoi(PQgetvalue(res, 0, THIRD_VALUE_INDEX));
+    reloption = pg_strdup(PQgetvalue(res, 0, FOURTH_VALUE_INDEX));
+    PQclear(res);
+
+    char getNameSpaceStmt[ONLINE_DDL_SQL_LENGTH] = {0};
+    rc = snprintf_s(getNameSpaceStmt,
+        sizeof(getNameSpaceStmt),
+        ONLINE_DDL_SQL_LENGTH,
+        "SELECT oid, nspname FROM pg_namespace WHERE oid = %d",
+        namespaceId);
+    securec_check_ss_c(rc, "\0", "\0");
+
+    /* get namespace */
+    res = PQexec(conn, getNameSpaceStmt);
+    /* If exec is not success, give an log and go on. */
+    if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK) {
+        char resErrorMsg[MAX_ERRMSG_LENGTH] = {0};
+        errno_t rc;
+        rc = snprintf_s(resErrorMsg, MAX_ERRMSG_LENGTH, MAX_ERRMSG_LENGTH - 1,
+                        "%s", PQresultErrorMessage(res));
+        securec_check_ss(rc, "\0", "\0");
+
+        free(relname);
+        free(reloption);
+        PQclear(res);
+        PQfinish(conn);
+        conn = NULL;
+        ereport(ERROR, (errcode(ERRCODE_INVALID_STATUS),
+                        errmsg("Could not get relinfo %d: %s",
+                               relId, resErrorMsg)));
+    }
+
+    resultCount = PQntuples(res);
+    if (resultCount == 0) {
+        free(relname);
+        free(reloption);
+        PQclear(res);
+        ereport(LOG, (errmsg("[Online-DDL] The namespace has been dropped, namespaceId: %d.",
+                             namespaceId)));
+        return;
+    }
+
+    if (resultCount > 1) {
+        char resErrorMsg[MAX_ERRMSG_LENGTH] = {0};
+        errno_t rc;
+        rc = snprintf_s(resErrorMsg, MAX_ERRMSG_LENGTH, MAX_ERRMSG_LENGTH - 1,
+                        "%s", PQresultErrorMessage(res));
+        securec_check_ss(rc, "\0", "\0");
+
+        free(relname);
+        free(reloption);
+        PQclear(res);
+        PQfinish(conn);
+        conn = NULL;
+        ereport(ERROR, (errcode(ERRCODE_INVALID_STATUS),
+                        errmsg("[Online-DDL] There should at most one result of namespaceId %d is pg_namespace.",
+                               relId)));
+    }
+    nspname = pg_strdup(PQgetvalue(res, 0, 1));
+
+    /* SQL Statement */
+    char resetAppendmodeStmt[ONLINE_DDL_SQL_LENGTH] = {0};
+    rc = snprintf_s(resetAppendmodeStmt,
+        sizeof(resetAppendmodeStmt),
+        ONLINE_DDL_SQL_LENGTH,
+        "ALTER TABLE %s.%s RESET (append_mode)",
+        nspname, relname);
+    securec_check_ss_c(rc, "\0", "\0");
+    PQclear(res);
+
+    res = PQexec(conn, resetAppendmodeStmt);
+    /* If exec is not success, give an log and go on. */
+    if (res == NULL || PQresultStatus(res) != PGRES_COMMAND_OK) {
+        char resErrorMsg[MAX_ERRMSG_LENGTH] = {0};
+        errno_t rc;
+        rc = snprintf_s(resErrorMsg, MAX_ERRMSG_LENGTH, MAX_ERRMSG_LENGTH - 1,
+                        "%s", PQresultErrorMessage(res));
+        securec_check_ss(rc, "\0", "\0");
+
+        free(nspname);
+        free(relname);
+        free(reloption);
+        PQclear(res);
+        PQfinish(conn);
+        conn = NULL;
+        ereport(ERROR, (errcode(ERRCODE_INVALID_STATUS),
+                        errmsg("Could not reset append_mode for relId: %d",
+                               relId)));
+    }
+    free(nspname);
+    free(relname);
+    free(reloption);
+    PQclear(res);
+}
+
 static void DropTempSchemas(PGconn* conn)
 {
     /* Store temp schema names selected from DN. */
@@ -871,6 +1074,132 @@ static void DropTempSchemas(PGconn* conn)
     CleanActiveBackendList(&activeBackendList);
 }
 
+static int SEVENTH_VALUE_INDEX = 7;
+void OnlineDDLGetTempSchemaList(PGconn* conn, TempSchemaInfo** tempSchemaList)
+{
+    int tempSchemaCount;
+    PGresult* res = NULL;
+    char* nspname = NULL;
+    int rc;
+
+    /* SQL Statement */
+    char STMT_GET_TEMP_SCHEMA_LIST[NAMEDATALEN + 128] = {0};
+
+    rc = snprintf_s(STMT_GET_TEMP_SCHEMA_LIST,
+        sizeof(STMT_GET_TEMP_SCHEMA_LIST),
+        sizeof(STMT_GET_TEMP_SCHEMA_LIST) - 1,
+        "SELECT NSPNAME FROM PG_NAMESPACE WHERE NSPNAME LIKE 'online_ddl_temp_schema_%%'");
+    securec_check_ss_c(rc, "\0", "\0");
+
+    /* Get temp schema list. */
+    res = PQexec(conn, STMT_GET_TEMP_SCHEMA_LIST);
+    if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK) {
+        char resErrorMsg[MAX_ERRMSG_LENGTH] = {0};
+        errno_t rc;
+        rc = snprintf_s(resErrorMsg, MAX_ERRMSG_LENGTH, MAX_ERRMSG_LENGTH - 1,
+                        "%s", PQresultErrorMessage(res));
+        securec_check_ss(rc, "\0", "\0");
+
+        PQclear(res);
+        PQfinish(conn);
+        conn = NULL;
+        ereport(ERROR, (errcode(ERRCODE_INVALID_STATUS),
+                        errmsg("Could not obtain temp schema list: %s",
+                               resErrorMsg)));
+        return;
+    }
+
+    tempSchemaCount = PQntuples(res);
+    for (int i = 0; i < tempSchemaCount; i++) {
+        nspname = PQgetvalue(res, i, 0);
+        if (strchr(&nspname[SEVENTH_VALUE_INDEX], '_') == NULL) {
+            char resErrorMsg[MAX_ERRMSG_LENGTH] = {0};
+            errno_t rc;
+            rc = snprintf_s(resErrorMsg, MAX_ERRMSG_LENGTH, MAX_ERRMSG_LENGTH - 1,
+                            "%s", PQresultErrorMessage(res));
+            securec_check_ss(rc, "\0", "\0");
+
+            PQclear(res);
+            PQfinish(conn);
+            conn = NULL;
+            ereport(ERROR, (errcode(ERRCODE_INVALID_STATUS),
+                        errmsg("Error when parse schema name: %s",
+                               resErrorMsg)));
+            return;
+        }
+
+        AddTempSchemaInfo(tempSchemaList, nspname);
+    }
+    PQclear(res);
+}
+
+static bool CheckOnlineDDLBackendsRunning(PGconn* conn, DDLGlobalHashKey hashKey)
+{
+    /* Store current active backend pid to decide which temp schema should be dropped. */
+    ActiveBackendInfo* activeBackendList = NULL;
+    DDLGlobalHashEntry* hashEntry = OnlineDDLGetHashEntry(hashKey);
+    if (hashEntry == NULL) {
+        return false;
+    }
+    int64 sessionID = hashEntry->operators->getSessionId();
+    GetActiveBackendList(conn, &activeBackendList);
+    if (activeBackendList == NULL) {
+        ereport(LOG, (errmsg("[Online-DDL] CheckOnlineDDLBackendsRunning: hashKey {%u, %u, %u, %u} is disabled,"
+                             " reason: no active backend found, sessionID: %ld", hashKey.spcNode,
+                             hashKey.dbNode, hashKey.relId, hashKey.bucketNode, sessionID)));
+        return false;
+    }
+
+    ActiveBackendInfo* activeBackend = activeBackendList;
+    while (activeBackend != NULL) {
+        if (sessionID == activeBackend->sessionID) {
+            return true;
+        }
+        activeBackend = activeBackend->next;
+    }
+    ereport(LOG, (errmsg("[Online-DDL] CheckOnlineDDLBackendsRunning: hashKey {%u, %u, %u, %u} is disabled,"
+                         " reason: no active backend found, sessionID: %ld", hashKey.spcNode,
+                         hashKey.dbNode, hashKey.relId, hashKey.bucketNode, sessionID)));
+    return false;
+}
+
+static void OnlineDDLDropTempSchemas(PGconn* conn)
+{
+    /* Store temp schema names selected from DN. */
+    TempSchemaInfo* tempSchemaList = NULL;
+
+    OnlineDDLGetTempSchemaList(conn, &tempSchemaList);
+
+    TempSchemaInfo* tempSchema = tempSchemaList;
+    if (tempSchemaList == NULL) {
+        return;
+    }
+    while (tempSchema != NULL) {
+        DDLGlobalHashKey hashKey = {0, 0, 0, 0};
+        TransactionId xid;
+        if (!OnlineDDLParseTempSchma(tempSchema->tempSchemaName, &xid, &hashKey)) {
+            tempSchema = tempSchema->next;
+            continue;
+        }
+
+        if (!CheckOnlineDDLStatusRunning(hashKey, xid) ||
+            !CheckOnlineDDLBackendsRunning(conn, hashKey)) {
+            /*
+            * Now it is not an active backend, furthermore, we need to drop it;
+            */
+            ereport(LOG, (errcode(ERRCODE_INVALID_STATUS),
+                               (errmsg("[Online-DDL ]Online ddl drop temp schema %s.",
+                                       tempSchema->tempSchemaName))));
+            OnlineDDLClearAppendMode(conn, hashKey.relId);
+            OnlineDDLDropTempSchema(conn, tempSchema->tempSchemaName);
+            OnlineDDLReleaseHashEntry(hashKey, xid);
+        }
+        tempSchema = tempSchema->next;
+    }
+
+    CleanTempSchemaList(&tempSchemaList);
+}
+
 /*
  * @Description: Drop inactive temp schemas of each database.
  * @in: void
@@ -903,6 +1232,7 @@ static bool DropTempNamespace()
                 return false;
             }
 
+            OnlineDDLDropTempSchemas(conn);
             DropTempSchemas(conn);
 
             ereport(DEBUG5, (errmsg("Drop temp namespace for database \"%s\" finished.",

@@ -26,6 +26,7 @@
 #include "postgres.h"
 
 #include "commands/online_ddl_append.h"
+#include "commands/online_ddl_util.h"
 #include "nodes/relation.h"
 #include "storage/lock/lock.h"
 #include "utils/relcache.h"
@@ -48,12 +49,6 @@ enum OnlineDDLType {
     ONLINE_DDL_REWRITE = 2,
 };
 
-struct DDLGlobalHashKey {
-    Oid spcNode;     /* tablespace */
-    Oid dbNode;      /* database */
-    Oid relId;       /* relation */
-    int2 bucketNode; /* bucketid */
-};
 
 class OnlineDDLRelOperators : public BaseObject {
 private:

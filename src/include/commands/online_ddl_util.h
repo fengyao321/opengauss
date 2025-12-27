@@ -35,6 +35,13 @@
 #define LOE_ONLINE_DDL_LOG (1)
 #define LOG_ONLINE_DDL_NOTICE (2)
 
+struct DDLGlobalHashKey {
+    Oid spcNode;     /* tablespace */
+    Oid dbNode;      /* database */
+    Oid relId;       /* relation */
+    int2 bucketNode; /* bucketid */
+};
+
 #define ONLINE_DDL_LOG_LEVEL                                                 \
     (u_sess->attr.attr_common.log_online_ddl_level == LOG_ONLINE_DDL_DEFAULT \
          ? DEBUG5                                                            \

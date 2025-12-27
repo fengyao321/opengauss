@@ -27,6 +27,7 @@
 
 #include "nodes/relation.h"
 #include "utils/relcache.h"
+#include "commands/online_ddl_util.h"
 
 const short int ONLINE_DDL_OPERATION_EMPTY = 0;
 const short int ONLINE_DDL_OPERATION_INSERT = 1;
@@ -37,9 +38,8 @@ extern const int DELTALOG_OPERATION_TYPE_IDX;
 extern const int DELTALOG_TUP_CTDI_IDX;
 extern const int ONLINE_DDL_DELTALOG_ATTR_NUM;
 
-extern bool OnlineDDLCheckTempSchemaFormat(char* npName, TransactionId* xid, Oid* spcNode, Oid* dbNode, Oid* relId,
-                                           int2* bucketNode);
-extern void OnlineDDLCheckDeltaLog(Relation rel, bool checkInProgress);
+extern bool OnlineDDLParseTempSchma(char* npName, TransactionId* xid, DDLGlobalHashKey* hashKey);
+extern void ErrorIfOnlineDDLDeltaLog(Relation rel, bool checkInProgress);
 extern void OnlineDDLInsertDeltaLog(Relation deltaRelation, ItemPointer tid);
 extern void OnlineDDLDeleteDeltaLog(Relation deltaRelation, ItemPointer tid);
 extern void OnlineDDLUpdateDeltaLog(Relation deltaRelation, ItemPointer oldTid, ItemPointer newTid);

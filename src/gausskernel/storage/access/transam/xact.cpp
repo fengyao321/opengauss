@@ -107,6 +107,7 @@
 #include "access/ustore/undo/knl_uundoapi.h"
 #include "access/ustore/undo/knl_uundozone.h"
 #include "commands/sequence.h"
+#include "commands/online_ddl.h"
 #include "postmaster/bgworker.h"
 #include "replication/walreceiver.h"
 #include "ddes/dms/ss_common_attr.h"
@@ -3849,6 +3850,7 @@ static void AbortTransaction(bool PerfectRollback, bool STP_rollback)
         }
     }
 #endif
+    OnlineDDLCleanup();
 
     /* Prevent cancel/die interrupt while cleaning up */
     HOLD_INTERRUPTS();

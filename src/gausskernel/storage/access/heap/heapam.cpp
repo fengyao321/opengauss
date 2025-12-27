@@ -71,6 +71,8 @@
 #include "commands/dbcommands.h"
 #include "commands/verify.h"
 #include "commands/matview.h"
+#include "commands/online_ddl_globalhash.h"
+#include "commands/online_ddl_util.h"
 #include "commands/vacuum.h"
 #include "executor/node/nodeModifyTable.h"
 #include "miscadmin.h"
@@ -1513,6 +1515,14 @@ Relation relation_open(Oid relationId, LOCKMODE lockmode, int2 bucketId)
     if (r->rd_locator_info != NULL && IsRelationReplicated(r->rd_locator_info)) {
         t_thrd.xact_cxt.MyXactAccessedRepRel = true;
     }
+    if (RelationGetAppendMode(r) == ONLINE_DDL_APPEND_MODE) {
+        DDLGlobalHashEntry* hashEntry = OnlineDDLGetHashEntry(GetDDLGlobalHashKey(r->rd_node, r->rd_id));
+        if (hashEntry != NULL && (hashEntry->operators->getStatus() != ONLINE_DDL_STATUS_NONE &&
+            hashEntry->operators->getStatus() != ONLINE_DDL_END)) {
+            r->rd_online_ddl_operators = (void*) hashEntry->operators;
+        }
+    }
+
     pgstat_initstats(r);
 
     if (BUCKET_NODE_IS_VALID(bucketId)) {
@@ -3021,6 +3031,23 @@ Oid heap_insert(Relation relation, HeapTuple tup, CommandId cid, int options, Bu
         rel_end_block = RelationGetEndBlock(relation);
     }
 #endif
+
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)relation->rd_online_ddl_operators);
+    bool onlineDDLAppendMode = (operators != NULL && operators->getAppendMode());
+    if (unlikely(onlineDDLAppendMode)) {
+        options |= HEAP_INSERT_SKIP_FSM;
+        BlockNumber testBlockNum = OnlineDDLRelationGetEndCtidInternal(relation);
+        BlockNumber testBlockNum2 = RelationGetNumberOfBlocks(relation);
+        ItemPointerData endCtid = operators->getendCtidInternal();
+        rel_end_block = ItemPointerGetBlockNumberNoCheck(&endCtid);
+        ereport(NOTICE,
+            (errmsg("heap insert: relation %s in online DDL append mode, rel_end_block %u, testBlockNum %u, testBlockNum2 %u",
+                RelationGetRelationName(relation),
+                rel_end_block,
+                testBlockNum,
+                testBlockNum2)));
+    }
+
     /*
      * Find buffer to insert this tuple into.  If the page is all visible,
      * this will also pin the requisite visibility map page.
@@ -4072,6 +4099,22 @@ int heap_multi_insert(Relation relation, Relation parent, HeapTuple* tuples, int
     if (RelationInClusterResizing(relation) && !RelationInClusterResizingReadOnly(relation)) {
         options |= HEAP_INSERT_SKIP_FSM;
         rel_end_block = RelationGetEndBlock(relation);
+    }
+
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)relation->rd_online_ddl_operators);
+    bool onlineDDLAppendMode = (operators != NULL && operators->getAppendMode());
+    if (unlikely(onlineDDLAppendMode)) {
+        options |= HEAP_INSERT_SKIP_FSM;
+        BlockNumber testBlockNum = OnlineDDLRelationGetEndCtidInternal(relation);
+        BlockNumber testBlockNum2 = RelationGetNumberOfBlocks(relation);
+        ItemPointerData endCtid = operators->getendCtidInternal();
+        rel_end_block = ItemPointerGetBlockNumber(&endCtid);
+        ereport(ONLINE_DDL_LOG_LEVEL,
+            (errmsg("heap_multi_insert: relation %s in online DDL append mode, rel_end_block %u, testBlockNum %u, testBlockNum2 %u",
+                RelationGetRelationName(relation),
+                rel_end_block,
+                testBlockNum,
+                testBlockNum2)));
     }
     save_free_space = RelationGetTargetPageFreeSpace(relation, HEAP_DEFAULT_FILLFACTOR);
 
@@ -5581,6 +5624,23 @@ l2:
         rel_end_block = RelationGetEndBlock(relation);
     }
 #endif
+
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)relation->rd_online_ddl_operators);
+    bool onlineDDLAppendMode = (operators != NULL && operators->getAppendMode());
+    if (unlikely(onlineDDLAppendMode)) {
+        options |= HEAP_INSERT_SKIP_FSM;
+        BlockNumber testBlockNum = OnlineDDLRelationGetEndCtidInternal(relation);
+        BlockNumber testBlockNum2 = RelationGetNumberOfBlocks(relation);
+        ItemPointerData endCtid = operators->getendCtidInternal();
+        rel_end_block = ItemPointerGetBlockNumber(&endCtid);
+        ereport(NOTICE,
+            (errmsg("heap_multi_insert: relation %s in online DDL append mode, rel_end_block %u, testBlockNum %u, testBlockNum2 %u",
+                RelationGetRelationName(relation),
+                rel_end_block,
+                testBlockNum,
+                testBlockNum2)));
+    }
+
     /*
      * Replace cid with a combo cid if necessary.  Note that we already put
      * the plain cid into the new tuple.
@@ -5611,7 +5671,7 @@ l2:
     pagefree = PageGetHeapFreeSpace(page);
 
     new_tup_size = MAXALIGN(newtup->t_len);
-    if (need_toast || new_tup_size > pagefree
+    if (need_toast || new_tup_size > pagefree || onlineDDLAppendMode
 #ifdef ENABLE_MULTIPLE_NODES
          || rel_in_redis
 #endif
@@ -5666,7 +5726,7 @@ l2:
          * while not holding the lock on the old page, and we must rely on it
          * to get the locks on both pages in the correct order.
          */
-        if (new_tup_size > pagefree
+        if (new_tup_size > pagefree || onlineDDLAppendMode
 #ifdef ENABLE_MULTIPLE_NODES
             || rel_in_redis
 #endif

@@ -22,6 +22,8 @@
 #include "access/visibilitymap.h"
 #include "access/ustore/knl_upage.h"
 #include "commands/tablespace.h"
+#include "commands/online_ddl_globalhash.h"
+#include "commands/online_ddl_util.h"
 #include "storage/buf/bufmgr.h"
 #include "storage/buf/bufpage.h"
 #include "storage/freespace.h"
@@ -379,6 +381,8 @@ Buffer RelationGetBufferForTuple(Relation relation, Size len, Buffer other_buffe
     bool need_lock = false;
     Size extralen = 0;
     HeapPageHeader phdr;
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)relation->rd_online_ddl_operators);
+    bool onlineDDLAppendMode = (operators != NULL && operators->getAppendMode());
 
     /*
      * Blocks that extended one by one are different from bulk-extend blocks, and
@@ -442,6 +446,10 @@ Buffer RelationGetBufferForTuple(Relation relation, Size len, Buffer other_buffe
         target_block = BufferGetBlockNumber(bistate->current_buf);
     } else {
         target_block = RelationGetTargetBlock(relation);
+    }
+
+    if (onlineDDLAppendMode) {
+        target_block = RelationGetNumberOfBlocks(relation) - 1;
     }
 
     if (target_block == InvalidBlockNumber && use_fsm) {
@@ -558,6 +566,14 @@ loop:
         if (len + save_free_space <= page_free_space) {
             /* use this page as future insert target, too */
             RelationSetTargetBlock(relation, target_block);
+            if (onlineDDLAppendMode) {
+                operators->setTargetBlockNumber(BufferGetBlockNumber(buffer));
+                ereport(
+                    ONLINE_DDL_LOG_LEVEL,
+                    (errmodule(MOD_ONLINE_DDL),
+                     errmsg("RelationGetBufferForTuple in onlineddl append mode, target_block: %d, set target block %u",
+                            target_block, BufferGetBlockNumber(buffer))));
+            }
             return buffer;
         }
 
@@ -744,6 +760,12 @@ loop:
      * good bet most of the time.  So for now, don't add it to FSM yet.
      */
     RelationSetTargetBlock(relation, BufferGetBlockNumber(buffer));
+    if (onlineDDLAppendMode) {
+        operators->setTargetBlockNumber(BufferGetBlockNumber(buffer));
+        ereport(ONLINE_DDL_LOG_LEVEL, (errmodule(MOD_ONLINE_DDL),
+                         errmsg("[Online-DDL] RelationGetBufferForTuple in online-ddl appendmode, set target block %u",
+                                BufferGetBlockNumber(buffer))));
+    }
 
     return buffer;
 }

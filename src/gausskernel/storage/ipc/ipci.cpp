@@ -35,6 +35,7 @@
 #include "commands/tablespace.h"
 #include "commands/async.h"
 #include "commands/matview.h"
+#include "commands/online_ddl.h"
 #include "foreign/dummyserver.h"
 #include "job/job_scheduler.h"
 #include "miscadmin.h"
@@ -336,6 +337,7 @@ void CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 
         SSInitTxnStatusCache();
         SSInitXminInfo();
+        OnlineDDLinit();
     }
 
     /*
