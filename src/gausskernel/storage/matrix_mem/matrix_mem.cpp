@@ -261,7 +261,7 @@ int ubsmem_lease_free(void *local_ptr)
     std::function<int()> funcin = [&]() -> int {
         int ret = MATRIX_MEM_ERROR;
         ret = g_matrixMemFunc.ubsmem_lease_free(local_ptr);
-        if (ret == UBSM_ERR_PARAM_INVALID) {
+        if (ret == UBSM_ERR_PARAM_INVALID || ret == UBSM_ERR_NOT_FOUND) {
 #ifdef FRONTEND
             fprintf(stdout, _("pointer [%p] has been freed.\n"), local_ptr);
 #else

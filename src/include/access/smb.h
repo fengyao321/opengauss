@@ -33,8 +33,8 @@
 #include "storage/ubs_mem.h"
 
 #define ENABLE_SMB_CKPT (g_instance.smb_cxt.use_smb && !RecoveryInProgress() && !g_instance.smb_cxt.shutdownSMBWriter)
-#define ENABLE_SMB_PULL_PAGE \
-    (g_instance.smb_cxt.use_smb && g_instance.smb_cxt.start_flag && !g_instance.smb_cxt.end_flag)
+#define ENABLE_SMB_PULL_PAGE (g_instance.smb_cxt.use_smb && g_instance.smb_cxt.start_flag && \
+                                !g_instance.smb_cxt.end_flag && g_instance.smb_cxt.mount_end_flag)
 #define SIZE_K(n) (uint32)((n) * 1024)
 #define SHARED_MEM_NAME "smb_shared_meta"
 #define MAX_SHM_CHUNK_NAME_LENGTH 64
@@ -51,6 +51,7 @@
 	(SMB_WRITER_ITEM_SIZE_PERMETA + SMB_WRITER_BUCKET_SIZE_PERMETA + 2 * sizeof(int) + 2 * sizeof(XLogRecPtr))
 #define SMB_WRITER_ITEM_PER_MGR (g_instance.smb_cxt.NSMBBuffers / smb_recovery::SMB_BUF_MGR_NUM)
 #define SMB_TOTAL_META_SIZE TYPEALIGN(FOUR_MB, SMB_BUF_META_SIZE * smb_recovery::SMB_BUF_MGR_NUM)
+#define BIT_SHITF_32 32
 
 namespace smb_recovery {
 
@@ -63,6 +64,14 @@ constexpr int SMB_WRITER_MAX_FILE = 10;
 enum class SMBState {
     SMB_AVAILABLE = 0,
     SMB_UNAVAILABLE = 1,
+};
+
+enum SMBPageState:int {
+    PAGE_AVAILABLE = 0,
+    PAGE_OLD = 1,
+    PAGE_NEW = 2,
+    PAGE_NOT_FOUND = 3,
+    PAGE_PROCESSED = 4
 };
 
 struct SMBAnalyzer {

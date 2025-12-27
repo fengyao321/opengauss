@@ -947,6 +947,9 @@ void SMBAnalysisMain(void)
         g_analyzeTable[XLogRecGetRmid(xlogreader)].proc(xlogreader);
         record = SMBReadRecord(xlogreader, InvalidXLogRecPtr, LOG, false);
     }
+    XLogRecPtr read_stop_lsn = xlogreader->ReadRecPtr;
+    XLogRecPtr stop_lsn = xlogreader->EndRecPtr;
+    g_instance.smb_cxt.smb_analyse_lsn = read_stop_lsn;
     XLogReaderFree(xlogreader);
     xlogreader = NULL;
 
@@ -956,9 +959,15 @@ void SMBAnalysisMain(void)
     ResourceManagerStop();
 
     XLogRecPtr LatestReplayedRecPtr = GetXLogReplayRecPtr(NULL);
-    ereport(LOG, (errmsg("SMB analyze done, start lsn: %lu, last lsn: %lu, cur_redo_lsn: %lu, max_unsafe_lsn: %lu.",
-        g_instance.smb_cxt.cur_lsn, t_thrd.xlog_cxt.EndRecPtr,
-        LatestReplayedRecPtr, g_instance.smb_cxt.smb_unsafe_max_lsn)));
+    ereport(LOG, (errmsg("SMB analyze done, start lsn: %X/%08X, last lsn: %X/%08X, cur_redo_lsn: %X/%08X,"
+                         "max_unsafe_lsn : %X/%08X, xlogreader read_lsn : %X/%08X, xlogreader end_lsn : %X/%08X.",
+                         (uint32)(g_instance.smb_cxt.cur_lsn >> BIT_SHITF_32), (uint32)g_instance.smb_cxt.cur_lsn,
+                         (uint32)(t_thrd.xlog_cxt.EndRecPtr >> BIT_SHITF_32), (uint32)t_thrd.xlog_cxt.EndRecPtr,
+                         (uint32)(LatestReplayedRecPtr >> BIT_SHITF_32), (uint32)LatestReplayedRecPtr,
+                         (uint32)(g_instance.smb_cxt.smb_unsafe_max_lsn >> BIT_SHITF_32),
+                         (uint32)g_instance.smb_cxt.smb_unsafe_max_lsn,
+                         (uint32)(read_stop_lsn >> BIT_SHITF_32), (uint32)read_stop_lsn,
+                         (uint32)(stop_lsn >> BIT_SHITF_32), (uint32)stop_lsn)));
     // tell SMBWriter to wake up
     if (!g_instance.smb_cxt.shutdownSMBAly) {
         g_instance.smb_cxt.analyze_end_flag = true;
