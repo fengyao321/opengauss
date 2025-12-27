@@ -81,15 +81,41 @@ typedef object_info_t* (*oid_to_object_ptr)(Oid, Oid);
 #define FLOAT4_PRECISION 6
 #define FLOAT8_PRECISION 15
 
+#define SMALLDATETIME_MAX_LENGTH 8
+#define DATE_MAX_LENGTH 4
+#define TIME_MAX_LENGTH 8
+#define FLOAT8_MAX_LENGTH 8
+#define FLOAT4_MAX_LENGTH 4
+#define NUMERIC_MAX_LENGTH 65535
+#define CASH_MAX_LENGTH 8
+#define INT8_MAX_LENGTH 8
+#define INT4_MAX_LENGTH 4
+#define INT2_MAX_LENGTH 4
+#define INT1_MAX_LENGTH 2
+#define BIT1_MAX_LENGTH 1
+#define TEXT_MAX_LENGTH 65535
+
 Datum get_base_type(PG_FUNCTION_ARGS, bytea *sv_value);
 Datum get_precision(PG_FUNCTION_ARGS, bytea *sv_value);
 Datum get_scale(PG_FUNCTION_ARGS, bytea *sv_value);
 Datum get_total_bytes(PG_FUNCTION_ARGS, bytea *sv_value);
 Datum get_max_length(PG_FUNCTION_ARGS, bytea *sv_value);
 Datum get_collation(PG_FUNCTION_ARGS, bytea *sv_value);
+int get_type_precision(Oid typeoid, int typmod);
+int get_type_scale(Oid typeoid, int typmod);
 extern char* pg_get_viewdef_worker(Oid viewoid, int prettyFlags, int wrapColumn);
 extern char* pg_get_functiondef_worker(Oid funcid, int* headerlines);
 extern char* pg_get_triggerdef_string(Oid trigid);
+
+typedef enum sv_property {
+    SV_PROPERTY_BASETYPE,
+    SV_PROPERTY_PRECISION,
+    SV_PROPERTY_SCALE,
+    SV_PROPERTY_TOTALBYTES,
+    SV_PROPERTY_COLLATION,
+    SV_PROPERTY_MAXLENGTH,
+    SV_PROPERTY_INVALID
+} sv_property_t;
 
 typedef struct TypeInfoMap {
     const char* pg_typname;

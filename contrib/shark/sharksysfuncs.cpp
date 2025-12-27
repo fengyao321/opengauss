@@ -67,6 +67,12 @@ PG_FUNCTION_INFO_V1(sysdatetime);
 extern "C" Datum eomonth(PG_FUNCTION_ARGS);
 PG_FUNCTION_INFO_V1(eomonth);
 
+extern "C" Datum is_numeric(PG_FUNCTION_ARGS);
+PG_FUNCTION_INFO_V1(is_numeric);
+
+extern "C" Datum sql_variant_property(PG_FUNCTION_ARGS);
+PG_FUNCTION_INFO_V1(sql_variant_property);
+
 extern "C" Datum truncate_identifier(PG_FUNCTION_ARGS);
 PG_FUNCTION_INFO_V1(truncate_identifier);
 
@@ -451,6 +457,142 @@ Datum eomonth(PG_FUNCTION_ARGS)
     date = date2j(year, month, 1) - POSTGRES_EPOCH_JDATE - 1;
     PG_RETURN_DATEADT(date);
 }
+
+Datum cast_to_numeric_or_cash_quietly(char        * value_str)
+{
+    Datum converted;
+    bool is_error = false;
+    PG_TRY();
+    {
+        converted = DirectFunctionCall3(numeric_in, CStringGetDatum(value_str),
+                                        ObjectIdGetDatum(0), Int32GetDatum(-1));
+        is_error = false;
+    }
+    PG_CATCH();
+    {
+        is_error = true;
+        FlushErrorState();
+    }
+    PG_END_TRY();
+    
+    if (!is_error) {
+        return 1;
+    }
+    
+    PG_TRY();
+    {
+        converted = DirectFunctionCall3(cash_in, CStringGetDatum(value_str),
+                                        ObjectIdGetDatum(0), Int32GetDatum(-1));
+        is_error = false;
+    }
+    PG_CATCH();
+    {
+        is_error = true;
+        FlushErrorState();
+    }
+    PG_END_TRY();
+
+    return !is_error;
+}
+
+Datum is_numeric(PG_FUNCTION_ARGS)
+{
+    Oid        argtypeid;
+    Oid        numeric_typiofunc;
+    Oid        money_typiofunc;
+    char        *value_str;
+    bool        result = false;
+    Datum        converted;
+    bool is_error = false;
+
+    if (PG_ARGISNULL(0)) {
+        PG_RETURN_INT32(0);
+    }
+    argtypeid = get_fn_expr_argtype(fcinfo->flinfo, 0);
+    if (!OidIsValid(argtypeid))
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("could not determine input data type")));
+
+    /* Fast path for known numeric types. */
+    if (argtypeid != TEXTOID) {
+        if ((argtypeid == INT1OID) || (argtypeid == INT2OID) ||
+            (argtypeid == INT4OID) || (argtypeid == INT8OID) ||
+            (argtypeid == INT16OID) || (argtypeid == FLOAT4OID) ||
+            (argtypeid == FLOAT8OID) || (argtypeid == NUMERICOID) ||
+            (argtypeid == CASHOID) || (argtypeid == BOOLOID)) {
+            PG_RETURN_INT32(1);
+        }
+    }
+
+    /* Get the string representation from input datum. */
+    if (argtypeid == TEXTOID) {
+        value_str = text_to_cstring(PG_GETARG_TEXT_P(0));
+    } else {
+        Oid typoutput;
+        bool typisvarlena;
+        getTypeOutputInfo(argtypeid, &typoutput, &typisvarlena);
+        value_str = OidOutputFunctionCall(typoutput, PG_GETARG_DATUM(0));
+    }
+
+    result = cast_to_numeric_or_cash_quietly(value_str);
+    pfree(value_str);
+    PG_RETURN_INT32(result);
+}
+
+sv_property_t get_property_type(const char *arg, int len)
+{
+    /* Incase sensitive match, No prefix/suffix spaces handling */
+    if (pg_strncasecmp(arg, "basetype", len) == 0) {
+        return SV_PROPERTY_BASETYPE;
+    } else if (pg_strncasecmp(arg, "precision", len) == 0) {
+        return SV_PROPERTY_PRECISION;
+    } else if (pg_strncasecmp(arg, "scale", len) == 0) {
+        return SV_PROPERTY_SCALE;
+    } else if (pg_strncasecmp(arg, "totalbytes", len) == 0) {
+        return SV_PROPERTY_TOTALBYTES;
+    } else if (pg_strncasecmp(arg, "collation", len) == 0) {
+        return SV_PROPERTY_COLLATION;
+    } else if (pg_strncasecmp(arg, "maxlength", len) == 0) {
+        return SV_PROPERTY_MAXLENGTH;
+    } else {
+        return SV_PROPERTY_INVALID;
+    }
+}
+
+Datum sql_variant_property(PG_FUNCTION_ARGS)
+{
+    bytea* sv_value = PG_GETARG_BYTEA_PP(0);
+    int prop_len = VARSIZE_ANY_EXHDR(PG_GETARG_BYTEA_PP(1));
+    const char *prop_str = VARDATA_ANY(PG_GETARG_BYTEA_PP(1));
+    sv_property_t prop_type;
+
+    /* CHECK Validity of Property */
+    prop_type = get_property_type(prop_str, prop_len);
+    if (prop_type == SV_PROPERTY_INVALID) {
+        PG_RETURN_NULL();
+    }
+
+    /* Dispatch to property functions */
+    switch (prop_type) {
+        case SV_PROPERTY_BASETYPE:
+            return get_base_type(fcinfo, sv_value);
+        case SV_PROPERTY_PRECISION:
+            return get_precision(fcinfo, sv_value);
+        case SV_PROPERTY_SCALE:
+            return get_scale(fcinfo, sv_value);
+        case SV_PROPERTY_TOTALBYTES:
+            return get_total_bytes(fcinfo, sv_value);
+        case SV_PROPERTY_COLLATION:
+            return get_collation(fcinfo, sv_value);
+        case SV_PROPERTY_MAXLENGTH:
+            return get_max_length(fcinfo, sv_value);
+        default:
+            break;
+    }
+    PG_RETURN_NULL();       /* SHOULD NOT HAPPEN */
+}
+
 Datum truncate_identifier(PG_FUNCTION_ARGS)
 {
     char *ident = text_to_cstring(PG_GETARG_TEXT_PP(0));
