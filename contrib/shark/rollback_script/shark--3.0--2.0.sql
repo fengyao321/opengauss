@@ -817,6 +817,20 @@ drop view if exists sys.sequences;
 drop cast if exists (int16 as sys.varbinary) cascade;
 drop function if exists sys.int16_sqlvariant(int16, int);
 
+-- sys.sql_variant_property
+drop function if exists sys.sql_variant_property(sys.SQL_VARIANT, VARCHAR(20));
+drop function if exists sys.sql_variant_property(text, VARCHAR(20));
+drop function if exists sys.sql_variant_property(time, VARCHAR(20));
+
+-- sys.isnumeric
+drop function if exists sys.isnumeric(IN expr TEXT);
+drop function if exists sys.isnumeric(IN expr ANYELEMENT);
+
+--sys.square
+drop function if exists sys.square(in x text);
+drop function if exists sys.square(in x bit);
+drop function if exists sys.square(in x double precision);
+
 -- sys.sysdatetime
 drop function if exists sys.sysdatetime();
 

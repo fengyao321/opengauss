@@ -1026,6 +1026,278 @@ drop table if exists test_type_table_column_name;
 -- sys.sysdatetime
 select sysdatetime();
 
+-- sys.square
+SELECT square(CAST(12 AS int));
+SELECT square(CAST(12.4 AS float));
+SELECT square(CAST(12.4 AS real));
+SELECT square(CAST(12.4 AS bigint));
+SELECT square(CAST(12.4 AS smallint));
+SELECT square(CAST(12.4 AS tinyint));
+SELECT square(CAST(12.4 AS decimal));
+SELECT square(CAST(12.4 AS numeric));
+
+create table test_type_table_column_name
+(
+   int1_col tinyint,
+   int2_col smallint,
+   int4_col integer,
+   int8_col bigint,
+   float4_col float4,
+   float8_col float8,
+   numeric_col decimal(20, 6),
+   bit1_col bit(1),
+   datetime_col timestamp without time zone,
+   smalldatetime_col smalldatetime,
+   date_col date,
+   time_col time,
+   boolean_col boolean,
+   char_col char(100),
+   varchar_col varchar(100), 
+   nvarchar_col nvarchar(10),
+   varbinary_col varbinary(100),
+   text_col text
+);
+
+insert into test_type_table_column_name values (20, 2025, 2025, 2025, 2025, 2025, 2025, b'1', '2025-10-10 10:10:10', '2025-10-10 10:10:10', '2025-10-10', '10:10:10', 1, '10', '10', '10', '10', '10');
+
+SELECT 
+    square(int1_col),
+	square(int2_col),
+	square(int4_col),
+	square(int8_col),
+	square(float4_col),
+	square(float8_col),
+	square(numeric_col),
+	square(bit1_col),
+	square(char_col),
+	square(varchar_col),
+	square(nvarchar_col),
+	square(text_col)
+from test_type_table_column_name;
+
+drop table if exists test_type_table_column_name;
+
+--  sys.isnumeric
+CREATE TABLE test_is_numeric_table (
+    bigint_type bigint,
+    int_type int,
+    smallint_type smallint,
+    tinyint_type tinyint,
+    bit_type bit,
+    decimal_type decimal(5,2),
+    numeric_type numeric(10,5),
+    float_type float,
+    real_type real,
+    money_type money,
+    float8_type float8,
+    boolean_col boolean,
+    char_col char(100),
+    varchar_col varchar(100), 
+    nvarchar_col nvarchar(10),
+    varbinary_col varbinary(100),
+    text_col text
+);
+
+INSERT INTO test_is_numeric_table VALUES (
+    9223372036854775806,
+    45000,
+    -32767,
+    100,
+    b'1',
+    123,
+    12345.12,
+    1.79E+30,
+    -3.40E+38, 
+    237891.22,
+    77.58,
+	1,  -- bool
+	'1',
+	'1',
+	'1',
+	'1',
+	'1'
+);
+
+SELECT ISNUMERIC(bigint_type) FROM test_is_numeric_table;       --expect: 1
+SELECT ISNUMERIC(int_type) FROM test_is_numeric_table;          --expect: 1
+SELECT ISNUMERIC(smallint_type) FROM test_is_numeric_table;     --expect: 1
+SELECT ISNUMERIC(tinyint_type) FROM test_is_numeric_table;      --expect: 1
+SELECT ISNUMERIC(bit_type) FROM test_is_numeric_table;          --expect: 1
+SELECT ISNUMERIC(decimal_type) FROM test_is_numeric_table;      --expect: 1
+SELECT ISNUMERIC(numeric_type) FROM test_is_numeric_table;      --expect: 1
+SELECT ISNUMERIC(float_type) FROM test_is_numeric_table;        --expect: 1
+SELECT ISNUMERIC(real_type) FROM test_is_numeric_table;         --expect: 1
+SELECT ISNUMERIC(money_type) FROM test_is_numeric_table;        --expect: 1
+SELECT ISNUMERIC(float8_type) FROM test_is_numeric_table;       --expect: 1
+SELECT ISNUMERIC(boolean_col) FROM test_is_numeric_table;       --expect: 1
+SELECT ISNUMERIC(char_col) FROM test_is_numeric_table;          --expect: 1
+SELECT ISNUMERIC(varchar_col) FROM test_is_numeric_table;       --expect: 1
+SELECT ISNUMERIC(nvarchar_col) FROM test_is_numeric_table;      --expect: 1
+SELECT ISNUMERIC(varbinary_col) FROM test_is_numeric_table;     --expect: 1
+SELECT ISNUMERIC(text_col) FROM test_is_numeric_table;          --expect: 1
+
+select isnumeric(1234567890);       --expect: 1
+select isnumeric('28903');          --expect: 1
+select isnumeric('+');              --expect: 1
+select isnumeric('+ ');             --expect: 1
+
+select isnumeric('$24,23.43');       --expect: 1
+select isnumeric('+ 1');             --expect: 1
+select isnumeric('$+1.1234');        --expect: 1
+
+select isnumeric('+$1.1234');        --expect: 1
+select isnumeric(' $ + 1.1234');     --expect: 1
+select isnumeric(' + $ 1.1234');     --expect: 1
+
+select isnumeric('abcdefghijklmnop');   --expect: 0
+select isnumeric('24.89.43');           --expect: 0
+select isnumeric('24,2.3.43');          --expect: 0
+
+select isnumeric('+-');                 --expect: 0
+select isnumeric('23$');                --expect: 0
+select isnumeric(null);                 --expect: 0
+
+select isnumeric(' ');                  --expect: 0
+select isnumeric('1 .1234');            --expect: 0
+select isnumeric('+1 .1234');           --expect: 0
+
+select isnumeric('$1 .1234');                                       --expect: 0
+select isnumeric('9999999999999999999999999999999999999999');       --expect: 1
+select isnumeric('10000000000000000000000000000000000000000');      --expect: 1
+
+select isnumeric('-9999999999999999999999999999999999999999');      --expect: 1
+select isnumeric('999999999999999999999999999999999999999.99999');  --expect: 1
+
+select isnumeric('1' + REPLICATE('0', 38));      --expect: 1
+select isnumeric('1' + REPLICATE('0', 100));     --expect: 1
+select isnumeric('0.' + REPLICATE('9', 38));     --expect: 1
+
+select isnumeric('1E+38');     --expect: 1
+select isnumeric('1E+100');    --expect: 1
+select isnumeric('1E-100');    --expect: 1
+
+select isnumeric('abc');        --expect: 0
+select isnumeric('123abc');     --expect: 0
+select isnumeric('abc123');     --expect: 0
+
+select isnumeric('12.34.56');     --expect: 0
+select isnumeric('12,34,56');     --expect: 1
+select isnumeric('$123$456');     --expect: 0
+select isnumeric('123..456');     --expect: 0
+
+select isnumeric('++123');        --expect: 0
+select isnumeric('--123');        --expect: 0
+select isnumeric('+-123');        --expect: 0
+
+select isnumeric('123-');           --expect: 0
+select isnumeric('123+');           --expect: 0
+select isnumeric('123.456.789');    --expect: 0
+
+select isnumeric('1,23,456');        --expect: 1
+select isnumeric('1.2e3.4');         --expect: 0
+select isnumeric('1.2e');            --expect: 0
+
+select isnumeric('e1.2');            --expect: 0
+select isnumeric('1.2D');            --expect: 0
+select isnumeric(CAST(1.79E+308 AS varchar(50)));     --expect: 1
+select isnumeric(CAST(POWER(10, 3) AS varchar(50)));  --expect: 1
+
+drop table test_is_numeric_table;
+
+
+--sys.SQL_VARIANT_PROPERTY
+select SQL_VARIANT_PROPERTY(cast(cast('2020-10-20 09:00:00' as smalldatetime) as sql_variant), 'BaseType');
+select SQL_VARIANT_PROPERTY(cast(cast('$123.123' as money) as sql_variant), 'BaseType');
+select SQL_VARIANT_PROPERTY(cast(cast('256' as smallint) as sql_variant), 'BaseType');
+select SQL_VARIANT_PROPERTY(cast(cast('255' as tinyint) as sql_variant), 'BaseType');
+select SQL_VARIANT_PROPERTY(cast(cast('a' as nvarchar) as sql_variant), 'BaseType');
+select SQL_VARIANT_PROPERTY(cast(cast('a' as varchar) as sql_variant), 'BaseType');
+select SQL_VARIANT_PROPERTY(cast(cast('a' as nchar(1)) as sql_variant), 'BaseType');
+select SQL_VARIANT_PROPERTY(cast(cast('a' as char(1)) as sql_variant), 'BaseType');
+
+create table sqlvariant_test_1 (testcase varchar(50), v sql_variant);
+insert into sqlvariant_test_1 (testcase, v) values ('smalldatetime basic', cast('2020-10-05 09:00:00' as smalldatetime));
+insert into sqlvariant_test_1 (testcase, v) values ('date basic', cast('0001-01-01' as date));
+insert into sqlvariant_test_1 (testcase, v) values ('time basic', cast('00:00:00' as time));
+insert into sqlvariant_test_1 (testcase, v) values ('time basic w/ typmod', cast('00:00:00' as time(3)));
+insert into sqlvariant_test_1 (testcase, v) values ('float basic', cast(3.1415926 as float(53)));
+insert into sqlvariant_test_1 (testcase, v) values ('real basic', cast(3.1415926 as real));
+insert into sqlvariant_test_1 (testcase, v) values ('numeric basic', cast(93.1415926 as numeric(4,2)));
+insert into sqlvariant_test_1 (testcase, v) values ('numeric basic2', cast(93.1415926 as numeric(5,1)));
+insert into sqlvariant_test_1 (testcase, v) values ('money basic', cast('100.123' as money));
+insert into sqlvariant_test_1 (testcase, v) values ('bigint basic', cast(2147483648 as bigint));
+insert into sqlvariant_test_1 (testcase, v) values ('int basic', cast(2147483647 as int));
+insert into sqlvariant_test_1 (testcase, v) values ('smallint basic', cast(32767 as smallint));
+insert into sqlvariant_test_1 (testcase, v) values ('tinyint basic', cast(255 as tinyint));
+insert into sqlvariant_test_1 (testcase, v) values ('bit basic', cast(0 as bit));
+insert into sqlvariant_test_1 (testcase, v) values ('nvarchar basic', cast('a' as nvarchar(1)));
+insert into sqlvariant_test_1 (testcase, v) values ('varchar basic', cast('a' as varchar(1)));
+insert into sqlvariant_test_1 (testcase, v) values ('nchar basic', cast('a' as nchar(1)));
+insert into sqlvariant_test_1 (testcase, v) values ('char basic', cast('a' as char(1)));
+insert into sqlvariant_test_1 (testcase, v) values ('char basic', cast('a' as text)::sql_variant);
+
+select sql_variant_property(v, 'nothing') from sqlvariant_test_1;
+select sql_variant_property(v, 'basetype') from sqlvariant_test_1;
+select sql_variant_property(v, 'precision') from sqlvariant_test_1;
+select sql_variant_property(v, 'scale') from sqlvariant_test_1;
+select sql_variant_property(v, 'collation') from sqlvariant_test_1;
+select sql_variant_property(v, 'totalbytes') from sqlvariant_test_1;
+select sql_variant_property(v, 'maxlength') from sqlvariant_test_1;
+drop table sqlvariant_test_1;
+
+
+CREATE table sqlvariant_test_2 ( a sql_variant);
+insert into sqlvariant_test_2 values (null);
+select sql_variant_property(a, 'basetype') as 'basetype',
+       sql_variant_property(a, 'precision') as 'precision',
+       sql_variant_property(a, 'scale') as 'scale',
+       sql_variant_property(a, 'collation') as 'collation',
+       sql_variant_property(a, 'totalbytes') as 'totalbytes',
+       sql_variant_property(a, 'maxlength') as 'maxlength' from sqlvariant_test_2;
+
+drop table sqlvariant_test_2; 
+
+
+create table test_type_table_column_name
+(
+   int1_col tinyint,
+   int2_col smallint,
+   int4_col integer,
+   int8_col bigint,
+   float4_col float4,
+   float8_col float8,
+   numeric_col decimal(20, 6),
+   bit1_col bit(1),
+   boolean_col boolean,
+   char_col char(100),
+   varchar_col varchar(100), 
+   nvarchar_col nvarchar(10),
+   varbinary_col varbinary(100),
+   smalldatetime_col smalldatetime,
+   date_col date,
+   time_col time,
+   text_col text
+);
+
+insert into test_type_table_column_name values (1, 1, 1, 1, 1, 1, 1, b'1', 1, 1, 1, 1, 1, '2025-10-10 10:10:10', '2025-10-10', '10:10:10', 'abc');
+
+select 
+    sql_variant_property(int1_col, 'BaseType'), 
+	sql_variant_property(int2_col, 'BaseType'), 
+	sql_variant_property(int4_col, 'BaseType'), 
+	sql_variant_property(int8_col, 'BaseType'), 
+	sql_variant_property(float4_col, 'BaseType'), 
+	sql_variant_property(float8_col, 'BaseType'), 
+	sql_variant_property(numeric_col, 'BaseType'), 
+	sql_variant_property(bit1_col, 'BaseType'), 
+	sql_variant_property(char_col, 'BaseType'), 
+	sql_variant_property(varchar_col, 'BaseType'), 
+	sql_variant_property(nvarchar_col, 'BaseType'),
+    sql_variant_property(date_col, 'BaseType'),
+   sql_variant_property(text_col, 'BaseType')
+from test_type_table_column_name;
+
+drop table test_type_table_column_name;
 
 reset current_schema;
 drop schema sharksysfunc cascade;

@@ -52,6 +52,7 @@
 #include "catalog/pg_trigger.h"
 #include "libpq/pqformat.h"
 #include "shark.h"
+#include "sharksysfuncs.h"
 
 /* limit for sql_variant */
 constexpr int MAX_SQL_VARIANT_SIZE = 8016;
@@ -705,5 +706,130 @@ Datum sqlvariant2char(PG_FUNCTION_ARGS)
     bytea          *sv = PG_GETARG_BYTEA_PP(0);
     Datum result = cast_from_sql_variant(sv, BPCHAROID);
     PG_RETURN_BPCHAR_P(DatumGetBpCharP(result));
+}
+
+TypePrio* get_tsql_type_info(Oid typeoid)
+{
+    for (int i = 0; i < TOTAL_TYPECODE_COUNT; i++) {
+        if (g_typePrios[i].typeOid == typeoid) {
+            return &g_typePrios[i];
+        }
+    }
+    return NULL;
+}
+
+Datum get_base_type(PG_FUNCTION_ARGS, bytea *sv_value)
+{
+    char* data = VARDATA_ANY(sv_value);
+    Oid typeoid = *(Oid*)data;
+
+    TypePrio* type_prio = get_tsql_type_info(typeoid);
+    if (type_prio == NULL) {
+        PG_RETURN_NULL();
+    }
+    
+    const char* temp_type_name = type_prio->typeName;
+    Datum result = DirectFunctionCall3(varcharin, CStringGetDatum(temp_type_name),
+        ObjectIdGetDatum(0), Int32GetDatum(-1));
+    return to_sql_variant_internal(result, VARCHAROID, -1);
+}
+
+Datum get_precision(PG_FUNCTION_ARGS, bytea *sv_value)
+{
+    char* data = VARDATA_ANY(sv_value);
+    Oid typeoid = *(Oid*)data;
+    data += sizeof(Oid);
+    int32 typmod = *(int32*)data;
+    int precision =  get_type_precision(typeoid, typmod);
+    return to_sql_variant_internal(Int32GetDatum(precision), INT4OID, PG_GETARG_INT32(1));
+}
+
+Datum get_scale(PG_FUNCTION_ARGS, bytea *sv_value)
+{
+    char* data = VARDATA_ANY(sv_value);
+    Oid typeoid = *(Oid*)data;
+    data += sizeof(Oid);
+    int32 typmod = *(int32*)data;
+    int scale = get_type_scale(typeoid, typmod);
+    return to_sql_variant_internal(Int32GetDatum(scale), INT4OID, PG_GETARG_INT32(1));
+}
+
+Datum get_total_bytes(PG_FUNCTION_ARGS, bytea *sv_value)
+{
+    return to_sql_variant_internal(Int32GetDatum(VARSIZE_ANY(sv_value)), INT4OID, PG_GETARG_INT32(1));
+}
+
+Datum get_max_length(PG_FUNCTION_ARGS, bytea *sv_value)
+{
+    char* data = VARDATA_ANY(sv_value);
+    Oid typeoid = *(Oid*)data;
+    int max_len = 0;
+
+    switch (typeoid) {
+        case SMALLDATETIMEOID:
+            max_len = SMALLDATETIME_MAX_LENGTH;
+            break;
+
+        case DATEOID:
+            max_len = DATE_MAX_LENGTH;
+            break;
+
+        case TIMEOID:
+            max_len = TIME_MAX_LENGTH;
+            break;
+
+        case FLOAT8OID:
+            max_len = FLOAT8_MAX_LENGTH;
+            break;
+        
+        case FLOAT4OID:
+            max_len = FLOAT4_MAX_LENGTH;
+            break;
+        
+        case NUMERICOID:
+            max_len = NUMERIC_MAX_LENGTH;
+            break;
+        
+        case CASHOID:
+            max_len = CASH_MAX_LENGTH;
+            break;
+        
+        case INT8OID:
+            max_len = INT8_MAX_LENGTH;
+            break;
+        
+        case INT4OID:
+            max_len = INT4_MAX_LENGTH;
+            break;
+        
+        case INT2OID:
+            max_len = INT2_MAX_LENGTH;
+            break;
+        
+        case INT1OID:
+            max_len = INT1_MAX_LENGTH;
+            break;
+        
+        case BITOID:
+            max_len = BIT1_MAX_LENGTH;
+            break;
+        
+        case NVARCHAR2OID:
+        case VARCHAROID:
+        case BPCHAROID:
+        case TEXTOID:
+            max_len = TEXT_MAX_LENGTH;
+            break;
+
+        default:
+            max_len = 0;
+            break;
+    }
+    return to_sql_variant_internal(Int32GetDatum(max_len), INT4OID, PG_GETARG_INT32(1));
+}
+
+Datum get_collation(PG_FUNCTION_ARGS, bytea *sv_value)
+{
+    PG_RETURN_NULL();
 }
 

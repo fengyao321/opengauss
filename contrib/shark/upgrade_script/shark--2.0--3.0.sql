@@ -2072,3 +2072,28 @@ CREATE OR REPLACE FUNCTION sys.eomonth(text, numeric DEFAULT 0) RETURNS date LAN
 
 -- sys.sysdatetime
 CREATE OR REPLACE FUNCTION sys.sysdatetime() RETURNS timestamptz AS '$libdir/shark', 'sysdatetime' LANGUAGE C STABLE STRICT;
+
+--sys.square
+create or replace function sys.square(in x double precision) returns double precision AS
+$BODY$
+DECLARE
+        res double precision;
+BEGIN
+        res = pow(x, 2::float);
+        return res;
+END;
+$BODY$
+LANGUAGE plpgsql IMMUTABLE STRICT;
+
+CREATE OR REPLACE FUNCTION sys.square(in x bit) RETURNS double precision LANGUAGE SQL STABLE as 'select sys.square($1::varchar::double precision)';
+CREATE OR REPLACE FUNCTION sys.square(in x text) RETURNS double precision LANGUAGE SQL STABLE as 'select sys.square($1::double precision)';
+
+-- sys.isnumeric
+CREATE OR REPLACE FUNCTION sys.isnumeric(IN expr ANYELEMENT) RETURNS INTEGER AS '$libdir/shark', 'is_numeric' LANGUAGE C STABLE STRICT;
+CREATE OR REPLACE FUNCTION sys.isnumeric(IN expr TEXT) RETURNS INTEGER AS '$libdir/shark', 'is_numeric' LANGUAGE C STABLE STRICT;
+
+-- sys.sql_variant_property
+CREATE OR REPLACE FUNCTION sys.sql_variant_property(sys.SQL_VARIANT, VARCHAR(20)) RETURNS sys.SQL_VARIANT AS '$libdir/shark', 'sql_variant_property' LANGUAGE C STABLE STRICT;
+CREATE OR REPLACE FUNCTION sys.sql_variant_property(text, VARCHAR(20)) RETURNS sys.SQL_VARIANT LANGUAGE SQL STABLE as 'select sys.sql_variant_property($1::sys.SQL_VARIANT, $2)';
+CREATE OR REPLACE FUNCTION sys.sql_variant_property(time, VARCHAR(20)) RETURNS sys.SQL_VARIANT LANGUAGE SQL STABLE as 'select sys.sql_variant_property($1::sys.SQL_VARIANT, $2)';
+
