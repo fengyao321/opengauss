@@ -31,14 +31,21 @@ select distinct type, type_desc from sys.system_objects order by type;
  V    | VIEW
 (6 rows)
 
-select distinct schema_id from sys.system_objects order by schema_id;
- schema_id 
------------
-        11
-      4988
-     15248
-     16386
-     16480
+select count(distinct schema_id) from sys.system_objects;
+ count 
+-------
+     5
+(1 row)
+
+select distinct pn.nspname as schema_name from pg_namespace pn inner join sys.system_objects so on pn.oid = so.schema_id
+  order by schema_name;
+       schema_name       
+-------------------------
+ dbe_perf
+ information_schema
+ information_schema_tsql
+ pg_catalog
+ sys
 (5 rows)
 
 -- sys.all_views

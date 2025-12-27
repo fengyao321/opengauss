@@ -7,7 +7,10 @@ set current_schema to test_views4;
 
 select distinct type, type_desc from sys.system_objects order by type;
 
-select distinct schema_id from sys.system_objects order by schema_id;
+select count(distinct schema_id) from sys.system_objects;
+
+select distinct pn.nspname as schema_name from pg_namespace pn inner join sys.system_objects so on pn.oid = so.schema_id
+  order by schema_name;
 
 -- sys.all_views
 \d sys.all_views

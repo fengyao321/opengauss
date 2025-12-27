@@ -33,7 +33,7 @@ set current_schema to test_views5;
  nt_username  | character(128)           | 
  net_address  | character(12)            | 
  net_library  | character(12)            | 
- loginname    | character(128)           | 
+ loginame     | character(128)           | 
  context_info | varbinary(128)           | 
  sql_handle   | varbinary(20)            | 
  stmt_start   | integer                  | 
