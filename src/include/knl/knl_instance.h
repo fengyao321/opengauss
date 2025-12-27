@@ -1534,6 +1534,7 @@ typedef struct knl_g_smb_context {
     XLogRecPtr smb_start_lsn;       // SMB page first lan
     XLogRecPtr smb_end_lsn;         // SMB page last lsn
     XLogRecPtr smb_unsafe_max_lsn;  // SMB analysis max unsafe lsn
+    XLogRecPtr smb_analyse_lsn;     // SMB max analysed lsn
     int chunkNum;                   // SMB chunk nums
     void *SMBAlyMem;
     struct smb_recovery::SMBAnalyseMem *SMBMgr;

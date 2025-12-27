@@ -157,6 +157,7 @@ static ShutdownMode shutdown_mode = FAST_MODE;
 BuildMode build_mode = AUTO_BUILD; /* default */
 static char* stop_mode = "fast";
 static DemoteMode switch_mode = FastDemote; /* default */
+static DemoteMode failover_mode = FastDemote;
 static int sig = SIGTERM;                   /* default */
 static CtlCommand ctl_command = NO_COMMAND;
 char* pg_data = NULL;
@@ -357,6 +358,7 @@ static void set_build_pid(pgpid_t pid);
 static void close_connection(void);
 static PGconn* get_connectionex(void);
 static ServerMode get_runmode(void);
+static ServerMode get_runmode_from_file(void);
 static char* get_localrole_string(ServerMode mode);
 static bool do_actual_build(uint32 term = 0);
 static bool do_incremental_build(uint32 term = 0);
@@ -732,6 +734,13 @@ static PGconn* get_connectionex(void)
     }
 
     return conn;
+}
+
+static ServerMode get_runmode_from_file(void)
+{
+    GaussState state;
+    ReadDBStateFile(&state);
+    return state.mode;
 }
 
 static ServerMode get_runmode(void)
@@ -2196,7 +2205,12 @@ static void do_failover(uint32 term)
         exit(1);
     }
 
-    origin_run_mode = run_mode = get_runmode();
+    if (failover_mode == ExtremelyFast) {
+        origin_run_mode = run_mode = get_runmode_from_file();
+    } else {
+        origin_run_mode = run_mode = get_runmode();
+    }
+
     if (ss_instance_config.dss.enable_dorado || ss_instance_config.dss.enable_stream) {
         if (run_mode == PRIMARY_MODE) {
             pg_log(PG_WARNING,
@@ -3740,7 +3754,8 @@ static void do_help(void)
     printf(_("  %s status  [-D DATADIR]\n"), progname);
     printf(_("  %s finishredo [-D DATADIR] [-s]\n"), progname);
     (void)printf(
-        _("  %s failover               [-W] [-t SECS] [-D DATADIR] [-U USERNAME] [-P PASSWORD] [-T TERM]\n"), progname);
+        _("  %s failover               [-W] [-t SECS] [-D DATADIR] [-U USERNAME] [-P PASSWORD] [-T TERM] [-f]\n"),
+        progname);
     (void)printf(_("  %s switchover             [-W] [-D DATADIR] [-m SWITCHOVER-MODE] [-U USERNAME] [-P PASSWORD] [-f]\n"),
         progname);
     (void)printf(_("  %s query   [-D DATADIR] [-U USERNAME] [-P PASSWORD] [-L lsn]\n"), progname);
@@ -3846,6 +3861,10 @@ static void do_help(void)
     printf(_("\nShutdown modes are:\n"));
     printf(_("  fast        quit directly, with proper shutdown\n"));
     printf(_("  immediate   quit without complete shutdown; will lead to recovery on restart\n"));
+
+    (void)printf(_("\nfailover modes are:\n"));
+    (void)printf(
+        _("  -f          get database state directly from the state file for quick failover with shared memory\n"));
 
     (void)printf(_("\nSwitchover modes are:\n"));
     (void)printf(_("  -f          quit directly, with proper shutdown and do not perform checkpoint\n"));
@@ -6665,8 +6684,9 @@ int main(int argc, char** argv)
                     break;
                 }
                 case 'f': {
-                    pg_log(PG_WARNING, _("Performing a Forced Switchover\n"));
+                    pg_log(PG_WARNING, _("Performing a Forced Switchover or Failover\n"));
                     switch_mode = ExtremelyFast;
+                    failover_mode = ExtremelyFast;
                     break;
                 }
                 case 'i':

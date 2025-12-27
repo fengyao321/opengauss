@@ -52,6 +52,7 @@
 #include "ddes/dms/ss_reform_common.h"
 #include "access/parallel_recovery/page_redo.h"
 #include "access/extreme_rto/page_redo.h"
+#include "access/smb.h"
 
 /*
  * During XLOG replay, we may see XLOG records for incremental updates of
@@ -990,7 +991,8 @@ static Buffer XLogReadBufferExceedFileRange(const RelFileNode &rnode, ForkNumber
 {
     Buffer buffer;
     /* hm, page doesn't exist in file */
-    if (mode == RBM_NORMAL) {
+    bool enableSmb = (t_thrd.role != SMBWRITER && ENABLE_SMB_PULL_PAGE);
+    if (mode == RBM_NORMAL && !enableSmb) {
         log_invalid_page(rnode, forknum, blkno, NOT_PRESENT, pblk);
         return InvalidBuffer;
     }

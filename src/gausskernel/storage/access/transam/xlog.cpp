@@ -10375,6 +10375,7 @@ void StartupXLOG(void)
             knl_g_set_redo_finish_status(0);
             ereport(LOG, (errmsg("set knl_g_set_redo_finish_status to false when starting redo")));
 
+            bool startPromotion = false;
             do {
                 TermFileData term_file;
 
@@ -10505,14 +10506,28 @@ void StartupXLOG(void)
                 }
                 CountRedoTime(t_thrd.xlog_cxt.timeCost[TIME_COST_STEP_1]);
 
-                if (g_instance.smb_cxt.use_smb && smb_recovery::IsSMBSafe(t_thrd.xlog_cxt.EndRecPtr)) {   
+                if (!startPromotion && (IsFailoverTriggered() || IsSwitchoverTriggered())) {
+                    ereport(LOG,(errmsg("ExtremeRTO Promotion recovery from to %X/%08X.",
+                                         static_cast<uint32>(t_thrd.xlog_cxt.EndRecPtr >> 32),
+                                         static_cast<uint32>(t_thrd.xlog_cxt.EndRecPtr))));
+                    startPromotion = true;
+                }
+
+                if (g_instance.smb_cxt.use_smb && smb_recovery::IsSMBSafe(t_thrd.xlog_cxt.EndRecPtr)) {  
+                    ereport(LOG,(errmsg("SMB start recovery from to %X/%08X.",
+                                         static_cast<uint32>(t_thrd.xlog_cxt.EndRecPtr >> 32),
+                                         static_cast<uint32>(t_thrd.xlog_cxt.EndRecPtr))));
                     if (IsExtremeRedo()) {
                         ExtremeWaitAllReplayWorkerIdle();                      
                     } else if (IsParallelRedo()) {
                         parallel_recovery::WaitAllPageWorkersQueueEmpty();
                     }
-                    ereport(LOG, (errmsg("SMB pull page start, cur_redo_lsn : %lu, end_lsn : %lu",
-                        t_thrd.xlog_cxt.EndRecPtr, g_instance.smb_cxt.smb_end_lsn)));
+                    ereport(LOG, (errmsg("SMB pull page start, cur_redo_lsn : %X/%08X, end_lsn :%X/%08X",
+                                         static_cast<uint32>(t_thrd.xlog_cxt.EndRecPtr >> 32),
+                                         static_cast<uint32>(t_thrd.xlog_cxt.EndRecPtr),
+                                         static_cast<uint32>(g_instance.smb_cxt.smb_end_lsn >> 32),
+                                         static_cast<uint32>(g_instance.smb_cxt.smb_end_lsn))));
+
                     smb_recovery::SMBStartPullPages(t_thrd.xlog_cxt.EndRecPtr);
                     if (xlogreader->isPRProcess && IsExtremeRedo()) {
                         while (XLByteLT(t_thrd.xlog_cxt.ReadRecPtr, g_instance.smb_cxt.smb_end_lsn)) {

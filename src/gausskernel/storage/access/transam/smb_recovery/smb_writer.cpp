@@ -36,6 +36,7 @@ namespace smb_recovery {
 const int PAGE_QUEUE_SLOT_MULTI_NSMBBUFFERS = 5;
 const int PAGE_QUEUE_SLOT_MIN_RESERVE_NUM = 20;
 const float PAGE_QUEUE_SLOT_USED_MAX_PERCENTAGE = 0.8;
+const int PULL_PAGE_STATE_MAX = 4;
 static const int TEN_MICROSECOND = 10;
 static const uint64 THOUSAND_MICROSECOND = 1000;
 
@@ -306,21 +307,31 @@ void SMBPullOnePageWithBuf(BufferDesc *bufHdr)
     LWLockRelease(&bucket->lock);
 }
 
-static void SMBPullOnePage(BufferTag tag, int id)
+static smb_recovery::SMBPageState SMBPullOnePage(BufferTag tag, int id)
 {
     int buf;
     Page page;
     Page curPage;
-    XLogRecPtr expectLsn;
+    XLogRecPtr expectLsn = InvalidXLogRecPtr;
     errno_t rc = EOK;
     SMBBufMetaMem *mgr = g_instance.smb_cxt.SMBBufMgr;
     page = SMBWriterGetPage(id);
-    if (PageGetLSN(page) <= g_instance.smb_cxt.cur_lsn) {
+
+    auto cur_page_lsn = PageGetLSN(page);
+    if (cur_page_lsn <= g_instance.smb_cxt.cur_lsn) {
         ereport(DEBUG4, (errmodule(MOD_REDO), errcode(ERRCODE_LOG),
                          errmsg("SMB page is old spc/db/rel/bucket fork-block: %u/%u/%u/%d %d-%u, lsn :%lu, %lu, %lu",
                                 tag.rnode.spcNode, tag.rnode.dbNode, tag.rnode.relNode, tag.rnode.bucketNode,
                                 tag.forkNum, tag.blockNum, g_instance.smb_cxt.cur_lsn, PageGetLSN(page), expectLsn)));
-        return;
+        return smb_recovery::SMBPageState::PAGE_OLD;
+    }
+    if (cur_page_lsn >= g_instance.smb_cxt.smb_analyse_lsn) {
+        ereport(DEBUG4,
+                (errmodule(MOD_REDO), errcode(ERRCODE_LOG),
+                 errmsg("SMB page is new spc/db/rel/bucket fork-block: %u/%u/%u/%d %d-%u, lsn :%lu, %lu, %lu",
+                        tag.rnode.spcNode, tag.rnode.dbNode, tag.rnode.relNode, tag.rnode.bucketNode, tag.forkNum,
+                        tag.blockNum, g_instance.smb_cxt.smb_analyse_lsn, PageGetLSN(page), expectLsn)));
+        return smb_recovery::SMBPageState::PAGE_NEW;
     }
 
     SMBAnalyseBucket *bucket = SMBAlyGetBucket(tag);
@@ -332,12 +343,12 @@ static void SMBPullOnePage(BufferTag tag, int id)
             errmsg("SMB can't find the item spc/db/rel/bucket fork-block: %u/%u/%u/%d %d-%u.",
                 tag.rnode.spcNode, tag.rnode.dbNode, tag.rnode.relNode, tag.rnode.bucketNode,
                 tag.forkNum, tag.blockNum)));
-        return;
+        return smb_recovery::SMBPageState::PAGE_NOT_FOUND;
     }
 
     if (analyseItem->is_verified) {
         LWLockRelease(&bucket->lock);
-        return;
+        return smb_recovery::SMBPageState::PAGE_PROCESSED;
     }
     expectLsn = analyseItem->lsn;
     
@@ -365,6 +376,7 @@ static void SMBPullOnePage(BufferTag tag, int id)
     UnlockReleaseBuffer(buf);
     analyseItem->is_verified = true;
     LWLockRelease(&bucket->lock);
+    return smb_recovery::SMBPageState::PAGE_AVAILABLE;
 }
 
 static void SMBPullPages()
@@ -372,12 +384,25 @@ static void SMBPullPages()
     SMBBufMetaMem *mgr = g_instance.smb_cxt.SMBBufMgr;
     t_thrd.xlog_cxt.InRecovery = true;
     for (int i = 0; i< SMB_BUF_MGR_NUM; i++) {
+        int index[5] = {0, 0, 0, 0, 0};
         int current = *mgr[i].lruHeadId;
         while (current != SMB_INVALID_ID) {
             SMBBufItem *cur = SMBWriterIdGetItem(mgr, current);
-            SMBPullOnePage(cur->tag, current);
+            smb_recovery::SMBPageState result = SMBPullOnePage(cur->tag, current);
+            if (result > PULL_PAGE_STATE_MAX) {
+                ereport(ERROR, (errmodule(MOD_REDO), errcode(ERRCODE_LOG),
+                    errmsg("SMB pull mgr[%d] unexpected state[%d] for item[%d].",
+                        i, result, current)));
+                continue;
+            }
             current = cur->nextLRUId;
+            index[result]++;
         }
+        ereport(LOG,
+                (errmsg("SMB pull mgr[%d] count[%d %d %d %d %d] successs!", i,
+                        index[smb_recovery::SMBPageState::PAGE_AVAILABLE], index[smb_recovery::SMBPageState::PAGE_OLD],
+                        index[smb_recovery::SMBPageState::PAGE_NEW], index[smb_recovery::SMBPageState::PAGE_NOT_FOUND],
+                        index[smb_recovery::SMBPageState::PAGE_PROCESSED])));
     }
 }
 
@@ -684,7 +709,7 @@ static void SMBWriterMemMount()
     }
     /* buf data */
     char shmChunkName[MAX_SHM_CHUNK_NAME_LENGTH] = "";
-    for (size_t i = 0; i < g_instance.smb_cxt.chunkNum - 1; i++) {
+    for (int i = 0; i < g_instance.smb_cxt.chunkNum - 1; i++) {
         GetSmbShmChunkName(shmChunkName, i);
         ret = ubsmem_shmem_map(g_instance.smb_cxt.SMBBufMem[i + 1], SMB_ALLOC_SIZE_PER_CHUNK, PROT_READ | PROT_WRITE,
                                MAP_SHARED, shmChunkName, 0, &g_instance.smb_cxt.SMBBufMem[i + 1]);
@@ -699,11 +724,11 @@ static void SMBWriterMemMount()
         g_instance.smb_cxt.stderrFd = -1;
     }
     SMBBufMetaMem *mgr = NULL;
-    uint64 buf_size = SMB_WRITER_MAX_ITEM_SIZE + SMB_WRITER_MAX_BUCKET_SIZE;
     mgr = (SMBBufMetaMem *)palloc0(sizeof(SMBBufMetaMem) * SMB_BUF_MGR_NUM);
+    XLogRecPtr smb_max_lsn = InvalidXLogRecPtr;
     g_instance.smb_cxt.smb_end_lsn = MAX_XLOG_REC_PTR;
     for (int i = 0; i < SMB_BUF_MGR_NUM; i++) {
-        mgr[i].smbWriterItems = (SMBBufItem *)(g_instance.smb_cxt.SMBBufMem[0] + i * SMB_BUF_META_SIZE);
+        mgr[i].smbWriterItems = (SMBBufItem *)((char *)g_instance.smb_cxt.SMBBufMem[0] + i * SMB_BUF_META_SIZE);
         mgr[i].smbWriterBuckets = (int *)((char *)mgr[i].smbWriterItems + SMB_WRITER_ITEM_SIZE_PERMETA);
         mgr[i].lruHeadId = (int *)((char *)mgr[i].smbWriterBuckets + SMB_WRITER_BUCKET_SIZE_PERMETA);
         mgr[i].lruTailId = (int *)((char *)mgr[i].lruHeadId + sizeof(int));
@@ -714,10 +739,16 @@ static void SMBWriterMemMount()
             *mgr[i].lruHeadId = SMBWriterIdGetItem(mgr, *mgr[i].lruHeadId)->nextLRUId;
         }
         g_instance.smb_cxt.smb_start_lsn = Max(g_instance.smb_cxt.smb_start_lsn, *mgr[i].startLsn);
-        g_instance.smb_cxt.smb_end_lsn = Min(g_instance.smb_cxt.smb_end_lsn, *mgr[i].endLsn);
+        g_instance.smb_cxt.smb_end_lsn = g_instance.smb_cxt.smb_analyse_lsn;
+        smb_max_lsn = Max(*mgr[i].endLsn, smb_max_lsn);
+        ereport(LOG, (errmsg("SMBMgr[%d] start_lsn : %X/%08X, end_lsn : %X/%08X.", i,
+            (uint32)(*mgr[i].startLsn >> BIT_SHITF_32), (uint32)*mgr[i].startLsn,
+            (uint32)(*mgr[i].endLsn >> BIT_SHITF_32), (uint32)*mgr[i].endLsn)));
     }
-    ereport(LOG, (errmsg("SMB mount success, start_lsn : %lu, end_lsn : %lu",
-        g_instance.smb_cxt.smb_start_lsn, g_instance.smb_cxt.smb_end_lsn)));
+    ereport(LOG, (errmsg("SMB mount success, start_lsn : %X/%08X, end_lsn :  %X/%08X, max_lsn : %X/%08X",
+        (uint32)(g_instance.smb_cxt.smb_start_lsn >> BIT_SHITF_32), (uint32)g_instance.smb_cxt.smb_start_lsn,
+        (uint32)(g_instance.smb_cxt.smb_end_lsn >> BIT_SHITF_32), (uint32)g_instance.smb_cxt.smb_end_lsn,
+        (uint32)(smb_max_lsn >> BIT_SHITF_32), (uint32)smb_max_lsn)));
     g_instance.smb_cxt.SMBBufMgr = mgr;
     g_instance.smb_cxt.mount_end_flag = true;
 }
@@ -725,7 +756,7 @@ static void SMBWriterMemMount()
 static void SMBWriterMemUnmmap()
 {
     int ret = 0;
-    for (size_t i = 0; i < g_instance.smb_cxt.chunkNum; i++) {
+    for (int i = 0; i < g_instance.smb_cxt.chunkNum; i++) {
         ret = ubsmem_shmem_unmap(g_instance.smb_cxt.SMBBufMem[i], SMB_ALLOC_SIZE_PER_CHUNK);
         if (ret != 0) {
             ereport(LOG, (errmsg("SMB unmmap rackmem failed.")));
