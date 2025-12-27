@@ -29,7 +29,7 @@ BEGIN
                         st.latest_end_lsn,
                         st.latest_end_time
                 FROM pg_subscription su
-                        LEFT JOIN pg_stat_get_subscription(NULL) st
+                        LEFT JOIN pg_catalog.pg_stat_get_subscription(NULL) st
                                 ON (st.subid = su.oid);
         end if;
         exit;

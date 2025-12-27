@@ -549,7 +549,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_gtt_attached_pids WITH (security_barrier) A
     array(select pid from pg_gtt_attached_pid(c.oid)) AS pids
  FROM
      pg_class c
-     LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
  WHERE c.relpersistence='g' AND c.relkind in('r', 'S', 'L');
 
 CREATE OR REPLACE VIEW pg_catalog.pg_seclabels AS
@@ -569,8 +569,8 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
-	JOIN pg_namespace nsp ON rel.relnamespace = nsp.oid
+	JOIN pg_catalog.pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
+	JOIN pg_catalog.pg_namespace nsp ON rel.relnamespace = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -585,10 +585,10 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
-	JOIN pg_attribute att
+	JOIN pg_catalog.pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
+	JOIN pg_catalog.pg_attribute att
 	     ON rel.oid = att.attrelid AND l.objsubid = att.attnum
-	JOIN pg_namespace nsp ON rel.relnamespace = nsp.oid
+	JOIN pg_catalog.pg_namespace nsp ON rel.relnamespace = nsp.oid
 WHERE
 	l.objsubid != 0
 UNION ALL
@@ -605,8 +605,8 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_proc pro ON l.classoid = pro.tableoid AND l.objoid = pro.oid
-	JOIN pg_namespace nsp ON pro.pronamespace = nsp.oid
+	JOIN pg_catalog.pg_proc pro ON l.classoid = pro.tableoid AND l.objoid = pro.oid
+	JOIN pg_catalog.pg_namespace nsp ON pro.pronamespace = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -622,8 +622,8 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_type typ ON l.classoid = typ.tableoid AND l.objoid = typ.oid
-	JOIN pg_namespace nsp ON typ.typnamespace = nsp.oid
+	JOIN pg_catalog.pg_type typ ON l.classoid = typ.tableoid AND l.objoid = typ.oid
+	JOIN pg_catalog.pg_namespace nsp ON typ.typnamespace = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -635,7 +635,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_largeobject_metadata lom ON l.objoid = lom.oid
+	JOIN pg_catalog.pg_largeobject_metadata lom ON l.objoid = lom.oid
 WHERE
 	l.classoid = 'pg_catalog.pg_largeobject'::regclass AND l.objsubid = 0
 UNION ALL
@@ -647,7 +647,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_language lan ON l.classoid = lan.tableoid AND l.objoid = lan.oid
+	JOIN pg_catalog.pg_language lan ON l.classoid = lan.tableoid AND l.objoid = lan.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -659,7 +659,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_namespace nsp ON l.classoid = nsp.tableoid AND l.objoid = nsp.oid
+	JOIN pg_catalog.pg_namespace nsp ON l.classoid = nsp.tableoid AND l.objoid = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -671,7 +671,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_shseclabel l
-	JOIN pg_database dat ON l.classoid = dat.tableoid AND l.objoid = dat.oid
+	JOIN pg_catalog.pg_database dat ON l.classoid = dat.tableoid AND l.objoid = dat.oid
 UNION ALL
 SELECT
 	l.objoid, l.classoid, 0::int4 AS objsubid,
@@ -681,7 +681,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_shseclabel l
-	JOIN pg_tablespace spc ON l.classoid = spc.tableoid AND l.objoid = spc.oid
+	JOIN pg_catalog.pg_tablespace spc ON l.classoid = spc.tableoid AND l.objoid = spc.oid
 UNION ALL
 SELECT
 	l.objoid, l.classoid, 0::int4 AS objsubid,
@@ -691,7 +691,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_shseclabel l
-	JOIN pg_authid rol ON l.classoid = rol.tableoid AND l.objoid = rol.oid;
+	JOIN pg_catalog.pg_authid rol ON l.classoid = rol.tableoid AND l.objoid = rol.oid;
 GRANT SELECT ON pg_catalog.pg_seclabels TO PUBLIC;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_statio_all_sequences AS
@@ -703,7 +703,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_statio_all_sequences AS
                     pg_stat_get_blocks_hit(C.oid) AS blks_read,
             pg_stat_get_blocks_hit(C.oid) AS blks_hit
     FROM pg_class C
-            LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+            LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind = 'S' or C.relkind = 'L';
 GRANT SELECT ON pg_catalog.pg_statio_all_sequences TO PUBLIC;
 
@@ -1052,7 +1052,7 @@ CREATE OR REPLACE VIEW dbe_perf.statio_all_sequences AS
     pg_stat_get_blocks_hit(C.oid) AS blks_read,
     pg_stat_get_blocks_hit(C.oid) AS blks_hit
   FROM pg_class C
-       LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+       LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind = 'S' or C.relkind = 'L';
 
 SET search_path = information_schema;
@@ -3298,7 +3298,7 @@ CREATE VIEW pg_catalog.pg_publication_tables AS
         N.nspname AS schemaname,
         C.relname AS tablename
     FROM pg_publication P, pg_class C
-         JOIN pg_namespace N ON (N.oid = C.relnamespace)
+         JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.oid IN (SELECT relid FROM pg_get_publication_tables(P.pubname));
 
 DROP VIEW IF EXISTS pg_catalog.pg_stat_subscription CASCADE;
@@ -3313,7 +3313,7 @@ CREATE VIEW pg_catalog.pg_stat_subscription AS
             st.latest_end_lsn,
             st.latest_end_time
     FROM pg_subscription su
-            LEFT JOIN pg_stat_get_subscription(NULL) st
+            LEFT JOIN pg_catalog.pg_stat_get_subscription(NULL) st
                       ON (st.subid = su.oid);
 
 DROP VIEW IF EXISTS pg_catalog.pg_replication_origin_status CASCADE;

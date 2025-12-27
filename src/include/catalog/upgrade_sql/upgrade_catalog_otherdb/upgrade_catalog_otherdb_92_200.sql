@@ -1744,7 +1744,7 @@ BEGIN
                     (
                         (SELECT
                             (case pg_catalog.pg_table_size(c.oid)/1024/1024/1024 > ' || threshold_size_gb || '
-                                when true then pg_catalog.concat(concat(n.nspname, ''.''), c.relname)
+                                when true then pg_catalog.concat(concat(pg_catalog.quote_ident(n.nspname), ''.''), pg_catalog.quote_ident(c.relname))
                                 else ''null''
                                 end
                             ) relname

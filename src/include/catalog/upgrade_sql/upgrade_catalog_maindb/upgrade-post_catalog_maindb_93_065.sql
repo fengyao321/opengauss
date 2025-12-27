@@ -53,7 +53,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_all_tables AS
             pg_catalog.pg_stat_get_last_data_changed_time(C.oid) AS last_data_changed
     FROM pg_class C LEFT JOIN
          pg_index I ON C.oid = I.indrelid
-         LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+         LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind IN ('r', 't', 'm')
     GROUP BY C.oid, N.nspname, C.relname;
 
@@ -90,7 +90,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_all_indexes AS
     FROM pg_class C JOIN
             pg_index X ON C.oid = X.indrelid JOIN
             pg_class I ON I.oid = X.indexrelid
-            LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+            LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind IN ('r', 't', 'm');
 
 CREATE OR REPLACE VIEW pg_catalog.pg_stat_sys_indexes AS

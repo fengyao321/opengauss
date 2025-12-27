@@ -195,7 +195,7 @@ CREATE OR REPLACE VIEW columns AS
             CAST(
                CASE WHEN ad.adsrc = 'AUTO_INCREMENT' THEN 'AUTO_INCREMENT' 
                ELSE
-                  CASE WHEN ad.adsrc_on_update is not null THEN CONCAT('DEFAULT_GENERATED on update ', ad.adsrc_on_update)
+                  CASE WHEN ad.adsrc_on_update is not null THEN CONCAT('DEFAULT_GENERATED on update ', pg_catalog.quote_literal(ad.adsrc_on_update))
                   ELSE null
                   END
                END 
