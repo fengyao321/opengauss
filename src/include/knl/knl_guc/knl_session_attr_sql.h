@@ -119,7 +119,6 @@ typedef struct knl_session_attr_sql {
     bool Array_nulls;
     bool default_with_oids;
     bool enable_query_parameterization;
-    int max_parameterized_query_stored;
     
 #ifndef ENABLE_MULTIPLE_NODES
     bool enable_functional_dependency;

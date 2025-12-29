@@ -32,20 +32,14 @@
 #define MAX_PARAM_QUERY_LEN 512
 #define PARAM_QUERIES_BUCKET 32
 #define MAX_PARAM_NODES 64
-#define MAX_PARAMETERIZED_QUERY_STORED 512
 #define IUD_COMMAND_LEN 7
-#define FIXED_QUERY_TYPE_LEN 4
-#define QUERY_TYPE_UNKNOWN 0
-#define QUERY_TYPE_INSERT 1
-#define QUERY_TYPE_UPDATE 2
-#define QUERY_TYPE_DELETE 3
 
 typedef struct ParamCachedKey {
     char parameterized_query[MAX_PARAM_QUERY_LEN];
     int query_len;
     Oid param_types[MAX_PARAM_NODES];
     int num_param;
-    Oid relOid;
+    Oid database_id;
 } ParamCachedKey;
 
 typedef struct ParamLocationLen {
@@ -77,13 +71,11 @@ typedef struct ParamCachedPlan {
     CachedPlanSource* psrc;
 } ParamCachedPlan;
 
-extern char* query_type_text[FIXED_QUERY_TYPE_LEN];
-
-bool execQueryParameterization(Node* parsetree, const char* query_string, CommandDest cmdDest, char* completionTag,
-                               Oid relOid);
-bool isQualifiedIuds(Node* parsetree, const char* queryString, Oid* relOid);
+bool execQueryParameterization(Node* parsetree, const char* query_string, CommandDest cmdDest, char* completionTag);
+bool isQualifiedIuds(Node* parsetree, const char* queryString);
 void dropAllParameterizedQueries(void);
 extern uint32 cachedPlanKeyHashFunc(const void* key, Size keysize);
 extern int cachedPlanKeyHashMatch(const void* key1, const void* key2, Size keysize);
+void GPCreplacePlan(ParamCachedPlan* entry, CachedPlanSource* psrc);
 
 #endif /* OPENGAUSS_SERVER_AUTO_PARAMETERIZATION_H */

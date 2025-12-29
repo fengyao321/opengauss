@@ -2912,10 +2912,11 @@ static void exec_simple_query(const char* query_string, MessageType messageType,
             needResetErrMsg = stp_disable_xact_and_set_err_msg(&savedisAllowCommitRollback, STP_XACT_COMPL_SQL);
         }
 
-        if(u_sess->attr.attr_sql.enable_query_parameterization && u_sess->attr.attr_sql.sql_compatibility != B_FORMAT && g_instance.attr.attr_common.enable_mot_server != true) {
-            Oid parameterOid = InvalidOid;
-            if (isQualifiedIuds(parsetree, query_string, &parameterOid)) {
-                bool res = execQueryParameterization(parsetree, query_string, dest, completionTag, parameterOid);
+        if (u_sess->attr.attr_sql.enable_query_parameterization &&
+            g_instance.attr.attr_common.enable_mot_server != true &&
+            !u_sess->attr.attr_sql.enable_ignore_case_in_dquotes && !u_sess->attr.attr_sql.td_compatible_truncation) {
+            if (isQualifiedIuds(parsetree, query_string)) {
+                bool res = execQueryParameterization(parsetree, query_string, dest, completionTag);
                 u_sess->param_cxt.use_parame = false;
                 if(res){
                     CommandCounterIncrement();

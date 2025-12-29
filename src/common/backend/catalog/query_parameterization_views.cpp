@@ -33,6 +33,14 @@
 #include "commands/auto_parameterization.h"
 #include "catalog/query_parameterization_views.h"
 
+#define FIXED_QUERY_TYPE_LEN 5
+#define QUERY_TYPE_UNKNOWN 0
+#define QUERY_TYPE_INSERT 1
+#define QUERY_TYPE_UPDATE 2
+#define QUERY_TYPE_DELETE 3
+#define QUERY_TYPE_SELECT 4
+
+static char* QueryTypeText[FIXED_QUERY_TYPE_LEN] = {"OTHERS", "INSERT", "UPDATE", "DELETE", "SELECT"};
 
 static void FillParamViewValues(Datum* paramViewsValues, bool* paramViewsNulls, ParamView* paramView);
 static int2vector* MakeInt2Vec(Oid* paramTypes, int paramNums);
@@ -49,7 +57,7 @@ static int2vector* MakeInt2Vec(Oid* paramTypes, int paramNums)
 
 static void FillParamViewValues(Datum* paramViewsValues, bool* paramViewsNulls, ParamView* paramView)
 {
-    paramViewsValues[Anum_parameterization_views_reloid - 1] = ObjectIdGetDatum(paramView->relOid);
+    paramViewsValues[Anum_parameterization_views_databaseoid - 1] = ObjectIdGetDatum(paramView->database_id);
     paramViewsValues[Anum_parameterization_views_is_bypass - 1] = BoolGetDatum(paramView->isBypass);
     paramViewsValues[Anum_parameterization_views_query_type - 1] = CStringGetTextDatum(paramView->queryType);
     if (paramView->paramNums > 0) {
@@ -71,7 +79,7 @@ ParamView* GetAllParamQueries(uint32* num)
     CachedPlanSource* psrc = NULL;
     ParamCachedPlan* entry = NULL;
 
-    ParamView* results = (ParamView*)palloc(sizeof(ParamView) * MAX_PARAMETERIZED_QUERY_STORED);
+    ParamView* results = (ParamView*)palloc(sizeof(ParamView) * u_sess->param_cxt.param_cached_plan_count);
     int2vector* vec = NULL;
     hash_seq_init(&seq, u_sess->param_cxt.parameterized_queries);
     while (((entry = (ParamCachedPlan*)hash_seq_search(&seq))) != NULL) {
@@ -81,7 +89,7 @@ ParamView* GetAllParamQueries(uint32* num)
         }
         Assert(psrc->magic == CACHEDPLANSOURCE_MAGIC);
         ParamCachedKey pck = entry->paramCachedKey;
-        results[viewIndex].relOid = pck.relOid;
+        results[viewIndex].database_id = pck.database_id;
         results[viewIndex].isBypass = (psrc->opFusionObj != NULL);
         results[viewIndex].queryType = MakeQueryTypeString(psrc->raw_parse_tree);
         results[viewIndex].paramNums = pck.num_param;
@@ -117,7 +125,7 @@ Datum query_parameterization_views(PG_FUNCTION_ARGS)
         oldContext = MemoryContextSwitchTo(funcCtx->multi_call_memory_ctx);
         tupDesc = CreateTemplateTupleDesc(Natts_parameterization_views, false, TableAmHeap);
 
-        TupleDescInitEntry(tupDesc, (AttrNumber)Anum_parameterization_views_reloid, "reloid", OIDOID, -1, 0);
+        TupleDescInitEntry(tupDesc, (AttrNumber)Anum_parameterization_views_databaseoid, "databaseid", OIDOID, -1, 0);
         TupleDescInitEntry(tupDesc, (AttrNumber)Anum_parameterization_views_query_type, "query_type", TEXTOID, -1, 0);
         TupleDescInitEntry(tupDesc, (AttrNumber)Anum_parameterization_views_is_bypass, "is_bypass", BOOLOID, -1, 0);
         TupleDescInitEntry(tupDesc, (AttrNumber)Anum_parameterization_views_types, "param_types", INT2VECTOROID, -1, 0);
@@ -154,16 +162,19 @@ static char* MakeQueryTypeString(Node* parsetree)
     char* res = NULL;
     switch (nodeTag(parsetree)) {
         case T_InsertStmt:
-            res = query_type_text[QUERY_TYPE_INSERT];
+            res = QueryTypeText[QUERY_TYPE_INSERT];
             break;
         case T_UpdateStmt:
-            res = query_type_text[QUERY_TYPE_UPDATE];
+            res = QueryTypeText[QUERY_TYPE_UPDATE];
             break;
         case T_DeleteStmt:
-            res = query_type_text[QUERY_TYPE_DELETE];
+            res = QueryTypeText[QUERY_TYPE_DELETE];
+            break;
+        case T_SelectStmt:
+            res = QueryTypeText[QUERY_TYPE_SELECT];
             break;
         default:
-            res = query_type_text[QUERY_TYPE_UNKNOWN];
+            res = QueryTypeText[QUERY_TYPE_UNKNOWN];
             break;
     }
 

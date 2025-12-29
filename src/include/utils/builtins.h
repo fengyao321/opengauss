@@ -1093,6 +1093,7 @@ extern Datum bpchartypmodin(PG_FUNCTION_ARGS);
 extern Datum bpchartypmodout(PG_FUNCTION_ARGS);
 extern Datum bpchar(PG_FUNCTION_ARGS);
 extern Datum opfusion_bpchar(Datum arg1, Datum arg2, Datum arg3);
+extern Datum bpchar_launch(bool can_ignore, BpChar* source, int32 &maxlen, bool isExplicit);
 extern Datum char_bpchar(PG_FUNCTION_ARGS);
 extern Datum name_bpchar(PG_FUNCTION_ARGS);
 extern Datum bpchar_name(PG_FUNCTION_ARGS);
@@ -1126,6 +1127,7 @@ extern Datum varchartypmodout(PG_FUNCTION_ARGS);
 extern Datum varchar_support(PG_FUNCTION_ARGS);
 extern Datum varchar(PG_FUNCTION_ARGS);
 extern Datum opfusion_varchar(Datum arg1, Datum arg2, Datum arg3);
+extern Datum varchar_launch(bool can_ignore, VarChar* source, int32 &typmod, bool isExplicit);
 
 extern Datum nvarchar2in(PG_FUNCTION_ARGS);
 extern Datum nvarchar2out(PG_FUNCTION_ARGS);

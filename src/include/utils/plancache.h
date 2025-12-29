@@ -423,6 +423,8 @@ typedef struct CachedPlanSource {
     bool hasSubQuery;
     int nextval_default_expr_type;
     Oid param_collation;
+    bool is_param;
+    void* entry;
 } CachedPlanSource;
 
 /*

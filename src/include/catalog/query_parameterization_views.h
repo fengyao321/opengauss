@@ -28,7 +28,7 @@
 #include "utils/date.h"
 #define Natts_parameterization_views 6
 
-#define Anum_parameterization_views_reloid 1
+#define Anum_parameterization_views_databaseoid 1
 #define Anum_parameterization_views_query_type 2
 #define Anum_parameterization_views_is_bypass 3
 #define Anum_parameterization_views_types 4
@@ -36,7 +36,7 @@
 #define Anum_parameterization_views_parameterized_query 6
 
 struct ParamView {
-    Oid relOid;
+    Oid database_id;
     const char* queryType;
     bool isBypass;
     int2vector* paramTypes;

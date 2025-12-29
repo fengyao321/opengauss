@@ -35,6 +35,7 @@
 #include "catalog/pgxc_node.h"
 #include "commands/tablespace.h"
 #include "commands/prepare.h"
+#include "commands/auto_parameterization.h"
 #include "commands/tablecmds.h"
 #include "postmaster/autovacuum.h"
 #ifdef PGXC
@@ -8562,6 +8563,8 @@ void PGXCNodeCleanAndRelease(int code, Datum arg)
 {
     /* Clean up prepared transactions before releasing connections */
     DropAllPreparedStatements();
+
+    dropAllParameterizedQueries();
 
     /* clean saved plan but not save into gpc */
     GPCCleanUpSessionSavedPlan();

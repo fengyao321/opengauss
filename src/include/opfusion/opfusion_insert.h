@@ -43,6 +43,7 @@ public:
 
     virtual bool ResetReuseFusion(MemoryContext context, CachedPlanSource* psrc, List* plantree_list, ParamListInfo params);
 
+    void ResetEstateAutoInc();
 private:
 
     unsigned long ExecInsert(Relation rel, ResultRelInfo* resultRelInfo);
