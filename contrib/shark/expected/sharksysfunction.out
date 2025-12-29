@@ -3669,23 +3669,23 @@ select isnumeric('999999999999999999999999999999999999999.99999');  --expect: 1
 (1 row)
 
 select isnumeric('1' + REPLICATE('0', 38));      --expect: 1
-ERROR:  function replicate(unknown, integer) does not exist
-LINE 1: select isnumeric('1' + REPLICATE('0', 38));
-                               ^
-HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
-CONTEXT:  referenced column: isnumeric
+ isnumeric 
+-----------
+         1
+(1 row)
+
 select isnumeric('1' + REPLICATE('0', 100));     --expect: 1
-ERROR:  function replicate(unknown, integer) does not exist
-LINE 1: select isnumeric('1' + REPLICATE('0', 100));
-                               ^
-HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
-CONTEXT:  referenced column: isnumeric
+ isnumeric 
+-----------
+         1
+(1 row)
+
 select isnumeric('0.' + REPLICATE('9', 38));     --expect: 1
-ERROR:  function replicate(unknown, integer) does not exist
-LINE 1: select isnumeric('0.' + REPLICATE('9', 38));
-                                ^
-HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
-CONTEXT:  referenced column: isnumeric
+ isnumeric 
+-----------
+         1
+(1 row)
+
 select isnumeric('1E+38');     --expect: 1
  isnumeric 
 -----------
@@ -4119,5 +4119,1777 @@ from test_type_table_column_name;
 (1 row)
 
 drop table test_type_table_column_name;
+-- sys.patindex
+SELECT PATINDEX('%abc%', 'xyzabc123'), PATINDEX('hello%', 'hello world'), PATINDEX('hello%', 'hi hello'), PATINDEX('%123', 'test123');  -- expect 4 1 0 5
+ patindex | patindex | patindex | patindex 
+----------+----------+----------+----------
+        4 |        1 |        0 |        5
+(1 row)
+
+SELECT PATINDEX('%123', '123test'), PATINDEX('abc123', 'abc123'), PATINDEX('abc123', 'abc1234');   --expect  0 1 0
+ patindex | patindex | patindex 
+----------+----------+----------
+        0 |        1 |        0
+(1 row)
+
+SELECT PATINDEX('%a_c%', 'xayc123'), PATINDEX('%a_c%', 'ac123'), PATINDEX('%a__c%', 'axyzc');  -- expect 2 0 0
+ patindex | patindex | patindex 
+----------+----------+----------
+        2 |        0 |        0
+(1 row)
+
+SELECT PATINDEX('%[0-9]%', 'abc123'), PATINDEX('%[A-Z]%', 'abcDEF'), PATINDEX('%[abc]%', 'xyzc');  -- expect 4 1 4  -- to be fixed
+ patindex | patindex | patindex 
+----------+----------+----------
+        6 |        6 |        4
+(1 row)
+
+SELECT PATINDEX('%[^0-9]%', '123abc'), PATINDEX('%[^a-z]%', 'abc123');  -- expect 4 4  -- to be fixed
+ patindex | patindex 
+----------+----------
+        6 |        6
+(1 row)
+
+SELECT PATINDEX('%[a-z][0-9]%', 'testA5xyz'), PATINDEX('%[0-9][^0-9]%', '123abc');  -- expect 5 3  -- to be fixed
+ patindex | patindex 
+----------+----------
+        0 |        3
+(1 row)
+
+SELECT PATINDEX('%.%', 'test.txt'), PATINDEX('%[.]%', 'test.txt'), PATINDEX('%#.%', 'test#.txt');   -- expect 5 5 5   -- to be fixed
+ patindex | patindex | patindex 
+----------+----------+----------
+        5 |        5 |        6
+(1 row)
+
+SELECT PATINDEX('%[%', 'a[b]c'); -- expect 0  -- to be fixed
+ERROR:  invalid regular expression: brackets [] not balanced
+CONTEXT:  referenced column: substring
+SQL function "substring" statement 1
+PL/pgSQL function patindex(character varying,character varying) line 30 at assignment
+SQL function "patindex" during inlining
+referenced column: patindex
+SELECT PATINDEX('%]%', 'a[b]c');  -- expect 4
+ patindex 
+----------
+        4
+(1 row)
+
+SELECT PATINDEX('%*%', 'test*123'); -- expect 5  -- to be fixed
+ERROR:  invalid regular expression: quantifier operand invalid
+CONTEXT:  referenced column: substring
+SQL function "substring" statement 1
+PL/pgSQL function patindex(character varying,character varying) line 30 at assignment
+SQL function "patindex" during inlining
+referenced column: patindex
+SELECT PATINDEX('%#*%', 'test#*123');  -- expect 5  -- to be fixed
+ patindex 
+----------
+        6
+(1 row)
+
+SELECT PATINDEX('%abc%', NULL);  -- expect error
+ patindex 
+----------
+         
+(1 row)
+
+SELECT PATINDEX(NULL, 'abc123');   -- expect NULL
+ patindex 
+----------
+         
+(1 row)
+
+SELECT PATINDEX('%a%', ''), PATINDEX('', ''), PATINDEX('', 'a');     -- expect 0  1 0  -- to be fixed
+ patindex | patindex | patindex 
+----------+----------+----------
+        0 |        0 |        0
+(1 row)
+
+SELECT PATINDEX('%测试%', 'SQL Server 测试案例'), PATINDEX('%[测]%', 'SQL Server 测试案例');  -- expect 12 12
+ patindex | patindex 
+----------+----------
+       12 |       12
+(1 row)
+
+SELECT PATINDEX('%@%', 'user@example.com'), PATINDEX('%￥%', '价格：￥99');   -- expect 5 4 
+ patindex | patindex 
+----------+----------
+        5 |        4
+(1 row)
+
+SELECT PATINDEX('%a b%', 'x a b y'), PATINDEX('%a_b%', 'x a b y');  -- expect 3 3
+ patindex | patindex 
+----------+----------
+        3 |        3
+(1 row)
+
+-- different data type
+create table test_type_table_column_name
+(
+   int1_col tinyint,
+   int2_col smallint,
+   int4_col integer,
+   int8_col bigint,
+   float4_col float4,
+   float8_col float8,
+   numeric_col decimal(20, 6),
+   bit1_col bit(1),
+   datetime_col timestamp without time zone,
+   smalldatetime_col smalldatetime,
+   date_col date,
+   time_col time,
+   boolean_col boolean,
+   char_col char(100),
+   varchar_col varchar(100), 
+   nvarchar_col nvarchar(10),
+   varbinary_col varbinary(100),
+   text_col text
+);
+insert into test_type_table_column_name values (20, 2025, 2025, 2025, 2025, 2025, 2025, b'1', '2025-10-10 10:10:10', '2025-10-10 10:10:10', '2025-10-10', '10:10:10', 1, '2025-10-10', '2025-10-10', '2025-10-10', '2025-10-10', '2025-10-10');
+SELECT PATINDEX(int1_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(int2_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(int4_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(int8_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(float4_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(float8_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(numeric_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(bit1_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(datetime_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(smalldatetime_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(date_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(time_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(boolean_col, 'x a b y')  from test_type_table_column_name;
+ERROR:  function patindex(boolean, unknown) does not exist
+LINE 1: SELECT PATINDEX(boolean_col, 'x a b y')  from test_type_tabl...
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+CONTEXT:  referenced column: patindex
+SELECT PATINDEX(char_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(varchar_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(nvarchar_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(varbinary_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX(text_col, 'x a b y')  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', int1_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', int2_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', int4_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', int8_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', float4_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', float8_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', numeric_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', bit1_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', datetime_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', smalldatetime_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', date_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', time_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', boolean_col)  from test_type_table_column_name;
+ERROR:  function patindex(unknown, boolean) does not exist
+LINE 1: SELECT PATINDEX('x a b y', boolean_col)  from test_type_tabl...
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+CONTEXT:  referenced column: patindex
+SELECT PATINDEX('x a b y', char_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', varchar_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', nvarchar_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', varbinary_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+SELECT PATINDEX('x a b y', text_col)  from test_type_table_column_name;
+ patindex 
+----------
+        0
+(1 row)
+
+drop table if exists test_type_table_column_name;
+-- sys.stuff
+SELECT STUFF('abcdefg', 2, 3, 'XYZ');       --expect: aXYZefg
+  stuff  
+---------
+ aXYZefg
+(1 row)
+
+SELECT STUFF('abcdefg', 4, 0, 'INSERTED');  --expect: abcINSERTEDdefg
+      stuff      
+-----------------
+ abcINSERTEDdefg
+(1 row)
+
+SELECT STUFF('abcdefg', 3, 2, '');          --expect: abefg
+ stuff 
+-------
+ abefg
+(1 row)
+
+SELECT STUFF('abcdefg', 2, 1, 'XXXX');      --expect: aXXXXcdefg
+   stuff    
+------------
+ aXXXXcdefg
+(1 row)
+
+SELECT STUFF('abcdefg', 2, 4, 'XX');        --expect: aXXfg
+ stuff 
+-------
+ aXXfg
+(1 row)
+
+SELECT STUFF('abcdefg', 1, 3, '123');       --expect: 123defg
+  stuff  
+---------
+ 123defg
+(1 row)
+
+SELECT STUFF('abcdefg', 5, 10, 'END');      --expect: abcdEND
+  stuff  
+---------
+ abcdEND
+(1 row)
+
+SELECT STUFF('abcdefg', 7, 1, 'Z');         --expect: abcdefZ
+  stuff  
+---------
+ abcdefZ
+(1 row)
+
+SELECT STUFF('abcdefg', 8, 1, 'Z');         --expect: NULL
+ stuff 
+-------
+ 
+(1 row)
+
+SELECT STUFF('abcdefg', 1, 0, 'PRE-');      --expect: PRE-abcdefg
+    stuff    
+-------------
+ PRE-abcdefg
+(1 row)
+
+SELECT STUFF('', 1, 0, 'Hello');            --expect: NULL
+ stuff 
+-------
+ 
+(1 row)
+
+SELECT STUFF('abcdefg', 2, 3, '');          --expect: aefg
+ stuff 
+-------
+ aefg
+(1 row)
+
+SELECT STUFF('abcdefg', 0, 1, 'X');         --expect: NULL
+ stuff 
+-------
+ 
+(1 row)
+
+SELECT STUFF('abcdefg', -1, 1, 'X');        --expect: NULL 
+ stuff 
+-------
+ 
+(1 row)
+
+SELECT STUFF('abcdefg', 2, -1, 'X');        --expect: NULL
+ stuff 
+-------
+ 
+(1 row)
+
+SELECT STUFF(NULL, 2, 3, 'XYZ');            --expect: NULL
+ stuff 
+-------
+ 
+(1 row)
+
+SELECT STUFF('abcdefg', 2, 3, NULL);        --expect: aefg
+ stuff 
+-------
+ 
+(1 row)
+
+SELECT STUFF(CAST('Old Text' AS TEXT), 5, 1, 'X');  --expect: Old TXext
+  stuff   
+----------
+ Old Xext
+(1 row)
+
+SELECT STUFF(N'abcdefg', 3, 2, N'你好');            --expect: ab你好efg
+   stuff   
+-----------
+ ab你好efg
+(1 row)
+
+SELECT LEN(STUFF(REPLICATE('A', 9000), 4000, 1000, REPLICATE('B', 500)));  --expect: 8500
+ len  
+------
+ 8500
+(1 row)
+
+-- diff input type
+create table test_type_table_column_name
+(
+   int1_col tinyint,
+   int2_col smallint,
+   int4_col integer,
+   int8_col bigint,
+   float4_col float4,
+   float8_col float8,
+   numeric_col decimal(20, 6),
+   bit1_col bit(1),
+   datetime_col timestamp without time zone,
+   smalldatetime_col smalldatetime,
+   date_col date,
+   time_col time,
+   boolean_col boolean,
+   char_col char(100),
+   varchar_col varchar(100), 
+   nvarchar_col nvarchar(10),
+   varbinary_col varbinary(100),
+   text_col text
+);
+insert into test_type_table_column_name values (20, 2025, 2025, 2025, 2025, 2025, 2025, b'1', '2025-10-10 10:10:10', '2025-10-10 10:10:10', '2025-10-10', '10:10:10', 1, '2025-10-10', '2025-10-10', '2025-10-10', '2025-10-10', '2025-10-10');
+SELECT STUFF(int1_col, 2, 3, 'XYZ') from test_type_table_column_name;     
+ stuff 
+-------
+ 2XYZ
+(1 row)
+
+SELECT STUFF(int2_col, 2, 3, 'XYZ') from test_type_table_column_name;     
+ stuff 
+-------
+ 2XYZ
+(1 row)
+
+SELECT STUFF(int4_col, 2, 3, 'XYZ') from test_type_table_column_name;     
+ stuff 
+-------
+ 2XYZ
+(1 row)
+
+SELECT STUFF(int8_col, 2, 3, 'XYZ') from test_type_table_column_name;     
+ stuff 
+-------
+ 2XYZ
+(1 row)
+
+SELECT STUFF(float4_col, 2, 3, 'XYZ') from test_type_table_column_name;   
+ stuff 
+-------
+ 2XYZ
+(1 row)
+
+SELECT STUFF(float8_col, 2, 3, 'XYZ') from test_type_table_column_name;   
+ stuff 
+-------
+ 2XYZ
+(1 row)
+
+SELECT STUFF(numeric_col, 2, 3, 'XYZ') from test_type_table_column_name;  
+    stuff    
+-------------
+ 2XYZ.000000
+(1 row)
+
+SELECT STUFF(bit1_col, 2, 3, 'XYZ') from test_type_table_column_name;     
+ stuff 
+-------
+ 
+(1 row)
+
+SELECT STUFF(datetime_col, 2, 3, 'XYZ') from test_type_table_column_name; 
+          stuff           
+--------------------------
+ FXYZOct 10 10:10:10 2025
+(1 row)
+
+SELECT STUFF(smalldatetime_col, 2, 3, 'XYZ') from test_type_table_column_name;     
+          stuff           
+--------------------------
+ FXYZOct 10 10:10:00 2025
+(1 row)
+
+SELECT STUFF(date_col, 2, 3, 'XYZ') from test_type_table_column_name;       
+   stuff    
+------------
+ 1XYZ0-2025
+(1 row)
+
+SELECT STUFF(time_col, 2, 3, 'XYZ') from test_type_table_column_name;        
+  stuff   
+----------
+ 1XYZ0:10
+(1 row)
+
+SELECT STUFF(char_col, 2, 3, 'XYZ') from test_type_table_column_name;       
+   stuff    
+------------
+ 2XYZ-10-10
+(1 row)
+
+SELECT STUFF(varchar_col, 2, 3, 'XYZ') from test_type_table_column_name;    
+   stuff    
+------------
+ 2XYZ-10-10
+(1 row)
+
+SELECT STUFF(nvarchar_col, 2, 3, 'XYZ') from test_type_table_column_name;   
+   stuff    
+------------
+ 2XYZ-10-10
+(1 row)
+
+SELECT STUFF(varbinary_col, 2, 3, 'XYZ') from test_type_table_column_name;  
+         stuff          
+------------------------
+ 0x3258595a2d31302d3130
+(1 row)
+
+SELECT STUFF(text_col, 2, 3, 'XYZ') from test_type_table_column_name;       
+   stuff    
+------------
+ 2XYZ-10-10
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, int1_col) from test_type_table_column_name;       
+ stuff 
+-------
+ X20
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, int2_col) from test_type_table_column_name;       
+ stuff 
+-------
+ X2025
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, int4_col) from test_type_table_column_name;       
+ stuff 
+-------
+ X2025
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, int8_col) from test_type_table_column_name;       
+ stuff 
+-------
+ X2025
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, float4_col) from test_type_table_column_name;     
+ stuff 
+-------
+ X2025
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, float8_col) from test_type_table_column_name;     
+ stuff 
+-------
+ X2025
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, numeric_col) from test_type_table_column_name;    
+    stuff     
+--------------
+ X2025.000000
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, bit1_col) from test_type_table_column_name;       
+ stuff 
+-------
+ X1
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, datetime_col) from test_type_table_column_name;   
+           stuff           
+---------------------------
+ XFri Oct 10 10:10:10 2025
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, smalldatetime_col) from test_type_table_column_name;
+           stuff           
+---------------------------
+ XFri Oct 10 10:10:00 2025
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, date_col) from test_type_table_column_name;       
+    stuff    
+-------------
+ X10-10-2025
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, time_col) from test_type_table_column_name;       
+   stuff   
+-----------
+ X10:10:10
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, char_col) from test_type_table_column_name;       
+    stuff    
+-------------
+ X2025-10-10
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, varchar_col) from test_type_table_column_name;    
+    stuff    
+-------------
+ X2025-10-10
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, nvarchar_col) from test_type_table_column_name;   
+    stuff    
+-------------
+ X2025-10-10
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, varbinary_col) from test_type_table_column_name;  
+    stuff    
+-------------
+ X2025-10-10
+(1 row)
+
+SELECT STUFF('XYZ', 2, 3, text_col) from test_type_table_column_name;       
+    stuff    
+-------------
+ X2025-10-10
+(1 row)
+
+drop table if exists test_type_table_column_name;
+-- sys.str
+SELECT STR(123.45, 6, 1);            --expect:  123.5
+  str   
+--------
+  123.5
+(1 row)
+
+SELECT STR(123.45, 2, 2);            --expect:  **
+ str 
+-----
+ **
+(1 row)
+
+SELECT STR (FLOOR (123.45), 8, 3);   --expect:  123.000
+   str    
+----------
+  123.000
+(1 row)
+
+SELECT STR(123);                     --expect:  123
+    str     
+------------
+        123
+(1 row)
+
+SELECT STR(123.45);                  --expect:  123
+    str     
+------------
+        123
+(1 row)
+
+SELECT STR(123.456, 6, 2);           --expect:  123.46
+  str   
+--------
+ 123.46
+(1 row)
+
+SELECT STR(123, 3);                  --expect:  123
+ str 
+-----
+ 123
+(1 row)
+
+SELECT STR(12345, 3);                --expect:  ***
+ str 
+-----
+ ***
+(1 row)
+
+SELECT STR(123.999, 5, 0);           --expect:  124
+  str  
+-------
+   124
+(1 row)
+
+SELECT STR(-123.45, 7, 2);           --expect:  -123.45
+   str   
+---------
+ -123.45
+(1 row)
+
+SELECT STR('ABC');                   --expect:  error
+ERROR:  invalid input syntax for type numeric: "ABC"
+CONTEXT:  SQL function "str" during inlining
+referenced column: str
+SELECT STR('123.45', 7, 2);          --expect:  123.45
+   str   
+---------
+  123.45
+(1 row)
+
+-- diff input type
+create table test_type_table_column_name
+(
+   int1_col tinyint,
+   int2_col smallint,
+   int4_col integer,
+   int8_col bigint,
+   float4_col float4,
+   float8_col float8,
+   numeric_col decimal(20, 6),
+   bit1_col bit(1),
+   datetime_col timestamp without time zone,
+   smalldatetime_col smalldatetime,
+   date_col date,
+   time_col time,
+   boolean_col boolean,
+   char_col char(100),
+   varchar_col varchar(100), 
+   nvarchar_col nvarchar(10),
+   varbinary_col varbinary(100),
+   text_col text
+);
+insert into test_type_table_column_name values (20, 2025, 2025, 2025, 2025, 2025, 2025, b'1', '2025-10-10 10:10:10', '2025-10-10 10:10:10', '2025-10-10', '10:10:10', 1, '2025', '2025', '2025', '2025', '2025');
+SELECT STR(int1_col) from test_type_table_column_name;
+    str     
+------------
+         20
+(1 row)
+
+SELECT STR(int2_col) from test_type_table_column_name;
+    str     
+------------
+       2025
+(1 row)
+
+SELECT STR(int4_col) from test_type_table_column_name;
+    str     
+------------
+       2025
+(1 row)
+
+SELECT STR(int8_col) from test_type_table_column_name;
+    str     
+------------
+       2025
+(1 row)
+
+SELECT STR(float4_col) from test_type_table_column_name;
+    str     
+------------
+       2025
+(1 row)
+
+SELECT STR(float8_col) from test_type_table_column_name;
+    str     
+------------
+       2025
+(1 row)
+
+SELECT STR(bit1_col) from test_type_table_column_name;
+    str     
+------------
+          1
+(1 row)
+
+SELECT STR(char_col) from test_type_table_column_name;
+    str     
+------------
+       2025
+(1 row)
+
+SELECT STR(varchar_col) from test_type_table_column_name;
+    str     
+------------
+       2025
+(1 row)
+
+SELECT STR(nvarchar_col) from test_type_table_column_name;
+    str     
+------------
+       2025
+(1 row)
+
+SELECT STR(text_col) from test_type_table_column_name;
+    str     
+------------
+       2025
+(1 row)
+
+SELECT STR(int1_col, 6, 2) from test_type_table_column_name;
+  str   
+--------
+  20.00
+(1 row)
+
+SELECT STR(int2_col, 6, 2) from test_type_table_column_name;
+  str   
+--------
+ 2025.0
+(1 row)
+
+SELECT STR(int4_col, 6, 2) from test_type_table_column_name;
+  str   
+--------
+ 2025.0
+(1 row)
+
+SELECT STR(int8_col, 6, 2) from test_type_table_column_name;
+  str   
+--------
+ 2025.0
+(1 row)
+
+SELECT STR(float4_col, 6, 2) from test_type_table_column_name;
+  str   
+--------
+ 2025.0
+(1 row)
+
+SELECT STR(float8_col, 6, 2) from test_type_table_column_name;
+  str   
+--------
+ 2025.0
+(1 row)
+
+SELECT STR(bit1_col, 6, 2) from test_type_table_column_name;
+  str   
+--------
+   1.00
+(1 row)
+
+SELECT STR(char_col, 6, 2) from test_type_table_column_name;
+  str   
+--------
+ 2025.0
+(1 row)
+
+SELECT STR(varchar_col, 6, 2) from test_type_table_column_name;
+  str   
+--------
+ 2025.0
+(1 row)
+
+SELECT STR(nvarchar_col, 6, 2) from test_type_table_column_name;
+  str   
+--------
+ 2025.0
+(1 row)
+
+SELECT STR(text_col, 6, 2) from test_type_table_column_name;
+  str   
+--------
+ 2025.0
+(1 row)
+
+drop table if exists test_type_table_column_name;
+-- sys.replicate
+SELECT REPLICATE('A', 3);                           -- expect: AAA
+ replicate 
+-----------
+ AAA
+(1 row)
+
+SELECT REPLICATE('abc', 2);                         -- expect: abcabc
+ replicate 
+-----------
+ abcabc
+(1 row)
+
+SELECT REPLICATE('123', 4);                         -- expect: 123123123123
+  replicate   
+--------------
+ 123123123123
+(1 row)
+
+SELECT REPLICATE('abc', 1);                         -- expect: abc
+ replicate 
+-----------
+ abc
+(1 row)
+
+SELECT REPLICATE('@', 5);                           -- expect: @@@@@
+ replicate 
+-----------
+ @@@@@
+(1 row)
+
+SELECT REPLICATE('!#', 3);                          -- expect: !#!#!#
+ replicate 
+-----------
+ !#!#!#
+(1 row)
+
+SELECT REPLICATE(' ', 4);                           -- expect:     
+ replicate 
+-----------
+     
+(1 row)
+
+SELECT REPLICATE('', 5);                            -- expect: 
+ replicate 
+-----------
+ 
+(1 row)
+
+SELECT REPLICATE('test', 0);                        -- expect: 
+ replicate 
+-----------
+ 
+(1 row)
+
+SELECT LEN(REPLICATE('a', 8000));                   ---expect: 8000
+ len  
+------
+ 8000
+(1 row)
+
+SELECT LEN(REPLICATE('ab', 4000));                  ---expect: 8000
+ len  
+------
+ 8000
+(1 row)
+
+SELECT LEN(REPLICATE('abc', 2666));                 -- expect: 7998
+ len  
+------
+ 7998
+(1 row)
+
+SELECT REPLICATE('test', -1);                       -- expect: NULL
+ replicate 
+-----------
+ 
+(1 row)
+
+SELECT REPLICATE(NULL, 3);                          -- expect: NULL
+ replicate 
+-----------
+ 
+(1 row)
+
+SELECT REPLICATE('abc', NULL);                      -- expect: NULL
+ replicate 
+-----------
+ 
+(1 row)
+
+SELECT REPLICATE(NULL, NULL);                       -- expect: NULL
+ replicate 
+-----------
+ 
+(1 row)
+
+SELECT REPLICATE(123, 2);                           -- expect: 123123
+ replicate 
+-----------
+ 123123
+(1 row)
+
+SELECT REPLICATE(CAST('2025-10-10 10:10:10' AS VARCHAR), 2);    -- expect: 2025-10-10 10:10:102025-10-10 10:10:10
+               replicate                
+----------------------------------------
+ 2025-10-10 10:10:102025-10-10 10:10:10
+(1 row)
+
+SELECT REPLICATE(N'中', 3);                         -- expect: 中中中
+ replicate 
+-----------
+ 中中中
+(1 row)
+
+SELECT REPLICATE(N'国', 2);                         -- expect: 国国
+ replicate 
+-----------
+ 国国
+(1 row)
+
+SELECT LEN(REPLICATE(N'a', 4000));                  -- expect: 4000
+ len  
+------
+ 4000
+(1 row)
+
+SELECT LEN(REPLICATE('a', 8001));                   -- expect: 8000
+ len  
+------
+ 8001
+(1 row)
+
+SELECT LEN(REPLICATE(N'a', 4001));                  -- expect: 4000
+ len  
+------
+ 4001
+(1 row)
+
+select REPLICATE('a\t', 3);                         -- expect: a\ta\ta\t
+ replicate 
+-----------
+ a\ta\ta\t
+(1 row)
+
+select REPLICATE('a\\t', 3);                        -- expect: a\\ta\\ta\\t
+  replicate   
+--------------
+ a\\ta\\ta\\t
+(1 row)
+
+select REPLICATE('a\n', 3);                         -- expect: a\na\na\n
+ replicate 
+-----------
+ a\na\na\n
+(1 row)
+
+select REPLICATE('a\\n', 3);                        -- expect: a\\na\\na\\n
+  replicate   
+--------------
+ a\\na\\na\\n
+(1 row)
+
+create table test_type_table_column_name
+(
+   int1_col tinyint,
+   int2_col smallint,
+   int4_col integer,
+   int8_col bigint,
+   float4_col float4,
+   float8_col float8,
+   numeric_col decimal(20, 6),
+   bit1_col bit(1),
+   datetime_col timestamp without time zone,
+   smalldatetime_col smalldatetime,
+   date_col date,
+   time_col time,
+   boolean_col boolean,
+   char_col char(100),
+   varchar_col varchar(100), 
+   nvarchar_col nvarchar(10),
+   varbinary_col varbinary(100),
+   text_col text
+);
+insert into test_type_table_column_name values (20, 2025, 2025, 2025, 2025, 2025, 2025, b'1', '2025-10-10 10:10:10', '2025-10-10 10:10:10', '2025-10-10', '10:10:10', 1, '10', '10', '10', '10', '10');
+SELECT 
+    REPLICATE(int1_col, 2),
+	REPLICATE(int2_col, 2),
+	REPLICATE(int4_col, 2),
+	REPLICATE(int8_col, 2),
+	REPLICATE(float4_col, 2),
+	REPLICATE(float8_col, 2),
+	REPLICATE(numeric_col, 2),
+	REPLICATE(bit1_col, 2),
+	REPLICATE(datetime_col, 2),
+	REPLICATE(smalldatetime_col, 2),
+	REPLICATE(date_col, 2),
+	REPLICATE(time_col, 2),
+	REPLICATE(char_col, 2),
+	REPLICATE(varchar_col, 2),
+	REPLICATE(nvarchar_col, 2),
+	REPLICATE(text_col, 2)
+from test_type_table_column_name;
+ replicate | replicate | replicate | replicate | replicate | replicate |       replicate        | replicate |                    replicate                     |                    replicate                     |      replicate       |    replicate     | replicate | replicate | replicate | replicate 
+-----------+-----------+-----------+-----------+-----------+-----------+------------------------+-----------+--------------------------------------------------+--------------------------------------------------+----------------------+------------------+-----------+-----------+-----------+-----------
+ 2020      | 20252025  | 20252025  | 20252025  | 20252025  | 20252025  | 2025.0000002025.000000 | 11        | Fri Oct 10 10:10:10 2025Fri Oct 10 10:10:10 2025 | Fri Oct 10 10:10:00 2025Fri Oct 10 10:10:00 2025 | 10-10-202510-10-2025 | 10:10:1010:10:10 | 1010      | 1010      | 1010      | 1010
+(1 row)
+
+SELECT 
+    LEN(REPLICATE('amaoagou', int1_col)),
+	LEN(REPLICATE('amaoagou', int2_col)),
+	LEN(REPLICATE('amaoagou', int4_col)),
+	LEN(REPLICATE('amaoagou', int8_col)),
+	LEN(REPLICATE('amaoagou', float4_col)),
+	LEN(REPLICATE('amaoagou', float8_col)),
+	LEN(REPLICATE('amaoagou', numeric_col)),
+	LEN(REPLICATE('amaoagou', bit1_col)),
+	LEN(REPLICATE('amaoagou', char_col)),
+	LEN(REPLICATE('amaoagou', varchar_col)),
+	LEN(REPLICATE('amaoagou', nvarchar_col)),
+	LEN(REPLICATE('amaoagou', text_col))
+from test_type_table_column_name;
+ len |  len  |  len  |  len  |  len  |  len  |  len  | len | len | len | len | len 
+-----+-------+-------+-------+-------+-------+-------+-----+-----+-----+-----+-----
+ 160 | 16200 | 16200 | 16200 | 16200 | 16200 | 16200 |   8 |  80 |  80 |  80 |  80
+(1 row)
+
+drop table if exists test_type_table_column_name;
+-- sys.STRING_SPLIT
+SELECT value FROM STRING_SPLIT('Lorem ipsum dolor sit amet.', ' ');    -- 5 rows
+ value 
+-------
+ Lorem
+ ipsum
+ dolor
+ sit
+ amet.
+(5 rows)
+
+SELECT value FROM STRING_SPLIT('clothing,road,,touring,bike', ',');    -- 5 rows
+  value   
+----------
+ clothing
+ road
+ 
+ touring
+ bike
+(5 rows)
+
+SELECT value FROM STRING_SPLIT('||||||||', '|');                       -- 9 rows
+ value 
+-------
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(9 rows)
+
+SELECT value FROM STRING_SPLIT(NULL, ' ');                             -- 0 rows
+ value 
+-------
+(0 rows)
+
+SELECT value FROM STRING_SPLIT('asdf', '');                            -- error
+ERROR:  Invalid separator: 
+HINT:  Separator must be length 1
+SELECT value FROM STRING_SPLIT('asdf', NULL);                          -- error
+ value 
+-------
+(0 rows)
+
+SELECT value FROM STRING_SPLIT(NULL, NULL);                            -- error
+ value 
+-------
+(0 rows)
+
+SELECT value FROM STRING_SPLIT(CAST('nvarchar nvarchar nvarchar' as nvarchar(100)), CAST(' ' as nvarchar(100)));    -- 3 rows
+  value   
+----------
+ nvarchar
+ nvarchar
+ nvarchar
+(3 rows)
+
+SELECT value FROM STRING_SPLIT(CAST('varchar varchar varchar' as varchar), CAST(' ' as varchar));         -- 3 rows
+  value  
+---------
+ varchar
+ varchar
+ varchar
+(3 rows)
+
+SELECT value FROM STRING_SPLIT('char char char', ' ');         -- 3 rows
+ value 
+-------
+ char
+ char
+ char
+(3 rows)
+
+SELECT value FROM STRING_SPLIT('a,b,c,d', ',');                -- 4 rows
+ value 
+-------
+ a
+ b
+ c
+ d
+(4 rows)
+
+SELECT value FROM STRING_SPLIT('mississippi island lives in igloo', 'i');   -- 9 rows
+  value  
+---------
+ m
+ ss
+ ss
+ pp
+  
+ sland l
+ ves 
+ n 
+ gloo
+(9 rows)
+
+SELECT value FROM STRING_SPLIT(CAST('asdf' as nchar(4)), ' ');              -- 1 rows
+ value 
+-------
+ asdf
+(1 row)
+
+SELECT value FROM STRING_SPLIT(CAST('asdf' as char(4)), ' ');               -- 1 rows
+ value 
+-------
+ asdf
+(1 row)
+
+SELECT value FROM STRING_SPLIT('Lorem ipsum', 'too many chars');            -- error
+ERROR:  Invalid separator: too many chars
+HINT:  Separator must be length 1
+SELECT value FROM STRING_SPLIT('Lorem ipsum dolor sit amet.', ' ');         -- 5 rows
+ value 
+-------
+ Lorem
+ ipsum
+ dolor
+ sit
+ amet.
+(5 rows)
+
+SELECT mycol FROM STRING_SPLIT('Lorem ipsum dolor sit amet.', ' ');         -- error
+ERROR:  column "mycol" does not exist
+LINE 1: SELECT mycol FROM STRING_SPLIT('Lorem ipsum dolor sit amet.'...
+               ^
+CONTEXT:  referenced column: mycol
+SELECT value FROM STRING_SPLIT('red;green;blue', ';');                      -- 3 rows
+ value 
+-------
+ red
+ green
+ blue
+(3 rows)
+
+SELECT value FROM STRING_SPLIT('Lorem ipsum dolor sit amet.'::char(100), ' ');
+ value 
+-------
+ Lorem
+ ipsum
+ dolor
+ sit
+ amet.
+(5 rows)
+
+SELECT value FROM STRING_SPLIT('Lorem ipsum dolor sit amet.'::varchar(100), ' ');
+ value 
+-------
+ Lorem
+ ipsum
+ dolor
+ sit
+ amet.
+(5 rows)
+
+SELECT value FROM STRING_SPLIT('Lorem ipsum dolor sit amet.'::nchar(100), ' ');
+ value 
+-------
+ Lorem
+ ipsum
+ dolor
+ sit
+ amet.
+(5 rows)
+
+SELECT value FROM STRING_SPLIT('Lorem ipsum dolor sit amet.'::nvarchar(100), ' ');
+ value 
+-------
+ Lorem
+ ipsum
+ dolor
+ sit
+ amet.
+(5 rows)
+
+SELECT value FROM STRING_SPLIT('Lorem ipsum dolor sit amet.'::text, ' ');
+ value 
+-------
+ Lorem
+ ipsum
+ dolor
+ sit
+ amet.
+(5 rows)
+
+-- different input type
+create table test_type_table_column_name
+(
+   int1_col tinyint,
+   int2_col smallint,
+   int4_col integer,
+   int8_col bigint,
+   float4_col float4,
+   float8_col float8,
+   numeric_col decimal(20, 6),
+   bit1_col bit(1),
+   datetime_col timestamp without time zone,
+   smalldatetime_col smalldatetime,
+   date_col date,
+   time_col time,
+   boolean_col boolean,
+   char_col char(100),
+   varchar_col varchar(100), 
+   nvarchar_col nvarchar(10),
+   varbinary_col varbinary(100),
+   text_col text
+);
+insert into test_type_table_column_name values (20, 2025, 2025, 2025, 2025, 2025, 2025, b'1', '2025-10-10 10:10:10', '2025-10-10 10:10:10', '2025-10-10', '10:10:10', 1, '10', '10', '10', '10', '10');
+SELECT 
+    sys.columnproperty(int1_col, 'cp1', 'precision'),
+	sys.columnproperty(int2_col, 'cp1', 'precision'),
+	sys.columnproperty(int4_col, 'cp1', 'precision'),
+	sys.columnproperty(int8_col, 'cp1', 'precision')
+from test_type_table_column_name;
+ columnproperty | columnproperty | columnproperty | columnproperty 
+----------------+----------------+----------------+----------------
+                |                |                |               
+(1 row)
+
+drop table test_type_table_column_name;
+drop table t_column_property;
+ERROR:  table "t_column_property" does not exist
+drop table t_column_property2;
+ERROR:  table "t_column_property2" does not exist
+drop table t_column_property3;
+ERROR:  table "t_column_property3" does not exist
+-- sys.quotename
+SELECT quotename('hardrada', ']');   --expect: [hardrada]
+ quotename  
+------------
+ [hardrada]
+(1 row)
+
+SELECT quotename('gershwin', '<');   --expect: <gershwin>
+ quotename  
+------------
+ <gershwin>
+(1 row)
+
+SELECT quotename('faulkner', '>');   --expect: <faulkner>
+ quotename  
+------------
+ <faulkner>
+(1 row)
+
+SELECT quotename('edgerton', '(');   --expect：(edgerton)
+ quotename  
+------------
+ (edgerton)
+(1 row)
+
+SELECT quotename('denali', ')');     --expect: (denali)
+ quotename 
+-----------
+ (denali)
+(1 row)
+
+SELECT quotename('charisma', '{');   --expect: {charisma}
+ quotename  
+------------
+ {charisma}
+(1 row)
+
+SELECT quotename('banana', '}');     --expect: {banana}
+ quotename 
+-----------
+ {banana}
+(1 row)
+
+SELECT quotename('aardvark', '`');   --expect: `aardvark`
+ quotename  
+------------
+ `aardvark`
+(1 row)
+
+SELECT quotename('128 characters exactly----------------------------------------------------------------------------------------------------------');   --expect [xxx]
+                                                             quotename                                                              
+------------------------------------------------------------------------------------------------------------------------------------
+ [128 characters exactly----------------------------------------------------------------------------------------------------------]
+(1 row)
+
+SELECT quotename(']]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]');   --expect [xxx]
+                                                                                                                             quotename                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ []]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+(1 row)
+
+SELECT quotename('""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""');   --expect [xxx]
+                                                                                                                             quotename                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""]
+(1 row)
+
+SELECT quotename('''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''');   -- expect: [xx]
+                                                                                                                             quotename                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ ['''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''']
+(1 row)
+
+SELECT quotename('');           --expect []
+ quotename 
+-----------
+ []
+(1 row)
+
+SELECT quotename(CAST('abc' as varchar));    --expect: [abc]
+ quotename 
+-----------
+ [abc]
+(1 row)
+
+SELECT quotename(CAST('abc' as nvarchar(20)));    --expect: [abc]
+ quotename 
+-----------
+ [abc]
+(1 row)
+
+SELECT quotename(CAST('abc' as text));   --expect： [abc]
+ quotename 
+-----------
+ [abc]
+(1 row)
+
+SELECT quotename('invalid char', 'F');   --expect：NULL
+ quotename 
+-----------
+ 
+(1 row)
+
+SELECT quotename('too long char', 'aa');  --expect： NULL
+ quotename 
+-----------
+ 
+(1 row)
+
+SELECT quotename('129 characters exactly-----------------------------------------------------------------------------------------------------------');  --expect: NULL
+ quotename 
+-----------
+ 
+(1 row)
+
+SELECT quotename('default should be bracket');   --expect: [default should be bracket]
+          quotename          
+-----------------------------
+ [default should be bracket]
+(1 row)
+
+SELECT quotename('abc [] def');                  --expect：[abc []] def]
+   quotename   
+---------------
+ [abc []] def]
+(1 row)
+
+ 
+SELECT quotename(NULL);                          --expect: NULL
+ quotename 
+-----------
+ 
+(1 row)
+
+SELECT quotename(NULL, NULL);                    --expect: NULL
+ quotename 
+-----------
+ 
+(1 row)
+
+SELECT quotename('hey', NULL);                   --expect: NULL
+ quotename 
+-----------
+ 
+(1 row)
+
+SELECT quotename(NULL, '[');                     --expect: NULL
+ quotename 
+-----------
+ 
+(1 row)
+
+-- diff input type
+CREATE TABLE test_quotename_table (
+    bigint_type bigint,
+    int_type int,
+    smallint_type smallint,
+    tinyint_type tinyint,
+    bit_type bit,
+    decimal_type decimal(5,2),
+    numeric_type numeric(10,5),
+    float_type float,
+    real_type real,
+    money_type money,
+    float8_type float8,
+    boolean_col boolean,
+    char_col char(100),
+    varchar_col varchar(100), 
+    nvarchar_col nvarchar(10),
+    varbinary_col varbinary(100),
+    text_col text
+);
+INSERT INTO test_quotename_table VALUES (
+    9223372036854775806,
+    45000,
+    -32767,
+    100,
+    b'1',
+    123,
+    12345.12,
+    1.79E+30,
+    -3.40E+38, 
+    237891.22,
+    77.58,
+	1,  -- bool
+	'1',
+	'1',
+	'1',
+	'1',
+	'1'
+);
+SELECT quotename(bigint_type) FROM test_quotename_table;     
+       quotename       
+-----------------------
+ [9223372036854775806]
+(1 row)
+
+SELECT quotename(int_type) FROM test_quotename_table;        
+ quotename 
+-----------
+ [45000]
+(1 row)
+
+SELECT quotename(smallint_type) FROM test_quotename_table;   
+ quotename 
+-----------
+ [-32767]
+(1 row)
+
+SELECT quotename(tinyint_type) FROM test_quotename_table;    
+ quotename 
+-----------
+ [100]
+(1 row)
+
+SELECT quotename(bit_type) FROM test_quotename_table;        
+ quotename 
+-----------
+ [1]
+(1 row)
+
+SELECT quotename(decimal_type) FROM test_quotename_table;    
+ quotename 
+-----------
+ [123.00]
+(1 row)
+
+SELECT quotename(numeric_type) FROM test_quotename_table;    
+   quotename   
+---------------
+ [12345.12000]
+(1 row)
+
+SELECT quotename(float_type) FROM test_quotename_table;      
+ quotename  
+------------
+ [1.79e+30]
+(1 row)
+
+SELECT quotename(real_type) FROM test_quotename_table;           
+ quotename  
+------------
+ [-3.4e+38]
+(1 row)
+
+SELECT quotename(float8_type) FROM test_quotename_table;       
+ quotename 
+-----------
+ [77.58]
+(1 row)
+
+SELECT quotename(char_col) FROM test_quotename_table;        
+ quotename 
+-----------
+ [1]
+(1 row)
+
+SELECT quotename(varchar_col) FROM test_quotename_table;     
+ quotename 
+-----------
+ [1]
+(1 row)
+
+SELECT quotename(nvarchar_col) FROM test_quotename_table;    
+ quotename 
+-----------
+ [1]
+(1 row)
+
+SELECT quotename(varbinary_col) FROM test_quotename_table;   
+ quotename 
+-----------
+ [1]
+(1 row)
+
+SELECT quotename(text_col) FROM test_quotename_table;        
+ quotename 
+-----------
+ [1]
+(1 row)
+
+drop table test_quotename_table;
+-- sys.trim
+SELECT TRIM('   test   ');       -- test
+ btrim 
+-------
+ test
+(1 row)
+
+SELECT TRIM('   test   ');       -- test
+ btrim 
+-------
+ test
+(1 row)
+
+SELECT TRIM('   ');              -- ''
+ btrim 
+-------
+ 
+(1 row)
+
+SELECT TRIM(NULL);               -- null
+ btrim 
+-------
+ 
+(1 row)
+
+SELECT TRIM('test');             -- test
+ btrim 
+-------
+ test
+(1 row)
+
+SELECT TRIM('   测试   ');       -- 测试
+ btrim 
+-------
+ 测试
+(1 row)
+
+SELECT LTRIM('   测试abc');      -- 测试abc
+  ltrim  
+---------
+ 测试abc
+(1 row)
+
+SELECT TRIM( '.,! ' FROM '     #     test    .');    --#     test
+   btrim    
+------------
+ #     test
+(1 row)
+
+SELECT TRIM(LEADING '.,! ' FROM  '     .#     test    .');
+      ltrim      
+-----------------
+ #     test    .
+(1 row)
+
+SELECT TRIM(TRAILING '.,! ' FROM '     .#     test    .');
+      rtrim       
+------------------
+      .#     test
+(1 row)
+
+SELECT TRIM(BOTH '123' FROM '123abc123');
+ btrim 
+-------
+ abc
+(1 row)
+
+CREATE TABLE test_quotename_table (
+    bigint_type bigint,
+    int_type int,
+    smallint_type smallint,
+    tinyint_type tinyint,
+    bit_type bit,
+    decimal_type decimal(5,2),
+    numeric_type numeric(10,5),
+    float_type float,
+    real_type real,
+    money_type money,
+    float8_type float8,
+    boolean_col boolean,
+    char_col char(100),
+    varchar_col varchar(100), 
+    nvarchar_col nvarchar(10),
+    varbinary_col varbinary(100),
+    text_col text
+);
+INSERT INTO test_quotename_table VALUES (
+    9223372036854775806,
+    45000,
+    -32767,
+    100,
+    b'1',
+    123,
+    12345.12,
+    1.79E+30,
+    -3.40E+38, 
+    237891.22,
+    77.58,
+	1,  -- bool
+	'1',
+	'1',
+	'1',
+	'1',
+	'1'
+);
+SELECT TRIM(char_col), TRIM(varchar_col), TRIM(nvarchar_col), TRIM(varbinary_col), TRIM(text_col)  from test_quotename_table;
+ btrim | btrim | btrim | btrim | btrim 
+-------+-------+-------+-------+-------
+ 1     | 1     | 1     | 1     | 1
+(1 row)
+
+drop table test_quotename_table;
 reset current_schema;
 drop schema sharksysfunc cascade;

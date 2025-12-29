@@ -2097,3 +2097,221 @@ CREATE OR REPLACE FUNCTION sys.sql_variant_property(sys.SQL_VARIANT, VARCHAR(20)
 CREATE OR REPLACE FUNCTION sys.sql_variant_property(text, VARCHAR(20)) RETURNS sys.SQL_VARIANT LANGUAGE SQL STABLE as 'select sys.sql_variant_property($1::sys.SQL_VARIANT, $2)';
 CREATE OR REPLACE FUNCTION sys.sql_variant_property(time, VARCHAR(20)) RETURNS sys.SQL_VARIANT LANGUAGE SQL STABLE as 'select sys.sql_variant_property($1::sys.SQL_VARIANT, $2)';
 
+
+
+-- sys.patindex
+create or replace function sys.patindex(in pattern varchar, in expression varchar) returns bigint as
+$body$
+declare
+  v_find_result VARCHAR;
+  v_pos bigint;
+  v_regexp_pattern VARCHAR;
+  start_offset boolean;
+  end_offset boolean;
+begin
+  if pattern is null or expression is null then
+    return null;
+  end if;
+  if pattern = '%' or pattern = '%%' then
+    return 1;
+  end if;
+  if PG_CATALOG.left(pattern, 1) = '%' collate "default" then
+    v_regexp_pattern := regexp_replace(pattern, '^%', '%#"', 'i'::pg_catalog.TEXT);
+    start_offset := true;
+  else
+    v_regexp_pattern := '#"' || pattern;
+    start_offset := false;
+  end if;
+
+  if PG_CATALOG.right(pattern, 1) = '%' collate "default" then
+    v_regexp_pattern := regexp_replace(v_regexp_pattern, '%$', '#"%', 'i'::pg_catalog.TEXT);
+    end_offset := true;
+  else
+   v_regexp_pattern := v_regexp_pattern || '#"';
+   end_offset := false;
+  end if;
+  v_find_result := substring(expression, v_regexp_pattern, '#');
+  if v_find_result <> '' collate "default" then
+    if start_offset and not end_offset then
+      v_pos := LENGTH(expression) - STRPOS(REVERSE(expression), REVERSE(v_find_result)) + 2 - LENGTH(v_find_result);
+    else
+      v_pos := strpos(expression, v_find_result);
+    end if;
+  else
+    v_pos := 0;
+  end if;
+  return v_pos;
+end;
+$body$
+language plpgsql IMMUTABLE STRICT;
+
+
+create or replace function sys.patindex(in pattern bit, in expression varchar) returns bigint LANGUAGE SQL STABLE STRICT as 'select sys.patindex(pattern::varchar, expression)';
+create or replace function sys.patindex(in pattern time, in expression varchar) returns bigint LANGUAGE SQL STABLE STRICT as 'select sys.patindex(pattern::varchar, expression)';
+create or replace function sys.patindex(in pattern varbinary, in expression varchar) returns bigint LANGUAGE SQL STABLE STRICT as 'select sys.patindex(pattern::varchar, expression)';
+create or replace function sys.patindex(in pattern varchar, in expression bit) returns bigint LANGUAGE SQL STABLE STRICT as 'select sys.patindex(pattern, expression::varchar)';
+create or replace function sys.patindex(in pattern varchar, in expression time) returns bigint LANGUAGE SQL STABLE STRICT as 'select sys.patindex(pattern, expression::varchar)';
+create or replace function sys.patindex(in pattern varchar, in expression varbinary) returns bigint LANGUAGE SQL STABLE STRICT as 'select sys.patindex(pattern, expression::varchar)';
+create or replace function sys.patindex(in pattern text, in expression text) returns bigint LANGUAGE SQL STABLE STRICT as 'select sys.patindex(pattern::varchar, expression::varchar)';
+
+-- sys.stuff
+CREATE OR REPLACE FUNCTION sys.stuff(expr VARBINARY, start INTEGER, length INTEGER, replace_expr VARCHAR)
+RETURNS VARBINARY
+AS
+$BODY$
+BEGIN
+    IF start IS NULL OR expr IS NULL OR length IS NULL THEN
+        RETURN NULL;
+    END IF;
+    IF start <= 0 OR start > sys.len(expr) OR length < 0 THEN
+        RETURN NULL;
+    END IF;
+    IF replace_expr IS NULL THEN
+        RETURN (SELECT (overlay (expr::VARCHAR placing '' from start for length))::VARCHAR)::VARBINARY;
+    END IF;
+    RETURN (SELECT (overlay (expr::VARCHAR placing replace_expr::VARCHAR from start for length))::VARCHAR)::VARBINARY;
+END;
+$BODY$
+LANGUAGE plpgsql IMMUTABLE STRICT;
+
+
+CREATE OR REPLACE FUNCTION sys.stuff(expr VARCHAR, start INTEGER, length INTEGER, replace_expr VARCHAR)
+RETURNS VARCHAR
+AS
+$BODY$
+BEGIN
+    IF start IS NULL OR expr IS NULL OR length IS NULL THEN
+        RETURN NULL;
+    END IF;
+    IF start <= 0 OR start > length(expr) OR length < 0 THEN
+        RETURN NULL;
+    END IF;
+    IF replace_expr IS NULL THEN
+        RETURN (SELECT overlay (expr placing '' from start for length));
+    END IF;
+    RETURN (SELECT overlay (expr placing replace_expr from start for length));
+END;
+$BODY$
+LANGUAGE plpgsql IMMUTABLE STRICT;
+
+
+CREATE OR REPLACE FUNCTION sys.stuff(expr NVARCHAR, start INTEGER, length INTEGER, replace_expr NVARCHAR)
+RETURNS NVARCHAR
+AS
+$BODY$
+BEGIN
+    IF start IS NULL OR expr IS NULL OR length IS NULL THEN
+        RETURN NULL;
+    END IF;
+    IF start <= 0 OR start > length(expr) OR length < 0 THEN
+        RETURN NULL;
+    END IF;
+    IF replace_expr IS NULL THEN
+        RETURN (SELECT overlay (expr placing '' from start for length));
+    END IF;
+    RETURN (SELECT overlay (expr placing replace_expr from start for length));
+END;
+$BODY$
+LANGUAGE plpgsql IMMUTABLE STRICT;
+
+
+CREATE OR REPLACE FUNCTION sys.stuff(expr TEXT, start INTEGER, length INTEGER, replace_expr TEXT)
+RETURNS VARCHAR
+AS
+$BODY$
+BEGIN
+    IF start IS NULL OR expr IS NULL OR length IS NULL THEN
+        RETURN NULL;
+    END IF;
+    IF start <= 0 OR start > length(expr) OR length < 0 THEN
+        RETURN NULL;
+    END IF;
+    IF replace_expr IS NULL THEN
+        RETURN (SELECT overlay (expr placing '' from start for length));
+    END IF;
+    RETURN (SELECT overlay (expr placing replace_expr from start for length));
+END;
+$BODY$
+LANGUAGE plpgsql IMMUTABLE STRICT;
+
+
+create or replace function sys.stuff(expr bit, start INTEGER, length INTEGER, replace_expr varchar) returns varchar LANGUAGE SQL STABLE STRICT as 'select sys.stuff($1::varchar, $2, $3, $4)';
+create or replace function sys.stuff(expr varchar, start INTEGER, length INTEGER, replace_expr bit) returns varchar LANGUAGE SQL STABLE STRICT as 'select sys.stuff($1::varchar, $2, $3, $4::varchar)';
+create or replace function sys.stuff(expr varchar, start INTEGER, length INTEGER, replace_expr varbinary) returns varchar LANGUAGE SQL STABLE STRICT as 'select sys.stuff($1::varchar, $2, $3, $4::varchar)';
+
+
+-- sys.str
+CREATE OR REPLACE FUNCTION sys.str(IN float_expression NUMERIC, IN length INTEGER DEFAULT 10, IN decimal_point INTEGER DEFAULT 0) RETURNS VARCHAR
+AS '$libdir/shark', 'float_str' LANGUAGE C STABLE STRICT;
+
+create or replace function sys.str(IN float_expression bit, IN length INTEGER DEFAULT 10, IN decimal_point INTEGER DEFAULT 0) RETURNS VARCHAR LANGUAGE SQL STABLE STRICT as 'select sys.str($1::varchar::NUMERIC, $2, $3)';
+
+create or replace function sys.str(IN float_expression varchar, IN length INTEGER DEFAULT 10, IN decimal_point INTEGER DEFAULT 0) RETURNS VARCHAR LANGUAGE SQL STABLE STRICT as 'select sys.str($1::NUMERIC, $2, $3)';
+
+
+
+-- sys.replicate
+CREATE OR REPLACE FUNCTION sys.replicate(string NVARCHAR, i INTEGER) RETURNS NVARCHAR AS
+$BODY$
+BEGIN
+    IF i < 0 THEN
+        RETURN NULL;
+    END IF;
+
+    RETURN PG_CATALOG.repeat(string, i);
+END;
+$BODY$
+LANGUAGE plpgsql IMMUTABLE STRICT;
+
+CREATE OR REPLACE FUNCTION sys.replicate(string VARCHAR, i INTEGER) RETURNS VARCHAR AS
+$BODY$
+BEGIN
+    IF i < 0 THEN
+        RETURN NULL;
+    END IF;
+
+    RETURN PG_CATALOG.repeat(string, i);
+END;
+$BODY$
+LANGUAGE plpgsql IMMUTABLE STRICT;
+
+CREATE OR REPLACE FUNCTION sys.replicate(string TEXT, i INTEGER) RETURNS VARCHAR AS
+$BODY$
+BEGIN
+    IF i < 0 THEN
+        RETURN NULL;
+    END IF;
+
+    RETURN PG_CATALOG.repeat(string, i);
+END;
+$BODY$
+LANGUAGE plpgsql IMMUTABLE STRICT;
+
+
+CREATE OR REPLACE FUNCTION sys.replicate(string bit, i INTEGER) RETURNS VARCHAR LANGUAGE SQL STABLE as 'select sys.replicate($1::text, $2)';
+CREATE OR REPLACE FUNCTION sys.replicate(string TEXT, i bigint) RETURNS VARCHAR LANGUAGE SQL STABLE as 'select sys.replicate($1, $2::int)';
+CREATE OR REPLACE FUNCTION sys.replicate(string TEXT, i bit) RETURNS VARCHAR LANGUAGE SQL STABLE as 'select sys.replicate($1, $2::int)';
+
+
+-- sys.string_split
+CREATE OR REPLACE FUNCTION sys.string_split(IN string VARCHAR, IN separator VARCHAR, OUT value VARCHAR) RETURNS SETOF VARCHAR AS
+$body$
+BEGIN
+ if length(separator) != 1 then
+  RAISE EXCEPTION 'Invalid separator: %', separator USING HINT =
+  'Separator must be length 1';
+else
+  RETURN QUERY(SELECT cast(unnest(string_to_array(string, separator)) as varchar));
+end if;
+END
+$body$
+LANGUAGE plpgsql IMMUTABLE STRICT;
+
+
+-- sys.quotename
+CREATE OR REPLACE FUNCTION sys.quotename(IN input_string VARCHAR, IN delimiter char default '[') RETURNS varchar AS '$libdir/shark', 'quotename' LANGUAGE C STABLE STRICT;
+CREATE OR REPLACE FUNCTION sys.quotename(IN input_string bit, IN delimiter char default '[') RETURNS varchar LANGUAGE SQL STABLE as 'select sys.quotename($1::varchar, $2)';
+CREATE OR REPLACE FUNCTION sys.quotename(IN input_string varbinary, IN delimiter char default '[') RETURNS varchar LANGUAGE SQL STABLE as 'select sys.quotename($1::varchar, $2)';
+
+-- sys.trim
+CREATE OR REPLACE FUNCTION pg_catalog.btrim(IN input_string varbinary) RETURNS varchar LANGUAGE SQL STABLE as 'select pg_catalog.btrim($1::varchar::text)';
