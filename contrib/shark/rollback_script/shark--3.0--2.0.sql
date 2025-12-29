@@ -817,6 +817,49 @@ drop view if exists sys.sequences;
 drop cast if exists (int16 as sys.varbinary) cascade;
 drop function if exists sys.int16_sqlvariant(int16, int);
 
+-- sys.trim
+drop function if exists pg_catalog.btrim(IN input_string varbinary);
+
+-- sys.quotename
+drop function if exists sys.quotename(IN input_string VARCHAR, IN delimiter char);
+drop function if exists sys.quotename(IN input_string bit, IN delimiter char);
+drop function if exists sys.quotename(IN input_string varbinary, IN delimiter char);
+
+-- sys.string_split
+drop function if exists sys.string_split(IN string VARCHAR, IN separator VARCHAR, OUT value VARCHAR);
+
+-- sys.replicate
+drop function if exists sys.replicate(string bit, i INTEGER);
+drop function if exists sys.replicate(string TEXT, i bigint);
+drop function if exists sys.replicate(string TEXT, i bit);
+drop function if exists sys.replicate(string TEXT, i INTEGER);
+drop function if exists sys.replicate(string VARCHAR, i INTEGER);
+drop function if exists sys.replicate(string NVARCHAR, i INTEGER);
+
+-- sys.str
+drop function if exists sys.str(IN float_expression varchar, IN length INTEGER, IN decimal_point INTEGER);
+drop function if exists sys.str(IN float_expression bit, IN length INTEGER, IN decimal_point INTEGER);
+drop function if exists sys.str(IN float_expression NUMERIC, IN length INTEGER, IN decimal_point INTEGER);
+
+-- sys.stuff
+drop function if exists sys.stuff(expr bit, start INTEGER, length INTEGER, replace_expr varchar);
+drop function if exists sys.stuff(expr varchar, start INTEGER, length INTEGER, replace_expr bit);
+drop function if exists sys.stuff(expr varchar, start INTEGER, length INTEGER, replace_expr varbinary);
+drop function if exists sys.stuff(expr TEXT, start INTEGER, length INTEGER, replace_expr TEXT);
+drop function if exists sys.stuff(expr NVARCHAR, start INTEGER, length INTEGER, replace_expr NVARCHAR);
+drop function if exists sys.stuff(expr VARCHAR, start INTEGER, length INTEGER, replace_expr VARCHAR);
+drop function if exists sys.stuff(expr VARBINARY, start INTEGER, length INTEGER, replace_expr VARCHAR);
+
+-- sys.patindex
+drop function if exists sys.patindex(in pattern text, in expression text);
+drop function if exists sys.patindex(in pattern varchar, in expression varbinary);
+drop function if exists sys.patindex(in pattern varchar, in expression time);
+drop function if exists sys.patindex(in pattern varchar, in expression bit);
+drop function if exists sys.patindex(in pattern varbinary, in expression varchar);
+drop function if exists sys.patindex(in pattern time, in expression varchar);
+drop function if exists sys.patindex(in pattern bit, in expression varchar);
+drop function if exists sys.patindex(in pattern varchar, in expression varchar);
+
 -- sys.sql_variant_property
 drop function if exists sys.sql_variant_property(sys.SQL_VARIANT, VARCHAR(20));
 drop function if exists sys.sql_variant_property(text, VARCHAR(20));

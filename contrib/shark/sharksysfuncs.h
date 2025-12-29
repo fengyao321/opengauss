@@ -122,4 +122,10 @@ typedef struct TypeInfoMap {
     const char* tsql_typname;
 } TypeInfoMap;
 extern bool StrEndWith(const char *str, const char *suffix);
+#define NUMERIC_PINF            (0xD000)
+#define NUMERIC_INF_SIGN_MASK   (0x2000)
+
+#define NUMERIC_IS_INF(n) \
+    (((n)->choice.n_header & ~NUMERIC_INF_SIGN_MASK) == NUMERIC_PINF)
+
 #endif
