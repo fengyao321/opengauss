@@ -201,3 +201,6 @@ select sys_connect_by_path(a, '@') from test_connect_sys start with x = 'A' conn
 -- connect_by_root with blank value
 select connect_by_root a from test_connect_sys start with x = 'A' connect by prior y=z;
 drop table test_connect_sys;
+
+-- connect by with view
+select 1 a from sys_dummy connect by level<=(select count(1) from sys_dummy);

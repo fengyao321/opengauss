@@ -627,3 +627,10 @@ select connect_by_root a from test_connect_sys start with x = 'A' connect by pri
 (7 rows)
 
 drop table test_connect_sys;
+-- connect by with view
+select 1 a from sys_dummy connect by level<=(select count(1) from sys_dummy);
+ a 
+---
+ 1
+(1 row)
+

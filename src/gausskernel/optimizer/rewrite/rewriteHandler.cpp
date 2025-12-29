@@ -2405,7 +2405,23 @@ static Query* fireRIRrules(Query* parsetree, List* activeRIRs, bool forUpdatePus
     /* Recurse into subqueries in WITH */
     foreach (lc, parsetree->cteList) {
         CommonTableExpr* cte = (CommonTableExpr*)lfirst(lc);
-
+        /*
+         * BUGFIX: For START WITH...CONNECT BY converted CTEs, also expand
+         * views in connect_by_level_quals and start_with_quals which may
+         * contain subqueries referencing views.
+         */
+        if (cte->swoptions != NULL) {
+            if (cte->swoptions->connect_by_level_quals != NULL) {
+                (void)expression_tree_walker(cte->swoptions->connect_by_level_quals,
+                                      (bool (*)())fireRIRonSubLink,
+                                      (void*)activeRIRs);
+            }
+            if (cte->swoptions->start_with_quals != NULL) {
+                (void)expression_tree_walker(cte->swoptions->start_with_quals,
+                                      (bool (*)())fireRIRonSubLink,
+                                      (void*)activeRIRs);
+            }
+        }
         cte->ctequery = (Node*)fireRIRrules((Query*)cte->ctequery, activeRIRs, false);
     }
 
