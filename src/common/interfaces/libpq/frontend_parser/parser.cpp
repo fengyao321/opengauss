@@ -409,6 +409,26 @@ int base_yylex(YYSTYPE *lvalp, YYLTYPE *llocp, core_yyscan_t yyscanner)
             }
             break;
 
+        case INDEX:
+            cur_yylval = lvalp->core_yystype;
+            cur_yylloc = *llocp;
+            next_token = core_yylex(&(lvalp->core_yystype), llocp, yyscanner);
+            /* get first token after DECLARE. We don't care what it is */
+            yyextra->lookahead_token[1] = next_token;
+            yyextra->lookahead_yylval[1] = lvalp->core_yystype;
+            yyextra->lookahead_yylloc[1] = *llocp;
+
+            /* get the second token after DECLARE. If it is cursor grammer, we are sure that this is a cursr stmt */
+            next_token = core_yylex(&(lvalp->core_yystype), llocp, yyscanner);
+            yyextra->lookahead_token[0] = next_token;
+            yyextra->lookahead_yylval[0] = lvalp->core_yystype;
+            yyextra->lookahead_yylloc[0] = *llocp;
+            yyextra->lookahead_num = 2;
+            if (next_token == USING) {
+                cur_token = INDEX_AS_KEYWORD;
+            }
+            lvalp->core_yystype = cur_yylval;
+            *llocp = cur_yylloc;
         default:
             break;
     }

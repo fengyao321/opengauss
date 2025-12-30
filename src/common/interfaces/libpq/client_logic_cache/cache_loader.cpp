@@ -410,6 +410,8 @@ bool CacheLoader::fill_pgsettings(PGconn *conn)
             const char *sql_compatibility = data_fetcher[setting_num];
             if (pg_strcasecmp(sql_compatibility, "ORA") == 0) {
                 m_compat_type = DatabaseType::ORA_FORMAT;
+            } else if (pg_strcasecmp(sql_compatibility, "B") == 0) {
+                m_compat_type = DatabaseType::M_FORMAT;
             } else {
                 m_compat_type = DatabaseType::TD_FORMAT;
             }

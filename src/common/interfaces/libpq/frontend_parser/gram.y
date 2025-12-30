@@ -260,7 +260,7 @@ extern THR_LOCAL bool stmt_contains_operator_plus;
 %type <defelt>	copy_opt_item
 %type <boolean>	opt_with_data
 
-%type <str>		copy_file_name
+%type <str>		copy_file_name access_method_clause_without_keyword
                 database_name
 
 %type <list>	func_name qual_Op qual_all_Op subquery_Op
@@ -411,7 +411,7 @@ extern THR_LOCAL bool stmt_contains_operator_plus;
 %type <keyword> unreserved_keyword type_func_name_keyword
 %type <keyword> col_name_keyword reserved_keyword
 
-%type <node>	TableConstraint TableLikeClause
+%type <node>	TableConstraint TableIndexClause TableLikeClause
 %type <ival>	excluding_option_list TableLikeOptionList TableLikeIncludingOption TableLikeExcludingOption
 %type <list>	ColQualList WithOptions
 %type <node>	ColConstraint ColConstraintElem ConstraintAttr InformationalConstraintElem
@@ -514,7 +514,7 @@ extern THR_LOCAL bool stmt_contains_operator_plus;
  */
 %token <str>	IDENT FCONST SCONST BCONST XCONST Op CmpOp COMMENTSTRING SET_USER_IDENT SET_IDENT UNDERSCORE_CHARSET FCONST_F FCONST_D
 %token <ival>	ICONST PARAM
-%token			TYPECAST ORA_JOINOP DOT_DOT COLON_EQUALS PARA_EQUALS SET_IDENT_SESSION SET_IDENT_GLOBAL
+%token			TYPECAST ORA_JOINOP DOT_DOT COLON_EQUALS PARA_EQUALS SET_IDENT_SESSION SET_IDENT_GLOBAL INDEX_AS_KEYWORD
 
 /*
  * If you want to make any keyword changes, update the keyword table in
@@ -5046,6 +5046,24 @@ TableElement:
 			columnDef							{ $$ = $1; }
 			| TableLikeClause					{ $$ = $1; }
 			| TableConstraint					{ $$ = $1; }
+			| TableIndexClause					{ $$ = $1; }
+		;
+
+index_key_opt:
+			INDEX_AS_KEYWORD
+		;
+
+access_method_clause_without_keyword:
+			USING IDENT								{ $$ = feparser_strdup($1); }
+		;
+
+TableIndexClause:
+			index_key_opt index_name access_method_clause_without_keyword '(' index_elem ')'
+			{
+				Constraint *n = makeNode(Constraint);
+				n->contype = CONSTR_PRIMARY;
+				$$ = (Node *)n;
+			}
 		;
 
 TypedTableElement:
