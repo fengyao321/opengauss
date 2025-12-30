@@ -31,18 +31,28 @@
 extern const int ONLINE_DDL_APPENDER_MAX_SCAN_TIMES;
 extern const int ONLINE_DDL_APPENDER_MAX_FINISH_PAGES;
 
+// mapping old partition Oid to temp table Oid
+struct PartitionOidMapEntry {
+    Oid oldPartOid;    // old partition Oid
+    Oid tempTableOid;  // temp table Oid
+};
+
 struct OnlineDDLAppender {
     bool inAppendMode;
     int deltaLogScanTimes;
     int oldTableScanTimes;
     Relation oldRelation;
     Relation newRelation;
+    List* oldPartitionList;
+    List* newOidList;
     Relation deltaRelation;
     Relation ctidMapRelation;
     Relation ctidMapIndex;
     ItemPointerData deltaLogScanIdx;
     ItemPointerData oldTableScanIdx;
+    HTAB* partitionAppendMap;
     AlteredTableInfo* alterTableInfo;
+    HTAB* PartitionOidMap;
     int indexNum;
 };
 
@@ -62,6 +72,12 @@ inline bool CompareItemPointer(ItemPointer a, ItemPointer b)
 extern OnlineDDLAppender* OnlineDDLInitAppender(Relation oldRelation, Relation newRelation, Relation deltaRelation,
                                                 Relation ctidMapRelation, Relation ctidMapIndex,
                                                 ItemPointerData endCtid, AlteredTableInfo* alterTableInfo);
+extern OnlineDDLAppender* OnlineDDLInitAppender(List* oldPartitionList, List* newOidList, Relation deltaRelation,
+                                                Relation ctidMapRelation, Relation ctidMapIndex,
+                                                HTAB* partitionAppendMap, AlteredTableInfo* alterTableInfo);
 extern bool OnlineDDLAppend(OnlineDDLAppender* operators);
 extern bool OnlineDDLOnlyCheck(OnlineDDLAppender* appender);
+extern void AddPartitionOidMapping(OnlineDDLAppender* appender, Oid oldPartOid, Oid tempTableOid);
+extern Oid GetTempTableFromOldPartition(OnlineDDLAppender* appender, Oid oldPartOid);
+
 #endif /* ONLINE_DDL_APPEND_H */

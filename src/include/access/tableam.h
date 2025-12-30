@@ -883,8 +883,8 @@ static inline Oid tableam_tuple_insert(Relation relation, Tuple tup, CommandId c
     struct BulkInsertStateData *bistate)
 {
     Oid oid = relation->rd_tam_ops->tuple_insert(relation, tup, cid, options, bistate);
-    if (unlikely(RelationGetOnlineDDLCtl(relation) != NULL)) {
-        RelationGetOnlineDDLCtl(relation)->recordTupleInsert(relation, &((HeapTuple)tup)->t_self);
+    if (unlikely(RelationGetOnlineDDLOperators(relation) != NULL)) {
+        RelationGetOnlineDDLOperators(relation)->recordTupleInsert(relation, &((HeapTuple)tup)->t_self);
     }
     return oid;
 }
@@ -892,10 +892,10 @@ static inline Oid tableam_tuple_insert(Relation relation, Tuple tup, CommandId c
 static inline int tableam_tuple_multi_insert(Relation relation, Relation parent, Tuple *tuples, int ntuples,
     CommandId cid, int options, struct BulkInsertStateData *bistate, HeapMultiInsertExtraArgs *args)
 {
-    int ndone = relation->rd_tam_ops->tuple_multi_insert(relation, parent, tuples, ntuples, cid,
-        options, bistate, args);
-    if (unlikely(RelationGetOnlineDDLCtl(relation) != NULL) && ndone == ntuples) {
-        RelationGetOnlineDDLCtl(relation)->recordTupleMultiInsert(relation, tuples, ntuples);
+    int ndone =
+        relation->rd_tam_ops->tuple_multi_insert(relation, parent, tuples, ntuples, cid, options, bistate, args);
+    if (unlikely(RelationGetOnlineDDLOperators(relation) != NULL) && ndone == ntuples) {
+        RelationGetOnlineDDLOperators(relation)->recordTupleMultiInsert(relation, tuples, ntuples);
     }
     return ndone;
 }
@@ -903,10 +903,16 @@ static inline int tableam_tuple_multi_insert(Relation relation, Relation parent,
 static inline TM_Result tableam_tuple_delete(Relation relation, ItemPointer tid, CommandId cid, Snapshot crosscheck,
     Snapshot snapshot, bool wait, TupleTableSlot **oldslot, TM_FailureData *tmfd, bool allow_delete_self = false)
 {
-    TM_Result result = relation->rd_tam_ops->tuple_delete(relation, tid, cid, crosscheck, snapshot, wait,
-        oldslot, tmfd, allow_delete_self);
-    if (unlikely(RelationGetOnlineDDLCtl(relation) != NULL) && result == TM_Ok) {
-        RelationGetOnlineDDLCtl(relation)->recordTupleDelete(relation, tid);
+    TM_Result result = relation->rd_tam_ops->tuple_delete(relation, tid, cid, crosscheck, snapshot, wait, oldslot, tmfd,
+                                                          allow_delete_self);
+    OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(relation);
+    if (operators != NULL && result == TM_Ok) {
+        if (operators->getPartitionAppendMap() != NULL) {
+            Oid partOid = operators->getCurrentPartitionOid();
+            operators->recordTupleDelete(relation, tid, partOid);
+        } else {
+            operators->recordTupleDelete(relation, tid);
+        }
     }
     return result;
 }
@@ -916,11 +922,17 @@ static inline TM_Result tableam_tuple_update(Relation relation, Relation parentR
     bool *update_indexes, Bitmapset **modifiedIdxAttrs, bool allow_update_self = false,
     bool allow_inplace_update = true, LockTupleMode *lockmode = NULL)
 {
-    TM_Result result = relation->rd_tam_ops->tuple_update(relation, parentRelation, otid, newtup, cid,
-        crosscheck, snapshot, wait, oldslot, tmfd, lockmode, update_indexes, modifiedIdxAttrs, allow_update_self,
-        allow_inplace_update);
-    if (unlikely(RelationGetOnlineDDLCtl(relation) != NULL) && result == TM_Ok) {
-        RelationGetOnlineDDLCtl(relation)->recordTupleUpdate(relation, otid, &((HeapTuple)newtup)->t_self);
+    TM_Result result = relation->rd_tam_ops->tuple_update(relation, parentRelation, otid, newtup, cid, crosscheck,
+                                                          snapshot, wait, oldslot, tmfd, lockmode, update_indexes,
+                                                          modifiedIdxAttrs, allow_update_self, allow_inplace_update);
+    OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(relation);
+    if (operators != NULL && result == TM_Ok) {
+        if (operators->getPartitionAppendMap() != NULL) {
+            Oid partOid = operators->getCurrentPartitionOid();
+            operators->recordTupleDelete(relation, otid, partOid);
+        } else {
+            operators->recordTupleDelete(relation, otid);
+        }
     }
     return result;
 }

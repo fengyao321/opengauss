@@ -50,6 +50,7 @@
 #include "commands/tablespace.h"
 #include "commands/trigger.h"
 #include "commands/vacuum.h"
+#include "commands/online_ddl_globalhash.h"
 #include "executor/node/nodeModifyTable.h"
 #include "miscadmin.h"
 #include "optimizer/clauses.h"
@@ -1508,7 +1509,7 @@ Relation partitionGetRelation(Relation rel, Partition part)
     if (!IsBootstrapProcessingMode()) {
         ResourceOwnerRememberFakerelRef(t_thrd.utils_cxt.CurrentResourceOwner, relation);
     }
-
+    OnlineDDLRelationSetup(relation, rel);
     relation->rd_node = part->pd_node;
     relation->rd_refcnt = part->pd_refcnt;
     relation->rd_backend = InvalidBackendId;

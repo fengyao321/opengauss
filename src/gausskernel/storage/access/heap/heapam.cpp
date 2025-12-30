@@ -1515,14 +1515,7 @@ Relation relation_open(Oid relationId, LOCKMODE lockmode, int2 bucketId)
     if (r->rd_locator_info != NULL && IsRelationReplicated(r->rd_locator_info)) {
         t_thrd.xact_cxt.MyXactAccessedRepRel = true;
     }
-    if (RelationGetAppendMode(r) == ONLINE_DDL_APPEND_MODE) {
-        DDLGlobalHashEntry* hashEntry = OnlineDDLGetHashEntry(GetDDLGlobalHashKey(r->rd_node, r->rd_id));
-        if (hashEntry != NULL && (hashEntry->operators->getStatus() != ONLINE_DDL_STATUS_NONE &&
-            hashEntry->operators->getStatus() != ONLINE_DDL_END)) {
-            r->rd_online_ddl_operators = (void*) hashEntry->operators;
-        }
-    }
-
+    OnlineDDLRelationSetup(r);
     pgstat_initstats(r);
 
     if (BUCKET_NODE_IS_VALID(bucketId)) {

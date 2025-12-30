@@ -30,6 +30,11 @@
 #include "parser/parse_utilcmd.h"
 #include "utils/relcache.h"
 
+#include "commands/online_ddl.h"
+#include "commands/online_ddl_append.h"
+#include "commands/online_ddl_ctid_map.h"
+#include "commands/online_ddl_deltalog.h"
+#include "commands/online_ddl_globalhash.h"
 #include "commands/online_ddl_util.h"
 
 void OnlineDDLExecuteCommand(char* query)
@@ -75,38 +80,84 @@ void OnlineDDLExecuteCommand(char* query)
  */
 void OnlineDDLEnableRelationAppendMode(Relation relation)
 {
-    OnlineDDLRelOperators* operators = RelationGetOnlineDDLCtl(relation);
+    OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(relation);
     Assert(operators != NULL);
     if (operators == NULL) {
         ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
                         errmsg("rd_online_ddl_operators is null, during online ddl.")));
     }
-    if (relation->rd_rel->relkind == RELKIND_RELATION) {
+
+    if (relation->rd_rel->relkind != RELKIND_RELATION) {
+        ereport(ERROR, (errmsg("Unsupported relkind '%c' for online DDL append mode", relation->rd_rel->relkind)));
+    }
+
+    if (RELATION_IS_PARTITIONED(relation)) {
+        List* partitions = NULL;
+        ListCell* cell = NULL;
+
+        if (RelationIsSubPartitioned(relation)) {
+            partitions = relationGetPartitionList(relation, NoLock);
+            foreach (cell, partitions) {
+                Partition partition = (Partition)lfirst(cell);
+                Relation partrel = partitionGetRelation(relation, partition);
+
+                List* subpartitions = relationGetPartitionList(partrel, NoLock);
+                ListCell* subcell = NULL;
+                foreach (subcell, subpartitions) {
+                    Partition subpartition = (Partition)lfirst(subcell);
+                    Relation subpartrel = partitionGetRelation(partrel, subpartition);
+
+                    ItemPointerData endCtid;
+                    heap_get_max_tid(subpartrel, &endCtid);
+
+                    operators->enableTargetRelationAppendMode(RelationGetRelid(subpartrel), endCtid);
+                    releaseDummyRelation(&subpartrel);
+                }
+                releaseSubPartitionList(partrel, &subpartitions, NoLock);
+                releaseDummyRelation(&partrel);
+            }
+        } else {
+            partitions = relationGetPartitionList(relation, NoLock);
+            foreach (cell, partitions) {
+                Partition partition = (Partition)lfirst(cell);
+                Relation partrel = partitionGetRelation(relation, partition);
+
+                ItemPointerData endCtid;
+                heap_get_max_tid(partrel, &endCtid);
+
+                operators->enableTargetRelationAppendMode(RelationGetRelid(partrel), endCtid);
+                releaseDummyRelation(&partrel);
+            }
+        }
+        releasePartitionList(relation, &partitions, NoLock);
+    } else {
         ItemPointerData endCtid;
         heap_get_max_tid(relation, &endCtid);
         operators->enableTargetRelationAppendMode(endCtid);
-    } else {
-        /* todo */
-        Assert(0);
     }
 }
 
 void OnlineDDLCopyRelationIndexs(Relation srcRelation, Relation destRelation, List** srcIndexOidList,
                                  List** destIndexOidList)
 {
-    List* srcIndexRelationList = NIL;
-    Oid destRelationOid = destRelation->rd_id;
     if (srcIndexOidList == NULL || destIndexOidList == NULL) {
         ereport(ERROR,
                 (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
                  errmsg("[Online-DDL] srcIndexOidList or destIndexOidList is null, during copy relation index.")));
     }
-    if (srcRelation == NULL || destRelationOid == NULL) {
+    if (srcRelation == NULL || destRelation == NULL) {
         ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
                         errmsg("[Online-DDL] srcRelation or destRelation is invalid, during copy relation index.")));
     }
+    Oid destRelationOid = destRelation->rd_id;
+
+    if (RelationIsPartition(srcRelation)) {
+        *srcIndexOidList = RelationGetSpecificKindIndexList(srcRelation, false);
+    } else {
+        *srcIndexOidList = RelationGetIndexList(srcRelation);
+    }
+
     ListCell* cell = NULL;
-    *srcIndexOidList = RelationGetIndexList(srcRelation);
     foreach (cell, *srcIndexOidList) {
         Oid dstIndexPartTblspcOid;
         Oid clonedIndexRelationId;
@@ -118,14 +169,8 @@ void OnlineDDLCopyRelationIndexs(Relation srcRelation, Relation destRelation, Li
 
         Oid srcIndexOid = lfirst_oid(cell);
         /* Open the src index relation. */
-        currentIndex = index_open(srcIndexOid, AccessShareLock);
-        if (!IndexIsUsable(currentIndex->rd_index)) {
-            ereport(ERROR, (errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-                            errmsg("[Online-DDL] index %s is unusable, during copy relation index.",
-                                   RelationGetRelationName(currentIndex))));
-        } else {
-            srcIndexRelationList = lappend(srcIndexRelationList, currentIndex);
-        }
+        currentIndex = index_open(srcIndexOid, AccessExclusiveLock);
+        Assert(IndexIsUsable(currentIndex->rd_index));
         if (OID_IS_BTREE(currentIndex->rd_rel->relam)) {
             skipBuild = true;
         } else {
@@ -139,13 +184,10 @@ void OnlineDDLCopyRelationIndexs(Relation srcRelation, Relation destRelation, Li
         clonedIndexRelationId =
             generateClonedIndex(currentIndex, destRelation, tmpIndexName, dstIndexPartTblspcOid, skipBuild, false);
         *destIndexOidList = lappend_oid(*destIndexOidList, clonedIndexRelationId);
-        ereport(ONLINE_DDL_LOG_LEVEL, (errcode(ERRCODE_SUCCESSFUL_COMPLETION),
-                         errmsg("[Online-DDL] copy index %s to relation %s success.",
-                                RelationGetRelationName(currentIndex), RelationGetRelationName(destRelation))));
+        ereport(ONLINE_DDL_LOG_LEVEL,
+                (errcode(ERRCODE_SUCCESSFUL_COMPLETION),
+                 errmsg("[Online-DDL] copy index %s to relation %s success.", RelationGetRelationName(currentIndex),
+                        RelationGetRelationName(destRelation))));
+        index_close(currentIndex, AccessExclusiveLock);
     }
-    foreach (cell, srcIndexRelationList) {
-        Relation indexRel = (Relation)lfirst(cell);
-        index_close(indexRel, AccessShareLock);
-    }
-    list_free_ext(srcIndexRelationList);
 }

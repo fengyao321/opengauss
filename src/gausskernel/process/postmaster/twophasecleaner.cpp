@@ -835,10 +835,10 @@ static void OnlineDDLDropTempSchema(PGconn* conn, char* nspname)
     PQclear(res);
 }
 
-static const int FIRST_VALUE_INDEX = 0;
-static const int SECOND_VALUE_INDEX = 1;
-static const int THIRD_VALUE_INDEX = 2;
-static const int FOURTH_VALUE_INDEX = 3;
+static const int RELNAME_STMT_OID_INDEX = 0;
+static const int RELNAME_STMT_RELNAME_INDEX = 1;
+static const int RELNAME_STMT_RELNAMESPACE_INDEX = 2;
+static const int RELNAME_STMT_RELOPTIONS_INDEX = 3;
 
 static void OnlineDDLClearAppendMode(PGconn* conn, Oid relId)
 {
@@ -901,10 +901,10 @@ static void OnlineDDLClearAppendMode(PGconn* conn, Oid relId)
     }
 
     /* get result */
-    oid = atoi(PQgetvalue(res, 0, FIRST_VALUE_INDEX));
-    relname = pg_strdup(PQgetvalue(res, 0, SECOND_VALUE_INDEX));
-    namespaceId = atoi(PQgetvalue(res, 0, THIRD_VALUE_INDEX));
-    reloption = pg_strdup(PQgetvalue(res, 0, FOURTH_VALUE_INDEX));
+    oid = atoi(PQgetvalue(res, 0, RELNAME_STMT_OID_INDEX));
+    relname = pg_strdup(PQgetvalue(res, 0, RELNAME_STMT_RELNAME_INDEX));
+    namespaceId = atoi(PQgetvalue(res, 0, RELNAME_STMT_RELNAMESPACE_INDEX));
+    reloption = pg_strdup(PQgetvalue(res, 0, RELNAME_STMT_RELOPTIONS_INDEX));
     PQclear(res);
 
     char getNameSpaceStmt[ONLINE_DDL_SQL_LENGTH] = {0};
