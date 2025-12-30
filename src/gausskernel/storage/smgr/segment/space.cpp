@@ -28,7 +28,9 @@
 #include "catalog/indexing.h"
 #include "catalog/pg_tablespace.h"
 #include "catalog/storage_xlog.h"
+#include "catalog/pg_partition_fn.h"
 #include "commands/tablespace.h"
+#include "commands/tablecmds.h"
 #include "executor/executor.h"
 #include "fmgr.h"
 #include "miscadmin.h"
@@ -485,7 +487,7 @@ void get_space_shrink_target(SegExtentGroup *seg, BlockNumber *target_size, int 
     total_data_blocks += DF_FILE_EXTEND_STEP_BLOCKS; // contains extra 128 MB data
 
     /* First map group */
-    BlockNumber meta_blocks = DF_MAP_GROUP_SIZE + DF_MAP_HEAD_PAGE + 1 + IPBLOCK_GROUP_SIZE;
+    BlockNumber meta_blocks = DEFAULT_META_BLOCKS;
     *new_group_count = 1;
     BlockNumber group_blocks = seg->extent_size * DF_MAP_GROUP_SIZE * DF_MAP_BIT_CNT;
 
@@ -543,9 +545,8 @@ Buffer try_get_moved_pagebuf(RelFileNode *rnode, int forknum, BlockNumber logic_
 /*
  * logic_rnode and logic_start_blocknum is used to get blocks' buffer if possible
  */
-static void copy_extent(SegExtentGroup *seg, RelFileNode logic_rnode, uint32 logic_start_blocknum,
-                        BlockNumber nblocks, BlockNumber phy_from_extent, BlockNumber phy_to_extent,
-                        ForkNumber forknum)
+void copy_extent(SegExtentGroup* seg, RelFileNode logic_rnode, uint32 logic_start_blocknum, BlockNumber nblocks,
+                 BlockNumber phy_from_extent, BlockNumber phy_to_extent, ForkNumber forknum)
 {
     char *content = NULL;
     char *unaligned_content = NULL;
@@ -608,6 +609,10 @@ static void copy_extent(SegExtentGroup *seg, RelFileNode logic_rnode, uint32 log
             UnlockBufHdr(buf_desc, buf_state);
             if (buf_state & BM_DIRTY) {
                 FlushOneBufferIncludeDW(buf_desc);
+                ereport(DEBUG1, (errmodule(MOD_SEGMENT_PAGE),
+                                 errmsg("[COPY_EXTENT] buffer is dirty, need flush, logic_start_blocknum:%d, "
+                                        "offset:%d, extent_size:%u, phy_from_extent:%u, phy_to_extent:%u",
+                                        logic_start_blocknum, i, seg->extent_size, phy_from_extent, phy_to_extent)));
             }
         } else {
             BlockNumber from_block = phy_from_extent + i;
@@ -871,6 +876,7 @@ void move_data_extent(SegExtentGroup *seg, BlockNumber extent, ExtentInversePoin
 
     /* Inverse pointer for the new extent is the same as the old extent */
     BlockNumber new_extent = eg_alloc_extent(seg, InvalidBlockNumber, iptr);
+    SegmentCheck(new_extent < extent);
 
     /* eg_alloc_extent implicate START_CRIT_SECTION; We do not worry any Error during copy_extent */
     copy_extent(seg, logic_rnode, logic_start, owner_seghead->nblocks, extent, new_extent, forknum);
@@ -917,6 +923,9 @@ void move_data_extent(SegExtentGroup *seg, BlockNumber extent, ExtentInversePoin
     XLogAtomicOpStart();
     eg_free_extent(seg, extent);
     XLogAtomicOpCommit();
+    ereport(DEBUG1, (errmodule(MOD_SEGMENT_PAGE),
+                     errmsg("[MOVE_EXTENT] moved extent %u to new location %u, owner %u, fork number %d, extent id %u",
+                            extent, new_extent, owner, seg->forknum, extent_id)));
 }
 
 void move_one_extent(SegExtentGroup *seg, BlockNumber extent, Buffer *ipbuf, ForkNumber forknum)
@@ -947,14 +956,16 @@ struct ShrinkVictimSelector {
     int last_group;
     BlockNumber last_map;
     uint16 last_bit;
+    bool compact_search;
 
-    void init(SegExtentGroup *seg, BlockNumber target_size);
+    void init(SegExtentGroup *seg, BlockNumber target_size, bool compact_search = false);
     BlockNumber next();
 };
 
-void ShrinkVictimSelector::init(SegExtentGroup *seg, BlockNumber target_size)
+void ShrinkVictimSelector::init(SegExtentGroup *seg, BlockNumber target_size, bool compact_search)
 {
     this->target_size = target_size;
+    this->compact_search = compact_search;
 
     Buffer buffer = ReadBufferFast(seg->space, seg->rnode, seg->forknum, seg->map_head_entry, RBM_NORMAL);
     LockBuffer(buffer, BUFFER_LOCK_SHARE);
@@ -991,7 +1002,7 @@ BlockNumber ShrinkVictimSelector::next()
             for (; this->last_bit > 0; this->last_bit--) { // each extent
                 uint16 p = this->last_bit - 1;
                 BlockNumber extent = map_page->first_page + p * this->seg->extent_size;
-                if (extent + seg->extent_size <= this->target_size) {
+                if (!this->compact_search && (extent + seg->extent_size <= this->target_size)) {
                     SegUnlockReleaseBuffer(map_buffer);
                     return InvalidBlockNumber;
                 }
@@ -1573,4 +1584,572 @@ static void SSInitSegLogicFile(SegSpace *spc)
     }
     SSUpdateSegLogicFileSize(spc);
     closedir(data_dir);
+}
+
+/**
+ * @brief Mark global indexes as unusable for a partitioned table.
+ *
+ * This function iterates through all indexes of the given partitioned table (Relation),
+ * identifies global indexes, and sets their state to unusable. This is typically called
+ * after a shrink operation on the partition table which might have invalidated index entries.
+ *
+ * @param[in] rel The partitioned table relation.
+ */
+static void rel_shrink_global_idx_unusable(Relation rel)
+{
+    List* indexList = RelationGetIndexList(rel);
+    ListCell* lc = NULL;
+    foreach (lc, indexList) {
+        Oid indexOid = lfirst_oid(lc);
+        Relation indexRel = index_open(indexOid, RowExclusiveLock);
+        if (RelationIsGlobalIndex(indexRel)) {
+            ATExecSetIndexUsableState(IndexRelationId, indexOid, false);
+            CacheInvalidateRelcacheByRelid(indexOid);
+        }
+        index_close(indexRel, RowExclusiveLock);
+    }
+    list_free(indexList);
+}
+
+/**
+ * @brief Mark local indexes (for partitions) or normal indexes (for ordinary tables) as unusable.
+ *
+ * This function handles index invalidation for both partitioned tables (specifically their partitions)
+ * and ordinary tables.
+ * - For partitions: It iterates over the partition's index list (from rd_indexlist) and marks
+ *   each index partition as unusable. Note that index partitions are not full Relations, so
+ *   index_open is not used.
+ * - For ordinary tables: It retrieves the index list, opens each index relation, marks it as
+ *   unusable, and then closes it.
+ *
+ * @param[in] rel The relation (either a table partition or an ordinary table) whose indexes need to be invalidated.
+ */
+static void rel_shrink_normal_idx_unusable(Relation rel)
+{
+    List* indexList = NIL;
+    ListCell* lc = NULL;
+    if (RelationIsPartition(rel)) {
+        indexList = rel->rd_indexlist;
+        foreach (lc, indexList) {
+            Oid indexOid = lfirst_oid(lc);
+            /*
+             * For partitions, index objects are not Relations (they are in pg_partition),
+             * so we cannot use index_open. The AccessExclusiveLock on the data partition
+             * (held by caller) provides sufficient protection.
+             */
+            ATExecSetIndexUsableState(PartitionRelationId, indexOid, false);
+            CacheInvalidateRelcacheByRelid(indexOid);
+        }
+    } else {
+        indexList = RelationGetIndexList(rel);
+        foreach (lc, indexList) {
+            Oid indexOid = lfirst_oid(lc);
+            Relation indexRel = index_open(indexOid, RowExclusiveLock);
+            ATExecSetIndexUsableState(IndexRelationId, indexOid, false);
+            index_close(indexRel, RowExclusiveLock);
+            CacheInvalidateRelcacheByRelid(indexOid);
+        }
+        list_free(indexList);
+    }
+
+    ereport(WARNING,
+            (errmodule(MOD_SEGMENT_PAGE),
+             errmsg("[SEG_SHRINK] relation \"%s\" <%u/%u/%u> shrink may cause some indexes to become logically "
+                    "inconsistent, so the affected indexes have become unusable and must be rebuilt.",
+                    RelationGetRelationName(rel), rel->rd_node.spcNode, rel->rd_node.dbNode, rel->rd_node.relNode)));
+}
+
+/**
+ * @brief Shrinks the space of a segment-page table by releasing unused extents.
+ *
+ * This function is the core logic for segment-page shrink. It ensures the target
+ * relation is a normal table in current database and tablespace. Then it calls
+ * seg_shrink_relation_space to perform extent shrinking, flushes relation buffers,
+ * and invalidates relcache.
+ *
+ * @param[in] rel The Relation to shrink
+ * @param[in] spaceid OID of the tablespace (must match relation)
+ * @param[in] dbid OID of the database (must match relation)
+ * @param[out] replace_extents Output pointer to store the count of moved (replaced) extents.
+ * @return Number of extents successfully reclaimed
+ */
+static uint32 rel_shrink_extents(Relation rel, Oid spaceid, Oid dbid, uint32* replace_extents)
+{
+    if (!RelationIsSegmentTable(rel)) {
+        ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("gs_table_shrink only support segment-page table")));
+    }
+
+    if (rel->rd_rel->relkind != RELKIND_RELATION) {
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("gs_table_shrink only support ordinary table")));
+    }
+
+    if (rel->rd_node.spcNode != spaceid || rel->rd_node.dbNode != dbid) {
+        ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("gs_table_shrink only support current db and space")));
+    }
+
+    if (IS_SEG_COMPRESSED_RNODE(rel->rd_node, MAIN_FORKNUM)) {
+        ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("gs_table_shrink do not support compress table")));
+    }
+
+    uint32 replace_cnt = 0;
+    uint32 shrink_extents = seg_shrink_relation_space(rel, &replace_cnt);
+    if (replace_cnt > 0) {
+        rel_shrink_normal_idx_unusable(rel);
+        if (replace_extents != NULL) {
+            *replace_extents = replace_cnt;
+        }
+    }
+
+    FlushRelationBuffers(rel);
+    DropRelFileNodeShareBuffers(rel->rd_node, MAIN_FORKNUM, 0);
+    CacheInvalidateRelcache(rel);
+    return shrink_extents;
+}
+
+static uint32 rel_shrink_partition_table(Relation rel, Oid spaceId, Oid dbid, bool* execFailed)
+{
+    uint32 shrinkExtents = 0;
+    List* partOidList = relationGetPartitionOidList(rel);
+    ListCell* cell = NULL;
+    Partition part = NULL;
+    Relation partRel = NULL;
+    uint32 total_replace_cnt = 0;
+    *execFailed = false;
+
+    foreach (cell, partOidList) {
+        if (*execFailed) {
+            break;
+        }
+
+        Oid partOid = lfirst_oid(cell);
+        PG_TRY();
+        {
+            part = partitionOpen(rel, partOid, AccessExclusiveLock);
+            partRel = partitionGetRelation(rel, part);
+            uint32 replace_cnt = 0;
+            shrinkExtents += rel_shrink_extents(partRel, spaceId, dbid, &replace_cnt);
+            releaseDummyRelation(&partRel);
+            partitionClose(rel, part, NoLock);
+            total_replace_cnt += replace_cnt;
+            part = NULL;
+            partRel = NULL;
+        }
+        PG_CATCH();
+        {
+            if (partRel != NULL) {
+                releaseDummyRelation(&partRel);
+                partRel = NULL;
+            }
+            if (part != NULL) {
+                partitionClose(rel, part, NoLock);
+                part = NULL;
+            }
+
+            EmitErrorReport();
+            FlushErrorState();
+            *execFailed = true;
+        }
+        PG_END_TRY();
+    }
+
+    if (partOidList != NULL) {
+        releasePartitionOidList(&partOidList);
+    }
+
+    if (total_replace_cnt > 0) {
+        rel_shrink_global_idx_unusable(rel);
+    }
+
+    CacheInvalidateRelcache(rel);
+    return shrinkExtents;
+}
+
+/**
+ * @brief SQL-callable interface to shrink a specific segment-page table by reclaiming unused tail extents.
+ *
+ * This function performs table-level space shrinking by identifying and reclaiming unused extents
+ * at the end of the table's segment allocation. It supports both regular tables and partitioned
+ * tables (excluding sub-partitioned tables). The operation requires exclusive access to prevent
+ * concurrent modifications during the shrinking process.
+ *
+ * Supported table types:
+ * - Segment-page tables (segment=on)
+ * - Ordinary relations (RELKIND_RELATION)
+ * - Partitioned tables (non-sub-partitioned)
+ *
+ * Restrictions:
+ * - Only works on current database and tablespace
+ * - Does not support compressed tables
+ * - Requires recovery not in progress
+ * - Not available on standby nodes
+ *
+ * @param[in] tableName The name of the relation to be shrunk
+ * @param[in] tablespaceName Name of the tablespace (must match table's tablespace)
+ * @param[in] dbName Name of the database (must be current database)
+ * @return Number of total extents reclaimed (sum across all partitions if applicable)
+ *
+ * @note This operation flushes relation buffers and invalidates relcache after shrinking
+ * @warning Requires AccessExclusiveLock on the target relation
+ */
+Datum gs_table_shrink(PG_FUNCTION_ARGS)
+{
+    if (!XLogInsertAllowed()) {
+        ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                        errmsg("cannot shrink space, for recovery is in progress.")));
+    }
+
+    if (SS_STANDBY_MODE) {
+        ereport(ERROR, (errmsg("SS standby cannot execute gs_table_shrink")));
+    }
+
+    if (SS_DISASTER_STANDBY_CLUSTER) {
+        ereport(ERROR, (errmsg("SS disaster standby cluster cannot execute gs_table_shrink")));
+    }
+
+    char* relName = text_to_cstring(PG_GETARG_TEXT_PP(0));
+    char* tableSpaceName = text_to_cstring(PG_GETARG_TEXT_PP(1));
+    char* dbName = text_to_cstring(PG_GETARG_TEXT_PP(2));
+
+    Oid dbid = get_database_oid_by_name(dbName);
+    if (dbid != u_sess->proc_cxt.MyDatabaseId) {
+        ereport(ERROR, (errmodule(MOD_SEGMENT_PAGE), errmsg("database id is not current database")));
+    }
+    Oid relOid = RelnameGetRelid(relName);
+    if (!OidIsValid(relOid)) {
+        ereport(ERROR, (errcode(ERRCODE_UNDEFINED_TABLE), errmsg("relation \"%s\" does not exist", relName)));
+    }
+    Oid spaceId = get_tablespace_oid_by_name(tableSpaceName);
+    if (!OidIsValid(spaceId)) {
+        ereport(ERROR, (errmsg("invalid tablespace \"%s\"", tableSpaceName)));
+    }
+
+    Relation rel = relation_open(relOid, AccessExclusiveLock);
+    uint32 shrinkExtents = 0;
+    bool execFailed = false;
+    if (!RelationIsValid(rel)) {
+        relation_close(rel, NoLock);
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("could not open relation \"%s\"", relName)));
+    }
+
+    if (!RelationIsRelation(rel)) {
+        relation_close(rel, NoLock);
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("can not shrink relation \"%s\", as it is not a ordinary table", relName)));
+    }
+
+    if (RELATION_IS_PARTITIONED(rel)) {
+        if (RelationIsSubPartitioned(rel)) {
+            relation_close(rel, NoLock);
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                     errmsg("can not shrink relation \"%s\", function gs_table_shrink don't support subpartition table",
+                            relName)));
+        }
+        shrinkExtents = rel_shrink_partition_table(rel, spaceId, dbid, &execFailed);
+    } else {
+        PG_TRY();
+        {
+            shrinkExtents = rel_shrink_extents(rel, spaceId, dbid, NULL);
+        }
+        PG_CATCH();
+        {
+            EmitErrorReport();
+            FlushErrorState();
+            execFailed = true;
+        }
+        PG_END_TRY();
+    }
+
+    relation_close(rel, NoLock);
+    if (execFailed) {
+        ereport(ERROR, (errmsg("gs_table_shrink execute failed")));
+    }
+
+    pfree(relName);
+    pfree(tableSpaceName);
+    pfree(dbName);
+    return shrinkExtents;
+}
+
+/**
+ * @brief Compact segment space by moving tail extents to earlier free positions.
+ *
+ * This function implements the core compaction algorithm that eliminates fragmentation
+ * by relocating valid data extents from higher block numbers to available free slots
+ * at lower positions. The process continues until no more beneficial moves can be made
+ * (i.e., when the next victim extent is at a lower position than available free space).
+ *
+ * Algorithm:
+ * 1. Initialize victim selector with compact_search=true (searches from tail backwards)
+ * 2. For each victim extent found:
+ *    - Find the earliest available free extent
+ *    - If free extent position >= victim position, stop (no benefit)
+ *    - Otherwise, move the victim extent to the free position
+ * 3. Continue until no more beneficial moves exist
+ *
+ * The compaction uses the segment's BMT (Block Mapping Tree) to update logical-to-physical
+ * mappings transparently, ensuring that all existing references (indexes, HOT chains, etc.)
+ * remain valid through the logical page number abstraction.
+ *
+ * @param[in] seg Pointer to SegExtentGroup representing the segment group to compact
+ * @param[in] forknum Fork number (typically MAIN_FORKNUM for table data)
+ *
+ * @note This operation requires careful coordination with the buffer manager to handle
+ *       pages that may be in memory during the move process
+ * @see move_one_extent() for individual extent movement logic
+ * @see ShrinkVictimSelector for extent selection strategy
+ */
+static void move_extents_compact(SegExtentGroup* seg, ForkNumber forknum)
+{
+    /*
+     * Copy meta-data from map head, and release the buffer.
+     * Each time, we (1) select one extent (2) move it. Step (1) and (2) require locks independently to avoid deadlock.
+     */
+    ShrinkVictimSelector selector;
+    selector.init(seg, InvalidBlockNumber, true);
+
+    Buffer ipbuf = InvalidBuffer;
+    BlockNumber victim = selector.next();
+    while (victim != InvalidBlockNumber) {
+        CHECK_FOR_INTERRUPTS();
+        BlockNumber free_ext = eg_search_free_extent(seg);
+        if (free_ext >= victim) {
+            break;
+        }
+        move_one_extent(seg, victim, &ipbuf, forknum);
+        victim = selector.next();
+    }
+
+    if (BufferIsValid(ipbuf)) {
+        SegReleaseBuffer(ipbuf);
+    }
+}
+
+/**
+ * @brief Update the high water mark of a segment if there are trailing free extents.
+ *
+ * This function scans the extent bitmap pages from high to low and identifies the
+ * new high water mark by skipping trailing free extents. If a lower HWM is found,
+ * it updates metadata and writes WAL record.
+ *
+ * @param[in] seg Pointer to SegExtentGroup representing the segment group
+ * @return New high water mark if updated, else old HWM
+ */
+static BlockNumber update_shrink_hwm(SegExtentGroup* seg)
+{
+    Buffer buffer = ReadBufferFast(seg->space, seg->rnode, seg->forknum, seg->map_head_entry, RBM_NORMAL);
+    LockBuffer(buffer, BUFFER_LOCK_SHARE);
+    df_map_head_t* map_head = (df_map_head_t*)PageGetContents(BufferGetBlock(buffer));
+    BlockNumber hwm = map_head->high_water_mark;
+    BlockNumber new_hwm = hwm;
+    bool end = false;
+    int i = map_head->group_count - 1;
+    uint16 new_count = map_head->group_count;
+    for (; !end && i >= 0; i--) {
+        new_count = i + 1;
+        BlockNumber first_map_block = map_head->groups[i].first_map;
+        for (int j = map_head->groups[i].page_count - 1; !end && j >= 0; j--) {
+            BlockNumber map_block = first_map_block + j;
+
+            Buffer map_buffer = ReadBufferFast(seg->space, seg->rnode, seg->forknum, map_block, RBM_NORMAL);
+            LockBuffer(map_buffer, BUFFER_LOCK_SHARE);
+            df_map_page_t* map_page = (df_map_page_t*)PageGetContents(BufferGetBlock(map_buffer));
+
+            if (map_page->first_page >= hwm) {
+                // extents managed by this map block must be un-allocated, because they exceed the range of hwm.
+                SegUnlockReleaseBuffer(map_buffer);
+                continue;
+            }
+
+            int last_bit = map_page->dirty_last;
+            for (; last_bit >= 0; last_bit--) {
+                BlockNumber extent = map_page->first_page + seg->extent_size * last_bit;
+                if (extent >= hwm) {
+                    SegmentCheck(DF_MAP_FREE(map_page->bitmap, last_bit));
+                    continue;
+                }
+
+                if (DF_MAP_FREE(map_page->bitmap, last_bit)) {
+                    new_hwm = extent;
+                } else {
+                    // the extent is used, we can not shrink the hwm anymore.
+                    end = true;
+                    break;
+                }
+            }
+
+            SegUnlockReleaseBuffer(map_buffer);
+        }
+    }
+
+    if (new_hwm < hwm) {
+        SegmentCheck(new_count <= map_head->group_count);
+        ereport(
+            LOG,
+            (errmodule(MOD_SEGMENT_PAGE),
+             errmsg(
+                 "[SEG_SHRINK] shrink triggers SegExtentGroup <%u/%u/%u> refresh hwm, high water mark from %u to %u, "
+                 "group count from %u to %u",
+                 seg->rnode.spcNode, seg->rnode.dbNode, seg->rnode.relNode, hwm, new_hwm, map_head->group_count,
+                 new_count)));
+
+        START_CRIT_SECTION();
+        XLogAtomicOpStart();
+        XLogDataUpdateSpaceHWM xlog_data;
+        xlog_data.new_hwm = new_hwm;
+        xlog_data.old_hwm = hwm;
+        xlog_data.old_groupcnt = map_head->group_count;
+        xlog_data.new_groupcnt = new_count;
+        XLogAtomicOpRegisterBuffer(buffer, REGBUF_KEEP_DATA, SPCXLOG_SPACE_UPDATE_HWM, XLOG_COMMIT_KEEP_BUFFER_STATE);
+        XLogAtomicOpRegisterBufData((char*)&xlog_data, sizeof(XLogDataUpdateSpaceHWM));
+        XLogAtomicOpCommit();
+        END_CRIT_SECTION();
+
+        map_head->high_water_mark = new_hwm;
+        map_head->group_count = new_count;
+        SegUnlockReleaseBuffer(buffer);
+        return new_hwm;
+    }
+
+    SegUnlockReleaseBuffer(buffer);
+    return hwm;
+}
+
+/**
+ * @brief Calculate the physical high water mark based on data and meta usage.
+ *
+ * Determines the maximum block number for data/meta blocks to avoid unnecessary
+ * space reservation during shrinking.
+ *
+ * @param[in] seg Pointer to SegExtentGroup representing the segment group
+ * @param[in] new_hwm high water mark (block number)
+ * @return BlockNumber Physical block boundary for the extent group.
+ */
+static BlockNumber calc_physical_hwm(SegExtentGroup* seg, BlockNumber new_hwm)
+{
+    Buffer buffer = ReadBufferFast(seg->space, seg->rnode, seg->forknum, seg->map_head_entry, RBM_NORMAL);
+    LockBuffer(buffer, BUFFER_LOCK_SHARE);
+    df_map_head_t* map_head = (df_map_head_t*)PageGetContents(BufferGetBlock(buffer));
+    BlockNumber extents = map_head->allocated_extents;
+    SegUnlockReleaseBuffer(buffer);
+
+    BlockNumber data_blocks = extents * seg->extent_size;
+    data_blocks += DF_FILE_EXTEND_STEP_BLOCKS;  // contains extra 128 MB data
+
+    /* First map group */
+    BlockNumber meta_blocks = DEFAULT_META_BLOCKS;
+    BlockNumber group_blocks = seg->extent_size * DF_MAP_GROUP_SIZE * DF_MAP_BIT_CNT;
+    while (data_blocks > group_blocks) {
+        /* If current map group can not contain the rest data blocks, we need more map group */
+        data_blocks -= group_blocks;
+        meta_blocks += DF_MAP_GROUP_SIZE + IPBLOCK_GROUP_SIZE;
+    }
+    BlockNumber target_size = data_blocks + meta_blocks;
+    BlockNumber final_target = (new_hwm > target_size) ? new_hwm : target_size;
+    final_target = CM_ALIGN_ANY(final_target, DF_FILE_EXTEND_STEP_BLOCKS);
+    BlockNumber df_size = eg_df_size(seg);
+    SegmentCheck((df_size % DF_FILE_EXTEND_STEP_BLOCKS) == 0);
+    return (final_target < df_size) ? final_target : InvalidBlockNumber;
+}
+
+/**
+ * @brief Perform shrink and compaction on all segment extent groups of a given type.
+ *
+ * It first moves extents to compact the allocation. Then it recalculates the HWM
+ * and if physical file size can be reduced, it triggers file shrinking.
+ *
+ * @param[in] spcNode Tablespace OID
+ * @param[in] dbNode Database OID
+ * @param[in] extentType Extent size type (e.g., EXTENT_8 to EXTENT_8192)
+ * @param[in] forknum Fork number (e.g., MAIN_FORKNUM)
+ */
+static void spc_shrink_compact(Oid spcNode, Oid dbNode, int extentType, ForkNumber forknum)
+{
+    SegmentCheck(extentType >= EXTENT_8 && extentType <= EXTENT_8192);
+
+    SegSpace *spc = spc_open(spcNode, dbNode, false);
+    if (spc == NULL) {
+        ereport(LOG, (errmsg("Segment is not initialized in current database")));
+        return;
+    }
+    SegExtentGroup* seg = &spc->extent_group[EXTENT_TYPE_TO_GROUPID(extentType)][forknum];
+    if (!eg_df_exists(seg)) {
+        ereport(LOG, (errmsg("Segment is not initialized in current database")));
+        return;
+    }
+
+    move_extents_compact(seg, forknum);
+
+    /*
+     * We must lock the segment extent group here, to forbid any extent allocation.
+     */
+    AutoMutexLock spc_lock(&spc->lock);
+    spc_lock.lock();
+
+    BlockNumber new_hwm = update_shrink_hwm(seg);
+    BlockNumber physical_hwm = calc_physical_hwm(seg, new_hwm);
+    if (BlockNumberIsValid(physical_hwm)) {
+        spc_shrink_files(seg, physical_hwm, false);
+    }
+}
+
+/**
+ * @brief Perform comprehensive space shrinking and compaction across all extent groups in a tablespace.
+ *
+ * This function executes a two-phase space optimization process:
+ * 1. **Compaction Phase**: Moves valid data extents from tail positions to earlier free slots
+ *    to eliminate fragmentation and create contiguous free space at the end
+ * 2. **Shrinking Phase**: Recalculates high water mark (HWM) and physically truncates
+ *    segment files to release unused space back to the filesystem
+ *
+ * The operation processes all extent types (EXTENT_8, EXTENT_64, EXTENT_1024, EXTENT_8192)
+ * within the specified tablespace and database, focusing on MAIN_FORKNUM.
+ * Process flow:
+ *   - For each extent type: call move_extents_compact() to relocate tail extents
+ *   - Lock extent group to prevent concurrent allocations
+ *   - Update logical and physical high water marks
+ *   - Truncate physical files if space can be reclaimed
+ *
+ * @param[in] tablespaceName Name of the tablespace to compact
+ * @param[in] dbName Name of the database (must be current database)
+ * @return Datum Always returns 0 on success.
+ */
+Datum gs_space_shrink_compact(PG_FUNCTION_ARGS)
+{
+    if (!XLogInsertAllowed()) {
+        ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                        errmsg("cannot shrink space, for recovery is in progress.")));
+    }
+
+    if (SS_STANDBY_MODE) {
+        ereport(ERROR, (errmsg("SS standby cannot execute gs_space_shrink_compact")));
+    }
+
+    if (SS_DISASTER_STANDBY_CLUSTER) {
+        ereport(ERROR, (errmsg("SS disaster standby cluster cannot execute gs_space_shrink_compact")));
+    }
+
+    char* tableSpaceName = text_to_cstring(PG_GETARG_TEXT_PP(0));
+    char* dbName = text_to_cstring(PG_GETARG_TEXT_PP(1));
+    Oid spaceid = get_tablespace_oid_by_name(tableSpaceName);
+    if (!OidIsValid(spaceid)) {
+        ereport(ERROR, (errmsg("invalid tablespace \"%s\"", tableSpaceName)));
+    }
+
+    Oid dbid = get_database_oid_by_name(dbName);
+    if (dbid != u_sess->proc_cxt.MyDatabaseId) {
+        ereport(ERROR, (errmodule(MOD_SEGMENT_PAGE), errmsg("database id is not current database")));
+    }
+
+    for (int extent_type = EXTENT_8; extent_type <= EXTENT_8192; extent_type++) {
+        spc_shrink_compact(spaceid, dbid, extent_type, MAIN_FORKNUM);
+    }
+
+    pfree(tableSpaceName);
+    pfree(dbName);
+    return 0;
 }

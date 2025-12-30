@@ -1,0 +1,350 @@
+drop database if exists seg_shrink_db;
+NOTICE:  database "seg_shrink_db" does not exist, skipping
+drop tablespace if exists seg_shrink_tbs;
+NOTICE:  Tablespace "seg_shrink_tbs" does not exist, skipping.
+create tablespace seg_shrink_tbs relative location 'seg_shrink_tbs';
+create database seg_shrink_db tablespace seg_shrink_tbs;
+\c seg_shrink_db;
+-- testcase1: small table for ci
+drop table if exists seg_test_basic;
+NOTICE:  table "seg_test_basic" does not exist, skipping
+drop table if exists seg_test_mix;
+NOTICE:  table "seg_test_mix" does not exist, skipping
+create table seg_test_basic (id bigint, value text, update_at time) with (segment=on);
+create table seg_test_mix (id bigint, value char(8000)) with (segment=on);
+create index seg_basic_idx on seg_test_basic using btree(id);
+create index seg_mix_idx on seg_test_mix using btree(id);
+-- basic1-mix1-basic2-basic3-mix2
+insert into seg_test_basic(id,value) select t,t from generate_series(1,100000) t;
+insert into seg_test_basic(id,value,update_at) select t,t,now() from generate_series(1,100000) t;
+insert into seg_test_mix(id,value) select t,t from generate_series(1,30000) t;
+insert into seg_test_basic(id,value,update_at) select t,t,now() from generate_series(150001,200000) t;
+insert into seg_test_basic(id,value,update_at) select t,t,now() from generate_series(1,50000) t;
+insert into seg_test_mix(id,value) select t,t from generate_series(1,30000) t;
+select count(*) from seg_test_basic;
+ count  
+--------
+ 300000
+(1 row)
+
+select count(*) from seg_test_mix;
+ count 
+-------
+ 60000
+(1 row)
+
+-- delete 15w rows, basic1 and basic3
+select count(*) from seg_test_basic where id < 100001;
+ count  
+--------
+ 250000
+(1 row)
+
+delete from seg_test_basic where id < 100001;
+-- hot tuple
+select id,value,ctid from seg_test_basic where id <= 150005 order by id;
+   id   | value  |   ctid    
+--------+--------+-----------
+ 150001 | 150001 | (1181,89)
+ 150002 | 150002 | (1181,90)
+ 150003 | 150003 | (1181,91)
+ 150004 | 150004 | (1181,92)
+ 150005 | 150005 | (1181,93)
+(5 rows)
+
+update seg_test_basic set value = 'updated_1_' || id, update_at = now() where id <= 150005;
+select id,value,ctid from seg_test_basic where id <= 150005 order by id;
+   id   |      value       |   ctid    
+--------+------------------+-----------
+ 150001 | updated_1_150001 | (1822,93)
+ 150002 | updated_1_150002 | (1822,94)
+ 150003 | updated_1_150003 | (1822,95)
+ 150004 | updated_1_150004 | (1822,96)
+ 150005 | updated_1_150005 | (1822,97)
+(5 rows)
+
+update seg_test_basic set value = 'updated_2_' || id, update_at = now() where id <= 150005;
+select id,value,ctid from seg_test_basic where id <= 150005 order by id;
+   id   |      value       |    ctid    
+--------+------------------+------------
+ 150001 | updated_2_150001 | (1822,98)
+ 150002 | updated_2_150002 | (1822,99)
+ 150003 | updated_2_150003 | (1822,100)
+ 150004 | updated_2_150004 | (1822,101)
+ 150005 | updated_2_150005 | (1822,102)
+(5 rows)
+
+select count(*) from seg_test_basic;
+ count 
+-------
+ 50000
+(1 row)
+
+select pg_sleep(3);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+VACUUM seg_test_basic;
+VACUUM FREEZE seg_test_basic;
+-- failed case
+select * from gs_table_shrink('seg_test_basicbasic','seg_shrink_tbstbs','regression'); --error rel
+ERROR:  database id is not current database
+select * from gs_table_shrink('seg_test_basic','seg_shrink_tbstbs','seg_shrink_db'); --error tbs
+ERROR:  Tablespace "seg_shrink_tbstbs" does not exist.
+select * from gs_table_shrink('seg_test_basic','seg_shrink_tbs','seg_shrink_dbdb'); --error db
+ERROR:  Database "seg_shrink_dbdb" does not exist.
+select * from gs_table_shrink('seg_test_basic','seg_shrink_tbs','regression'); --other db
+ERROR:  database id is not current database
+select * from gs_space_shrink_compact('seg_shrink_tbstbs', 'seg_shrink_db'); --error tbs
+ERROR:  Tablespace "seg_shrink_tbstbs" does not exist.
+select * from gs_space_shrink_compact('seg_shrink_tbs', 'seg_shrink_dbdb'); --error db
+ERROR:  Database "seg_shrink_dbdb" does not exist.
+select * from gs_space_shrink_compact('seg_shrink_tbs', 'regression'); --other db
+ERROR:  database id is not current database
+select pg_sleep(2);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+VACUUM seg_test_basic;
+VACUUM FREEZE seg_test_basic;
+explain (costs off) select /*+ tablescan(seg_test_basic)*/ id,value,ctid from seg_test_basic where id <= 150005 order by id;
+            QUERY PLAN            
+----------------------------------
+ Sort
+   Sort Key: id
+   ->  Seq Scan on seg_test_basic
+         Filter: (id <= 150005)
+(4 rows)
+
+select /*+ tablescan(seg_test_basic)*/ id,value,ctid from seg_test_basic where id <= 150005 order by id;
+   id   |      value       |    ctid    
+--------+------------------+------------
+ 150001 | updated_2_150001 | (1822,98)
+ 150002 | updated_2_150002 | (1822,99)
+ 150003 | updated_2_150003 | (1822,100)
+ 150004 | updated_2_150004 | (1822,101)
+ 150005 | updated_2_150005 | (1822,102)
+(5 rows)
+
+explain (costs off) select /*+ indexscan(seg_test_basic)*/ id,value,ctid from seg_test_basic where id <= 150005 order by id;
+                    QUERY PLAN                    
+--------------------------------------------------
+ Index Scan using seg_basic_idx on seg_test_basic
+   Index Cond: (id <= 150005)
+(2 rows)
+
+select /*+ indexscan(seg_test_basic)*/ id,value,ctid from seg_test_basic where id <= 150005 order by id;
+   id   |      value       |    ctid    
+--------+------------------+------------
+ 150001 | updated_2_150001 | (1822,98)
+ 150002 | updated_2_150002 | (1822,99)
+ 150003 | updated_2_150003 | (1822,100)
+ 150004 | updated_2_150004 | (1822,101)
+ 150005 | updated_2_150005 | (1822,102)
+(5 rows)
+
+select * from local_segment_space_info('seg_shrink_tbs','seg_shrink_db') where forknum=0 and extent_size > 1 order by extent_size;
+ node_name | extent_size | forknum | total_blocks | meta_data_blocks | used_data_blocks | utilization | high_water_mark 
+-----------+-------------+---------+--------------+------------------+------------------+-------------+-----------------
+ datanode1 |           8 |       0 |        16384 |             4157 |              528 |      .28595 |            4685
+ datanode1 |         128 |       0 |        16384 |             4157 |             3968 |     .495911 |            8125
+(2 rows)
+
+select * from gs_table_shrink('seg_test_basic','seg_shrink_tbs','seg_shrink_db');
+--?.*
+ gs_table_shrink 
+-----------------
+              10
+(1 row)
+
+select * from local_segment_space_info('seg_shrink_tbs','seg_shrink_db') where forknum=0 and extent_size > 1 order by extent_size;
+ node_name | extent_size | forknum | total_blocks | meta_data_blocks | used_data_blocks | utilization | high_water_mark 
+-----------+-------------+---------+--------------+------------------+------------------+-------------+-----------------
+ datanode1 |           8 |       0 |        16384 |             4157 |              528 |      .28595 |            4685
+ datanode1 |         128 |       0 |        16384 |             4157 |             2688 |     .417786 |            8125
+(2 rows)
+
+select * from gs_space_shrink_compact('seg_shrink_tbs', 'seg_shrink_db');
+ gs_space_shrink_compact 
+-------------------------
+                       0
+(1 row)
+
+select * from local_segment_space_info('seg_shrink_tbs','seg_shrink_db') where forknum=0 and extent_size > 1 order by extent_size;
+ node_name | extent_size | forknum | total_blocks | meta_data_blocks | used_data_blocks | utilization | high_water_mark 
+-----------+-------------+---------+--------------+------------------+------------------+-------------+-----------------
+ datanode1 |           8 |       0 |        16384 |             4157 |              528 |      .28595 |            4685
+ datanode1 |         128 |       0 |        16384 |             4157 |             2688 |     .417786 |            6845
+(2 rows)
+
+-- index read blocks
+explain (costs off) select /*+ indexscan(seg_test_basic)*/ id,value,ctid from seg_test_basic where id <= 150005 order by id;
+WARNING:  unused hint: IndexScan(seg_test_basic)
+            QUERY PLAN            
+----------------------------------
+ Sort
+   Sort Key: id
+   ->  Seq Scan on seg_test_basic
+         Filter: (id <= 150005)
+(4 rows)
+
+select /*+ indexscan(seg_test_basic)*/ id,value,ctid from seg_test_basic where id <= 150005 order by id;
+   id   |      value       |   ctid    
+--------+------------------+-----------
+ 150001 | updated_2_150001 | (158,98)
+ 150002 | updated_2_150002 | (158,99)
+ 150003 | updated_2_150003 | (158,100)
+ 150004 | updated_2_150004 | (158,101)
+ 150005 | updated_2_150005 | (158,102)
+(5 rows)
+
+-- check index status
+select c.relname as index_name, i.indisusable FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_class t ON t.oid = i.indrelid WHERE t.relname = 'seg_test_basic';
+  index_name   | indisusable 
+---------------+-------------
+ seg_basic_idx | f
+(1 row)
+
+select count(*) from seg_test_basic;
+ count 
+-------
+ 50000
+(1 row)
+
+REINDEX index seg_basic_idx;
+select c.relname as index_name, i.indisusable FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_class t ON t.oid = i.indrelid WHERE t.relname = 'seg_test_basic';
+  index_name   | indisusable 
+---------------+-------------
+ seg_basic_idx | t
+(1 row)
+
+explain (costs off) select /*+ indexscan(seg_test_basic)*/ id,value,ctid from seg_test_basic where id <= 150005 order by id;
+                    QUERY PLAN                    
+--------------------------------------------------
+ Index Scan using seg_basic_idx on seg_test_basic
+   Index Cond: (id <= 150005)
+(2 rows)
+
+select /*+ indexscan(seg_test_basic)*/ id,value,ctid from seg_test_basic where id <= 150005 order by id;
+   id   |      value       |   ctid    
+--------+------------------+-----------
+ 150001 | updated_2_150001 | (158,98)
+ 150002 | updated_2_150002 | (158,99)
+ 150003 | updated_2_150003 | (158,100)
+ 150004 | updated_2_150004 | (158,101)
+ 150005 | updated_2_150005 | (158,102)
+(5 rows)
+
+select count(*) from seg_test_basic;
+ count 
+-------
+ 50000
+(1 row)
+
+insert into seg_test_basic(id,value,update_at) select t,t,now() from generate_series(501,700) t;
+select count(*) from seg_test_basic;
+ count 
+-------
+ 50200
+(1 row)
+
+select id from seg_test_basic where id < 505 order by id;
+ id  
+-----
+ 501
+ 502
+ 503
+ 504
+(4 rows)
+
+update seg_test_basic set id=id+1000000 where id < 505;
+select id from seg_test_basic where id > 1000000 order by id;
+   id    
+---------
+ 1000501
+ 1000502
+ 1000503
+ 1000504
+(4 rows)
+
+delete from seg_test_basic where id > 1000000;
+select * from local_segment_space_info('seg_shrink_tbs','seg_shrink_db') where forknum=0 and extent_size > 1 order by extent_size;
+ node_name | extent_size | forknum | total_blocks | meta_data_blocks | used_data_blocks | utilization | high_water_mark 
+-----------+-------------+---------+--------------+------------------+------------------+-------------+-----------------
+ datanode1 |           8 |       0 |        16384 |             4157 |              528 |      .28595 |            4813
+ datanode1 |         128 |       0 |        16384 |             4157 |             1792 |     .363098 |            6973
+(2 rows)
+
+drop table seg_test_basic;
+drop table seg_test_mix;
+select * from local_segment_space_info('seg_shrink_tbs','seg_shrink_db') where forknum=0 and extent_size > 1 order by extent_size;
+ node_name | extent_size | forknum | total_blocks | meta_data_blocks | used_data_blocks | utilization | high_water_mark 
+-----------+-------------+---------+--------------+------------------+------------------+-------------+-----------------
+ datanode1 |           8 |       0 |        16384 |             4157 |                0 |     .253723 |            4813
+ datanode1 |         128 |       0 |        16384 |             4157 |                0 |     .253723 |            6973
+(2 rows)
+
+select * from gs_space_shrink_compact('seg_shrink_tbs', 'seg_shrink_db');
+ gs_space_shrink_compact 
+-------------------------
+                       0
+(1 row)
+
+select * from local_segment_space_info('seg_shrink_tbs','seg_shrink_db') where forknum=0 and extent_size > 1 order by extent_size;
+ node_name | extent_size | forknum | total_blocks | meta_data_blocks | used_data_blocks | utilization | high_water_mark 
+-----------+-------------+---------+--------------+------------------+------------------+-------------+-----------------
+ datanode1 |           8 |       0 |        16384 |             4157 |                0 |     .253723 |            4157
+ datanode1 |         128 |       0 |        16384 |             4157 |                0 |     .253723 |            4157
+(2 rows)
+
+-- testcase2: dont support compress table
+drop table if exists seg_compress_table;
+NOTICE:  table "seg_compress_table" does not exist, skipping
+create table seg_compress_table (id bigint, value char(8000)) with (compresstype=2, segment=on);
+select * from gs_table_shrink('seg_compress_table','seg_shrink_tbs','seg_shrink_db');
+ERROR:  gs_table_shrink do not support compress table
+ERROR:  gs_table_shrink execute failed
+drop table seg_compress_table;
+select * from gs_space_shrink_compact('seg_shrink_tbs', 'seg_shrink_db');
+ gs_space_shrink_compact 
+-------------------------
+                       0
+(1 row)
+
+select * from local_segment_space_info('seg_shrink_tbs','seg_shrink_db') where forknum=0 and extent_size > 1 order by extent_size;
+ node_name | extent_size | forknum | total_blocks | meta_data_blocks | used_data_blocks | utilization | high_water_mark 
+-----------+-------------+---------+--------------+------------------+------------------+-------------+-----------------
+ datanode1 |           8 |       0 |        16384 |             4157 |                0 |     .253723 |            4157
+ datanode1 |         128 |       0 |        16384 |             4157 |                0 |     .253723 |            4157
+(2 rows)
+
+-- testcase3: dont support subpartition table
+drop table if exists seg_range_list_sales;
+NOTICE:  table "seg_range_list_sales" does not exist, skipping
+create table seg_range_list_sales( customer_id INT4 NOT NULL, channel_id CHAR(1))
+WITH (segment=on) PARTITION BY RANGE (customer_id) SUBPARTITION BY LIST (channel_id) (
+    PARTITION customer1 VALUES LESS THAN (20)( SUBPARTITION customer1_channel1 VALUES ('0', '1', '2'), SUBPARTITION customer1_channel4 VALUES (DEFAULT)),
+    PARTITION customer2 VALUES LESS THAN (120)( SUBPARTITION customer2_channel1 VALUES ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')));
+select * from gs_table_shrink('seg_range_list_sales','seg_shrink_tbs','seg_shrink_db');
+ERROR:  can not shrink relation "seg_range_list_sales", function gs_table_shrink don't support subpartition table
+drop table seg_range_list_sales;
+select * from gs_space_shrink_compact('seg_shrink_tbs', 'seg_shrink_db');
+ gs_space_shrink_compact 
+-------------------------
+                       0
+(1 row)
+
+select * from local_segment_space_info('seg_shrink_tbs','seg_shrink_db') where forknum=0 and extent_size > 1 order by extent_size;
+ node_name | extent_size | forknum | total_blocks | meta_data_blocks | used_data_blocks | utilization | high_water_mark 
+-----------+-------------+---------+--------------+------------------+------------------+-------------+-----------------
+ datanode1 |           8 |       0 |        16384 |             4157 |                0 |     .253723 |            4157
+ datanode1 |         128 |       0 |        16384 |             4157 |                0 |     .253723 |            4157
+(2 rows)
+
+\c regression;
+drop database if exists seg_shrink_db;
+drop tablespace if exists seg_shrink_tbs;

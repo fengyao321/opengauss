@@ -530,3 +530,5 @@ test: auto_parameterization_views
 # test mot when without mot in compile
 test: mot/without_mot_server
 
+# test gs_table_shrink and gs_space_shrink_compact function
+test: seg_shrink_table

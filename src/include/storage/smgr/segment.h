@@ -79,6 +79,9 @@ bool seg_filetag_matches(const FileTag *ftag, const FileTag *candidate);
 void df_extend_file_vector(SegLogicFile *sf);
 RelFileNode EXTENT_GROUP_RNODE(SegSpace *spc, ExtentSize extent_size, uint2 opt);
 
+/* segment shrink space */
+uint32 seg_shrink_relation_space(Relation rel, uint32* replace_exts);
+
 /*
  * XLog Atomic Operation APIs
  */
@@ -220,5 +223,7 @@ extern StorageType PartitionGetStorageType(Partition partition, Oid parentOid);
 extern bool repair_check_physical_type(uint32 spcNode, uint32 dbNode, int32 forkNum, uint32 *relNode, uint32 *blockNum);
 extern RelFileNode get_segment_logic_rnode(SegSpace *spc, BlockNumber head_blocknum, int aim_fork);
 extern void SegUpdatePca(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, SegmentHead *seg_head);
+extern void copy_extent(SegExtentGroup* seg, RelFileNode logic_rnode, uint32 logic_start_blocknum, BlockNumber nblocks,
+                        BlockNumber phy_from_extent, BlockNumber phy_to_extent, ForkNumber forknum);
 
 #endif
