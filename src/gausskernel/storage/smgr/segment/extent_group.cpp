@@ -900,3 +900,76 @@ void eg_free_extent(SegExtentGroup *seg, BlockNumber blocknum)
         XLogAtomicOpRegisterBufData((char *)&xlog_data, sizeof(xlog_data));
     }
 }
+
+/**
+ * @brief Searches for a free extent in a segment and returns its BlockNumber.
+ *
+ * This function traverses the segment's mapping header and map groups to locate a free extent
+ * based on the free bitmaps in the map pages. The search starts from the first free group
+ * and iterates through all map pages, checking for free bits. If a free extent is found,
+ * the function returns its corresponding BlockNumber. If no free extent is found, it returns
+ * InvalidBlockNumber.
+ *
+ * The function uses shared locks on the buffers of the map header and map pages to ensure
+ * data consistency during the search. After finding a free extent, the buffers are unlocked
+ * before returning the BlockNumber.
+ *
+ * @param[in] seg The segment extent group to search for a free extent.
+ * @return BlockNumber The BlockNumber of the first free extent found, or InvalidBlockNumber
+ *         if no free extents are available.
+ */
+BlockNumber eg_search_free_extent(SegExtentGroup* seg)
+{
+    if (!eg_df_exists(seg)) {
+        return InvalidBlockNumber;
+    }
+
+    LockSegmentHeadPartition(seg->space->spcNode, seg->space->dbNode, seg->map_head_entry, LW_SHARED);
+    Buffer head_buffer = ReadBufferFast(seg->space, seg->rnode, seg->forknum, seg->map_head_entry, RBM_NORMAL);
+    if (!BufferIsValid(head_buffer)) {
+        UnlockSegmentHeadPartition(seg->space->spcNode, seg->space->dbNode, seg->map_head_entry);
+        return InvalidBlockNumber;
+    }
+
+    LockBuffer(head_buffer, BUFFER_LOCK_SHARE);
+    df_map_head_t* map_head = (df_map_head_t*)PageGetContents(BufferGetBlock(head_buffer));
+    SegmentCheck(map_head->group_count > 0 && map_head->free_group < map_head->group_count);
+
+    for (uint16 group_id = map_head->free_group; group_id < map_head->group_count; group_id++) {
+        df_map_group_t* map_group = &map_head->groups[group_id];
+        SegmentCheck(map_group->free_page < map_group->page_count);
+
+        for (uint32 map_id = map_group->first_map; map_id < (map_group->first_map + map_group->page_count); map_id++) {
+            Buffer map_buffer = ReadBufferFast(seg->space, seg->rnode, seg->forknum, map_id, RBM_NORMAL);
+            if (!BufferIsValid(map_buffer)) {
+                SegUnlockReleaseBuffer(head_buffer);
+                UnlockSegmentHeadPartition(seg->space->spcNode, seg->space->dbNode, seg->map_head_entry);
+                return InvalidBlockNumber;
+            }
+
+            LockBuffer(map_buffer, BUFFER_LOCK_SHARE);
+
+            df_map_page_t* map_page = (df_map_page_t*)PageGetContents(BufferGetBlock(map_buffer));
+            if (map_page->free_bits == 0) {
+                SegUnlockReleaseBuffer(map_buffer);
+                continue;
+            }
+            uint16 curr_bit = map_page->free_begin;
+            while (curr_bit < DF_MAP_BIT_CNT) {
+                if (DF_MAP_FREE(map_page->bitmap, curr_bit)) {
+                    BlockNumber pagenum = map_page->first_page + ((BlockNumber)(curr_bit)) * map_head->bit_unit;
+                    SegUnlockReleaseBuffer(map_buffer);
+                    SegUnlockReleaseBuffer(head_buffer);
+                    UnlockSegmentHeadPartition(seg->space->spcNode, seg->space->dbNode, seg->map_head_entry);
+                    return pagenum;
+                }
+                curr_bit++;
+            }
+            SegUnlockReleaseBuffer(map_buffer);
+        }
+    }
+
+    SegUnlockReleaseBuffer(head_buffer);
+    UnlockSegmentHeadPartition(seg->space->spcNode, seg->space->dbNode, seg->map_head_entry);
+    return InvalidBlockNumber;
+}

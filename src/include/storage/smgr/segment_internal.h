@@ -351,6 +351,7 @@ static const uint32 IPBLOCK_SIZE = BLCKSZ - TYPEALIGN(sizeof(ExtentInversePointe
 static const uint32 EXTENTS_PER_IPBLOCK = IPBLOCK_SIZE / sizeof(ExtentInversePointer);
 static const uint32 IPBLOCK_GROUP_SIZE =
     (uint32)(DF_MAP_BIT_CNT * DF_MAP_GROUP_SIZE + EXTENTS_PER_IPBLOCK - 1) / EXTENTS_PER_IPBLOCK;
+static const uint32 DEFAULT_META_BLOCKS = DF_MAP_GROUP_SIZE + DF_MAP_HEAD_PAGE + 1 + IPBLOCK_GROUP_SIZE;
 
 typedef struct IpBlockLocation {
     BlockNumber ipblock;
@@ -373,6 +374,7 @@ void eg_ctrl_init(SegSpace *spc, SegExtentGroup *seg, int extent_size, ForkNumbe
 SpaceDataFileStatus eg_status(SegExtentGroup *eg);
 
 BlockNumber eg_alloc_extent(SegExtentGroup *seg, BlockNumber preassigned_block, ExtentInversePointer iptr);
+BlockNumber eg_search_free_extent(SegExtentGroup *seg);
 void eg_free_extent(SegExtentGroup* seg, BlockNumber blocknum);
 
 bool eg_empty(SegExtentGroup *seg);

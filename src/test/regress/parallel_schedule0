@@ -1169,4 +1169,7 @@ test: dump_alter_index_disable
 # to_timestamp func
 test: to_timestamp_default cast
 
+# test gs_table_shrink and gs_space_shrink_compact function
+test: seg_shrink_table
+
 test: dump_alter_index_invisible nls_lower

@@ -175,13 +175,6 @@ static void redo_update_seghead(Buffer buffer, const char *data)
 
     SegmentHead *head = (SegmentHead *)PageGetContents(BufferGetPage(buffer));
 
-    if (xlog_data->nblocks != head->nblocks) {
-        ereport(PANIC,
-                (errmsg("redo update seghead, but target head's nblocks is %u, but should be %u according to xlog",
-                        head->nblocks, xlog_data->nblocks),
-                 errhint("segment-page may have bug")));
-    }
-
     if (xlog_data->level0_slot >= 0) {
         head->level0_slots[xlog_data->level0_slot] = xlog_data->level0_value;
     }
@@ -190,6 +183,7 @@ static void redo_update_seghead(Buffer buffer, const char *data)
     }
     head->nextents = xlog_data->nextents;
     head->total_blocks = xlog_data->total_blocks;
+    head->nblocks = xlog_data->nblocks;
 }
 
 static void redo_new_level0_page(Buffer buffer, const char *data)

@@ -25,6 +25,7 @@
 
 #include "access/xloginsert.h"
 #include "access/xlogproc.h"
+#include "access/visibilitymap.h"
 #include "catalog/pg_tablespace.h"
 #include "catalog/storage_xlog.h"
 #include "miscadmin.h"
@@ -35,6 +36,7 @@
 #include "storage/procarray.h"
 #include "storage/smgr/segment.h"
 #include "storage/smgr/smgr.h"
+#include "storage/freespace.h"
 #include "utils/resowner.h"
 #include "vectorsonic/vsonichash.h"
 #include "storage/procarray.h"
@@ -642,6 +644,23 @@ CREATE_DESC:
     return true;
 }
 
+static void free_last_extent_slot(SegSpace* spc, Buffer head_buffer, SegmentHead* head, uint32 last_ext_id)
+{
+    if (RequireNewLevel0Page(last_ext_id)) {
+        // free last level0page, the level0 page belongs to the MAIN_FORK.
+        uint32 level1_slot = ExtentIdToLevel1Slot(last_ext_id);
+        BlockNumber extent = head->level1_slots[level1_slot];
+        spc_free_extent(spc, SEGMENT_HEAD_EXTENT_SIZE, MAIN_FORKNUM, extent);
+        head->level1_slots[level1_slot] = InvalidBlockNumber;
+
+        seg_head_update_xlog(head_buffer, head, -1, level1_slot);
+    } else {
+        /* modify level0_slot value and updates nextents and total_blocks */
+        head->level0_slots[last_ext_id] = InvalidBlockNumber;
+        seg_head_update_xlog(head_buffer, head, last_ext_id, -1);
+    }
+}
+
 /*
  * This function is the smallest atomic unit during remove a segment.
  * It frees the last extent in the segment, and sets meta data in the segment head.
@@ -661,6 +680,7 @@ static void free_last_extent(SegSpace *spc, ForkNumber forknum, Buffer head_buff
     int last_ext_id = head->nextents - 1;
     BlockNumber ext_blk = seg_extent_location(spc, head, last_ext_id);
     ExtentSize ext_size = ExtentSizeByCount(last_ext_id);
+    BlockNumber logic_start = ExtentIdToLogicBlockNum(last_ext_id);
 
     XLogAtomicOpStart();
     spc_free_extent(spc, ext_size, forknum, ext_blk);
@@ -669,19 +689,14 @@ static void free_last_extent(SegSpace *spc, ForkNumber forknum, Buffer head_buff
     START_CRIT_SECTION();
     head->nextents--;
     head->total_blocks -= ext_size;
+    head->nblocks = logic_start;
 
-    if (RequireNewLevel0Page(last_ext_id)) {
-        // free last level0page, the level0 page belongs to the MAIN_FORK.
-        uint32 level1_slot = ExtentIdToLevel1Slot(last_ext_id);
-        BlockNumber extent = head->level1_slots[level1_slot];
-        spc_free_extent(spc, SEGMENT_HEAD_EXTENT_SIZE, MAIN_FORKNUM, extent);
-        head->level1_slots[level1_slot] = InvalidBlockNumber;
+    ereport(DEBUG1, (errmodule(MOD_SEGMENT_PAGE), errmsg("[FREE_EXTENT] free extent %u <%u/%u>, extent size %u, "
+                                                         "SegmentHead info: nblocks %u, total_blocks %u, nextents %u",
+                                                         last_ext_id, spc->spcNode, spc->dbNode, ext_size,
+                                                         head->nblocks, head->total_blocks, head->nextents)));
 
-        seg_head_update_xlog(head_buffer, head, -1, level1_slot);
-    } else {
-        /* Only updates nextents and total_blocks */
-        seg_head_update_xlog(head_buffer, head, -1, -1);
-    }
+    free_last_extent_slot(spc, head_buffer, head, last_ext_id);
 
     END_CRIT_SECTION();
 
@@ -2186,4 +2201,399 @@ void SegUpdatePca(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, S
                                         loc.blocknum);
     CfsExtendForSeg(fake_node, fd, seg->extent_size, forknum, loc.blocknum, nullptr, location);
     return;
+}
+
+/*
+ * Same as HeapPageCheckForUsedLinePointer but for Segment-Page shrink.
+ */
+static bool seg_page_in_use(Page page)
+{
+    if (PageIsNew(page) || PageIsEmpty(page)) {
+        return false;
+    }
+
+    OffsetNumber maxoff = PageGetMaxOffsetNumber((char*)page);
+    for (OffsetNumber offnum = FirstOffsetNumber; offnum <= maxoff; offnum = OffsetNumberNext(offnum)) {
+        ItemId itemid = PageGetItemId(page, offnum);
+        if (ItemIdIsUsed(itemid)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * @brief Checks whether an extent in a segment-page table is eligible for shrinking.
+ *
+ * This function examines a specified extent within a segment-page storage system to determine
+ * whether it can be safely reclaimed. The check is based on whether the pages in the extent
+ * are fully unused and fall within the shrinkable range (`seg_nblocks`). The function helps
+ * ensure that only empty extents at the segment's tail are selected for reclamation.
+ *
+ * @param[in] rel The relation (table) being evaluated for shrinking.
+ * @param[in] seg_nblocks The current number of blocks in the segment, used to determine shrink limits.
+ * @param[in] seg The segment extent group containing metadata about allocated extents.
+ * @param[in] ext_start The starting block number of the extent being checked.
+ *
+ * @return true If the extent is eligible for shrinking.
+ * @return false If the extent contains active tuples or cannot be safely reclaimed.
+ */
+static bool seg_extent_in_use(Relation rel, uint32 seg_nblocks, SegExtentGroup* seg, BlockNumber ext_start)
+{
+    Buffer ext_buffer;
+    BlockNumber ext_blk;
+    for (int i = 0; i < seg->extent_size; i++) {
+        ext_blk = ext_start + i;
+        if (ext_blk >= seg_nblocks) {
+            break;
+        }
+        ext_buffer = ReadBufferExtended(rel, seg->forknum, ext_blk, RBM_NORMAL, NULL);  // logic block id
+        LockBuffer(ext_buffer, BUFFER_LOCK_EXCLUSIVE);
+        bool has_tup = seg_page_in_use(BufferGetPage(ext_buffer));
+        UnlockReleaseBuffer(ext_buffer);
+        if (has_tup) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * @brief Releases Free Space Map (FSM) entries for a specified extent in a segment-page table.
+ *
+ * This function removes the FSM (Free Space Map) records associated with an extent that
+ * is being shrunk. By clearing these records, it ensures that the extent is no longer
+ * considered available for tuple insertion. This step is necessary to prevent incorrect
+ * page allocations after space reclamation.
+ *
+ * If get_space is false, the function directly clears the FSM range with zero free space
+ *
+ * @param[in] rel The relation (table) for which FSM entries need to be cleared.
+ * @param[in] seg_nblocks The total number of blocks in the segment, used for boundary checks.
+ * @param[in] seg The segment extent group, which contains metadata about allocated extents.
+ * @param[in] start_blk The starting block number of the extent whose FSM entries will be freed.
+ * @param[in] get_space Whether to collect free space from the blocks.
+ */
+static void seg_shrink_free_fsm(Relation rel, uint32 seg_nblocks, SegExtentGroup* seg, BlockNumber start_blk,
+                                bool get_space)
+{
+    BlockNumber ext_blk;
+    BlockNumber end_blk = start_blk + seg->extent_size - 1;
+    Buffer vmbuffer = InvalidBuffer;
+    Size fs;
+
+    for (int i = 0; i < seg->extent_size; i++) {
+        fs = 0;
+        ext_blk = start_blk + i;
+        if (ext_blk >= seg_nblocks) {
+            end_blk = seg_nblocks - 1;
+            break;
+        }
+
+        if (get_space) {
+            Buffer ext_buffer = ReadBufferExtended(rel, seg->forknum, ext_blk, RBM_NORMAL, NULL);
+            SegmentCheck(BufferIsValid(ext_buffer));
+            LockBuffer(ext_buffer, BUFFER_LOCK_EXCLUSIVE);
+            BufferDesc* buf_desc = BufferGetBufferDescriptor(ext_buffer);
+            uint64 buf_state = LockBufHdr(buf_desc);
+            bool need_flush = buf_state & BM_DIRTY;
+            UnlockBufHdr(buf_desc, buf_state);
+            if (need_flush) {
+                ereport(PANIC, (errmsg("Dirty buffer detected after extent relocation: block %u", ext_blk)));
+            }
+
+            Page page = BufferGetPage(ext_buffer);
+            fs = PageGetHeapFreeSpace(page);
+            UnlockReleaseBuffer(ext_buffer);
+        }
+
+        RecordPageWithFreeSpace(rel, ext_blk, fs);
+        visibilitymap_pin(rel, ext_blk, &vmbuffer);
+        if (BufferIsValid(vmbuffer)) {
+            visibilitymap_clear(rel, ext_blk, vmbuffer);
+            ReleaseBuffer(vmbuffer);
+            vmbuffer = InvalidBuffer;
+        }
+    }
+
+    if (!get_space) {
+        UpdateFreeSpaceMap(rel, start_blk, end_blk, 0, false);
+    }
+}
+
+/**
+ * @brief Finds a free extent before a given extent ID for reuse.
+ *
+ * This function scans forward from extent ID 1 up to last_ext to locate
+ * an extent with the same extent size that is currently free (i.e., not in use).
+ *
+ * @param[in] rel The relation being scanned.
+ * @param[in] spc Segment space structure containing extent group metadata.
+ * @param[in] last_ext The last (target) extent ID to scan up to (exclusive).
+ * @param[in] nblocks Total number of blocks in the segment.
+ * @param[in] forknum Fork number (e.g., MAIN_FORKNUM).
+ * @return uint32 ID of a free extent found. Returns last_ext if none found.
+ */
+static uint32 seg_find_free_extent_forward(Relation rel, SegSpace* spc, uint32 last_ext, uint32 nblocks,
+                                           ForkNumber forknum)
+{
+    ExtentSize last_ext_size = ExtentSizeByCount(last_ext);
+    ExtentSize ext_size;
+    int egid;
+    SegExtentGroup* seg;
+    BlockNumber ext_start;
+
+    for (uint32 ext_id = 1; ext_id <= last_ext; ext_id++) {
+        ext_size = ExtentSizeByCount(ext_id);
+        if (ext_size != last_ext_size) {
+            continue;
+        }
+
+        egid = EXTENT_SIZE_TO_GROUPID(ext_size);
+        seg = &spc->extent_group[egid][forknum];
+        SegmentCheck(eg_df_exists(seg));
+        ext_start = ExtentIdToLogicBlockNum(ext_id);
+        SegmentCheck(seg->extent_size == ext_size);
+        if (!seg_extent_in_use(rel, nblocks, seg, ext_start)) {
+            return ext_id;
+        }
+    }
+
+    return last_ext;
+}
+
+/**
+ * @brief Evicts buffers belonging to a given extent from shared buffer pool.
+ *
+ * This function attempts to retrieve and invalidate each buffer of the given extent.
+ * It performs the following:
+ * - Checks whether the buffer is dirty and panics if so.
+ * - Checks the reference count to avoid evicting pinned buffers.
+ * - Invalidates the buffer if safe.
+ *
+ * @param[in] rnode RelFileNode identifying the relation.
+ * @param[in] logic_start Starting block number of the extent.
+ * @param[in] extent_size Number of blocks in the extent.
+ * @param[in] nblocks Total number of blocks in the relation.
+ * @param[in] forknum Fork number (e.g., MAIN_FORKNUM).
+ */
+static void spc_evict_extent_buffers(RelFileNode rnode, uint32 logic_start, uint32 extent_size, uint32 nblocks,
+                                     int forknum)
+{
+    for (uint32 blkno = logic_start; blkno < logic_start + extent_size; blkno++) {
+        if (blkno >= nblocks) {
+            return;
+        }
+
+        Buffer buf = try_get_moved_pagebuf(&rnode, forknum, blkno);
+        if (!BufferIsValid(buf)) {
+            continue;
+        }
+
+        LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
+        BufferDesc* buf_desc = BufferGetBufferDescriptor(buf);
+        uint64 buf_state = LockBufHdr(buf_desc);
+        bool need_flush = buf_state & BM_DIRTY;
+        UnlockBufHdr(buf_desc, buf_state);
+
+        if (need_flush) {
+            FlushOneBufferIncludeDW(buf_desc);
+            ereport(DEBUG1, (errmodule(MOD_SEGMENT_PAGE),
+                             errmsg("[EVICT_BUFFER] buffer is dirty, need flush, blockno %u, tag blocknum %u, "
+                                    "seg_blockno %u extent_size:%u",
+                                    blkno, buf_desc->tag.blockNum, buf_desc->extra->seg_blockno, extent_size)));
+        }
+
+        LockBuffer(buf, BUFFER_LOCK_UNLOCK);
+        UnpinBuffer(buf_desc, true);
+        buf_state = LockBufHdr(buf_desc);
+        if (BUF_STATE_GET_REFCOUNT(buf_state) > 0) {
+            UnlockBufHdr(buf_desc, buf_state);
+            ereport(WARNING, (errmodule(MOD_SEGMENT_PAGE),
+                              errmsg("[MOVE_EXTENT] block %u has reference count, skip evict buffer", blkno)));
+            continue;
+        }
+
+        if (RelFileNodeEquals(buf_desc->tag.rnode, rnode) && (buf_desc->tag.forkNum == forknum) &&
+            (buf_desc->tag.blockNum == blkno) && (buf_state & BM_VALID)) {
+            InvalidateBuffer(buf_desc);
+        } else {
+            UnlockBufHdr(buf_desc, buf_state);
+        }
+    }
+}
+
+/**
+ * @brief Replaces a given extent with a previously freed one during shrink operations.
+ *
+ * This function performs a safe in-place replacement of a tail extent by copying
+ * its data to a free extent location and updating all relevant metadata, logs, and
+ * memory structures. It includes:
+ * - Copying extent data using copy_extent.
+ * - Releasing the old extent via spc_free_extent.
+ * - Evicting copied page buffers from memory.
+ * - Updating the segment head metadata and logging.
+ *
+ * @param[in] rel Relation whose extent is to be replaced.
+ * @param[in] spc Segment space the relation belongs to.
+ * @param[in] last_ext Extent ID to be replaced.
+ * @param[in] forknum Fork number of the segment.
+ * @param[in] copy_ext Free extent ID to be used as the replacement target.
+ */
+void seg_extent_replace(Relation rel, SegSpace* spc, uint32 last_ext, ForkNumber forknum, uint32 copy_ext)
+{
+    ExtentSize ext_size = ExtentSizeByCount(last_ext);
+    BlockNumber last_ext_start = ExtentIdToLogicBlockNum(last_ext);
+    SegExtentGroup* seg = &spc->extent_group[EXTENT_SIZE_TO_GROUPID(ext_size)][forknum];
+
+    SMgrRelation reln = rel->rd_smgr;
+    bool seg_exist = open_segment(reln, forknum, false);
+    if (!seg_exist || (reln->seg_space == NULL) || (reln->seg_space != spc)) {
+        ereport(ERROR, (errmodule(MOD_SEGMENT_PAGE),
+                        errmsg("segment space is unexpected space[%u, %u].", spc->spcNode, spc->dbNode)));
+        return;
+    }
+    LockSegmentHeadPartition(spc->spcNode, spc->dbNode, reln->seg_desc[forknum]->head_blocknum, LW_EXCLUSIVE);
+
+    Buffer main_head_buffer = ReadSegmentBuffer(spc, rel->rd_node.relNode);
+    SegmentHead* main_head = (SegmentHead*)PageGetContents(BufferGetPage(main_head_buffer));
+    SegmentCheck(IsNormalSegmentHead(main_head));
+    LockBuffer(main_head_buffer, BUFFER_LOCK_EXCLUSIVE);
+    SegmentCheck(main_head->nextents - 1 == last_ext);
+
+    BlockNumber last_ext_blk = seg_extent_location(spc, main_head, last_ext);
+    BlockNumber copy_ext_blk = seg_extent_location(spc, main_head, copy_ext);
+    BlockNumber copy_ext_start = ExtentIdToLogicBlockNum(copy_ext);
+
+    XLogAtomicOpStart();
+
+    spc_evict_extent_buffers(rel->rd_node, copy_ext_start, ext_size, main_head->nblocks, forknum);
+
+    copy_extent(seg, rel->rd_node, last_ext_start, main_head->nblocks, last_ext_blk, copy_ext_blk, forknum);
+
+    spc_evict_extent_buffers(rel->rd_node, last_ext_start, ext_size, main_head->nblocks, forknum);
+
+    spc_free_extent(spc, ext_size, forknum, last_ext_blk);
+
+    START_CRIT_SECTION();
+    main_head->nextents--;
+    main_head->total_blocks -= ext_size;
+    main_head->nblocks = last_ext_start;
+
+    free_last_extent_slot(spc, main_head_buffer, main_head, last_ext);
+
+    END_CRIT_SECTION();
+
+    XLogAtomicOpCommit();
+    SegUnlockReleaseBuffer(main_head_buffer);
+    UnlockSegmentHeadPartition(spc->spcNode, spc->dbNode, reln->seg_desc[forknum]->head_blocknum);
+}
+
+/**
+ * @brief Reclaims unused extents in a segment-page table and releases them back to the storage system.
+ *
+ * This function attempts to shrink a relation by iterating over its tail extents
+ * in reverse and checking whether they are eligible for recycling. Recyclable
+ * extents are either:
+ * - Freed directly if they are empty.
+ * - Replaced by earlier free extents if still in use but shrinkable.
+ *
+ * All changes are logged and VM/FSM metadata are updated accordingly.
+ *
+ * @param[in] rel The relation to be shrunk, represented as a Relation object.
+ * @param[in] spc The segment space descriptor, which manages storage allocation for the segment.
+ * @param[in] nextents Total number of extents in the relation.
+ * @param[in] nblocks Total number of blocks in the relation.
+ * @param[out] replace_exts Output pointer to store the count of moved (replaced) extents.
+ * @return uint32 Total number of extents reclaimed or replaced.
+ */
+static uint32 seg_shrink_recycle_extents(Relation rel, SegSpace* spc, uint32 nextents, uint32 nblocks,
+                                         uint32* replace_exts)
+{
+    ExtentSize ext_size;
+    int egid;
+    SegExtentGroup* seg;
+    BlockNumber ext_start;
+    uint32 shrink_cnt = 0;
+    uint32 replace_cnt = 0;
+    ForkNumber forknum = MAIN_FORKNUM;
+
+    for (uint32 last_ext = nextents - 1; last_ext > 0; last_ext--) {
+        ext_size = ExtentSizeByCount(last_ext);
+        egid = EXTENT_SIZE_TO_GROUPID(ext_size);
+        seg = &spc->extent_group[egid][forknum];
+        SegmentCheck(eg_df_exists(seg));
+        ext_start = ExtentIdToLogicBlockNum(last_ext);
+        SegmentCheck(seg->extent_size == ext_size);
+        if (seg_extent_in_use(rel, nblocks, seg, ext_start)) {
+            uint32 free_ext = seg_find_free_extent_forward(rel, spc, last_ext, nblocks, forknum);
+            if (free_ext != last_ext) {
+                replace_cnt++;
+                seg_extent_replace(rel, spc, last_ext, forknum, free_ext);
+                seg_shrink_free_fsm(rel, nblocks, seg, ext_start, false);
+                seg_shrink_free_fsm(rel, nblocks, seg, ExtentIdToLogicBlockNum(free_ext), true);
+                ereport(DEBUG1, (errmodule(MOD_SEGMENT_PAGE),
+                                 errmsg("[SEG_SHRINK] relation \"%s\" <%u/%u/%u> replaced extent %u to free extent %u, "
+                                        "replace count %u.",
+                                        RelationGetRelationName(rel), rel->rd_node.spcNode, rel->rd_node.dbNode,
+                                        rel->rd_node.relNode, last_ext, free_ext, replace_cnt)));
+                continue;
+            }
+            break;
+        }
+
+        Buffer main_head_buffer = ReadSegmentBuffer(spc, rel->rd_node.relNode);
+        LockBuffer(main_head_buffer, BUFFER_LOCK_EXCLUSIVE);
+        free_last_extent(spc, forknum, main_head_buffer);
+        SegUnlockReleaseBuffer(main_head_buffer);
+        seg_shrink_free_fsm(rel, nblocks, seg, ext_start, false);
+        shrink_cnt++;
+    }
+
+    ereport(LOG, (errmodule(MOD_SEGMENT_PAGE),
+                  errmsg("[SEG_SHRINK] relation \"%s\" <%u/%u/%u> recycled %u extents, replaced %u active extents, "
+                         "total processed: %u extents.",
+                         RelationGetRelationName(rel), rel->rd_node.spcNode, rel->rd_node.dbNode, rel->rd_node.relNode,
+                         shrink_cnt, replace_cnt, nextents)));
+
+    if (replace_exts != NULL) {
+        *replace_exts = replace_cnt;
+    }
+
+    return (shrink_cnt + replace_cnt);
+}
+
+/**
+ * @brief Shrinks the segment-page relation by reclaiming unused extents.
+ *
+ * This function performs space reclamation for segment-page storage tables.
+ * It scans the relation's tail extents, identifies unallocated or empty extents,
+ * and releases them back to the storage system. Additionally, it updates the
+ * FSM and VM info to ensure that future allocations do not reuse the freed
+ * extents incorrectly.
+ *
+ * @param[in] rel The relation to be shrunk, represented as a Relation object.
+ * @param[out] replace_exts Output pointer to store the count of moved (replaced) extents.
+ * @return uint32 The number of extents successfully reclaimed.
+ *                Returns 0 if no space was eligible for shrinking.
+ */
+uint32 seg_shrink_relation_space(Relation rel, uint32* replace_exts)
+{
+    SegSpace* spc = spc_open(rel->rd_node.spcNode, rel->rd_node.dbNode, false);
+    if (spc == NULL) {
+        ereport(LOG, (errmsg("Segment is not initialized in current database")));
+        return 0;
+    }
+    Buffer main_head_buffer = ReadSegmentBuffer(spc, rel->rd_node.relNode);
+    SegmentHead* main_head = (SegmentHead*)PageGetContents(BufferGetPage(main_head_buffer));
+    SegmentCheck(IsNormalSegmentHead(main_head));
+
+    LockBuffer(main_head_buffer, BUFFER_LOCK_EXCLUSIVE);
+    uint32 nextents = main_head->nextents;
+    uint32 nblocks = main_head->nblocks;
+    SegUnlockReleaseBuffer(main_head_buffer);
+
+    uint32 res = seg_shrink_recycle_extents(rel, spc, nextents, nblocks, replace_exts);
+    return res;
 }
