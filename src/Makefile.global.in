@@ -1165,12 +1165,12 @@ endif
 
 ifneq ($(enable_lite_mode), yes)
 submake-libpq_ce: submake-libpq_ce-actually
-	flock $(libpq_builddir)/jdbc/jdbc.lock $(MAKE) -C $(libpq_builddir)/jdbc
+	flock $(libpq_builddir)/build.lock $(MAKE) -C $(libpq_builddir)/jdbc
 submake-libpq_ce-actually:
-	flock $(libpq_builddir)/libpq.lock $(MAKE) -C $(libpq_builddir) ENABLE_CE=1
+	flock $(libpq_builddir)/build.lock $(MAKE) -C $(libpq_builddir) ENABLE_CE=1
 endif
 submake-libpq:
-	flock $(libpq_builddir)/libpq.lock $(MAKE) -C $(libpq_builddir) all
+	flock $(libpq_builddir)/build.lock $(MAKE) -C $(libpq_builddir) all
 
 submake-libpgport:
 	$(MAKE) -C $(top_builddir)/src/common/port all

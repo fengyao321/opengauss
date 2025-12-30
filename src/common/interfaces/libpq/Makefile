@@ -38,6 +38,7 @@ ifneq ($(enable_multiple_nodes)_$(enable_privategauss), no_no)
     override CPPFLAGS += -L$(top_builddir)/../distribute/bin/gs_ktool/ -lgs_ktool -L$(LIBKMC_LIB_PATH) -lkmc
   endif
 endif
+.NOTPARALLEL:
 endif
 
 ifneq ($(PORTNAME), win32)
@@ -150,6 +151,9 @@ ifneq ($(enable_multiple_nodes)_$(enable_privategauss), no_no)
 endif
 endif
 
+libpq_ce: 
+	@- if ! test -e libpq_ce; then mkdir libpq_ce; fi
+
 libpq_ce/fe-protocol3.o libpq_ce/fe-exec.o: client_logic_cache/types_to_oid.h
 libpq_ce/fe-%.o: fe-%.cpp
 	$(CC) -c -o $@ $(CFLAGS) $(CPPFLAGS)  $(CXXFLAG) $<
@@ -157,8 +161,6 @@ libpq_ce/fe-%.o: fe-%.cpp
 ce_docs:
 	@$(DOXYGEN) cl_doxy
 	@firefox $(top_builddir)/src/common/interfaces/libpq/gs_cl_docs/html/index.html&
-libpq_ce: 
-	@- if ! test -e libpq_ce; then mkdir libpq_ce; fi
 
 endif
 
