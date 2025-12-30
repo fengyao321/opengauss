@@ -41,6 +41,7 @@ extern const int ONLINE_DDL_DELTALOG_ATTR_NUM;
 extern bool OnlineDDLParseTempSchma(char* npName, TransactionId* xid, DDLGlobalHashKey* hashKey);
 extern void ErrorIfOnlineDDLDeltaLog(Relation rel, bool checkInProgress);
 extern void OnlineDDLInsertDeltaLog(Relation deltaRelation, ItemPointer tid);
+extern void OnlineDDLDeleteDeltaLog(Relation deltaRelation, ItemPointer tid, Oid partOid);
 extern void OnlineDDLDeleteDeltaLog(Relation deltaRelation, ItemPointer tid);
 extern void OnlineDDLUpdateDeltaLog(Relation deltaRelation, ItemPointer oldTid, ItemPointer newTid);
 extern void OnlineDDLEmptyDeltaLog(Relation deltaRelation, ItemPointer tid);

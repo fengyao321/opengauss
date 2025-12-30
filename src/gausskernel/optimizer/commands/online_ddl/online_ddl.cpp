@@ -39,7 +39,7 @@ static constexpr int ONLINE_DDL_ALTER_TABLE_TYPE_COUNT = 2;
 
 AlterTableType online_ddl_alter_table_types[ONLINE_DDL_ALTER_TABLE_TYPE_COUNT] = {
     AT_AlterColumnType, /* alter column type */
-    AT_SetRelOptions
+    AT_SetRelOptions    /* set reloptions */
 };
 
 static constexpr int ONLINE_DDL_RELATION_COUNT = 1;
@@ -56,7 +56,7 @@ void OnlineDDLinit()
     if (g_instance.online_ddl_cxt.context == NULL) {
         g_instance.online_ddl_cxt.context =
             AllocSetContextCreate(g_instance.instance_context, "Online DDL Context", ALLOCSET_DEFAULT_MINSIZE,
-                                ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE, SHARED_CONTEXT);
+                                  ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE, SHARED_CONTEXT);
     }
     MemoryContext oldCxt = MemoryContextSwitchTo(g_instance.online_ddl_cxt.context);
     initDDLGlobalHash(g_instance.online_ddl_cxt.context);
@@ -97,7 +97,7 @@ OnlineDDLType OnlineDDLCheckFeasible(List** wqueue, Relation relation, List* cmd
 
     bool allowed = false;
     for (int pass = 0; pass < AT_NUM_PASSES; pass++) {
-        ListCell* ltab = NULL;
+        ltab = NULL;
         foreach (ltab, *wqueue) {
             AlteredTableInfo* tab = (AlteredTableInfo*)lfirst(ltab);
             List* subcmds = tab->subcmds[pass];
@@ -205,10 +205,9 @@ OnlineDDLType OnlineDDLCheckFeasible(List** wqueue, Relation relation, List* cmd
     }
     return rewriteOpt ? ONLINE_DDL_REWRITE : ONLINE_DDL_CHECK;
 }
-
 void OnlineDDLCreateTempSchema(Relation relation)
 {
-    OnlineDDLRelOperators* operators = RelationGetOnlineDDLCtl(relation);
+    OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(relation);
     TransactionId xid = operators->getStartXid();
     RelFileNode relFileNode = relation->rd_node;
     Oid spcNode = relFileNode.spcNode;
@@ -230,24 +229,32 @@ void OnlineDDLCreateTempSchema(Relation relation)
 
 void OnlineDDLCreateTempDelta(Relation relation)
 {
-    OnlineDDLRelOperators* operators = RelationGetOnlineDDLCtl(relation);
+    OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(relation);
     StringInfo tempSchemaName = operators->getStringInfoTempSchemaName();
 
-    operators->setStringInfoDeltaRelname(ONLINE_DDL_DETAL_RELNAME);
+    operators->setStringInfoDeltaRelname(ONLINE_DDL_DELTA_RELNAME);
     Oid deltaRelOid = InvalidOid;
 
     StringInfo query = makeStringInfo();
-    appendStringInfo(query, "CREATE UNLOGGED TABLE %s.%s", tempSchemaName->data, ONLINE_DDL_DETAL_RELNAME);
-    appendStringInfo(query, "("
-                            "operation TINYINT NOT NULL, "
-                            "old_tup_ctid TID NOT NULL"
-                            ")");
+    appendStringInfo(query, "CREATE UNLOGGED TABLE %s.%s", tempSchemaName->data, ONLINE_DDL_DELTA_RELNAME);
+    if (RELATION_IS_PARTITIONED(relation)) {
+        appendStringInfo(query, "("
+                                "operation TINYINT NOT NULL, "
+                                "old_tup_ctid TID NOT NULL, "
+                                "partion_no OID NOT NULL"
+                                ")");
+    } else {
+        appendStringInfo(query, "("
+                                "operation TINYINT NOT NULL, "
+                                "old_tup_ctid TID NOT NULL"
+                                ")");
+    }
     OnlineDDLExecuteCommand(query->data);
     DestroyStringInfo(query);
 
     /* Build the qualified name for the delta table */
     List* qualifiedName =
-        list_make2(makeString(pstrdup(tempSchemaName->data)), makeString(pstrdup(ONLINE_DDL_DETAL_RELNAME)));
+        list_make2(makeString(pstrdup(tempSchemaName->data)), makeString(pstrdup(ONLINE_DDL_DELTA_RELNAME)));
     deltaRelOid = RangeVarGetRelid(makeRangeVarFromNameList(qualifiedName), AccessShareLock, false);
     operators->setDeltaRelid(deltaRelOid);
     list_free_deep(qualifiedName);
@@ -265,7 +272,7 @@ void OnlineDDLDropTempSchema(Relation relation)
         ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                         errmsg("[Online-DDL] OnlineDDLDropTempSchema failed, relation is null.")));
     }
-    OnlineDDLRelOperators* operators = RelationGetOnlineDDLCtl(relation);
+    OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(relation);
     if (operators == NULL) {
         ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                         errmsg("[Online-DDL] OnlineDDLDropTempSchema failed, can't get operators from relation.")));
@@ -383,7 +390,7 @@ bool OnlineDDLInstanceInit(List* wqueue, Relation* relation, List* cmds, LOCKMOD
 
 bool OnlineDDLInstanceFinish(Relation relation)
 {
-    OnlineDDLRelOperators* operators = RelationGetOnlineDDLCtl(relation);
+    OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(relation);
     operators->setStatus(ONLINE_DDL_END);
     operators->closeDeltaRelation(ShareUpdateExclusiveLock);
     operators->closeCtidMapRelation(AccessShareLock);
@@ -398,10 +405,12 @@ bool OnlineDDLInstanceFinish(Relation relation)
 
 void OnlineDDLCleanup()
 {
-    if (u_sess->online_ddl_operators != NULL) {
-        ((OnlineDDLRelOperators*)u_sess->online_ddl_operators)->setStatus(ONLINE_DDL_END);
-        ((OnlineDDLRelOperators*)u_sess->online_ddl_operators)->closeDeltaRelation(ShareUpdateExclusiveLock);
-        ((OnlineDDLRelOperators*)u_sess->online_ddl_operators)->closeCtidMapRelation(AccessShareLock);
-        u_sess->online_ddl_operators = NULL;
+    if (u_sess->online_ddl_operators == NULL) {
+        return;
     }
+    OnlineDDLRelOperators* operators = (OnlineDDLRelOperators*)u_sess->online_ddl_operators;
+    operators->setStatus(ONLINE_DDL_END);
+    operators->closeDeltaRelation(ShareUpdateExclusiveLock);
+    operators->closeCtidMapRelation(AccessShareLock);
+    u_sess->online_ddl_operators = NULL;
 }

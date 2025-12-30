@@ -50,6 +50,11 @@ enum OnlineDDLType {
 };
 
 
+struct PartitionAppendEntry {
+    Oid partOid; /* hash key */
+    ItemPointerData endCtid;
+};
+
 class OnlineDDLRelOperators : public BaseObject {
 private:
     Oid relId;
@@ -82,6 +87,12 @@ private:
     ItemPointerData endCtidInternal; /* end ctid for append mode */
     BlockNumber targetBlockNumber;   /* target block number for append mode */
 
+    bool isForPartition; /* whether is for partitioned table */
+    /* partition append mode info */
+    HTAB* partitionAppendMap; /* Oid -> ItemPointerData */
+    /* current partition oid in append mode */
+    Oid currentPartitionOid;
+
     MemoryContext context; /* memory context for this object */
 
 public:
@@ -89,6 +100,7 @@ public:
     ~OnlineDDLRelOperators();
     bool recordTupleInsert(Relation relation, ItemPointer tid);
     bool recordTupleDelete(Relation relation, ItemPointer tid);
+    bool recordTupleDelete(Relation relation, ItemPointer tid, Oid partOid);
     bool recordTupleEmpty();
     bool recordTupleMultiInsert(Relation relation, Tuple* tuples, int ntuples);
     bool recordTupleUpdate(Relation relation, ItemPointer oldTid, ItemPointer newTid);
@@ -96,14 +108,19 @@ public:
     void closeDeltaRelation(LOCKMODE lockmode);
     void initCtidMapRelation();
     void closeCtidMapRelation(LOCKMODE lockmode);
-    bool insertCtidMap(ItemPointer oldTid, ItemPointer newTid);
+    bool insertCtidMap(ItemPointer oldTid, Oid relId, ItemPointer newTid);
 
     /* append mode */
     bool enableTargetRelationAppendMode(ItemPointerData endCtid);
+    bool enableTargetRelationAppendMode(Oid partOid, ItemPointerData endCtid);
     bool clearTargetRelationAppendMode();
+    void createPartitionAppendMap();
+    void destroyPartitionAppendMap();
+    ItemPointerData getEndCtidForPartition(Oid partOid);
 
     /* catch up data */
     void OnlineDDLAppendIncrementalData(Relation oldRelation, Relation newRelation, AlteredTableInfo* alterTableInfo);
+    void OnlineDDLAppendIncrementalData(List* oldOidList, List* newOidList, AlteredTableInfo* alterTableInfo);
 
     Oid getRelId() const
     {
@@ -149,7 +166,9 @@ public:
     void setStringInfoTempSchemaName(char* schemaName)
     {
         if (tempSchemaName == NULL) {
+            MemoryContext oldContext = MemoryContextSwitchTo(context);
             tempSchemaName = makeStringInfo();
+            MemoryContextSwitchTo(oldContext);
         }
         resetStringInfo(tempSchemaName);
         appendStringInfo(tempSchemaName, "%s", schemaName);
@@ -158,7 +177,9 @@ public:
     void setStringInfoTempSchemaName(StringInfo schemaName)
     {
         if (tempSchemaName == NULL) {
+            MemoryContext oldContext = MemoryContextSwitchTo(context);
             tempSchemaName = makeStringInfo();
+            MemoryContextSwitchTo(oldContext);
         }
         resetStringInfo(tempSchemaName);
         appendBinaryStringInfo(tempSchemaName, schemaName->data, schemaName->len);
@@ -176,7 +197,9 @@ public:
     void setStringInfoDeltaRelname(char* relname)
     {
         if (deltaRelname == NULL) {
+            MemoryContext oldContext = MemoryContextSwitchTo(context);
             deltaRelname = makeStringInfo();
+            MemoryContextSwitchTo(oldContext);
         }
         resetStringInfo(deltaRelname);
         appendStringInfo(deltaRelname, "%s", relname);
@@ -231,6 +254,34 @@ public:
     {
         baselineSnapshot = snapshot;
     }
+
+    HTAB* getPartitionAppendMap()
+    {
+        return partitionAppendMap;
+    }
+
+    void setPartitionAppendMap(HTAB* map)
+    {
+        partitionAppendMap = map;
+    }
+
+    Oid getCurrentPartitionOid()
+    {
+        return currentPartitionOid;
+    }
+
+    void setCurrentPartitionOid(Oid partOid)
+    {
+        currentPartitionOid = partOid;
+    }
+    bool getIsForPartition()
+    {
+        return isForPartition;
+    }
+    void setIsForPartition(bool isForPart)
+    {
+        isForPartition = isForPart;
+    }
 };
 
 /*
@@ -251,7 +302,7 @@ inline DDLGlobalHashKey GetDDLGlobalHashKey(RelFileNode relfilenode, Oid relId)
     return hashKey;
 }
 
-inline OnlineDDLRelOperators* RelationGetOnlineDDLCtl(Relation relation)
+inline OnlineDDLRelOperators* RelationGetOnlineDDLOperators(Relation relation)
 {
     return (OnlineDDLRelOperators *) (relation->rd_online_ddl_operators);
 }
@@ -264,5 +315,8 @@ extern bool CheckOnlineDDLStatusRunning(DDLGlobalHashKey hashKey, TransactionId 
 extern bool OnlineDDLReleaseHashEntry(DDLGlobalHashKey hashKey, TransactionId xid);
 
 extern DDLGlobalHashEntry* OnlineDDLGetHashEntry(DDLGlobalHashKey hashKey);
+
+extern void OnlineDDLRelationSetup(Relation relation);
+extern void OnlineDDLRelationSetup(Relation relation, Relation parentRelation);
 
 #endif /* ONLINE_DDL_H */

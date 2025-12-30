@@ -32,7 +32,7 @@
 #include "commands/tablecmds.h"
 #include "commands/online_ddl_globalhash.h"
 
-#define ONLINE_DDL_DETAL_RELNAME "online_ddl_delta_log"
+#define ONLINE_DDL_DELTA_RELNAME "online_ddl_delta_log"
 
 extern bool OnlineDDLInstanceInit(List* wqueue, Relation* relation, List* cmds, LOCKMODE lockmode,
                                   OnlineDDLType onlineDDLType);

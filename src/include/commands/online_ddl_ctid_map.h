@@ -35,6 +35,9 @@ extern ItemPointerData CTID_MAP_DEFAULT_CTID;
 
 extern Oid OnlineDDLCreateCtidMap(StringInfo tempSchemaName);
 extern bool OnlineDDLInsertCtidMap(ItemPointer oldTid, ItemPointer newTid, Relation relation);
+extern bool OnlineDDLInsertCtidMap(ItemPointer oldTid, Oid relId, ItemPointer newTid, Relation relation);
 extern ItemPointerData OnlineDDLGetTargetCtid(ItemPointer oldTid, Relation relation, Relation indexRelation);
+extern ItemPointerData OnlineDDLGetTargetCtid(ItemPointer oldTid, Oid* partOid, Relation relation,
+                                              Relation indexRelation);
 
 #endif /* ONLINE_DDL_CTID_MAP_H */

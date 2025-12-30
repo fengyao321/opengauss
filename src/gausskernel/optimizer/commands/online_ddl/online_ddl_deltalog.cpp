@@ -28,6 +28,9 @@
 #include "catalog/pg_type.h"
 #include "utils/builtins.h"
 
+#include "commands/online_ddl.h"
+#include "commands/online_ddl_append.h"
+#include "commands/online_ddl_ctid_map.h"
 #include "commands/online_ddl_globalhash.h"
 #include "commands/online_ddl_util.h"
 #include "commands/online_ddl_deltalog.h"
@@ -169,7 +172,7 @@ void OnlineDDLEmptyDeltaLog(Relation deltaRelation, ItemPointer tid)
     tuple = heap_form_tuple(tupleDesc, values, isnulls);
     (void)tableam_tuple_insert(deltaRelation, tuple, GetCurrentCommandId(true), 0, NULL);
     ereport(ONLINE_DDL_LOG_LEVEL, (errmsg("Insert empty delta log (%u, %u)", ItemPointerGetBlockNumber(&tuple->t_self),
-                            ItemPointerGetOffsetNumber(&tuple->t_self))));
+                                          ItemPointerGetOffsetNumber(&tuple->t_self))));
     CommandCounterIncrement();
 }
 
@@ -190,8 +193,30 @@ void OnlineDDLInsertDeltaLog(Relation deltaRelation, ItemPointer tid)
     tupleDesc = RelationGetDescr(deltaRelation);
     tuple = heap_form_tuple(tupleDesc, values, isnulls);
     (void)tableam_tuple_insert(deltaRelation, tuple, GetCurrentCommandId(true), 0, NULL);
-    ereport(ONLINE_DDL_LOG_LEVEL, (errmsg("Insert delta log (%u, %u)", ItemPointerGetBlockNumber(&tuple->t_self),
+    ereport(NOTICE, (errmsg("Insert delta log (%u, %u)", ItemPointerGetBlockNumber(&tuple->t_self),
                             ItemPointerGetOffsetNumber(&tuple->t_self))));
+    CommandCounterIncrement();
+}
+
+void OnlineDDLDeleteDeltaLog(Relation deltaRelation, ItemPointer tid, Oid partOid)
+{
+    if (deltaRelation == NULL || !RelationIsValid(deltaRelation)) {
+        ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE), errmsg("Delta relation is not valid.")));
+    }
+    ereport(NOTICE, (errmsg("Delete delta log (%u, %u, %u)", ItemPointerGetBlockNumber(tid),
+                            ItemPointerGetOffsetNumber(tid), partOid)));
+    HeapTuple tuple;
+    TupleDesc tupleDesc;
+    Datum values[3];
+    bool isnulls[3];
+    errno_t rc;
+    rc = memset_s(isnulls, sizeof(isnulls), 0, sizeof(isnulls));
+    values[0] = Int8GetDatum(ONLINE_DDL_OPERATION_DELETE);
+    values[1] = PointerGetDatum(tid);
+    values[ONLINE_DDL_DELTALOG_ATTR_NUM] = ObjectIdGetDatum(partOid);
+    tupleDesc = RelationGetDescr(deltaRelation);
+    tuple = heap_form_tuple(tupleDesc, values, isnulls);
+    (void)tableam_tuple_insert(deltaRelation, tuple, GetCurrentCommandId(true), 0, NULL);
     CommandCounterIncrement();
 }
 
@@ -200,7 +225,7 @@ void OnlineDDLDeleteDeltaLog(Relation deltaRelation, ItemPointer tid)
     if (deltaRelation == NULL || !RelationIsValid(deltaRelation)) {
         ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE), errmsg("Delta relation is not valid.")));
     }
-    ereport(ONLINE_DDL_LOG_LEVEL,
+    ereport(NOTICE,
             (errmsg("Delete delta log (%u, %u)", ItemPointerGetBlockNumber(tid), ItemPointerGetOffsetNumber(tid))));
     HeapTuple tuple;
     TupleDesc tupleDesc;

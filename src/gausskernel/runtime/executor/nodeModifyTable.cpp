@@ -53,6 +53,7 @@
 #include "access/sysattr.h"
 #endif
 #include "commands/trigger.h"
+#include "commands/online_ddl_globalhash.h"
 #include "executor/executor.h"
 #include "executor/exec/execMerge.h"
 #include "executor/node/nodeModifyTable.h"
@@ -1819,6 +1820,11 @@ ldelete:
                 fake_relation = part_relation;
             }
 
+            OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(fake_relation);
+            if (operators != NULL) {
+                operators->setCurrentPartitionOid(deletePartitionOid);
+            }
+
             if (RelationIsColStore(result_relation_desc)) {
                 HeapDeleteCStore(fake_relation, tupleid, deletePartitionOid, estate->es_snapshot);
                 goto end;
@@ -2681,6 +2687,11 @@ lreplace:
                      */
                     fake_relation = fake_part_rel;
 
+                    OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(fake_relation);
+                    if (operators != NULL) {
+                        operators->setCurrentPartitionOid(oldPartitionOid);
+                    }
+
                         TupleTableSlot* oldslot = NULL;
 
                         /* partition table, no row movement, heap */
@@ -2883,6 +2894,11 @@ lreplace:
                                                          old_partition,
                                                          RowExclusiveLock);
 
+                        OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(old_fake_relation);
+                        if (operators != NULL) {
+                            operators->setCurrentPartitionOid(oldPartitionOid);
+                        }
+                        
                         if (bucketid != InvalidBktId) {
                             searchHBucketFakeRelation(
                                 estate->esfRelations, estate->es_query_cxt, old_fake_relation, bucketid, old_fake_relation);
