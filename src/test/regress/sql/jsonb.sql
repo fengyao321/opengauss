@@ -529,6 +529,44 @@ select jsonb_set('{"a": [1, 2, 3]}', '{a, non_integer}', '"new_value"');
 select jsonb_set('{"a": {"b": [1, 2, 3]}}', '{a, b, non_integer}', '"new_value"');
 select jsonb_set('{"a": {"b": [1, 2, 3]}}', '{a, b, NULL}', '"new_value"');
 
+select jsonb_concat('{"d": "test", "a": [1, 2]}', '{"g": "test2", "c": {"c1":1, "c2":2}}');
+select '{"aa":1 , "b":2, "cq":3}'::jsonb || '{"cq":"l", "b":"g", "fg":false}';
+select '{"aa":1 , "b":2, "cq":3}'::jsonb || '{"aq":"l"}';
+select '{"aa":1 , "b":2, "cq":3}'::jsonb || '{"aa":"l"}';
+select '{"aa":1 , "b":2, "cq":3}'::jsonb || '{}';
+
+select '["a", "b"]'::jsonb || '["c"]';
+select '["a", "b"]'::jsonb || '["c", "d"]';
+select '["c"]' || '["a", "b"]'::jsonb;
+
+select '["a", "b"]'::jsonb || '"c"';
+select '"c"' || '["a", "b"]'::jsonb;
+
+select '[]'::jsonb || '["a"]'::jsonb;
+select '[]'::jsonb || '"a"'::jsonb;
+select '"b"'::jsonb || '"a"'::jsonb;
+select '{}'::jsonb || '{"a":"b"}'::jsonb;
+select '[]'::jsonb || '{"a":"b"}'::jsonb;
+select '{"a":"b"}'::jsonb || '[]'::jsonb;
+
+select '"a"'::jsonb || '{"a":1}';
+select '{"a":1}' || '"a"'::jsonb;
+
+select '[3]'::jsonb || '{}'::jsonb;
+select '3'::jsonb || '[]'::jsonb;
+select '3'::jsonb || '4'::jsonb;
+select '3'::jsonb || '{}'::jsonb;
+
+select '["a", "b"]'::jsonb || '{"c":1}';
+select '{"c": 1}'::jsonb || '["a", "b"]';
+
+select '{}'::jsonb || '{"cq":"l", "b":"g", "fg":false}';
+
+select pg_column_size('{}'::jsonb || '{}'::jsonb) = pg_column_size('{}'::jsonb);
+select pg_column_size('{"aa":1}'::jsonb || '{"b":2}'::jsonb) = pg_column_size('{"aa":1, "b":2}'::jsonb);
+select pg_column_size('{"aa":1, "b":2}'::jsonb || '{}'::jsonb) = pg_column_size('{"aa":1, "b":2}'::jsonb);
+select pg_column_size('{}'::jsonb || '{"aa":1, "b":2}'::jsonb) = pg_column_size('{"aa":1, "b":2}'::jsonb);
+
 create table newtable(id int, jsonb1 jsonb);
 CREATE INDEX newtable_idx on newtable USING gin (jsonb1);
 INSERT INTO newtable  (id,jsonb1 ) VALUES ( '1','{"modelForDCM":""}'::jsonb);
