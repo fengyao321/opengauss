@@ -48,6 +48,7 @@ extern void escape_json(StringInfo buf, const char *str);
 extern Datum json_typeof(PG_FUNCTION_ARGS);
 
 /* functions in jsonfuncs.c */
+extern Datum jsonb_concat(PG_FUNCTION_ARGS);
 extern Datum json_object_field(PG_FUNCTION_ARGS);
 extern Datum json_object_field_text(PG_FUNCTION_ARGS);
 extern Datum json_array_element(PG_FUNCTION_ARGS);
