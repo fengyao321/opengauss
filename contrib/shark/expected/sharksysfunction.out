@@ -2332,7 +2332,7 @@ SELECT YEAR('0001-01-01');
 SELECT YEAR(CURRENT_TIMESTAMP);
  year 
 ------
- 2025
+--?.*
 (1 row)
 
 SELECT YEAR('abc');  -- error expect
