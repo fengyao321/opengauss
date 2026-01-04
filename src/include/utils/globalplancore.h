@@ -221,6 +221,7 @@ bool SPIParseEnableGPC(const Node *node);
 void CleanSessGPCPtr(knl_session_context* currentSession);
 void CleanSessionGPCDetach(knl_session_context* currentSession);
 extern void get_prepared_statement(const char *stmt_name, PreparedStatement **pstmt, CachedPlanSource** psrc);
+void GPCReParamGplan(CachedPlanSource* plansource);
 
 /* message needed by exec_bind_message */
 typedef struct {

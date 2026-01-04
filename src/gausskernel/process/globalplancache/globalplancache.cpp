@@ -929,6 +929,15 @@ void GlobalPlanCache::CNCommitParam()
         if (plansource->is_valid && plansource->gplan != NULL && plansource->is_param
             && plansource->gpc.status.IsSharePlan() && plansource->gpc.status.InSavePlanList(GPC_SHARED)) {
             TryStore(plansource, NULL);
+        } else if (!plansource->gpc.status.IsSharePlan() || (plansource->gplan == NULL && plansource->cplan)) {
+            /* stream or private plan or cplan need put into ungpc_save_plan */
+            plansource->is_saved = true;
+            if (!plansource->is_support_gplan && plansource->gpc.status.IsSharePlan())
+                plansource->gpc.status.SetKind(GPC_CPLAN);
+            Assert (!plansource->gpc.status.IsSharePlan());
+            plansource->gpc.status.SetLoc(GPC_SHARE_IN_LOCAL_UNGPC_PLAN_LIST);
+            plansource->next_saved = u_sess->param_cxt.ungpc_saved_plan;
+            u_sess->param_cxt.ungpc_saved_plan = plansource;
         } else {
             DropCachedPlan(plansource);
         }

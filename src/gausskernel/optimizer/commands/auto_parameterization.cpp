@@ -1080,6 +1080,21 @@ static void dropParamCachedPlan(CachedPlanSource* plansource)
                 }
             }
         }
+        if (ENABLE_CN_GPC) {
+            if (u_sess->param_cxt.ungpc_saved_plan == plansource) {
+                u_sess->param_cxt.ungpc_saved_plan = plansource->next_saved;
+            } else {
+                CachedPlanSource* psrc = NULL;
+                for (psrc = u_sess->param_cxt.ungpc_saved_plan; psrc; psrc = psrc->next_saved) {
+                    if (psrc->next_saved == plansource) {
+                        psrc->next_saved = plansource->next_saved;
+                        break;
+                    }
+                }
+            }
+        }
+        if (ENABLE_GPC)
+            GPC_LOG("BEFORE DROP CACHE PLAN", plansource, plansource->stmt_name);
         plansource->is_saved = false;
     }
     plansource->next_saved = NULL;
@@ -1087,6 +1102,12 @@ static void dropParamCachedPlan(CachedPlanSource* plansource)
 
     /* Mark it no longer valid */
     plansource->magic = 0;
+
+    if (ENABLE_DN_GPC)
+        GPC_LOG("DROP CACHE PLAN", plansource, 0);
+    if (ENABLE_CN_GPC)
+        CN_GPC_LOG("DROP CACHE PLAN", plansource, 0);
+
     /*
      * Remove the CachedPlanSource and all subsidiary data (including the
      * query_context if any).  But if it's a one-shot we can't free anything.

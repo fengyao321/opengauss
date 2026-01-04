@@ -1066,6 +1066,8 @@ typedef struct knl_u_parameterization_context {
     HTAB* parameterized_queries;
 
     bool use_parame;
+
+    CachedPlanSource* ungpc_saved_plan;
 } knl_u_parameterization_context;
 
 typedef struct knl_u_typecache_context {
