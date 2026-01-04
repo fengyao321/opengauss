@@ -24,6 +24,8 @@
 #ifndef GS_COPY_H
 #define GS_COPY_H
 
+#include "client_logic_common/client_logic_utils.h"
+
 typedef struct pg_conn PGconn;
 struct CopyStmt;
 
@@ -31,5 +33,7 @@ typedef struct CopyStateData CopyStateData;
 CopyStateData *pre_copy(const CopyStmt * const stmt, const char *query_string);
 void delete_copy_state(CopyStateData *cstate);
 int deprocess_copy_line(PGconn *conn, const char *in_buffer, int msg_length, char **buffer);
-int process_copy_chunk(PGconn *conn, const char *in_buffer, int msg_length, char **buffer);
+CopyProcessStatus process_copy_chunk(PGconn *conn, const char *in_buffer, int msg_length,
+                                     char **buffer, int *bufferLen);
+void FlushRemainingCopyChunk(PGconn *conn);
 #endif /* GS_COPY_H */

@@ -131,34 +131,68 @@ int deprocess_copy_line(PGconn *conn, const char *in_buffer, int msg_length, cha
     }
 }
 
-int process_copy_chunk(PGconn *conn, const char *in_buffer, int msg_length, char **buffer)
+void FlushRemainingCopyChunk(PGconn *conn)
+{
+    if (!conn || !conn->client_logic || !conn->client_logic->enable_client_encryption) {
+        return;
+    }
+
+    PreparedStatement *ps =
+        conn->client_logic->preparedStatements->get_or_create(
+            conn->client_logic->lastStmtName);
+    if (!ps) {
+        Assert(false);
+        return;
+    }
+
+    CopyStateData *cstate = ps->copy_state;
+    if (!cstate || cstate->binary ||
+        !ps->cached_copy_columns ||
+        !ps->cached_copy_columns->is_to_process() ||
+        ps->partial_csv_column_size == 0) {
+        return;
+    }
+
+    /* send remaining chunk */
+    (void)PQputCopyData(
+        conn,
+        ps->partial_csv_column,
+        static_cast<int>(ps->partial_csv_column_size));
+
+    /* reset state */
+    ps->partial_csv_column = nullptr;
+    ps->partial_csv_column_size = 0;
+    ps->copyForceEof = false;
+}
+
+CopyProcessStatus process_copy_chunk(PGconn *conn, const char *in_buffer, int msg_length, char **buffer, int *bufferLen)
 {
     PreparedStatement *entry = conn->client_logic->preparedStatements->get_or_create(conn->client_logic->lastStmtName);
     if (!entry) {
         Assert(false);
-        return -1;
+        return PROCESS_ERROR;
     }
     CopyStateData *cstate = entry->copy_state;
     if (!cstate || !entry->cached_copy_columns || !entry->cached_copy_columns->is_to_process()) {
-        return 0; /* no need to process data */
+        return PROCESS_NOT_NEEDED; /* no need to process data */
     }
     if (cstate->binary) {
         /* DO NOT SUPPORT BINARY COPY FOR NOW */
         fprintf(stderr, "cstate->binary is NULL\n");
-        return -1;
+        return PROCESS_ERROR;
     } else {
         char *full_chunk(NULL);
         if (entry->partial_csv_column_size > 0) {
             /* we need to concatenate the partialCsv we have saved with the incoming buffer */
             if ((size_t)msg_length > (size_t)PG_INT32_MAX - entry->partial_csv_column_size) {
                 Assert(false);
-                return -1;
+                return PROCESS_ERROR;
             }
             size_t new_size = entry->partial_csv_column_size + (size_t)msg_length;
             full_chunk = (char *)malloc(new_size);
             if (full_chunk == NULL) {
                 Assert(false);
-                return -1;
+                return PROCESS_ERROR;
             } else {
                 check_memset_s(memset_s(full_chunk, new_size, 0, new_size));
             }
@@ -180,14 +214,17 @@ int process_copy_chunk(PGconn *conn, const char *in_buffer, int msg_length, char
             msg_length = new_size;
         }
 
-        int ret = 0;
+        CopyProcessStatus ret = PROCESS_SUCCESS;
         if (cstate->csv_mode) {
-            ret = process_csv_chunk(conn, entry, in_buffer, msg_length, buffer);
+            *bufferLen = process_csv_chunk(conn, entry, in_buffer, msg_length, buffer);
         } else {
-            ret = process_txt_chunk(conn, entry, in_buffer, msg_length, buffer);
+            *bufferLen = process_txt_chunk(conn, entry, in_buffer, msg_length, buffer);
         }
-        if (ret < 0) {
-            libpq_free(*buffer);
+        if (*bufferLen < 0) {
+            ret = PROCESS_ERROR;
+            if (buffer != NULL && *buffer != NULL) {
+                libpq_free(*buffer);
+            }
         }
         if (full_chunk != NULL) {
             free(full_chunk);
@@ -653,6 +690,7 @@ static int process_txt_chunk(PGconn *conn, PreparedStatement *entry, const char 
             char c;
 
             end_ptr = cur_ptr;
+            found_eol = found_eol || entry->copyForceEof;
             if (cur_ptr >= line_end_ptr) {
                 break;
             }
@@ -792,7 +830,7 @@ static int process_txt_chunk(PGconn *conn, PreparedStatement *entry, const char 
                 printfPQExpBuffer(&conn->errorMessage, "ERROR(CLIENT): failed to append buffer for data\n");
                 return -1;
             }
-        } else if (found_delim || found_eol || (end_ptr == line_end_ptr)) {
+        } else if (found_delim || found_eol) {
             /* process */
             if (!process_and_replace(conn, entry, data, data_size, false, buffer, written, res_length)) {
                 free(data);
@@ -810,7 +848,7 @@ static int process_txt_chunk(PGconn *conn, PreparedStatement *entry, const char 
             size_t new_size = cur_ptr - start_ptr;
             if (entry->partial_csv_column_allocated < new_size) {
                 entry->partial_csv_column =
-                    (char *)libpq_realloc(entry->partial_csv_column, entry->partial_csv_column_size, new_size);
+                    (char *)libpq_realloc(entry->partial_csv_column, entry->partial_csv_column_allocated, new_size);
                 if (entry->partial_csv_column == NULL) {
                     free(data);
                     data = NULL;
@@ -820,8 +858,10 @@ static int process_txt_chunk(PGconn *conn, PreparedStatement *entry, const char 
                 }
                 entry->partial_csv_column_allocated = new_size;
             }
-            check_memcpy_s(
-                memcpy_s(entry->partial_csv_column, entry->partial_csv_column_allocated, start_ptr, new_size));
+            if (new_size > 0) {
+                check_memcpy_s(
+                    memcpy_s(entry->partial_csv_column, entry->partial_csv_column_allocated, start_ptr, new_size));
+            }
             entry->partial_csv_column_size = new_size;
         }
 
@@ -832,6 +872,9 @@ static int process_txt_chunk(PGconn *conn, PreparedStatement *entry, const char 
             cstate->cur_lineno++;
             cstate->fieldno = 0;
             is_field_needs_processing = field_needs_processing(conn, entry);
+            if (entry->copyForceEof) {
+                break;
+            }
         } else { /* if (!found_delim && !found_eol) */
             break;
         }
@@ -1126,6 +1169,7 @@ int process_csv_chunk(PGconn *conn, PreparedStatement *entry, const char *in_buf
             /* Not in quote */
             for (; ;) {
                 end_ptr = cur_ptr;
+                found_eol = found_eol || entry->copyForceEof;
                 if (cur_ptr >= line_end_ptr) {
                     goto endfield;
                 }
@@ -1236,7 +1280,7 @@ int process_csv_chunk(PGconn *conn, PreparedStatement *entry, const char *in_buf
                 data = NULL;
                 return -1;
             }
-        } else if (found_delim || found_eol || (end_ptr == line_end_ptr)) {
+        } else if (found_delim || found_eol) {
             /* process */
             if (!process_and_replace(conn, entry, data, data_size, false, buffer, written, res_length)) {
                 free(data);
@@ -1273,6 +1317,9 @@ int process_csv_chunk(PGconn *conn, PreparedStatement *entry, const char *in_buf
             cstate->cur_lineno++;
             cstate->fieldno = 0;
             is_field_needs_processing = field_needs_processing(conn, entry);
+            if (entry->copyForceEof) {
+                break;
+            }
         } else { /* if (!found_delim && !found_eol) */
             break;
         }

@@ -65,6 +65,8 @@ public:
 
     CacheRefreshType cacheRefresh; /* frontend side effects of a successful DDL */
 
+    bool copyForceEof; /* COPY FROM STDIN */
+
     char m_function_name[m_FUNCTION_NAME];
     StringArgs m_string_args;
 };
