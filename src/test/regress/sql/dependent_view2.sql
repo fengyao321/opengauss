@@ -435,5 +435,13 @@ select * from v_ddl0022;
 drop FUNCTION func_ddl0022(int,int);
 select valid from pg_object where object_oid='v_ddl0022'::regclass;
 
+CREATE VIEW dual AS SELECT 'X'::character varying AS dummy;
+create view view1 as SELECT "level" AS lv FROM dual CONNECT BY level < 10;
+drop view dual;
+CREATE VIEW dual AS SELECT 'X'::character varying AS dummy;
+select * from view1;
+drop view view1;
+drop view dual;
+
 drop schema dependent_view2 cascade;
 reset current_schema;

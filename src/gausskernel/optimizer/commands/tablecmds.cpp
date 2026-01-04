@@ -305,6 +305,10 @@ struct dropmsgstrings {
     const char* drophint_msg;
 };
 
+typedef struct {
+    char* sql_statement;
+} sql_statement_context;
+
 static const struct dropmsgstrings dropmsgstringarray[] = {{RELKIND_RELATION,
                                                                ERRCODE_UNDEFINED_TABLE,
                                                                gettext_noop("table \"%s\" does not exist"),
@@ -12890,7 +12894,33 @@ List* GetOriginalViewQuery(Oid rw_oid)
     return evAction;
 }
 
-List* GetRefreshedViewQuery(Oid view_oid, Oid rw_oid)
+static bool sql_statement_walker(Node* node, void* context)
+{
+    if (node == NULL) {
+        return false;
+    }
+
+    sql_statement_context* ctx = (sql_statement_context*)context;
+    if (IsA(node, Query)) {
+        Query* qry = (Query*)node;
+        if (qry->hasRecursive && qry->sql_statement != NULL) {
+            ctx->sql_statement = qry->sql_statement;
+            return true;
+        }
+        return query_tree_walker((Query*)node, (bool (*)())sql_statement_walker, context, 0);
+    }
+    return expression_tree_walker(node, (bool (*)())sql_statement_walker, context);
+}
+
+static char* GetSqlStatementForSWCB(Query* query)
+{
+    sql_statement_context ctx;
+    ctx.sql_statement = NULL;
+    (void)sql_statement_walker((Node*)query, (void*)&ctx);
+    return ctx.sql_statement;
+}
+
+List* GetRefreshedViewQuery(Oid view_oid, Oid rw_oid, char* origin_def)
 {
     List* evAction = NIL;
     Query* query = NULL;
@@ -12899,7 +12929,7 @@ List* GetRefreshedViewQuery(Oid view_oid, Oid rw_oid)
         elog(ERROR, "Cannot find the view with oid %u.", view_oid);
     }
     Form_pg_class reltup = (Form_pg_class)GETSTRUCT(tup);
-    char* view_def = GetCreateViewCommand(NameStr(reltup->relname), tup, reltup, rw_oid, view_oid, false);
+    char* view_def = GetCreateViewCommand(NameStr(reltup->relname), tup, reltup, rw_oid, view_oid, false, origin_def);
     ReleaseSysCache(tup);
 
     List* raw_parsetree_list = raw_parser(view_def);
@@ -12926,7 +12956,7 @@ List* GetRefreshedViewQuery(Oid view_oid, Oid rw_oid)
     return evAction;
 }
 
-void UpdatePgrewriteForView(Oid rw_oid, List* evAction, List **query_str)
+void UpdatePgrewriteForView(Oid rw_oid, List* evAction, List **query_str, char* origin_def)
 {
     List *new_query_str = NIL;
     ScanKeyData entry;
@@ -12956,28 +12986,34 @@ void UpdatePgrewriteForView(Oid rw_oid, List* evAction, List **query_str)
         heap_close(rewrite_rel, RowExclusiveLock);
         return;
     }
-    Query* query = (Query*)linitial(evAction);
-    StringInfoData buf;
-    initStringInfo(&buf);
-    Relation ev_relation = heap_open(rewrite_form->ev_class, AccessShareLock);
-    get_query_def(query,
-        &buf,
-        NIL,
-        RelationGetDescr(ev_relation),
-        0,
-        -1,
-        0,
-        false,
-        false,
-        NULL,
-        false,
-        false);
-    appendStringInfo(&buf, ";");
+
     ViewInfoForAdd * info = static_cast<ViewInfoForAdd *>(palloc(sizeof(ViewInfoForAdd)));
     info->ev_class = rewrite_form->ev_class;
-    info->query_string = pstrdup(buf.data);
-    heap_close(ev_relation, AccessShareLock);
-    FreeStringInfo(&buf);
+    if (origin_def != NULL) {
+        info->query_string = pstrdup(origin_def);
+    } else {
+        Query* query = (Query*)linitial(evAction);
+        StringInfoData buf;
+        initStringInfo(&buf);
+        Relation ev_relation = heap_open(rewrite_form->ev_class, AccessShareLock);
+        get_query_def(query,
+            &buf,
+            NIL,
+            RelationGetDescr(ev_relation),
+            0,
+            -1,
+            0,
+            false,
+            false,
+            NULL,
+            false,
+            false);
+        appendStringInfo(&buf, ";");
+
+        info->query_string = pstrdup(buf.data);
+        heap_close(ev_relation, AccessShareLock);
+        FreeStringInfo(&buf);
+    }
     new_query_str = lappend(new_query_str, info);
     *query_str = new_query_str;
     systable_endscan(rewrite_scan);
@@ -12995,10 +13031,16 @@ void UpdateAttrAndRewriteForView(Oid viewid, Oid rw_objid, List* originEvAction,
      */
     UpdatePgrewriteForView(rw_objid, evAction, NULL);
 
+    /*
+     * For the SWCB scenario, it is currently impossible to deparse
+     * the sql statement from the query tree. We store the sql statement
+     * in sql_statement field of the Query.
+     */
+    char* origin_def = GetSqlStatementForSWCB(query);
     List* newEvAction = NIL;
     PG_TRY();
     {
-        newEvAction = GetRefreshedViewQuery(viewid, rw_objid);
+        newEvAction = GetRefreshedViewQuery(viewid, rw_objid, origin_def);
     }
     PG_CATCH();
     {
@@ -13028,7 +13070,7 @@ void UpdateAttrAndRewriteForView(Oid viewid, Oid rw_objid, List* originEvAction,
     freshed_query = UpdateRangeTableOfViewParse(viewid, freshed_query);
 
     /* update pg_rewrite with final ev_action */
-    UpdatePgrewriteForView(rw_objid, list_make1(freshed_query), query_str);
+    UpdatePgrewriteForView(rw_objid, list_make1(freshed_query), query_str, origin_def);
 
     list_free_deep(newEvAction);
 }
@@ -34016,7 +34058,7 @@ static void ATPrepAlterModifyColumn(List** wqueue, AlteredTableInfo* tab, Relati
 }
 
 char* GetCreateViewCommand(const char *rel_name, HeapTuple tup, Form_pg_class reltup, Oid pg_rewrite_oid, Oid view_oid,
-    bool keep_star)
+    bool keep_star, char* origin_def)
 {
     StringInfoData buf;
     ViewInfoForAdd* view_info = NULL;
@@ -34057,6 +34099,10 @@ char* GetCreateViewCommand(const char *rel_name, HeapTuple tup, Form_pg_class re
     }
     pfree_ext(view_options);
     /* concat CREATE VIEW command with query */
+    if (origin_def != NULL) {
+        appendStringInfo(&buf, "AS %s", origin_def);
+        return buf.data;
+    }
     view_info = GetViewInfoFirstAfter(rel_name, pg_rewrite_oid, keep_star);
     if (view_info == NULL) {
         pfree_ext(buf.data);
