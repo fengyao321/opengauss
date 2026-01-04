@@ -573,7 +573,7 @@ extern THR_LOCAL bool stmt_contains_operator_plus;
 
 	LABEL LANGUAGE LARGE_P LAST_P LATERAL_P LC_COLLATE_P LC_CTYPE_P LEADING LEAKPROOF LINES
 	LEAST LESS LEFT LEVEL LIST LIKE LIMIT LISTEN LOAD LOCAL LOCALTIME LOCALTIMESTAMP
-	LOCATION LOCK_P LOCKED LOG_P LOGGING LOGIN_ANY LOGIN_SUCCESS LOGIN_FAILURE LOGOUT LOOP
+	LOCATION LOCK_P LOCKED LOG_P LOGGING LOGIN_ANY LOGIN_SUCCESS LOGIN_FAILURE LOGOUT LONG LOOP
 	MAPPING MASKING MASTER MASTR MATCH MATERIALIZED MATCHED MAXEXTENTS MAXSIZE MAXTRANS MAXVALUE MERGE MESSAGE_TEXT METHOD MINUS_P MINUTE_P MINUTE_SECOND_P MINVALUE MINEXTENTS MODE MODIFY_P MONTH_P MOVE MOVEMENT
 	MODEL MYSQL_ERRNO// DB4AI
 	NAME_P NAMES NAN_P NATIONAL NATURAL NCHAR NEXT NLSSORT NO NOCOMPRESS NOCYCLE NODE NOLOGGING NOMAXVALUE NOMINVALUE NONE
@@ -646,6 +646,7 @@ extern THR_LOCAL bool stmt_contains_operator_plus;
 %nonassoc   CLUSTER
 %nonassoc	SET				/* see relation_expr_opt_alias */
 %nonassoc	AUTO_INCREMENT
+%nonassoc   LONG
 %left		UNION EXCEPT MINUS_P
 %left		INTERSECT
 %left		OR
@@ -696,7 +697,7 @@ extern THR_LOCAL bool stmt_contains_operator_plus;
 /* Unary Operators */
 %left		AT				/* sets precedence for AT TIME ZONE */
 %left		COLLATE
-%right		UMINUS
+%right		UMINUS RAW
 %left		'[' ']'
 %left		'(' ')'
 %left		TYPECAST
@@ -8728,7 +8729,11 @@ ConstTypename:
 GenericType:
 			type_function_name opt_type_modifiers
 				{
-					$$ = makeTypeName($1);
+					if (unlikely(strcmp($1, "long") == 0)) {
+ 	 					$$ = SystemTypeName("clob");
+ 	 				} else {
+ 	 					$$ = makeTypeName($1);
+ 	 				}
 					$$->typmods = $2;
 					$$->location = @1;
 				}
@@ -8736,6 +8741,11 @@ GenericType:
 				{
 					$$ = makeTypeNameFromNameList(lcons(makeString($1), $2));
 					$$->typmods = $3;
+					$$->location = @1;
+				}
+			| LONG RAW
+				{
+					$$ = SystemTypeName("blob");
 					$$->location = @1;
 				}
 		;
@@ -12081,6 +12091,7 @@ unreserved_keyword:
 			| LOGIN_SUCCESS
 			| LOGIN_FAILURE
 			| LOGOUT
+			| LONG
 			| LOOP
 			| MAPPING
 			| MASKING

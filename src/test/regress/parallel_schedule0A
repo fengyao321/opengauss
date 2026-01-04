@@ -510,6 +510,9 @@ test: forbid_ddl
 test: cgin_select ignore_keyword_list keywords
 test: gin_select
 
+#test:long/long raw
+test: long_raw_01
+
 # test for binary_double suffix and Constant values
 test: test_binary_suffix
 
