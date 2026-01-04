@@ -87,13 +87,13 @@ void OllamaEmbeddingClient::ParseEmbeddingRespBody(char* respBody, Vector** resu
 {
     cJSON* root = cJSON_Parse(respBody);
     if (root == NULL) {
-        elog(ERROR, "parse embedding response json body error for ollama.");
+        elog(ERROR, "parse embedding response json body error for ollama: %s.", respBody);
     }
     
     cJSON* embeddings = cJSON_GetObjectItem(root, "embeddings");
     if (embeddings == NULL || !cJSON_IsArray(embeddings)) {
         cJSON_Delete(root);
-        elog(ERROR, "parse embeddings response error for ollama: 'embeddings' field not found or not array.");
+        elog(ERROR, "parse embeddings response error for ollama: %s.", respBody);
     }
 
     size_t embeddingCount = cJSON_GetArraySize(embeddings);
@@ -181,21 +181,19 @@ OGAIString OllamaGenerateClient::ParseGenerateRespBody(OGAIString respBody)
 
     cJSON* root = cJSON_Parse(respBody);
     if (root == NULL) {
-        elog(ERROR, "parse generate api response json body error for ollama.");
+        elog(ERROR, "parse generate api response json body error for ollama: %s.", respBody);
     }
 
     cJSON* message = cJSON_GetObjectItem(root, "message");
     if (message == NULL || !cJSON_IsObject(message)) {
         cJSON_Delete(root);
-        elog(ERROR, "parse generate api response message error for ollama.");
-        return NULL;
+        elog(ERROR, "parse generate api response message error for ollama: %s.", respBody);
     }
 
     cJSON* content = cJSON_GetObjectItem(message, "content");
     if (content == NULL || !cJSON_IsString(content) || content->valuestring == NULL) {
         cJSON_Delete(root);
         elog(ERROR, "parse generate api response content error for ollama.");
-        return NULL;
     }
 
     result = pg_strdup(content->valuestring);

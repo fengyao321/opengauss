@@ -22,7 +22,6 @@
  */
 
 #include "postgres.h"
-
 #include "keymgr/comm/security_utils.h"
 #include "keymgr/comm/security_http.h"
 #include "keymgr/comm/security_httpscan.h"
@@ -41,13 +40,11 @@ Vector** EmbeddingClient::BatchEmbed(OGAIString* texts, size_t textNum, int* dim
 
     if (texts == NULL || textNum <= 0 || dim == NULL || *dim <= 0) {
         elog(ERROR, "Invalid params");
-        return NULL;
     }
 
     errBuf = km_err_new(OGAI_ERROR_BUF_SZ);
     if (errBuf == NULL) {
         elog(ERROR, "new ogai http error buf failed.");
-        return NULL;
     }
 
     results = (Vector**)palloc0(sizeof(Vector*) * textNum);
@@ -60,17 +57,18 @@ Vector** EmbeddingClient::BatchEmbed(OGAIString* texts, size_t textNum, int* dim
         httpmgr_set_req_body(httpClient, reqBody);
         httpmgr_receive(httpClient);
         if (km_err_catch(errBuf)) {
+            elog(WARNING, "request failed: %s.", errBuf->buf);
             km_err_free(errBuf);
             httpmgr_free(httpClient);
+            pfree_ext(results);
             elog(ERROR, "call embedding model request failed.");
-            return NULL;
         }
         respBody = httpmgr_get_res_body(httpClient);
         if (respBody == NULL) {
             km_err_free(errBuf);
             httpmgr_free(httpClient);
+            pfree_ext(results);
             elog(ERROR, "call embedding model respond failed.");
-            return NULL;
         }
         ParseEmbeddingRespBody(respBody, results, i, batch);
         km_err_free(errBuf);
@@ -92,7 +90,6 @@ OGAIString GenerateClient::Generate(OGAIString query)
     errBuf = km_err_new(OGAI_ERROR_BUF_SZ);
     if (errBuf == NULL) {
         elog(ERROR, "new ogai http error buf failed.");
-        return NULL;
     }
 
     httpClient = GetHttpMgr(errBuf, config->baseUrl, config->apiKey, config->provider);
@@ -101,17 +98,16 @@ OGAIString GenerateClient::Generate(OGAIString query)
     httpmgr_set_req_body(httpClient, reqBody);
     httpmgr_receive(httpClient);
     if (km_err_catch(errBuf)) {
+        elog(WARNING, "request failed: %s.", errBuf->buf);
         km_err_free(errBuf);
         httpmgr_free(httpClient);
         elog(ERROR, "call generate model request failed.");
-        return NULL;
     }
     respBody = httpmgr_get_res_body(httpClient);
     if (respBody == NULL) {
         km_err_free(errBuf);
         httpmgr_free(httpClient);
         elog(ERROR, "call generate model failed.");
-        return NULL;
     }
     results = ParseGenerateRespBody(respBody);
     km_err_free(errBuf);
@@ -130,7 +126,6 @@ RerankResults* RerankClient::Rerank(OGAIString query, InputDocuments* documents)
     errBuf = km_err_new(OGAI_ERROR_BUF_SZ);
     if (errBuf == NULL) {
         elog(ERROR, "new ogai http error buf failed.");
-        return NULL;
     }
 
     httpClient = GetHttpMgr(errBuf, config->baseUrl, config->apiKey, config->provider);
@@ -139,17 +134,16 @@ RerankResults* RerankClient::Rerank(OGAIString query, InputDocuments* documents)
     httpmgr_set_req_body(httpClient, reqBody);
     httpmgr_receive(httpClient);
     if (km_err_catch(errBuf)) {
+        elog(WARNING, "request failed: %s.", errBuf->buf);
         km_err_free(errBuf);
         httpmgr_free(httpClient);
         elog(ERROR, "call rerank model failed.");
-        return results;
     }
     respBody = httpmgr_get_res_body(httpClient);
     if (respBody == NULL) {
         km_err_free(errBuf);
         httpmgr_free(httpClient);
         elog(ERROR, "call generate model failed.");
-        return NULL;
     }
     results = ParseRerankRespBody(respBody, documents);
     km_err_free(errBuf);
