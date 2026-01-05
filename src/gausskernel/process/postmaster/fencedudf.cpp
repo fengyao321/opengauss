@@ -52,6 +52,9 @@
 #ifdef HAVE_POLL_H
 #include <poll.h>
 #endif
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 #include "storage/ipc.h"
 #include "storage/latch.h"
 #include "storage/pg_shmem.h"
@@ -135,6 +138,7 @@ THR_LOCAL Oid lastUDFOid = InvalidOid;
 static MemoryContext UDFWorkMemContext = NULL;
 static int listenUDFSocket = -1;
 static bool UDFMasterQuitFlag = false;
+static bool UDFWorkerQuitFlag = false;
 static HTAB* UDFFuncHash = NULL;
 
 /* PRC Server Declaration */
@@ -142,6 +146,7 @@ static void UDFMasterServerLoop();
 static void UDFWorkerMain(int socket);
 static pid_t StartUDFWorker(int socket);
 static void SIGQUITUDFMaster(SIGNAL_ARGS);
+static void SIGQUITUDFWorker(SIGNAL_ARGS);
 static void RecvUDFInformation(int socket, FunctionCallInfoData* fcinfo);
 static void FindOrInsertUDFHashTab(FunctionCallInfoData* fcinfo);
 static void UDFCreateHashTab();
@@ -228,6 +233,12 @@ void FencedUDFMasterMain(int argc, char* argv[])
     /* ignore SIGXFSZ, so that ulimit violations work like disk full */
 #ifdef SIGXFSZ
     (void)gspqsignal(SIGXFSZ, SIG_IGN); /* ignored */
+#endif
+
+#ifdef __linux__
+    /* avoid the pprocess of fence quit without any notify 
+     * receive a terminate signal when happens */
+    prctl(PR_SET_PDEATHSIG,SIGTERM);
 #endif
 
 #if ((defined ENABLE_PYTHON2) || (defined ENABLE_PYTHON3))
@@ -719,6 +730,15 @@ void changeDatabase(unsigned int currentDatabaseId)
 static void UDFWorkerMain(int socket)
 {
     bool hasSetMemLimit = false;
+
+	(void)gspqsignal(SIGTERM, SIGQUITUDFWorker); /* register handler for the sigterm */
+
+#ifdef __linux__
+    /* avoid the pprocess of fence worker quit without any notify 
+     * receive a terminate signal when happens */
+    prctl(PR_SET_PDEATHSIG,SIGTERM); 
+#endif
+
     UDFWorkMemContext = AllocSetContextCreate(t_thrd.top_mem_cxt,
         "UDF_Work_MemContext",
         ALLOCSET_DEFAULT_MINSIZE,
@@ -733,7 +753,7 @@ static void UDFWorkerMain(int socket)
 
     MemoryContextSwitchTo(UDFWorkMemContext);
     FunctionCallInfoData fcinfo;
-    while (1) {
+    while (!UDFWorkerQuitFlag) {
         /* Step 2: Receive UDF information */
         RecvUDFInformation(socket, &fcinfo);
 
@@ -804,6 +824,8 @@ static void UDFWorkerMain(int socket)
         /* Step 4: Reset memory context */
         MemoryContextReset(UDFWorkMemContext);
     }
+
+    close(socket);
 }
 
 /*
@@ -1811,6 +1833,11 @@ static void FindOrInsertUDFHashTab(FunctionCallInfoData* fcinfo)
 void SIGQUITUDFMaster(SIGNAL_ARGS)
 {
     UDFMasterQuitFlag = true;
+}
+
+void SIGQUITUDFWorker(SIGNAL_ARGS)
+{
+    UDFWorkerQuitFlag = true;
 }
 
 void inline SetUDFUnixSocketPath(struct sockaddr_un* unAddrPtr)
