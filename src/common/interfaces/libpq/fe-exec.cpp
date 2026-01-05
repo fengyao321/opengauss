@@ -2612,16 +2612,18 @@ int PQputCopyData(PGconn* conn, const char* buffer, int nbytes)
 
     if (nbytes > 0) {
         char *encBuffer = NULL;
+        int encBufferLen;
 #ifdef HAVE_CE
         if (conn->client_logic->enable_client_encryption) {
-            int res = process_copy_chunk(conn, buffer, nbytes, &encBuffer);
-            if (res > 0) {
+            encBufferLen = 0;
+            CopyProcessStatus status = process_copy_chunk(conn, buffer, nbytes, &encBuffer, &encBufferLen);
+            if (status == PROCESS_SUCCESS) {
                 buffer = encBuffer;
-                nbytes = res;
-            } else if (res < 0) {
-                return res;          
+                nbytes = encBufferLen;
+            } else if (status == PROCESS_ERROR) {
+                libpq_free(encBuffer);
+                return -1;
             }
-            /* if res is 0 - no client logic was done, but no failure. continue normal flow */
         }
 #endif
         /*
@@ -2633,27 +2635,27 @@ int PQputCopyData(PGconn* conn, const char* buffer, int nbytes)
          */
         if ((conn->outBufSize - conn->outCount - 5) < nbytes) {
             if (pqFlush(conn) < 0) {
-                free(encBuffer);
+                libpq_free(encBuffer);
                 return -1;
             }
             if (pqCheckOutBufferSpace(conn->outCount + 5 + (size_t)(unsigned)nbytes, conn)) {
-                free(encBuffer);
+                libpq_free(encBuffer);
                 return pqIsnonblocking(conn) ? 0 : -1;
             }
         }
         /* Send the data (too simple to delegate to fe-protocol files) */
         if (PG_PROTOCOL_MAJOR(conn->pversion) >= 3) {
             if (pqPutMsgStart('d', false, conn) < 0 || pqPutnchar(buffer, nbytes, conn) < 0 || pqPutMsgEnd(conn) < 0) { 
-                free(encBuffer);
+                libpq_free(encBuffer);
                 return -1;
             }
         } else {
             if (pqPutMsgStart(0, false, conn) < 0 || pqPutnchar(buffer, nbytes, conn) < 0 || pqPutMsgEnd(conn) < 0) { 
-                free(encBuffer);
+                libpq_free(encBuffer);
                 return -1;
             }
         }
-        free(encBuffer);
+        libpq_free(encBuffer);
     }
     return 1;
 }
@@ -2674,7 +2676,9 @@ int PQputCopyEnd(PGconn* conn, const char* errormsg)
         printfPQExpBuffer(&conn->errorMessage, libpq_gettext("no COPY in progress\n"));
         return -1;
     }
-
+#ifdef HAVE_CE
+    FlushRemainingCopyChunk(conn);
+#endif
     /*
      * Send the COPY END indicator.  This is simple enough that we don't
      * bother delegating it to the fe-protocol files.

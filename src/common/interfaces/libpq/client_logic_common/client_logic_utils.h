@@ -31,6 +31,13 @@ struct RangeVar;
 typedef unsigned int Oid;
 typedef struct pg_conn PGconn;
 const int OBJ_NAME_BUF_LEN = 256;
+
+/* Copy process status */
+typedef enum {
+    PROCESS_SUCCESS = 0,
+    PROCESS_ERROR = -1,
+    PROCESS_NOT_NEEDED = -2
+} CopyProcessStatus;
 /* Array header structures */
 typedef struct {
     int      ndim;       /* # of dimensions */
