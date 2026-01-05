@@ -1174,8 +1174,17 @@ bool HashAggRunner::DaeCollectKeyCollInfo(struct wd_key_col_info *key_cols_info,
     if (colType == BPCHAROID) {
         return DaeSetupBpcharKeyType(&key_cols_info[idx], typeMod);
     } else if (colType == VARCHAROID) {
+        int varchar_len = (typeMod > (int32)VARHDRSZ) ? (typeMod - VARHDRSZ) : 0;
+        
+        if (varchar_len > DPA_MAX_VCHAR_SIZE) {
+            ereport(WARNING,
+                (errmsg("DPA: Key VARCHAR(%d) exceeds hardware limit %d bytes, fallback to CPU",
+                        varchar_len, DPA_MAX_VCHAR_SIZE)));
+            return false;
+        }
+        
         key_cols_info[idx].input_data_type = WD_DAE_VARCHAR;
-        key_cols_info[idx].col_data_info = 0;
+        key_cols_info[idx].col_data_info = (varchar_len > 0) ? varchar_len : 0;
     } else if (colType == INT8OID) {
         key_cols_info[idx].input_data_type = WD_DAE_LONG;
         key_cols_info[idx].col_data_info = sizeof(int64);
@@ -1227,8 +1236,17 @@ static bool DaeSetupCountInputType(struct wd_agg_col_info *col_info, Oid inputCo
     if (inputColType == BPCHAROID) {
         return DaeSetupCountBpcharType(col_info, typeMod);
     } else if (inputColType == VARCHAROID) {
+        int varchar_len = (typeMod > (int32)VARHDRSZ) ? (typeMod - VARHDRSZ) : 0;
+        
+        if (varchar_len > DPA_MAX_VCHAR_SIZE) {
+            ereport(WARNING,
+                (errmsg("DPA: COUNT(VARCHAR(%d)) exceeds hardware limit %d bytes, fallback to CPU",
+                        varchar_len, DPA_MAX_VCHAR_SIZE)));
+            return false;
+        }
+        
         col_info->input_data_type = WD_DAE_VARCHAR;
-        col_info->col_data_info = 0;
+        col_info->col_data_info = (varchar_len > 0) ? varchar_len : 0;
     } else if (inputColType == INT8OID) {
         col_info->input_data_type = WD_DAE_LONG;
         col_info->col_data_info = sizeof(int64);
@@ -1238,7 +1256,7 @@ static bool DaeSetupCountInputType(struct wd_agg_col_info *col_info, Oid inputCo
     } else {
         ereport(WARNING,
             (errmsg("DPA: COUNT aggregation only supports INT4/INT8/VARCHAR/CHAR, got type OID: %u",
-                inputColType)));
+                    inputColType)));
         return false;
     }
     return true;
@@ -1569,6 +1587,7 @@ static void DaeBuildColBpchar(struct wd_dae_col_addr *col, ScalarValue* vals, ui
         }
     }
     col->value_size = rows * data_len;
+    col->empty_size = rows * sizeof(__u8);
 }
 
 static void DaeBuildColVarchar(struct wd_dae_col_addr *col, ScalarValue* vals, uint8* flags, int32 rows)
@@ -1596,6 +1615,7 @@ static void DaeBuildColVarchar(struct wd_dae_col_addr *col, ScalarValue* vals, u
         offset[j + 1] = total_size;
     }
     col->value_size = total_size;
+    col->empty_size = rows * sizeof(__u8);
     col->offset_size = (rows + 1) * sizeof(__u32);
 }
 
@@ -1632,6 +1652,7 @@ bool HashAggRunner::ParallelBuildKeyValue(VectorBatch* batch)
                 }
             }
             daeReq_.key_cols[i].value_size = rows * sizeof(int32);
+            daeReq_.key_cols[i].empty_size = rows * sizeof(__u8);
         } else if (colType == INT8OID) {
             int64 *dest = (int64 *)daeReq_.key_cols[i].value;
             uint8 *empty = daeReq_.key_cols[i].empty;
@@ -1645,6 +1666,7 @@ bool HashAggRunner::ParallelBuildKeyValue(VectorBatch* batch)
                 }
             }
             daeReq_.key_cols[i].value_size = rows * sizeof(int64);
+            daeReq_.key_cols[i].empty_size = rows * sizeof(__u8);
         } else {
             elog(WARNING, "unsupported type %d", colType);
             return false;
@@ -1703,6 +1725,7 @@ bool HashAggRunner::ParallelBuildAggValue(VectorBatch* batch)
                 }
             }
             daeReq_.agg_cols[i].value_size = rows * sizeof(int32);
+            daeReq_.agg_cols[i].empty_size = rows * sizeof(__u8);
         } else if (colType == INT8OID) {
             int64 *dest = (int64 *)daeReq_.agg_cols[i].value;
             uint8 *empty = daeReq_.agg_cols[i].empty;
@@ -1717,6 +1740,7 @@ bool HashAggRunner::ParallelBuildAggValue(VectorBatch* batch)
                 }
             }
             daeReq_.agg_cols[i].value_size = rows * sizeof(int64);
+            daeReq_.agg_cols[i].empty_size = rows * sizeof(__u8);
         } else {
             elog(WARNING, "unsupported type %d", colType);
             return false;
@@ -1735,6 +1759,12 @@ void HashAggRunner::DaeParallelBuild(VectorBatch* batch)
         ereport(ERROR,
             (errcode(ERRCODE_INTERNAL_ERROR),
              	errmsg("DPA: Session not ready for build operation")));
+        return;
+    }
+    
+    /* Check for empty input batch */
+    if (batch->m_rows == 0) {
+        ereport(DEBUG1, (errmsg("DPA: Empty input batch (0 rows), skipping")));
         return;
     }
     
