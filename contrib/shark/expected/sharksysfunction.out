@@ -4141,13 +4141,13 @@ SELECT PATINDEX('%a_c%', 'xayc123'), PATINDEX('%a_c%', 'ac123'), PATINDEX('%a__c
 SELECT PATINDEX('%[0-9]%', 'abc123'), PATINDEX('%[A-Z]%', 'abcDEF'), PATINDEX('%[abc]%', 'xyzc');  -- expect 4 1 4  -- to be fixed
  patindex | patindex | patindex 
 ----------+----------+----------
-        6 |        6 |        4
+        4 |        4 |        4
 (1 row)
 
 SELECT PATINDEX('%[^0-9]%', '123abc'), PATINDEX('%[^a-z]%', 'abc123');  -- expect 4 4  -- to be fixed
  patindex | patindex 
 ----------+----------
-        6 |        6
+        4 |        4
 (1 row)
 
 SELECT PATINDEX('%[a-z][0-9]%', 'testA5xyz'), PATINDEX('%[0-9][^0-9]%', '123abc');  -- expect 5 3  -- to be fixed
