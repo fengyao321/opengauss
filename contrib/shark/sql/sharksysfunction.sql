@@ -307,6 +307,14 @@ select
 	objectpropertyex(object_id('students', 'U'), varbinary_col)
 from test_type_table_column_name;
 
+
+-- permission
+create user u_no_permission identified by 'Test@123';
+alter session set session authorization u_no_permission password 'Test@123';
+select objectpropertyex(object_id('students', 'U'), 'BaseType');
+RESET SESSION AUTHORIZATION;
+drop user u_no_permission cascade;
+
 drop TRIGGER trigger_update_total_grade;
 drop view sharksysfunc.student_grades;
 drop function if exists calculate_total_grade();

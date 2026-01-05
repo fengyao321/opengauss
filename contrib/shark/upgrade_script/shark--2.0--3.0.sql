@@ -1638,7 +1638,7 @@ CREATE OR REPLACE FUNCTION sys.object_definition(IN object_id Oid) RETURNS nvarc
 -- sys.objectpropertyex
 CREATE OR REPLACE FUNCTION sys.objectpropertyex(id INT, property VARCHAR) RETURNS SQL_VARIANT
 AS $$
-BEGIN
+    BEGIN
         property := PG_CATALOG.RTRIM(LOWER(COALESCE(property, '')));
         IF NOT EXISTS(SELECT ao.object_id FROM sys.all_objects ao WHERE object_id = id)
         THEN
@@ -1647,9 +1647,12 @@ BEGIN
         IF property = 'basetype' COLLATE "C" -- BaseType
         THEN
             RETURN (SELECT CAST(ao.type AS SYS.SQL_VARIANT) FROM sys.all_objects ao WHERE ao.object_id = id LIMIT 1);
-    END IF;
-    RETURN CAST(OBJECTPROPERTY(id, property) AS SYS.SQL_VARIANT);
-END
+        END IF;
+        RETURN CAST(OBJECTPROPERTY(id, property) AS SYS.SQL_VARIANT);
+    EXCEPTION
+        WHEN OTHERS THEN
+            RETURN NULL;
+    END
 $$
 LANGUAGE plpgsql STABLE;
 
