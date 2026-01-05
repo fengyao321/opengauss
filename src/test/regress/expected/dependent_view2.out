@@ -713,6 +713,26 @@ select valid from pg_object where object_oid='v_ddl0022'::regclass;
  t
 (1 row)
 
+CREATE VIEW dual AS SELECT 'X'::character varying AS dummy;
+create view view1 as SELECT "level" AS lv FROM dual CONNECT BY level < 10;
+drop view dual;
+CREATE VIEW dual AS SELECT 'X'::character varying AS dummy;
+select * from view1;
+ lv 
+----
+  1
+  2
+  3
+  4
+  5
+  6
+  7
+  8
+  9
+(9 rows)
+
+drop view view1;
+drop view dual;
 drop schema dependent_view2 cascade;
 NOTICE:  drop cascades to 14 other objects
 DETAIL:  drop cascades to table tab
