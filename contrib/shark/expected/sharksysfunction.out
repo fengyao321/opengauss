@@ -1413,11 +1413,10 @@ select COL_NAME(OBJECT_ID('test_colname_1'), 4);
 (1 row)
 
 select COL_NAME(OBJECT_ID('test_colname_1'), 'abc');
- col_name 
-----------
- 
-(1 row)
-
+ERROR:  invalid input syntax for type bigint: "abc"
+LINE 1: select COL_NAME(OBJECT_ID('test_colname_1'), 'abc');
+                                                     ^
+CONTEXT:  referenced column: col_name
 select COL_NAME(OBJECT_ID('test_colname_1'), NULL);
  col_name 
 ----------
@@ -1442,11 +1441,10 @@ LINE 1: select COL_NAME('0x1A', 3);
                         ^
 CONTEXT:  referenced column: col_name
 select COL_NAME(7, 'column_name');
- col_name 
-----------
- 
-(1 row)
-
+ERROR:  invalid input syntax for type bigint: "column_name"
+LINE 1: select COL_NAME(7, 'column_name');
+                           ^
+CONTEXT:  referenced column: col_name
 select COL_NAME('0x2F', 'another_column');
 ERROR:  invalid input syntax for integer: "0x2F"
 CONTEXT:  SQL function "col_name" during inlining

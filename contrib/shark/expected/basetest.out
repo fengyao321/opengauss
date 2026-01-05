@@ -47,6 +47,11 @@ select l.lanname from pg_language l join pg_proc p on l.oid = p.prolang and p.pr
  pltsql
 (2 rows)
 
+select 'abc'::bigint;
+ERROR:  invalid input syntax for type bigint: "abc"
+LINE 1: select 'abc'::bigint;
+               ^
+CONTEXT:  referenced column: int8
 drop schema basetest cascade;
 NOTICE:  drop cascades to 3 other objects
 DETAIL:  drop cascades to table t1
