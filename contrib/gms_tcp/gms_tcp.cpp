@@ -712,7 +712,7 @@ gms_tcp_encode_data_by_charset(GMS_TCP_CONNECTION_STATE *c_state, GMS_TCP_CONNEC
         cd = iconv_open(client_encoding_name, c_state->c_info.charset);
     }
 
-    if (cd < 0) {
+    if (cd < (iconv_t)0) {
         return NULL;
     }
 
