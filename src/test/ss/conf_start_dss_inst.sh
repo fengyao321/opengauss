@@ -1,5 +1,5 @@
 #!/bin/bash
-INST_OFFSET=`expr $UID % 63`
+INST_OFFSET=0
 SIMULATE_SIZE=50000 # Unit: MB
 LOG_SIZE=30000 # Unit: MB
 declare inst_count=''
@@ -29,7 +29,7 @@ init_nodes_list_standby_cluster()
     last_id=`expr $inst_count - 1`
     for i in `seq 0 $last_id`
     do
-        inst_id=`expr $i + $INST_OFFSET - 2`
+        inst_id=`expr $i + $INST_OFFSET`
         port=`expr $i + $DSS_PORT_BASE + 10000`
         if [ $i != $last_id ]; then
             mes_cfg=$mes_cfg$inst_id":127.0.0.1:"$port","
@@ -46,7 +46,7 @@ init_dss_conf()
     lock_path=$4
     cluster_mode=$5
     if [ ${cluster_mode} == 'standby_cluster' ]; then
-        inst_id=`expr $2 + $INST_OFFSET - 2`
+        inst_id=`expr $2 + $INST_OFFSET`
     else
         inst_id=`expr $2 + $INST_OFFSET`
     fi
