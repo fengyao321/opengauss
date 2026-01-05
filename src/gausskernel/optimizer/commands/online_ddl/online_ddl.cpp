@@ -83,6 +83,12 @@ void OnlineDDLDestroy()
  */
 OnlineDDLType OnlineDDLCheckFeasible(List** wqueue, Relation relation, List* cmds, LOCKMODE lockmode)
 {
+    if (IsTransactionBlock() || IsSubTransaction()) {
+        ereport(NOTICE,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("Online DDL operation is not supported in transaction block, do it without online ddl.")));
+        return ONLINE_DDL_INVALID;
+    }
     /* check need rewrite */
     ListCell* ltab = NULL;
     bool rewriteOpt = false;
@@ -409,6 +415,9 @@ void OnlineDDLCleanup()
         return;
     }
     OnlineDDLRelOperators* operators = (OnlineDDLRelOperators*)u_sess->online_ddl_operators;
+    if (operators->getStatus() == ONLINE_DDL_END) {
+        return;
+    }
     operators->setStatus(ONLINE_DDL_END);
     operators->closeDeltaRelation(ShareUpdateExclusiveLock);
     operators->closeCtidMapRelation(AccessShareLock);

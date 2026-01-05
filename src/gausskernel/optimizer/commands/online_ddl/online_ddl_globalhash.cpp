@@ -299,7 +299,9 @@ void OnlineDDLRelOperators::closeCtidMapRelation(LOCKMODE lockmode)
     }
 
     /* close ctid map relation */
-    relation_close(this->ctidMapRelation, lockmode);
+    if (this->ctidMapRelation->rd_refcnt > 0) {
+        relation_close(this->ctidMapRelation, lockmode);
+    }
     this->ctidMapRelation = NULL;
 }
 
