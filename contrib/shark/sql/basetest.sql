@@ -35,4 +35,6 @@ end;
 
 select l.lanname from pg_language l join pg_proc p on l.oid = p.prolang and p.proname in ('test', 'p1');
 
+select 'abc'::bigint;
+
 drop schema basetest cascade;
