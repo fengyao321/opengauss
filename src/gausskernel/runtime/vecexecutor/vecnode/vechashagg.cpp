@@ -1220,13 +1220,6 @@ static bool DaeSetupCountBpcharType(struct wd_agg_col_info *col_info, int4 typeM
     }
     
     int char_len = typeMod - VARHDRSZ;
-    if (char_len > DPA_MAX_CHAR_SIZE) {
-        ereport(WARNING,
-            (errmsg("DPA: CHAR(%d) length in aggregation exceeds hardware limit %d",
-                    char_len, DPA_MAX_CHAR_SIZE)));
-        return false;
-    }
-    
     col_info->col_data_info = char_len;
     return true;
 }
@@ -1236,17 +1229,8 @@ static bool DaeSetupCountInputType(struct wd_agg_col_info *col_info, Oid inputCo
     if (inputColType == BPCHAROID) {
         return DaeSetupCountBpcharType(col_info, typeMod);
     } else if (inputColType == VARCHAROID) {
-        int varchar_len = (typeMod > (int32)VARHDRSZ) ? (typeMod - VARHDRSZ) : 0;
-        
-        if (varchar_len > DPA_MAX_VCHAR_SIZE) {
-            ereport(WARNING,
-                (errmsg("DPA: COUNT(VARCHAR(%d)) exceeds hardware limit %d bytes, fallback to CPU",
-                        varchar_len, DPA_MAX_VCHAR_SIZE)));
-            return false;
-        }
-        
         col_info->input_data_type = WD_DAE_VARCHAR;
-        col_info->col_data_info = (varchar_len > 0) ? varchar_len : 0;
+        col_info->col_data_info = 0;
     } else if (inputColType == INT8OID) {
         col_info->input_data_type = WD_DAE_LONG;
         col_info->col_data_info = sizeof(int64);
