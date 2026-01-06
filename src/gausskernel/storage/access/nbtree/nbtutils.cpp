@@ -1259,10 +1259,13 @@ static void _bt_mark_scankey_required(ScanKey skey)
  * offnum: offset number of index tuple (must be a valid item!)
  * dir: direction we are scanning in
  * continuescan: output parameter (will be set correctly in all cases)
- *
+ * continuescanPrechecked: indicates that scan keys required for direction scan are already matched
  * Caller must hold pin and lock on the index page.
+ * haveFirstMatch: indicates that we already have at least one match in the current page
  */
-IndexTuple _bt_checkkeys(IndexScanDesc scan, Page page, OffsetNumber offnum, ScanDirection dir, bool *continuescan)
+IndexTuple _bt_checkkeys(IndexScanDesc scan, Page page, OffsetNumber offnum,
+                         ScanDirection dir, bool *continuescan,
+                         bool continuescanPrechecked, bool haveFirstMatch)
 {
     ItemId iid = PageGetItemId(page, offnum);
     bool tuple_alive = false;
@@ -1314,6 +1317,41 @@ IndexTuple _bt_checkkeys(IndexScanDesc scan, Page page, OffsetNumber offnum, Sca
         Datum datum;
         bool isNull = false;
         bool test;
+        bool requiredSameDir = false,
+             requiredOppositeDir = false;
+
+        /*
+         * Check if the key is required for ordered scan in the same or
+         * opposite direction.  Save as flag variables for future usage.
+         */
+        if (((key->sk_flags & SK_BT_REQFWD) && ScanDirectionIsForward(dir)) ||
+             ((key->sk_flags & SK_BT_REQBKWD) && ScanDirectionIsBackward(dir))) {
+            requiredSameDir = true;    
+        } else if (((key->sk_flags & SK_BT_REQFWD) && ScanDirectionIsBackward(dir)) ||
+             ((key->sk_flags & SK_BT_REQBKWD) && ScanDirectionIsForward(dir))) {
+            requiredOppositeDir = true;
+        }
+
+        /*
+         * If the caller told us the *continuescan flag is known to be true
+    	   * for the last item on the page, then we know the keys required for
+    	   * the current direction scan should be matched.  Otherwise, the
+    	   * *continuescan flag would be set for the current item and
+    	   * subsequently the last item on the page accordingly.
+    	   *
+    	   * If the key is required for the opposite direction scan, we can skip
+    	   * the check if the caller tells us there was already at least one
+    	   * matching item on the page. Also, we require the *continuescan flag
+    	   * to be true for the last item on the page to know there are no
+    	   * NULLs.
+    	   *
+    	   * Both cases above work except for the row keys, where NULLs could be
+    	   * found in the middle of matching values.
+    	   */
+        if ((requiredSameDir || (requiredOppositeDir && haveFirstMatch)) &&
+            !(key->sk_flags & SK_ROW_HEADER) && continuescanPrechecked) {
+            continue;
+        }
 
         /* row-comparison keys need special processing */
         if (key->sk_flags & SK_ROW_HEADER) {
@@ -1392,51 +1430,61 @@ IndexTuple _bt_checkkeys(IndexScanDesc scan, Page page, OffsetNumber offnum, Sca
             return NULL;
         }
         
-        switch (key->sk_func.fn_oid) {
-            case F_INT8EQ:
-                test = (int64)datum == (int64)key->sk_argument;
-                break;
-            case F_INT48EQ:
-                test = (int64)(int32)datum == (int64)key->sk_argument;
-                break;
-            case F_INT84EQ:
-                test = (int64)datum == (int64)(int32)key->sk_argument;
-                break;
-            case F_INT84LE:
-                test = (int64)datum <= (int64)(int32)key->sk_argument;
-                break;
-            case F_INT84GE:
-                test = (int64)datum >= (int64)(int32)key->sk_argument;
-                break;
-            case F_INT4EQ:
-                test = (int32)datum == (int32)key->sk_argument;
-                break;
-            case F_INT4GT:
-                test = (int32)datum > (int32)key->sk_argument;
-                break;
-            case F_INT4LT:
-                test = (int32)datum < (int32)key->sk_argument;
-                break;
-            case F_INT4LE:
-                test = (int32)datum <= (int32)key->sk_argument;
-                break;
-            case F_INT4GE:
-                test = (int32)datum >= (int32)key->sk_argument;
-                break;
-            case F_DATE_LE:
-                test = (int32)datum <= (int32)key->sk_argument;
-                break;
-            case F_DATE_GE:
-                test = (int32)datum >= (int32)key->sk_argument;
-                break;
-            case F_DATE_EQ:
-                test = (int32)datum == (int32)key->sk_argument;
-                break;
+        /*
+         * Apply the key-checking function.  When the key is required for the
+         * opposite direction scan, it must be already satisfied as soon as
+         * there is already match on the page.  Except for the NULLs checking,
+         * which have already done above.
+         */
+        if (!(requiredOppositeDir && haveFirstMatch)) {
+            switch (key->sk_func.fn_oid) {
+                case F_INT8EQ:
+                    test = (int64)datum == (int64)key->sk_argument;
+                    break;
+                case F_INT48EQ:
+                    test = (int64)(int32)datum == (int64)key->sk_argument;
+                    break;
+                case F_INT84EQ:
+                    test = (int64)datum == (int64)(int32)key->sk_argument;
+                    break;
+                case F_INT84LE:
+                    test = (int64)datum <= (int64)(int32)key->sk_argument;
+                    break;
+                case F_INT84GE:
+                    test = (int64)datum >= (int64)(int32)key->sk_argument;
+                    break;
+                case F_INT4EQ:
+                    test = (int32)datum == (int32)key->sk_argument;
+                    break;
+                case F_INT4GT:
+                    test = (int32)datum > (int32)key->sk_argument;
+                    break;
+                case F_INT4LT:
+                    test = (int32)datum < (int32)key->sk_argument;
+                    break;
+                case F_INT4LE:
+                    test = (int32)datum <= (int32)key->sk_argument;
+                    break;
+                case F_INT4GE:
+                    test = (int32)datum >= (int32)key->sk_argument;
+                    break;
+                case F_DATE_LE:
+                    test = (int32)datum <= (int32)key->sk_argument;
+                    break;
+                case F_DATE_GE:
+                    test = (int32)datum >= (int32)key->sk_argument;
+                    break;
+                case F_DATE_EQ:
+                    test = (int32)datum == (int32)key->sk_argument;
+                    break;
             
-            default:
-                test = DatumGetBool(FunctionCall2Coll(&key->sk_func, key->sk_collation, datum, key->sk_argument));
+                default:
+                    test = DatumGetBool(FunctionCall2Coll(&key->sk_func, key->sk_collation, datum, key->sk_argument));
+            }
+        } else {
+            test = true;
         }
-        
+
         if (!test) {
             /*
              * Tuple fails this qual.  If it's a required qual for the current

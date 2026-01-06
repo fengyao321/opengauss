@@ -1,0 +1,6 @@
+create table test_hk(c1 int, c2 int);  
+insert into test_hk select generate_series(1, 1e6) c1, generate_series(1, 1e6);
+create index on test_hk(c1);
+vacuum analyze test_hk;  
+explain performance select * from test_hk where c1 < 366;
+drop table test_hk;

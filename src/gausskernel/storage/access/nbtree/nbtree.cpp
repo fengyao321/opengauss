@@ -569,6 +569,7 @@ void btrescan_internal(IndexScanDesc scan, ScanKey scankey)
         so->markPos.buf = InvalidBuffer;
     }
     so->markItemIndex = -1;
+    so->firstPage = false;
 
     /*
      * Allocate tuple workspace arrays, if needed for an index-only scan and
