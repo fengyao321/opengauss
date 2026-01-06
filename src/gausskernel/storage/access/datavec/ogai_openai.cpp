@@ -57,8 +57,8 @@ char* OpenAIEmbeddingClient::BuildEmbeddingReqBody(OGAIString* texts, size_t tex
     }
 
     cJSON_AddStringToObject(root, "model", config->modelName);
-    
-    // OpenAI 使用 input 字段，可以是字符串或数组
+    cJSON_AddNumberToObject(root, "dimensions", config->dimension);
+
     if (textNum == 1) {
         cJSON_AddStringToObject(root, "input", texts[0]);
     } else {
@@ -91,13 +91,13 @@ void OpenAIEmbeddingClient::ParseEmbeddingRespBody(char* respBody, Vector** resu
 {
     cJSON* root = cJSON_Parse(respBody);
     if (root == NULL) {
-        elog(ERROR, "parse embedding response json body error for openai.");
+        elog(ERROR, "parse embedding response json body error for openai: %s.", respBody);
     }
 
     cJSON* data = cJSON_GetObjectItem(root, "data");
     if (data == NULL || !cJSON_IsArray(data)) {
         cJSON_Delete(root);
-        elog(ERROR, "parse data response error for openai: 'data' field not found or not array.");
+        elog(ERROR, "parse data response error for openai: %s.", respBody);
     }
 
     size_t embeddingCount = cJSON_GetArraySize(data);
@@ -159,13 +159,11 @@ OGAIString OpenAIGenerateClient::BuildGenerateReqBody(OGAIString query)
         return NULL;
     }
 
-    // 添加 system prompt
     cJSON* system_msg = cJSON_CreateObject();
     cJSON_AddStringToObject(system_msg, "role", "system");
     cJSON_AddStringToObject(system_msg, "content", "You are a helpful assistant.");
     cJSON_AddItemToArray(messages, system_msg);
 
-    // 添加 user query
     cJSON* user_msg = cJSON_CreateObject();
     cJSON_AddStringToObject(user_msg, "role", "user");
     cJSON_AddStringToObject(user_msg, "content", query);
@@ -192,13 +190,13 @@ OGAIString OpenAIGenerateClient::ParseGenerateRespBody(OGAIString respBody)
 
     cJSON* root = cJSON_Parse(respBody);
     if (root == NULL) {
-        elog(ERROR, "parse generate response json body error for openai.");
+        elog(ERROR, "parse generate response json body error for openai: %s.", respBody);
     }
 
     cJSON* choices = cJSON_GetObjectItem(root, "choices");
     if (choices == NULL || !cJSON_IsArray(choices) || cJSON_GetArraySize(choices) == 0) {
         cJSON_Delete(root);
-        elog(ERROR, "parse choices error for openai: not found or empty.");
+        elog(ERROR, "parse choices error for openai: %s.", respBody);
     }
 
     cJSON* choice = cJSON_GetArrayItem(choices, 0);

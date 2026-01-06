@@ -63,7 +63,6 @@ char* QwenEmbeddingClient::BuildEmbeddingReqBody(OGAIString* texts, size_t textN
     if (input == NULL) {
         cJSON_Delete(root);
         elog(ERROR, "build embedding input object error.");
-        return NULL;
     }
 
     cJSON_AddStringToObject(root, "model", config->modelName);
@@ -84,7 +83,6 @@ char* QwenEmbeddingClient::BuildEmbeddingReqBody(OGAIString* texts, size_t textN
     if (jsonStr == NULL) {
         cJSON_Delete(root);
         elog(ERROR, "build embedding json body error.");
-        return NULL;
     }
 
     body = pg_strdup(jsonStr);
@@ -97,9 +95,15 @@ void QwenEmbeddingClient::ParseEmbeddingRespBody(char* respBody, Vector** result
 {
     cJSON* root = cJSON_Parse(respBody);
     if (root == NULL) {
-        elog(ERROR, "build embedding response json body error.");
+        elog(ERROR, "parse embedding response json body error: %s.", respBody);
     }
+
     cJSON* output = cJSON_GetObjectItem(root, "output");
+    if (output == NULL) {
+        cJSON_Delete(root);
+        elog(ERROR, "parse embedding output error: %s.", respBody);
+    }
+
     cJSON* embeddings = cJSON_GetObjectItem(output, "embeddings");
     if (embeddings == NULL || !cJSON_IsArray(embeddings)) {
         cJSON_Delete(root);
@@ -213,14 +217,13 @@ OGAIString QwenGenerateClient::ParseGenerateRespBody(OGAIString respBody)
 
     cJSON* root = cJSON_Parse(respBody);
     if (root == NULL) {
-        elog(ERROR, "parse generate response json body error.");
+        elog(ERROR, "parse generate response json body error: %s.", respBody);
     }
 
     cJSON* output = cJSON_GetObjectItem(root, "output");
-    if (output == NULL || !cJSON_IsObject(output)) {
+    if (output == NULL) {
         cJSON_Delete(root);
-        elog(ERROR, "parse output error: not found or not object.");
-        return NULL;
+        elog(ERROR, "parse generate output error: %s.", respBody);
     }
 
     cJSON* text = cJSON_GetObjectItem(output, "text");
@@ -294,11 +297,16 @@ RerankResults* QwenRerankClient::ParseRerankRespBody(OGAIString respBody, InputD
 
     root = cJSON_Parse(respBody);
     if (root == NULL) {
-        elog(WARNING, "build rerank response json body error.");
+        elog(WARNING, "build rerank response json body error: %s.", respBody);
         return rerankResults;
     }
 
     output = cJSON_GetObjectItem(root, "output");
+    if (output == NULL) {
+        cJSON_Delete(root);
+        elog(WARNING, "parse rerank output error: %s.", respBody);
+    }
+
     results = cJSON_GetObjectItem(output, "results");
     if (results == NULL || !cJSON_IsArray(results)) {
         cJSON_Delete(root);
