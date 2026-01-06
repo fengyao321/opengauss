@@ -69,4 +69,18 @@ SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM 
 SELECT * FROM test2 WHERE c1 = 1 LIMIT 1;
 SELECT query_type, is_bypass, param_types, param_nums, parameterized_query FROM query_parameterization_views();
 
+DROP table test2;
+
+drop table if exists my_table;
+CREATE TABLE my_table (
+    c1 INT,
+    c2 INT,
+    c3 INT,
+    c4 CHAR(1)
+) with (compresstype=2);
+
+INSERT INTO my_table (c1, c2, c3, c4) VALUES (1, 10, 100, 'A'), (2, 20, 200, 'B'), (3, 30, 300, 'C'), (4, 40, 400, 'D'), (5, 50, 500, 'E');
+select c1 from my_table where c2>20;
+SELECT * FROM query_parameterization_views();
+
 set enable_query_parameterization=off;

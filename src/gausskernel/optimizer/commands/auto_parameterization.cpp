@@ -194,7 +194,7 @@ static bool IsQualifiedTbl(RangeVar* rel)
     Relation relation = heap_open(relOid, NoLock);
     if (IsSystemRelation(relation) || RelationIsPartitioned(relation) || RELATION_IS_TEMP(relation)
         || RelationGetRelPersistence(relation) == RELPERSISTENCE_UNLOGGED || RelationIsView(relation)
-        || RowRelationIsCompressed(relation) || isAnyTempNamespace(RelationGetNamespace(relation))) {
+        || IS_COMPRESSED_RNODE(relation->rd_node, MAIN_FORKNUM) || isAnyTempNamespace(RelationGetNamespace(relation))) {
         heap_close(relation, NoLock);
         return false;
     }
