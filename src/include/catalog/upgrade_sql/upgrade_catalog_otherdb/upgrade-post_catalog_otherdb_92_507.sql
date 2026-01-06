@@ -13,7 +13,7 @@ DECLARE
   user_name text;
   query_str text;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
     SELECT SESSION_USER INTO user_name;
     query_str := 'GRANT ALL ON TABLE DBE_PERF.global_plancache_clean TO ' || quote_ident(user_name) || ';';
@@ -40,7 +40,7 @@ RETURNS text LANGUAGE INTERNAL STABLE STRICT AS 'sys_connect_by_path';
 -- drop operators that depends on int16 first.
 do $$
 BEGIN
-    for ans in select case when count(*) = 1 then true else false end as ans from (select typname from pg_type where typname = 'int16' limit 1)
+    for ans in select case when count(*) = 1 then true else false end as ans from (select typname from pg_catalog.pg_type where typname = 'int16' limit 1)
     LOOP
         if ans.ans = true then
             DROP OPERATOR IF EXISTS pg_catalog.=(int16, int16) CASCADE;
@@ -546,7 +546,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_gtt_attached_pids WITH (security_barrier) A
  SELECT n.nspname AS schemaname,
     c.relname AS tablename,
     c.oid AS relid,
-    array(select pid from pg_gtt_attached_pid(c.oid)) AS pids
+    array(select pid from pg_catalog.pg_gtt_attached_pid(c.oid)) AS pids
  FROM
      pg_class c
      LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -702,19 +702,19 @@ CREATE OR REPLACE VIEW pg_catalog.pg_statio_all_sequences AS
             pg_stat_get_blocks_fetched(C.oid) -
                     pg_stat_get_blocks_hit(C.oid) AS blks_read,
             pg_stat_get_blocks_hit(C.oid) AS blks_hit
-    FROM pg_class C
+    FROM pg_catalog.pg_class C
             LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind = 'S' or C.relkind = 'L';
 GRANT SELECT ON pg_catalog.pg_statio_all_sequences TO PUBLIC;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_statio_sys_sequences AS
-    SELECT * FROM pg_statio_all_sequences
+    SELECT * FROM pg_catalog.pg_statio_all_sequences
     WHERE schemaname IN ('pg_catalog', 'information_schema') OR
           schemaname ~ '^pg_toast';
 GRANT SELECT ON pg_catalog.pg_statio_sys_sequences TO PUBLIC;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_statio_user_sequences AS
-    SELECT * FROM pg_statio_all_sequences
+    SELECT * FROM pg_catalog.pg_statio_all_sequences
     WHERE schemaname NOT IN ('pg_catalog', 'information_schema') AND
           schemaname !~ '^pg_toast';DROP FUNCTION IF EXISTS pg_catalog.gs_hadr_local_rto_and_rpo_stat();
 SET LOCAL inplace_upgrade_next_system_object_oids=IUO_PROC, 5077;
@@ -1050,7 +1050,7 @@ CREATE OR REPLACE VIEW dbe_perf.statio_all_sequences AS
     pg_stat_get_blocks_fetched(C.oid) -
     pg_stat_get_blocks_hit(C.oid) AS blks_read,
     pg_stat_get_blocks_hit(C.oid) AS blks_hit
-  FROM pg_class C
+  FROM pg_catalog.pg_class C
        LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind = 'S' or C.relkind = 'L';
 
@@ -1069,7 +1069,7 @@ CREATE OR REPLACE VIEW information_schema.sequences AS
            CAST((pg_sequence_parameters(c.oid)).maximum_value AS character_data) AS maximum_value,
            CAST((pg_sequence_parameters(c.oid)).increment AS character_data) AS increment,
            CAST(CASE WHEN (pg_sequence_parameters(c.oid)).cycle_option THEN 'YES' ELSE 'NO' END AS yes_or_no) AS cycle_option
-    FROM pg_namespace nc, pg_class c
+    FROM pg_catalog.pg_namespace nc, pg_class c
     WHERE c.relnamespace = nc.oid
           AND (c.relkind = 'L' or c.relkind = 'S')
           AND (NOT pg_is_other_temp_schema(nc.oid))
@@ -1091,13 +1091,13 @@ CREATE OR REPLACE VIEW information_schema.usage_privileges AS
            CAST('USAGE' AS character_data) AS privilege_type,
            CAST('NO' AS yes_or_no) AS is_grantable
 
-    FROM pg_authid u,
+    FROM pg_catalog.pg_authid u,
          pg_namespace n,
          pg_collation c
 
     WHERE u.oid = c.collowner
           AND c.collnamespace = n.oid
-          AND collencoding IN (-1, (SELECT encoding FROM pg_database WHERE datname = current_database()))
+          AND collencoding IN (-1, (SELECT encoding FROM pg_catalog.pg_database WHERE datname = current_database()))
 
     UNION ALL
 
@@ -1117,12 +1117,12 @@ CREATE OR REPLACE VIEW information_schema.usage_privileges AS
                   THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
 
     FROM (
-            SELECT oid, typname, typnamespace, typtype, typowner, (aclexplode(coalesce(typacl, acldefault('T', typowner)))).* FROM pg_type
+            SELECT oid, typname, typnamespace, typtype, typowner, (aclexplode(coalesce(typacl, acldefault('T', typowner)))).* FROM pg_catalog.pg_type
          ) AS t (oid, typname, typnamespace, typtype, typowner, grantor, grantee, prtype, grantable),
          pg_namespace n,
          pg_authid u_grantor,
          (
-           SELECT oid, rolname FROM pg_authid
+           SELECT oid, rolname FROM pg_catalog.pg_authid
            UNION ALL
            SELECT 0::oid, 'PUBLIC'
          ) AS grantee (oid, rolname)
@@ -1154,11 +1154,11 @@ CREATE OR REPLACE VIEW information_schema.usage_privileges AS
                   THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
 
     FROM (
-            SELECT fdwname, fdwowner, (aclexplode(coalesce(fdwacl, acldefault('F', fdwowner)))).* FROM pg_foreign_data_wrapper
+            SELECT fdwname, fdwowner, (aclexplode(coalesce(fdwacl, acldefault('F', fdwowner)))).* FROM pg_catalog.pg_foreign_data_wrapper
          ) AS fdw (fdwname, fdwowner, grantor, grantee, prtype, grantable),
          pg_authid u_grantor,
          (
-           SELECT oid, rolname FROM pg_authid
+           SELECT oid, rolname FROM pg_catalog.pg_authid
            UNION ALL
            SELECT 0::oid, 'PUBLIC'
          ) AS grantee (oid, rolname)
@@ -1188,11 +1188,11 @@ CREATE OR REPLACE VIEW information_schema.usage_privileges AS
                   THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
 
     FROM (
-            SELECT srvname, srvowner, (aclexplode(coalesce(srvacl, acldefault('S', srvowner)))).* FROM pg_foreign_server
+            SELECT srvname, srvowner, (aclexplode(coalesce(srvacl, acldefault('S', srvowner)))).* FROM pg_catalog.pg_foreign_server
          ) AS srv (srvname, srvowner, grantor, grantee, prtype, grantable),
          pg_authid u_grantor,
          (
-           SELECT oid, rolname FROM pg_authid
+           SELECT oid, rolname FROM pg_catalog.pg_authid
            UNION ALL
            SELECT 0::oid, 'PUBLIC'
          ) AS grantee (oid, rolname)
@@ -1222,12 +1222,12 @@ CREATE OR REPLACE VIEW information_schema.usage_privileges AS
                   THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
 
     FROM (
-            SELECT oid, relname, relnamespace, relkind, relowner, (aclexplode(coalesce(relacl, acldefault('r', relowner)))).* FROM pg_class
+            SELECT oid, relname, relnamespace, relkind, relowner, (aclexplode(coalesce(relacl, acldefault('r', relowner)))).* FROM pg_catalog.pg_class
          ) AS c (oid, relname, relnamespace, relkind, relowner, grantor, grantee, prtype, grantable),
          pg_namespace n,
          pg_authid u_grantor,
          (
-           SELECT oid, rolname FROM pg_authid
+           SELECT oid, rolname FROM pg_catalog.pg_authid
            UNION ALL
            SELECT 0::oid, 'PUBLIC'
          ) AS grantee (oid, rolname)
@@ -1369,7 +1369,7 @@ has_version_proc boolean;
 need_upgrade boolean;
 BEGIN
   need_upgrade = false;
-  select case when count(*)=1 then true else false end as has_version_proc from (select * from pg_proc where proname = 'working_version_num' limit 1) into has_version_proc;
+  select case when count(*)=1 then true else false end as has_version_proc from (select * from pg_catalog.pg_proc where proname = 'working_version_num' limit 1) into has_version_proc;
   IF has_version_proc = true  then
     select working_version_num >= 92305 as v5r1c20_and_later_version from working_version_num() into v5r1c20_and_later_version;
     IF v5r1c20_and_later_version = true then
@@ -2913,9 +2913,9 @@ is
     xx int;
     tmp text;
 begin
-    for aa in (select oid from pg_proc where allargtypes is null) loop
+    for aa in (select oid from pg_catalog.pg_proc where allargtypes is null) loop
         tmp := null;
-        for xx in (select unnest(proallargtypes)   from pg_proc where oid =aa) loop
+        for xx in (select unnest(proallargtypes)   from pg_catalog.pg_proc where oid =aa) loop
            tmp := tmp || ' '||xx;
         end loop;
         tmp := substr(tmp,2);
@@ -3127,9 +3127,9 @@ begin
         where proallargtypes is not null and array_length(proallargtypes, 1) > 666;
 
     -- update allargtypes
-    for i in (select oid from pg_proc where allargtypesext is not null) loop
+    for i in (select oid from pg_catalog.pg_proc where allargtypesext is not null) loop
         tmpstr1 := null;
-        for j in (select unnest(proallargtypes) from pg_proc where oid = i) loop
+        for j in (select unnest(proallargtypes) from pg_catalog.pg_proc where oid = i) loop
             tmpstr1 := tmpstr1 || ' ' ||j;
         end loop;
         tmpstr1 := substr(tmpstr1,2);
@@ -3296,9 +3296,9 @@ CREATE VIEW pg_catalog.pg_publication_tables AS
         P.pubname AS pubname,
         N.nspname AS schemaname,
         C.relname AS tablename
-    FROM pg_publication P, pg_class C
+    FROM pg_catalog.pg_publication P, pg_class C
          JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
-    WHERE C.oid IN (SELECT relid FROM pg_get_publication_tables(P.pubname));
+    WHERE C.oid IN (SELECT relid FROM pg_catalog.pg_get_publication_tables(P.pubname));
 
 DROP VIEW IF EXISTS pg_catalog.pg_stat_subscription CASCADE;
 CREATE VIEW pg_catalog.pg_stat_subscription AS
@@ -3311,13 +3311,13 @@ CREATE VIEW pg_catalog.pg_stat_subscription AS
             st.last_msg_receipt_time,
             st.latest_end_lsn,
             st.latest_end_time
-    FROM pg_subscription su
+    FROM pg_catalog.pg_subscription su
             LEFT JOIN pg_catalog.pg_stat_get_subscription(NULL) st
                       ON (st.subid = su.oid);
 
 DROP VIEW IF EXISTS pg_catalog.pg_replication_origin_status CASCADE;
 CREATE VIEW pg_catalog.pg_replication_origin_status AS
     SELECT *
-    FROM pg_show_replication_origin_status();
+    FROM pg_catalog.pg_show_replication_origin_status();
 
 REVOKE ALL ON pg_catalog.pg_replication_origin_status FROM public;

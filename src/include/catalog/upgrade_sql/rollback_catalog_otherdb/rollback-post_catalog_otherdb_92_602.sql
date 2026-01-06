@@ -32,7 +32,7 @@ BEGIN
   FOR ans in select case when count(*) = 1 then true else false end as ans from (select 1 from pg_catalog.pg_proc where proname = 'large_seq_rollback_ntree' limit 1) LOOP
     IF ans = true then
       need_upgrade = false;
-      select case when count(*)=1 then true else false end as has_version_proc from (select * from pg_proc where proname = 'working_version_num' limit 1) into has_version_proc;
+      select case when count(*)=1 then true else false end as has_version_proc from (select * from pg_catalog.pg_proc where proname = 'working_version_num' limit 1) into has_version_proc;
       IF has_version_proc = true then
         select working_version_num < 92455 as old_version from working_version_num() into old_version;
         IF old_version = true then
@@ -132,7 +132,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_activity AS
             S.query_id,
             S.query,
             S.connection_info
-    FROM pg_database D, pg_stat_get_activity_with_conninfo(NULL) AS S, pg_authid U
+    FROM pg_catalog.pg_database D, pg_stat_get_activity_with_conninfo(NULL) AS S, pg_authid U
     WHERE S.datid = D.oid AND
             S.usesysid = U.oid;
 
@@ -153,7 +153,7 @@ where s.query_id = t.queryid and t.ec_operator > 0;
 
 CREATE OR REPLACE VIEW pg_catalog.gs_wlm_operator_statistics AS
 SELECT t.*
-FROM pg_stat_activity AS s, pg_stat_get_wlm_realtime_operator_info(NULL) as t
+FROM pg_catalog.pg_stat_activity AS s, pg_stat_get_wlm_realtime_operator_info(NULL) as t
 where s.query_id = t.queryid;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
@@ -163,7 +163,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
 			S.datname AS dbname,
 			S.backend_start,
 			S.query
-	FROM pg_pool_validate(false, ' ') AS C LEFT JOIN pg_catalog.pg_stat_activity AS S
+	FROM pg_catalog.pg_pool_validate(false, ' ') AS C LEFT JOIN pg_catalog.pg_stat_activity AS S
 			ON (C.pid = S.sessionid);
 
 DROP FUNCTION IF EXISTS pg_catalog.pg_stat_get_wlm_session_iostat_info(integer) cascade;
@@ -174,7 +174,7 @@ DO $DO$
 DECLARE
 ans boolean;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
 	DROP VIEW IF EXISTS DBE_PERF.global_session_stat_activity cascade;
 	DROP FUNCTION IF EXISTS DBE_PERF.get_global_session_stat_activity() cascade;
@@ -257,7 +257,7 @@ BEGIN
 	END AS resource_pool,
 	    S.query_id,
 	    S.query
-	FROM pg_database D, pg_stat_get_activity(NULL) AS S, pg_authid U
+	FROM pg_catalog.pg_database D, pg_stat_get_activity(NULL) AS S, pg_authid U
 	  WHERE S.datid = D.oid AND
 	        S.usesysid = U.oid;
 
@@ -360,7 +360,7 @@ BEGIN
 		W.receiver_replay_location,
 		W.sync_priority,
 		W.sync_state
-		FROM pg_stat_get_activity(NULL) AS S, pg_authid U,
+		FROM pg_catalog.pg_stat_get_activity(NULL) AS S, pg_authid U,
 			 pg_stat_get_wal_senders() AS W
 		WHERE S.usesysid = U.oid AND
 			  S.pid = W.pid;
@@ -446,7 +446,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_activity_ng AS
             S.query_id,
             S.query,
             N.node_group
-    FROM pg_database D, pg_stat_get_activity(NULL) AS S, pg_stat_get_activity_ng(NULL) AS N, pg_authid U
+    FROM pg_catalog.pg_database D, pg_stat_get_activity(NULL) AS S, pg_stat_get_activity_ng(NULL) AS N, pg_authid U
     WHERE S.datid = D.oid AND
             S.usesysid = U.oid AND
             S.sessionid = N.sessionid;
@@ -627,7 +627,7 @@ SELECT
         S.query,
         S.node_group,
         T.top_cpu_dn
-FROM pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
 WHERE S.pid = T.threadid;
 	  
 CREATE OR REPLACE VIEW pg_catalog.gs_wlm_session_statistics AS
@@ -681,7 +681,7 @@ SELECT
         S.node_group,
         T.top_cpu_dn,
         T.top_mem_dn
-FROM pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
 WHERE S.pid = T.threadid;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_stat_replication AS
@@ -701,7 +701,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_replication AS
             W.receiver_replay_location,
             W.sync_priority,
             W.sync_state
-    FROM pg_stat_get_activity(NULL) AS S, pg_authid U,
+    FROM pg_catalog.pg_stat_get_activity(NULL) AS S, pg_authid U,
             pg_stat_get_wal_senders() AS W
     WHERE S.usesysid = U.oid AND
             S.pid = W.pid;
@@ -713,7 +713,7 @@ DECLARE
   user_name text;
   query_str text;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
     SELECT SESSION_USER INTO user_name;
     query_str := 'GRANT INSERT,SELECT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER ON TABLE DBE_PERF.session_stat_activity TO ' || quote_ident(user_name) || ';';
@@ -802,7 +802,7 @@ DROP FUNCTION IF EXISTS pg_catalog.regexp_substr(text, text, int, int, text) CAS
 do $$DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.gs_get_active_archiving_standby();
         DROP FUNCTION IF EXISTS pg_catalog.gs_pitr_get_warning_for_xlog_force_recycle();
@@ -816,7 +816,7 @@ DROP FUNCTION IF EXISTS pg_catalog.gs_query_standby_cluster_barrier_id_exist() c
 do $$DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
         DROP VIEW IF EXISTS DBE_PERF.global_streaming_hadr_rto_and_rpo_stat CASCADE;
     end if;
@@ -935,7 +935,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_activity AS
             S.query,
             S.connection_info,
             S.unique_sql_id
-    FROM pg_database D, pg_stat_get_activity_with_conninfo(NULL) AS S, pg_authid U
+    FROM pg_catalog.pg_database D, pg_stat_get_activity_with_conninfo(NULL) AS S, pg_authid U
     WHERE S.datid = D.oid AND
             S.usesysid = U.oid;
 
@@ -956,7 +956,7 @@ where s.query_id = t.queryid and t.ec_operator > 0;
 
 CREATE OR REPLACE VIEW pg_catalog.gs_wlm_operator_statistics AS
 SELECT t.*
-FROM pg_stat_activity AS s, pg_stat_get_wlm_realtime_operator_info(NULL) as t
+FROM pg_catalog.pg_stat_activity AS s, pg_stat_get_wlm_realtime_operator_info(NULL) as t
 where s.query_id = t.queryid;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
@@ -966,7 +966,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
 			S.datname AS dbname,
 			S.backend_start,
 			S.query
-	FROM pg_pool_validate(false, ' ') AS C LEFT JOIN pg_catalog.pg_stat_activity AS S
+	FROM pg_catalog.pg_pool_validate(false, ' ') AS C LEFT JOIN pg_catalog.pg_stat_activity AS S
 			ON (C.pid = S.sessionid);
 
 DROP FUNCTION IF EXISTS pg_catalog.pg_stat_get_wlm_session_iostat_info(integer) cascade;
@@ -977,7 +977,7 @@ DO $DO$
 DECLARE
 ans boolean;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
 	DROP VIEW IF EXISTS DBE_PERF.global_session_stat_activity cascade;
 	DROP FUNCTION IF EXISTS DBE_PERF.get_global_session_stat_activity() cascade;
@@ -1062,7 +1062,7 @@ BEGIN
 	    S.query_id,
 	    S.query,
 	    S.unique_sql_id
-	FROM pg_database D, pg_stat_get_activity(NULL) AS S, pg_authid U
+	FROM pg_catalog.pg_database D, pg_stat_get_activity(NULL) AS S, pg_authid U
 	  WHERE S.datid = D.oid AND
 	        S.usesysid = U.oid;
 
@@ -1166,7 +1166,7 @@ BEGIN
 		W.receiver_replay_location,
 		W.sync_priority,
 		W.sync_state
-		FROM pg_stat_get_activity(NULL) AS S, pg_authid U,
+		FROM pg_catalog.pg_stat_get_activity(NULL) AS S, pg_authid U,
 			 pg_stat_get_wal_senders() AS W
 		WHERE S.usesysid = U.oid AND
 			  S.pid = W.pid;
@@ -1252,7 +1252,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_activity_ng AS
             S.query_id,
             S.query,
             N.node_group
-    FROM pg_database D, pg_stat_get_activity(NULL) AS S, pg_stat_get_activity_ng(NULL) AS N, pg_authid U
+    FROM pg_catalog.pg_database D, pg_stat_get_activity(NULL) AS S, pg_stat_get_activity_ng(NULL) AS N, pg_authid U
     WHERE S.datid = D.oid AND
             S.usesysid = U.oid AND
             S.sessionid = N.sessionid;
@@ -1433,7 +1433,7 @@ SELECT
         S.query,
         S.node_group,
         T.top_cpu_dn
-FROM pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
 WHERE S.pid = T.threadid;
 
 CREATE OR REPLACE VIEW pg_catalog.gs_wlm_session_statistics AS
@@ -1487,7 +1487,7 @@ SELECT
         S.node_group,
         T.top_cpu_dn,
         T.top_mem_dn
-FROM pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
 WHERE S.pid = T.threadid;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_stat_replication AS
@@ -1507,7 +1507,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_replication AS
             W.receiver_replay_location,
             W.sync_priority,
             W.sync_state
-    FROM pg_stat_get_activity(NULL) AS S, pg_authid U,
+    FROM pg_catalog.pg_stat_get_activity(NULL) AS S, pg_authid U,
             pg_stat_get_wal_senders() AS W
     WHERE S.usesysid = U.oid AND
             S.pid = W.pid;
@@ -1519,7 +1519,7 @@ DECLARE
   user_name text;
   query_str text;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
     SELECT SESSION_USER INTO user_name;
     query_str := 'GRANT INSERT,SELECT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER ON TABLE DBE_PERF.session_stat_activity TO ' || quote_ident(user_name) || ';';
@@ -1592,7 +1592,7 @@ DO $DO$
 DECLARE
   ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS DBE_PERF.get_global_full_sql_by_timestamp() cascade;
         DROP FUNCTION IF EXISTS DBE_PERF.get_global_slow_sql_by_timestamp() cascade;
@@ -1665,7 +1665,7 @@ DECLARE
   username text;
   querystr text;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
         CREATE VIEW DBE_PERF.statement_history AS
             select * from pg_catalog.statement_history;
@@ -1735,7 +1735,7 @@ BEGIN
           each_node_name name;
           BEGIN
             -- Get all node names(CN + master DN)
-            node_names := ARRAY(SELECT pgxc_node.node_name FROM pgxc_node WHERE (node_type = 'C' or node_type = 'D') AND nodeis_active = true);
+            node_names := ARRAY(SELECT pgxc_node.node_name FROM pg_catalog.pgxc_node WHERE (node_type = 'C' or node_type = 'D') AND nodeis_active = true);
             FOREACH each_node_name IN ARRAY node_names
             LOOP
                 query_str := 'EXECUTE DIRECT ON (' || each_node_name || ') ''SELECT * FROM DBE_PERF.statement_history where start_time >= ''''' ||$1|| ''''' and start_time <= ''''' || $2 || '''''''';
@@ -1865,7 +1865,7 @@ BEGIN
           each_node_name name;
           BEGIN
             -- Get all node names(CN + master DN)
-            node_names := ARRAY(SELECT pgxc_node.node_name FROM pgxc_node WHERE (node_type = 'C' or node_type = 'D') AND nodeis_active = true);
+            node_names := ARRAY(SELECT pgxc_node.node_name FROM pg_catalog.pgxc_node WHERE (node_type = 'C' or node_type = 'D') AND nodeis_active = true);
             FOREACH each_node_name IN ARRAY node_names
             LOOP
                 query_str := 'EXECUTE DIRECT ON (' || each_node_name || ') ''SELECT * FROM DBE_PERF.statement_history where start_time >= ''''' ||$1|| ''''' and start_time <= ''''' || $2 || ''''' and (extract(epoch from (finish_time - start_time))  * 1000000) >= slow_sql_threshold ''';
@@ -2005,7 +2005,7 @@ DROP FUNCTION IF EXISTS pg_catalog.db4ai_predict_by_text(text, VARIADIC "any") c
 do $$DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.gs_pitr_clean_history_global_barriers();
         SET LOCAL inplace_upgrade_next_system_object_oids=IUO_PROC, 4581;
@@ -2032,7 +2032,7 @@ $do$
         need_upgrade boolean;
     BEGIN
         need_upgrade = false;
-        select case when count(*)=1 then true else false end as has_version_proc from (select * from pg_proc where proname = 'working_version_num' limit 1) into has_version_proc;
+        select case when count(*)=1 then true else false end as has_version_proc from (select * from pg_catalog.pg_proc where proname = 'working_version_num' limit 1) into has_version_proc;
         IF has_version_proc = true  then
             select working_version_num >= 92584 as v5r1c20_and_later_version from working_version_num() into v5r1c20_and_later_version;
             IF v5r1c20_and_later_version = true then
@@ -2137,11 +2137,11 @@ SQL_STMT VARCHAR2(500);
 fail_cursor REFCURSOR;
 success_cursor REFCURSOR;
 BEGIN
-    SELECT text(oid) FROM pg_authid WHERE rolname=SESSION_USER INTO user_id;
+    SELECT text(oid) FROM pg_catalog.pg_authid WHERE rolname=SESSION_USER INTO user_id;
     SELECT SESSION_USER INTO user_name;
     SELECT CURRENT_DATABASE() INTO db_name;
     IF flag = true THEN 
-        SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo FROM pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE 
+        SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo FROM pg_catalog.pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE 
                     type IN (''login_success'') AND username =' || quote_literal(user_name) || 
                     ' AND database =' || quote_literal(db_name) || ' AND userid =' || quote_literal(user_id) || ';';
         OPEN success_cursor FOR EXECUTE SQL_STMT;        
@@ -2153,7 +2153,7 @@ BEGIN
         END IF;
         CLOSE success_cursor;
     ELSE 
-        SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo FROM pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE 
+        SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo FROM pg_catalog.pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE 
                     type IN (''login_success'', ''login_failed'') AND username =' || quote_literal(user_name) || 
                     ' AND database =' || quote_literal(db_name) || ' AND userid =' || quote_literal(user_id) || ';';
         OPEN fail_cursor FOR EXECUTE SQL_STMT;
@@ -2187,13 +2187,13 @@ success_cursor REFCURSOR;
 mybackendid bigint;
 curSessionFound boolean;
 BEGIN
-    SELECT text(oid) FROM pg_authid WHERE rolname=SESSION_USER INTO user_id;
+    SELECT text(oid) FROM pg_catalog.pg_authid WHERE rolname=SESSION_USER INTO user_id;
     SELECT SESSION_USER INTO user_name;
     SELECT CURRENT_DATABASE() INTO db_name;
     SELECT pg_backend_pid() INTO mybackendid;
     curSessionFound = false;    
     IF flag = true THEN 
-        SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo, split_part(thread_id,''@'',1) backendid FROM pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE 
+        SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo, split_part(thread_id,''@'',1) backendid FROM pg_catalog.pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE 
                     type IN (''login_success'') AND username =' || quote_literal(user_name) || 
                     ' AND database =' || quote_literal(db_name) || ' AND userid =' || quote_literal(user_id) || ';';
         OPEN success_cursor FOR EXECUTE SQL_STMT;        
@@ -2215,7 +2215,7 @@ BEGIN
             END IF;
         END IF;
     ELSE 
-        SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo, split_part(thread_id,''@'',1) backendid FROM pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE 
+        SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo, split_part(thread_id,''@'',1) backendid FROM pg_catalog.pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE 
                     type IN (''login_success'', ''login_failed'') AND username =' || quote_literal(user_name) || 
                     ' AND database =' || quote_literal(db_name) || ' AND userid =' || quote_literal(user_id) || ';';
         OPEN fail_cursor FOR EXECUTE SQL_STMT;
@@ -2287,7 +2287,7 @@ DO $DO$
 DECLARE
   ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select tablename from PG_TABLES where tablename='statement_history' and schemaname='pg_catalog' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select tablename from pg_catalog.PG_TABLES where tablename='statement_history' and schemaname='pg_catalog' limit 1) into ans;
     if ans = true then
         TRUNCATE TABLE pg_catalog.statement_history;
         DROP INDEX IF EXISTS pg_catalog.statement_history_time_idx;

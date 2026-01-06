@@ -237,7 +237,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_activity AS
             S.query,
             S.connection_info,
             S.unique_sql_id
-    FROM pg_database D, pg_stat_get_activity_with_conninfo(NULL) AS S, pg_authid U
+    FROM pg_catalog.pg_database D, pg_stat_get_activity_with_conninfo(NULL) AS S, pg_authid U
     WHERE S.datid = D.oid AND
             S.usesysid = U.oid;
 
@@ -258,7 +258,7 @@ where s.query_id = t.queryid and t.ec_operator > 0;
 
 CREATE OR REPLACE VIEW pg_catalog.gs_wlm_operator_statistics AS
 SELECT t.*
-FROM pg_stat_activity AS s, pg_stat_get_wlm_realtime_operator_info(NULL) as t
+FROM pg_catalog.pg_stat_activity AS s, pg_stat_get_wlm_realtime_operator_info(NULL) as t
 where s.query_id = t.queryid;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
@@ -268,14 +268,14 @@ CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
 			S.datname AS dbname,
 			S.backend_start,
 			S.query
-	FROM pg_pool_validate(false, ' ') AS C LEFT JOIN pg_catalog.pg_stat_activity AS S
+	FROM pg_catalog.pg_pool_validate(false, ' ') AS C LEFT JOIN pg_catalog.pg_stat_activity AS S
 			ON (C.pid = S.sessionid);
 
 DO $DO$
 DECLARE
 ans boolean;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
 	DROP VIEW IF EXISTS DBE_PERF.global_session_stat_activity cascade;
 	DROP FUNCTION IF EXISTS DBE_PERF.get_global_session_stat_activity() cascade;
@@ -360,7 +360,7 @@ BEGIN
 	    S.query_id,
 	    S.query,
 	    S.unique_sql_id
-	FROM pg_database D, pg_stat_get_activity(NULL) AS S, pg_authid U
+	FROM pg_catalog.pg_database D, pg_stat_get_activity(NULL) AS S, pg_authid U
 	  WHERE S.datid = D.oid AND
 	        S.usesysid = U.oid;
 
@@ -464,7 +464,7 @@ BEGIN
 		W.receiver_replay_location,
 		W.sync_priority,
 		W.sync_state
-		FROM pg_stat_get_activity(NULL) AS S, pg_authid U,
+		FROM pg_catalog.pg_stat_get_activity(NULL) AS S, pg_authid U,
 			 pg_stat_get_wal_senders() AS W
 		WHERE S.usesysid = U.oid AND
 			  S.pid = W.pid;
@@ -550,7 +550,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_activity_ng AS
             S.query_id,
             S.query,
             N.node_group
-    FROM pg_database D, pg_stat_get_activity(NULL) AS S, pg_stat_get_activity_ng(NULL) AS N, pg_authid U
+    FROM pg_catalog.pg_database D, pg_stat_get_activity(NULL) AS S, pg_stat_get_activity_ng(NULL) AS N, pg_authid U
     WHERE S.datid = D.oid AND
             S.usesysid = U.oid AND
             S.sessionid = N.sessionid;
@@ -731,7 +731,7 @@ SELECT
         S.query,
         S.node_group,
         T.top_cpu_dn
-FROM pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
 WHERE S.pid = T.threadid;
 	  
 CREATE OR REPLACE VIEW pg_catalog.gs_wlm_session_statistics AS
@@ -785,7 +785,7 @@ SELECT
         S.node_group,
         T.top_cpu_dn,
         T.top_mem_dn
-FROM pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
 WHERE S.pid = T.threadid;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_stat_replication AS
@@ -805,7 +805,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_replication AS
             W.receiver_replay_location,
             W.sync_priority,
             W.sync_state
-    FROM pg_stat_get_activity(NULL) AS S, pg_authid U,
+    FROM pg_catalog.pg_stat_get_activity(NULL) AS S, pg_authid U,
             pg_stat_get_wal_senders() AS W
     WHERE S.usesysid = U.oid AND
             S.pid = W.pid;
@@ -816,7 +816,7 @@ DECLARE
   user_name text;
   query_str text;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
     SELECT SESSION_USER INTO user_name;
     query_str := 'GRANT INSERT,SELECT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER ON TABLE DBE_PERF.session_stat_activity TO ' || quote_ident(user_name) || ';';
@@ -1104,7 +1104,7 @@ RETURNS SETOF record LANGUAGE INTERNAL ROWS 1 STRICT as 'gs_query_standby_cluste
 do $$DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
         DROP VIEW IF EXISTS DBE_PERF.global_streaming_hadr_rto_and_rpo_stat CASCADE;
     end if;
@@ -1167,7 +1167,7 @@ CREATE OR REPLACE VIEW pg_catalog.gs_gsc_memory_detail AS
         	totalsize,
         	freesize,
         	usedsize
-        FROM pg_shared_memory_detail()  
+        FROM pg_catalog.pg_shared_memory_detail()  
         WHERE contextname LIKE '%GlobalSysDBCacheEntryMemCxt%' OR parent LIKE '%GlobalSysDBCacheEntryMemCxt%'
         )a 
     GROUP BY db_id;
@@ -1270,7 +1270,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_activity AS
             S.connection_info,
             S.unique_sql_id,
             S.trace_id
-    FROM pg_database D, pg_stat_get_activity_with_conninfo(NULL) AS S, pg_authid U
+    FROM pg_catalog.pg_database D, pg_stat_get_activity_with_conninfo(NULL) AS S, pg_authid U
     WHERE S.datid = D.oid AND
             S.usesysid = U.oid;
 
@@ -1291,7 +1291,7 @@ where s.query_id = t.queryid and t.ec_operator > 0;
 
 CREATE OR REPLACE VIEW pg_catalog.gs_wlm_operator_statistics AS
 SELECT t.*
-FROM pg_stat_activity AS s, pg_stat_get_wlm_realtime_operator_info(NULL) as t
+FROM pg_catalog.pg_stat_activity AS s, pg_stat_get_wlm_realtime_operator_info(NULL) as t
 where s.query_id = t.queryid;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
@@ -1301,14 +1301,14 @@ CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
 			S.datname AS dbname,
 			S.backend_start,
 			S.query
-	FROM pg_pool_validate(false, ' ') AS C LEFT JOIN pg_catalog.pg_stat_activity AS S
+	FROM pg_catalog.pg_pool_validate(false, ' ') AS C LEFT JOIN pg_catalog.pg_stat_activity AS S
 			ON (C.pid = S.sessionid);
 
 DO $DO$
 DECLARE
 ans boolean;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
 	DROP VIEW IF EXISTS DBE_PERF.global_session_stat_activity cascade;
 	DROP FUNCTION IF EXISTS DBE_PERF.get_global_session_stat_activity() cascade;
@@ -1395,7 +1395,7 @@ BEGIN
 	    S.query,
 	    S.unique_sql_id,
 	    S.trace_id
-	FROM pg_database D, pg_stat_get_activity(NULL) AS S, pg_authid U
+	FROM pg_catalog.pg_database D, pg_stat_get_activity(NULL) AS S, pg_authid U
 	  WHERE S.datid = D.oid AND
 	        S.usesysid = U.oid;
 
@@ -1500,7 +1500,7 @@ BEGIN
 		W.receiver_replay_location,
 		W.sync_priority,
 		W.sync_state
-		FROM pg_stat_get_activity(NULL) AS S, pg_authid U,
+		FROM pg_catalog.pg_stat_get_activity(NULL) AS S, pg_authid U,
 			 pg_stat_get_wal_senders() AS W
 		WHERE S.usesysid = U.oid AND
 			  S.pid = W.pid;
@@ -1586,7 +1586,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_activity_ng AS
             S.query_id,
             S.query,
             N.node_group
-    FROM pg_database D, pg_stat_get_activity(NULL) AS S, pg_stat_get_activity_ng(NULL) AS N, pg_authid U
+    FROM pg_catalog.pg_database D, pg_stat_get_activity(NULL) AS S, pg_stat_get_activity_ng(NULL) AS N, pg_authid U
     WHERE S.datid = D.oid AND
             S.usesysid = U.oid AND
             S.sessionid = N.sessionid;
@@ -1767,7 +1767,7 @@ SELECT
         S.query,
         S.node_group,
         T.top_cpu_dn
-FROM pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
 WHERE S.pid = T.threadid;
 	  
 CREATE OR REPLACE VIEW pg_catalog.gs_wlm_session_statistics AS
@@ -1821,7 +1821,7 @@ SELECT
         S.node_group,
         T.top_cpu_dn,
         T.top_mem_dn
-FROM pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
+FROM pg_catalog.pg_stat_activity_ng AS S, pg_stat_get_wlm_realtime_session_info(NULL) AS T
 WHERE S.pid = T.threadid;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_stat_replication AS
@@ -1841,7 +1841,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_replication AS
             W.receiver_replay_location,
             W.sync_priority,
             W.sync_state
-    FROM pg_stat_get_activity(NULL) AS S, pg_authid U,
+    FROM pg_catalog.pg_stat_get_activity(NULL) AS S, pg_authid U,
             pg_stat_get_wal_senders() AS W
     WHERE S.usesysid = U.oid AND
             S.pid = W.pid;
@@ -1852,7 +1852,7 @@ DECLARE
   user_name text;
   query_str text;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
     SELECT SESSION_USER INTO user_name;
     query_str := 'GRANT INSERT,SELECT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER ON TABLE DBE_PERF.session_stat_activity TO ' || quote_ident(user_name) || ';';
@@ -1925,7 +1925,7 @@ DO $DO$
 DECLARE
   ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS DBE_PERF.get_global_full_sql_by_timestamp() cascade;
         DROP FUNCTION IF EXISTS DBE_PERF.get_global_slow_sql_by_timestamp() cascade;
@@ -1999,7 +1999,7 @@ DECLARE
   username text;
   querystr text;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select nspname from pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
     if ans = true then
         CREATE VIEW DBE_PERF.statement_history AS
             select * from pg_catalog.statement_history;
@@ -2070,7 +2070,7 @@ BEGIN
           each_node_name name;
           BEGIN
             -- Get all node names(CN + master DN)
-            node_names := ARRAY(SELECT pgxc_node.node_name FROM pgxc_node WHERE (node_type = 'C' or node_type = 'D') AND nodeis_active = true);
+            node_names := ARRAY(SELECT pgxc_node.node_name FROM pg_catalog.pgxc_node WHERE (node_type = 'C' or node_type = 'D') AND nodeis_active = true);
             FOREACH each_node_name IN ARRAY node_names
             LOOP
                 query_str := 'EXECUTE DIRECT ON (' || each_node_name || ') ''SELECT * FROM DBE_PERF.statement_history where start_time >= ''''' ||$1|| ''''' and start_time <= ''''' || $2 || '''''''';
@@ -2202,7 +2202,7 @@ BEGIN
           each_node_name name;
           BEGIN
             -- Get all node names(CN + master DN)
-            node_names := ARRAY(SELECT pgxc_node.node_name FROM pgxc_node WHERE (node_type = 'C' or node_type = 'D') AND nodeis_active = true);
+            node_names := ARRAY(SELECT pgxc_node.node_name FROM pg_catalog.pgxc_node WHERE (node_type = 'C' or node_type = 'D') AND nodeis_active = true);
             FOREACH each_node_name IN ARRAY node_names
             LOOP
                 query_str := 'EXECUTE DIRECT ON (' || each_node_name || ') ''SELECT * FROM DBE_PERF.statement_history where start_time >= ''''' ||$1|| ''''' and start_time <= ''''' || $2 || ''''' and (extract(epoch from (finish_time - start_time))  * 1000000) >= slow_sql_threshold ''';
@@ -2578,7 +2578,7 @@ DO $DO$
 DECLARE
 ans boolean;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select * from pg_tables where tablename = 'snap_global_double_write_status' and schemaname = 'snapshot' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select * from pg_catalog.pg_tables where tablename = 'snap_global_double_write_status' and schemaname = 'snapshot' limit 1) into ans;
   if ans = true then
         alter table snapshot.snap_global_double_write_status
                 ADD COLUMN snap_file_id int8;
@@ -2831,7 +2831,7 @@ DO $DO$
 DECLARE
   ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select tablename from PG_TABLES where tablename='statement_history' and schemaname='pg_catalog' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select tablename from pg_catalog.PG_TABLES where tablename='statement_history' and schemaname='pg_catalog' limit 1) into ans;
     if ans = true then
         TRUNCATE TABLE pg_catalog.statement_history;
         DROP INDEX IF EXISTS pg_catalog.statement_history_time_idx;
@@ -2875,7 +2875,7 @@ CREATE VIEW information_schema.column_domain_usage AS
            CAST(c.relname AS sql_identifier) AS table_name,
            CAST(a.attname AS sql_identifier) AS column_name
 
-    FROM pg_type t, pg_namespace nt, pg_class c, pg_namespace nc,
+    FROM pg_catalog.pg_type t, pg_namespace nt, pg_class c, pg_namespace nc,
          pg_attribute a
 
     WHERE t.typnamespace = nt.oid
@@ -2914,7 +2914,7 @@ CREATE VIEW information_schema.column_privileges AS
                   pr_c.grantable,
                   pr_c.relowner
            FROM (SELECT oid, relname, relnamespace, relowner, (aclexplode(coalesce(relacl, acldefault('r', relowner)))).*
-                 FROM pg_class
+                 FROM pg_catalog.pg_class
                  WHERE relkind IN ('r', 'm', 'v', 'f')
                 ) pr_c (oid, relname, relnamespace, relowner, grantor, grantee, prtype, grantable),
                 pg_attribute a
@@ -2931,7 +2931,7 @@ CREATE VIEW information_schema.column_privileges AS
                   pr_a.grantable,
                   c.relowner
            FROM (SELECT attrelid, attname, (aclexplode(coalesce(attacl, acldefault('c', relowner)))).*
-                 FROM pg_attribute a JOIN pg_catalog.pg_class cc ON (a.attrelid = cc.oid)
+                 FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class cc ON (a.attrelid = cc.oid)
                  WHERE attnum > 0
                        AND NOT attisdropped
                 ) pr_a (attrelid, attname, grantor, grantee, prtype, grantable),
@@ -2942,7 +2942,7 @@ CREATE VIEW information_schema.column_privileges AS
          pg_namespace nc,
          pg_authid u_grantor,
          (
-           SELECT oid, rolname FROM pg_authid
+           SELECT oid, rolname FROM pg_catalog.pg_authid
            UNION ALL
            SELECT 0::oid, 'PUBLIC'
          ) AS grantee (oid, rolname)
@@ -2965,7 +2965,7 @@ CREATE VIEW information_schema.column_udt_usage AS
            CAST(c.relname AS sql_identifier) AS table_name,
            CAST(a.attname AS sql_identifier) AS column_name
 
-    FROM pg_attribute a, pg_class c, pg_namespace nc,
+    FROM pg_catalog.pg_attribute a, pg_class c, pg_namespace nc,
          (pg_type t JOIN pg_catalog.pg_namespace nt ON (t.typnamespace = nt.oid))
            LEFT JOIN (pg_catalog.pg_type bt JOIN pg_catalog.pg_namespace nbt ON (bt.typnamespace = nbt.oid))
            ON (t.typtype = 'd' AND t.typbasetype = bt.oid)
@@ -3077,8 +3077,8 @@ CREATE VIEW information_schema.columns AS
 
            CAST(CASE WHEN c.relkind = 'r'
                           OR (c.relkind = 'v'
-                              AND EXISTS (SELECT 1 FROM pg_rewrite WHERE ev_class = c.oid AND ev_type = '2' AND is_instead)
-                              AND EXISTS (SELECT 1 FROM pg_rewrite WHERE ev_class = c.oid AND ev_type = '4' AND is_instead))
+                              AND EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite WHERE ev_class = c.oid AND ev_type = '2' AND is_instead)
+                              AND EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite WHERE ev_class = c.oid AND ev_type = '4' AND is_instead))
                 THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_updatable
 
     FROM (pg_attribute a LEFT JOIN pg_catalog.pg_attrdef ad ON attrelid = adrelid AND attnum = adnum)
@@ -3115,12 +3115,12 @@ CREATE VIEW information_schema.table_privileges AS
            CAST(CASE WHEN c.prtype = 'SELECT' THEN 'YES' ELSE 'NO' END AS yes_or_no) AS with_hierarchy
 
     FROM (
-            SELECT oid, relname, relnamespace, relkind, relowner, (aclexplode(coalesce(relacl, acldefault('r', relowner)))).* FROM pg_class
+            SELECT oid, relname, relnamespace, relkind, relowner, (aclexplode(coalesce(relacl, acldefault('r', relowner)))).* FROM pg_catalog.pg_class
          ) AS c (oid, relname, relnamespace, relkind, relowner, grantor, grantee, prtype, grantable),
          pg_namespace nc,
          pg_authid u_grantor,
          (
-           SELECT oid, rolname FROM pg_authid
+           SELECT oid, rolname FROM pg_catalog.pg_authid
            UNION ALL
            SELECT 0::oid, 'PUBLIC'
          ) AS grantee (oid, rolname)
@@ -3160,13 +3160,13 @@ CREATE VIEW information_schema.tables AS
 
            CAST(CASE WHEN c.relkind = 'r'
                           OR (c.relkind = 'v'
-                              AND EXISTS (SELECT 1 FROM pg_rewrite WHERE ev_class = c.oid AND ev_type = '3' AND is_instead))
+                              AND EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite WHERE ev_class = c.oid AND ev_type = '3' AND is_instead))
                 THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_insertable_into,
 
            CAST(CASE WHEN t.typname IS NOT NULL THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_typed,
            CAST(null AS character_data) AS commit_action
 
-    FROM pg_namespace nc JOIN pg_catalog.pg_class c ON (nc.oid = c.relnamespace)
+    FROM pg_catalog.pg_namespace nc JOIN pg_catalog.pg_class c ON (nc.oid = c.relnamespace)
            LEFT JOIN (pg_catalog.pg_type t JOIN pg_catalog.pg_namespace nt ON (t.typnamespace = nt.oid)) ON (c.reloftype = t.oid)
 
     WHERE c.relkind IN ('r', 'm', 'v', 'f')
@@ -3186,7 +3186,7 @@ CREATE VIEW information_schema.view_column_usage AS
            CAST(t.relname AS sql_identifier) AS table_name,
            CAST(a.attname AS sql_identifier) AS column_name
 
-    FROM pg_namespace nv, pg_class v, pg_depend dv,
+    FROM pg_catalog.pg_namespace nv, pg_class v, pg_depend dv,
          pg_depend dt, pg_class t, pg_namespace nt,
          pg_attribute a
 
@@ -3217,7 +3217,7 @@ CREATE VIEW information_schema.view_table_usage AS
            CAST(nt.nspname AS sql_identifier) AS table_schema,
            CAST(t.relname AS sql_identifier) AS table_name
 
-    FROM pg_namespace nv, pg_class v, pg_depend dv,
+    FROM pg_catalog.pg_namespace nv, pg_class v, pg_depend dv,
          pg_depend dt, pg_class t, pg_namespace nt
 
     WHERE nv.oid = v.relnamespace
@@ -3320,13 +3320,13 @@ CREATE VIEW information_schema.element_types AS
            CAST(null AS cardinal_number) AS maximum_cardinality,
            CAST('a' || CAST(x.objdtdid AS text) AS sql_identifier) AS dtd_identifier
 
-    FROM pg_namespace n, pg_type at, pg_namespace nbt, pg_type bt,
+    FROM pg_catalog.pg_namespace n, pg_type at, pg_namespace nbt, pg_type bt,
          (
            /* columns, attributes */
            SELECT c.relnamespace, CAST(c.relname AS sql_identifier),
                   CASE WHEN c.relkind = 'c' THEN 'USER-DEFINED TYPE'::text ELSE 'TABLE'::text END,
                   a.attnum, a.atttypid, a.attcollation
-           FROM pg_class c, pg_attribute a
+           FROM pg_catalog.pg_class c, pg_attribute a
            WHERE c.oid = a.attrelid
                  AND c.relkind IN ('r', 'm', 'v', 'f', 'c')
                  AND (c.relname not like 'mlog\_%' AND c.relname not like 'matviewmap\_%')
@@ -3337,7 +3337,7 @@ CREATE VIEW information_schema.element_types AS
            /* domains */
            SELECT t.typnamespace, CAST(t.typname AS sql_identifier),
                   'DOMAIN'::text, 1, t.typbasetype, t.typcollation
-           FROM pg_type t
+           FROM pg_catalog.pg_type t
            WHERE t.typtype = 'd'
 
            UNION ALL
@@ -3347,14 +3347,14 @@ CREATE VIEW information_schema.element_types AS
                   'ROUTINE'::text, (ss.x).n, (ss.x).x, 0
            FROM (SELECT p.pronamespace, p.proname, p.oid,
                         _pg_expandarray(coalesce(p.proallargtypes, p.proargtypes::oid[])) AS x
-                 FROM pg_proc p) AS ss
+                 FROM pg_catalog.pg_proc p) AS ss
 
            UNION ALL
 
            /* result types */
            SELECT p.pronamespace, CAST(p.proname || '_' || CAST(p.oid AS text) AS sql_identifier),
                   'ROUTINE'::text, 0, p.prorettype, 0
-           FROM pg_proc p
+           FROM pg_catalog.pg_proc p
 
          ) AS x (objschema, objname, objtype, objdtdid, objtypeid, objcollation)
          LEFT JOIN (pg_catalog.pg_collation co JOIN pg_catalog.pg_namespace nco ON (co.collnamespace = nco.oid))

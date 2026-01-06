@@ -11,4 +11,4 @@ OUT TxPcks float8)
 RETURNS SETOF RECORD LANGUAGE INTERNAL STABLE ROWS 100 STRICT as 'gs_comm_proxy_thread_status';
 
 CREATE VIEW gs_comm_proxy_thread_status AS
-    SELECT DISTINCT * from gs_comm_proxy_thread_status();
+    SELECT DISTINCT * from pg_catalog.gs_comm_proxy_thread_status();

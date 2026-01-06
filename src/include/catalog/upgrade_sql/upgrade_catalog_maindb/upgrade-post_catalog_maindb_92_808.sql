@@ -2,7 +2,7 @@ DO $$
 DECLARE
 cnt int;
 BEGIN
-    select count(*) into cnt from pg_type where typname = 'int16';
+    select count(*) into cnt from pg_catalog.pg_type where typname = 'int16';
     if cnt = 1 then
         SET LOCAL inplace_upgrade_next_system_object_oids=IUO_PROC, 4078;
         CREATE FUNCTION pg_catalog.last_insert_id()

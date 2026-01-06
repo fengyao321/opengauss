@@ -12,7 +12,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'event_trigger' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * from pg_catalog.pg_type where typname = 'event_trigger' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS event_trigger_out(pg_catalog.event_trigger) CASCADE;
     end if;
@@ -25,7 +25,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'pg_ddl_command' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * from pg_catalog.pg_type where typname = 'pg_ddl_command' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_ddl_command_out(pg_catalog.pg_ddl_command) CASCADE;
         DROP FUNCTION IF EXISTS pg_ddl_command_send(pg_catalog.pg_ddl_command) CASCADE;

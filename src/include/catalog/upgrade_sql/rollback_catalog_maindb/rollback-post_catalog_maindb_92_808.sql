@@ -2,7 +2,7 @@ DO $$
 DECLARE
 cnt int;
 BEGIN
-    select count(*) into cnt from pg_type where typname = 'int16';
+    select count(*) into cnt from pg_catalog.pg_type where typname = 'int16';
     if cnt = 1 then
         DROP FUNCTION IF EXISTS pg_catalog.last_insert_id() CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.last_insert_id(int16) CASCADE;

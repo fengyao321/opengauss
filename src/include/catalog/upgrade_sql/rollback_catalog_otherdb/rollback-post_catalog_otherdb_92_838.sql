@@ -105,8 +105,8 @@ CREATE OR REPLACE VIEW columns AS
 
            CAST(CASE WHEN c.relkind = 'r'
                           OR (c.relkind = 'v'
-                              AND EXISTS (SELECT 1 FROM pg_rewrite WHERE ev_class = c.oid AND ev_type = '2' AND is_instead)
-                              AND EXISTS (SELECT 1 FROM pg_rewrite WHERE ev_class = c.oid AND ev_type = '4' AND is_instead))
+                              AND EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite WHERE ev_class = c.oid AND ev_type = '2' AND is_instead)
+                              AND EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite WHERE ev_class = c.oid AND ev_type = '4' AND is_instead))
                 THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_updatable
 
     FROM (pg_attribute a LEFT JOIN pg_catalog.pg_attrdef ad ON attrelid = adrelid AND attnum = adnum)
@@ -150,13 +150,13 @@ CREATE OR REPLACE VIEW tables AS
 
            CAST(CASE WHEN c.relkind = 'r'
                           OR (c.relkind = 'v'
-                              AND EXISTS (SELECT 1 FROM pg_rewrite WHERE ev_class = c.oid AND ev_type = '3' AND is_instead))
+                              AND EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite WHERE ev_class = c.oid AND ev_type = '3' AND is_instead))
                 THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_insertable_into,
 
            CAST(CASE WHEN t.typname IS NOT NULL THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_typed,
            CAST(null AS character_data) AS commit_action
 
-    FROM pg_namespace nc JOIN pg_catalog.pg_class c ON (nc.oid = c.relnamespace)
+    FROM pg_catalog.pg_namespace nc JOIN pg_catalog.pg_class c ON (nc.oid = c.relnamespace)
            LEFT JOIN (pg_catalog.pg_type t JOIN pg_catalog.pg_namespace nt ON (t.typnamespace = nt.oid)) ON (c.reloftype = t.oid)
 
     WHERE c.relkind IN ('r', 'm', 'v', 'f')
@@ -180,35 +180,35 @@ CREATE OR REPLACE VIEW views AS
            CAST('NONE' AS character_data) AS check_option,
 
            CAST(
-             CASE WHEN EXISTS (SELECT 1 FROM pg_rewrite WHERE ev_class = c.oid AND ev_type = '2' AND is_instead)
-                   AND EXISTS (SELECT 1 FROM pg_rewrite WHERE ev_class = c.oid AND ev_type = '4' AND is_instead)
+             CASE WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite WHERE ev_class = c.oid AND ev_type = '2' AND is_instead)
+                   AND EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite WHERE ev_class = c.oid AND ev_type = '4' AND is_instead)
                   THEN 'YES' ELSE 'NO' END
              AS yes_or_no) AS is_updatable,
 
            CAST(
-             CASE WHEN EXISTS (SELECT 1 FROM pg_rewrite WHERE ev_class = c.oid AND ev_type = '3' AND is_instead)
+             CASE WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite WHERE ev_class = c.oid AND ev_type = '3' AND is_instead)
                   THEN 'YES' ELSE 'NO' END
              AS yes_or_no) AS is_insertable_into,
 
            CAST(
              -- TRIGGER_TYPE_ROW + TRIGGER_TYPE_INSTEAD + TRIGGER_TYPE_UPDATE
-             CASE WHEN EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = c.oid AND tgtype & 81 = 81)
+             CASE WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_trigger WHERE tgrelid = c.oid AND tgtype & 81 = 81)
                   THEN 'YES' ELSE 'NO' END
            AS yes_or_no) AS is_trigger_updatable,
 
            CAST(
              -- TRIGGER_TYPE_ROW + TRIGGER_TYPE_INSTEAD + TRIGGER_TYPE_DELETE
-             CASE WHEN EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = c.oid AND tgtype & 73 = 73)
+             CASE WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_trigger WHERE tgrelid = c.oid AND tgtype & 73 = 73)
                   THEN 'YES' ELSE 'NO' END
            AS yes_or_no) AS is_trigger_deletable,
 
            CAST(
              -- TRIGGER_TYPE_ROW + TRIGGER_TYPE_INSTEAD + TRIGGER_TYPE_INSERT
-             CASE WHEN EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = c.oid AND tgtype & 69 = 69)
+             CASE WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_trigger WHERE tgrelid = c.oid AND tgtype & 69 = 69)
                   THEN 'YES' ELSE 'NO' END
            AS yes_or_no) AS is_trigger_insertable_into
 
-    FROM pg_namespace nc, pg_class c
+    FROM pg_catalog.pg_namespace nc, pg_class c
 
     WHERE c.relnamespace = nc.oid
           AND c.relkind = 'v'

@@ -297,7 +297,7 @@ $do$
     DECLARE
         index_exists boolean := true;
     BEGIN
-        select case when count(*)=1 then true else false end from (select 1 from pg_class where oid = 3480 and relkind = 'i' and relname = 'pg_partition_tblspc_relfilenode_index') into index_exists;
+        select case when count(*)=1 then true else false end from (select 1 from pg_catalog.pg_class where oid = 3480 and relkind = 'i' and relname = 'pg_partition_tblspc_relfilenode_index') into index_exists;
         IF index_exists = false then
             -- ADD INDEX pg_partition_tblspc_relfilenode_index for pg_partition(reltablespace, relfilenode)
             -- set GUC for pg_partition_tblspc_relfilenode_index
