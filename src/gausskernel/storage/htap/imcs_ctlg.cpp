@@ -1180,6 +1180,10 @@ static int HandleImcsResponse(PGXCNodeHandle *conn, RemoteQueryState *combiner)
         msgType = get_message(conn, &msgLen, &msg);
 
         switch (msgType) {
+            case 'N':
+                elog(LOG, "Received Notice message from %s[%u] during HTAP populate.",
+                    conn->remoteNodeName, conn->nodeoid);
+                break;
             case '\0': /* Not enough data in the buffer */
                 return RESPONSE_EOF;
             case 'O': /* Complete */

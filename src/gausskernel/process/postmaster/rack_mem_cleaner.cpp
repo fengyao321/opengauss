@@ -219,7 +219,7 @@ void RackMemCleanerMain()
 static RackMemControlBlock *GetBlockFreeQueue()
 {
     pthread_mutex_lock(&g_instance.rackMemCleanerCxt.mutex);
-    if (!g_instance.rackMemCleanerCxt.queueHead && g_instance.rackMemCleanerCxt.cleanupActive) {
+    if (g_instance.rackMemCleanerCxt.cleanupActive) {
         struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
         ts.tv_sec += 1;

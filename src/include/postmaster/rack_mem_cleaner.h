@@ -63,5 +63,5 @@ using knl_g_rack_mem_cleaner_context = struct KnlGRackMemCleanerContext {
 };
 
 extern void RackMemCleanerMain(void);
-extern void RegisterFailedFreeMemory(void *ptr, Size size);
+extern void RegisterFailedFreeMemory(void *ptr, Size size = 0);
 #endif  // OPENGAUSS_RACK_MEM_CLEANER_H
