@@ -4175,7 +4175,7 @@ SELECT PATINDEX('%[%', 'a[b]c'); -- expect 0  -- to be fixed
 ERROR:  invalid regular expression: brackets [] not balanced
 CONTEXT:  referenced column: substring
 SQL function "substring" statement 1
-PL/pgSQL function patindex(character varying,character varying) line 30 at assignment
+PL/pgSQL function patindex(character varying,character varying) line 35 at assignment
 SQL function "patindex" during inlining
 referenced column: patindex
 SELECT PATINDEX('%]%', 'a[b]c');  -- expect 4
@@ -4188,7 +4188,7 @@ SELECT PATINDEX('%*%', 'test*123'); -- expect 5  -- to be fixed
 ERROR:  invalid regular expression: quantifier operand invalid
 CONTEXT:  referenced column: substring
 SQL function "substring" statement 1
-PL/pgSQL function patindex(character varying,character varying) line 30 at assignment
+PL/pgSQL function patindex(character varying,character varying) line 35 at assignment
 SQL function "patindex" during inlining
 referenced column: patindex
 SELECT PATINDEX('%#*%', 'test#*123');  -- expect 5  -- to be fixed
@@ -4198,11 +4198,9 @@ SELECT PATINDEX('%#*%', 'test#*123');  -- expect 5  -- to be fixed
 (1 row)
 
 SELECT PATINDEX('%abc%', NULL);  -- expect error
- patindex 
-----------
-         
-(1 row)
-
+ERROR:  pattern cannot be null.
+CONTEXT:  SQL function "patindex" during inlining
+referenced column: patindex
 SELECT PATINDEX(NULL, 'abc123');   -- expect NULL
  patindex 
 ----------

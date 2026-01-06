@@ -2112,9 +2112,14 @@ declare
   start_offset boolean;
   end_offset boolean;
 begin
-  if pattern is null or expression is null then
+  if expression is null then
+    raise exception 'pattern cannot be null.';
+  end if;
+  
+  if pattern is null then
     return null;
   end if;
+  
   if pattern = '%' or pattern = '%%' then
     return 1;
   end if;
@@ -2146,16 +2151,16 @@ begin
   return v_pos;
 end;
 $body$
-language plpgsql IMMUTABLE STRICT;
+language plpgsql IMMUTABLE;
 
 
-create or replace function sys.patindex(in pattern bit, in expression varchar) returns bigint LANGUAGE SQL STABLE STRICT as 'select sys.patindex(pattern::varchar, expression)';
-create or replace function sys.patindex(in pattern time, in expression varchar) returns bigint LANGUAGE SQL STABLE STRICT as 'select sys.patindex(pattern::varchar, expression)';
-create or replace function sys.patindex(in pattern varbinary, in expression varchar) returns bigint LANGUAGE SQL STABLE STRICT as 'select sys.patindex(pattern::varchar, expression)';
-create or replace function sys.patindex(in pattern varchar, in expression bit) returns bigint LANGUAGE SQL STABLE STRICT as 'select sys.patindex(pattern, expression::varchar)';
-create or replace function sys.patindex(in pattern varchar, in expression time) returns bigint LANGUAGE SQL STABLE STRICT as 'select sys.patindex(pattern, expression::varchar)';
-create or replace function sys.patindex(in pattern varchar, in expression varbinary) returns bigint LANGUAGE SQL STABLE STRICT as 'select sys.patindex(pattern, expression::varchar)';
-create or replace function sys.patindex(in pattern text, in expression text) returns bigint LANGUAGE SQL STABLE STRICT as 'select sys.patindex(pattern::varchar, expression::varchar)';
+create or replace function sys.patindex(in pattern bit, in expression varchar) returns bigint LANGUAGE SQL STABLE as 'select sys.patindex(pattern::varchar, expression)';
+create or replace function sys.patindex(in pattern time, in expression varchar) returns bigint LANGUAGE SQL STABLE as 'select sys.patindex(pattern::varchar, expression)';
+create or replace function sys.patindex(in pattern varbinary, in expression varchar) returns bigint LANGUAGE SQL STABLE as 'select sys.patindex(pattern::varchar, expression)';
+create or replace function sys.patindex(in pattern varchar, in expression bit) returns bigint LANGUAGE SQL STABLE as 'select sys.patindex(pattern, expression::varchar)';
+create or replace function sys.patindex(in pattern varchar, in expression time) returns bigint LANGUAGE SQL STABLE as 'select sys.patindex(pattern, expression::varchar)';
+create or replace function sys.patindex(in pattern varchar, in expression varbinary) returns bigint LANGUAGE SQL STABLE as 'select sys.patindex(pattern, expression::varchar)';
+create or replace function sys.patindex(in pattern text, in expression text) returns bigint LANGUAGE SQL STABLE as 'select sys.patindex(pattern::varchar, expression::varchar)';
 
 -- sys.stuff
 CREATE OR REPLACE FUNCTION sys.stuff(expr VARBINARY, start INTEGER, length INTEGER, replace_expr VARCHAR)
