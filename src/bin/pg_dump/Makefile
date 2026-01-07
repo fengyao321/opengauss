@@ -30,6 +30,7 @@ else
 	override CPPFLAGS := -I$(libpq_srcdir) $(CPPFLAGS) -DHAVE_LIBZ -DHAVE_CE
 	CC = g++
 endif
+.NOTPARALLEL:
 else
 ifdef LLT
 	CC = /home/vignesh/LLT/hutaf_llt/g++

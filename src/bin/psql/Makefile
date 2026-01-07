@@ -29,6 +29,7 @@ LIBEDIT_LIB_PATH = $(LIBEDIT_HOME)/lib
 
 ifeq ($(enable_lite_mode), no)
 override CPPFLAGS := -I. -I$(srcdir) -I$(libpq_srcdir) -I$(top_srcdir)/src/bin/pg_dump -DHAVE_CE -I$(LIBEDIT_INCLUDE_PATH) $(CPPFLAGS)
+.NOTPARALLEL:
 else
 override CPPFLAGS := -I. -I$(srcdir) -I$(libpq_srcdir) -I$(top_srcdir)/src/bin/pg_dump -I$(LIBEDIT_INCLUDE_PATH) $(CPPFLAGS)
 endif
@@ -83,7 +84,7 @@ EXTRA_OBJS = $(top_builddir)/src/gausskernel/cbb/utils/aes/aes.o
 FLEXFLAGS = -Cfe -b -p -p
 
 $(libpq_builddir)/libpq_ce.so: submake-libpq_ce
-$(libpq_builddir)/libpq.so: submake-libpq
+	@test -f $@ || (echo "ERROR: libpq_ce.so not built!" && exit 1)
 
 all: submake-aes gsql
 ifeq ($(enable_lite_mode), no)
@@ -99,12 +100,11 @@ $(top_builddir)/src/lib/elog/elog.a:
 	$(MAKE) -C $(top_builddir)/src/lib/elog elog.a
 ifeq ($(enable_lite_mode), no)
 gsql: $(libpq_builddir)/libpq_ce.so submake-libpgport $(OBJS)
-	@echo "Linking with libpq_pgport: $(libpq_pgport)"
-	@echo "LDFLAGS: $(LDFLAGS)"
-	@echo "LIBS: $(LIBS)"
-	$(CC) $(CFLAGS) $(OBJS) $(EXTRA_OBJS) $(LIBS) $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) -lncurses -o $@$(X)
+	$(CC) $(CFLAGS) $(OBJS) $(EXTRA_OBJS) $(LIBS) \
+	-L$(libpq_builddir) -Wl,-rpath,$(libpq_builddir) \
+	$(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) -lncurses -o $@$(X)
 else
-gsql: $(libpq_builddir)/libpq.so submake-libpgport $(OBJS)
+gsql: submake-libpq submake-libpgport $(OBJS)
 	$(CC) $(CFLAGS) $(OBJS) $(EXTRA_OBJS) $(LIBS) $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) -lncurses -o $@$(X)
 endif
 help.o: sql_help.h
