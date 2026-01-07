@@ -5319,15 +5319,11 @@ SELECT value FROM STRING_SPLIT('asdf', '');                            -- error
 ERROR:  Invalid separator: 
 HINT:  Separator must be length 1
 SELECT value FROM STRING_SPLIT('asdf', NULL);                          -- error
- value 
--------
-(0 rows)
-
+ERROR:  Invalid separator: <NULL>
+HINT:  Separator must be length 1
 SELECT value FROM STRING_SPLIT(NULL, NULL);                            -- error
- value 
--------
-(0 rows)
-
+ERROR:  Invalid separator: <NULL>
+HINT:  Separator must be length 1
 SELECT value FROM STRING_SPLIT(CAST('nvarchar nvarchar nvarchar' as nvarchar(100)), CAST(' ' as nvarchar(100)));    -- 3 rows
   value   
 ----------
