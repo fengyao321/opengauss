@@ -1171,7 +1171,7 @@ CASE l.fqdntype
     logicaloperator
     from pg_catalog.gs_masking_policy_filters
     where p.Oid=policyoid) as filter_name
-from pg_catalog.gs_masking_policy p join pg_catalog.gs_masking_policy_actions a ON (p.Oid=a.policyoid ) join gs_labels l ON (a.actlabelname=l.labelname) WHERE l.fqdntype='column' or l.fqdntype='table' order by polname;
+from pg_catalog.gs_masking_policy p join pg_catalog.gs_masking_policy_actions a ON (p.Oid=a.policyoid ) join pg_catalog.gs_labels l ON (a.actlabelname=l.labelname) WHERE l.fqdntype='column' or l.fqdntype='table' order by polname;
 
 GRANT SELECT ON TABLE pg_catalog.gs_masking TO PUBLIC;
 
