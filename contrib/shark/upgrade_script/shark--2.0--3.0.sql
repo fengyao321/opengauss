@@ -2305,16 +2305,15 @@ CREATE OR REPLACE FUNCTION sys.replicate(string TEXT, i bit) RETURNS VARCHAR LAN
 CREATE OR REPLACE FUNCTION sys.string_split(IN string VARCHAR, IN separator VARCHAR, OUT value VARCHAR) RETURNS SETOF VARCHAR AS
 $body$
 BEGIN
- if length(separator) != 1 then
-  RAISE EXCEPTION 'Invalid separator: %', separator USING HINT =
-  'Separator must be length 1';
-else
-  RETURN QUERY(SELECT cast(unnest(string_to_array(string, separator)) as varchar));
+  if separator is null or length(separator) != 1 then
+    RAISE EXCEPTION 'Invalid separator: %', separator USING HINT =
+      'Separator must be length 1';
+  else
+    RETURN QUERY(SELECT cast(unnest(string_to_array(string, separator)) as varchar));
 end if;
 END
 $body$
-LANGUAGE plpgsql IMMUTABLE STRICT;
-
+LANGUAGE plpgsql IMMUTABLE;
 
 -- sys.quotename
 CREATE OR REPLACE FUNCTION sys.quotename(IN input_string VARCHAR, IN delimiter char default '[') RETURNS varchar AS '$libdir/shark', 'quotename' LANGUAGE C STABLE STRICT;
