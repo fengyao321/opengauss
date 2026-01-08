@@ -21,6 +21,7 @@
  */
 
 #include "storage/ubs_mem.h"
+#include "postmaster/rack_mem_cleaner.h"
 #include "access/htap/borrow_mem_pool.h"
 
 BorrowMemPool::BorrowMemPool(Oid relOid)
@@ -110,7 +111,11 @@ void BorrowMemPool::DeAllocate(void *ptr)
     BMPBlock *blk = ((BMPChunkHeader*)((char*)ptr - BMP_CHUNK_HDSZ))->bmpBlock;
     Assert(blk != NULL);
     if (blk != NULL && --blk->refCnt <= 0 && blk->ptr != NULL) {
-        ubsmem_lease_free(blk->ptr);
+        int ret = ubsmem_lease_free(blk->ptr);
+        if (ret != 0) {
+            RegisterFailedFreeMemory(blk->ptr);
+            ereport(LOG, (errmsg("HTAP BorrowMemPool DeAllocate: ubsmem_lease_free failed")));
+        }
         DeAllocateBlock(blk);
         ereport(LOG, (errmsg("HTAP BorrowMemPool DeAllocate: return a block, size(%u), oid(%u), %u block left",
             BLOCK_SIZE, m_relOid, --m_block_num)));
@@ -134,7 +139,11 @@ void BorrowMemPool::Destroy()
 
     while (blk != NULL) {
         if (blk->ptr != NULL) {
-            ubsmem_lease_free(blk->ptr);
+        int ret = ubsmem_lease_free(blk->ptr);
+        if (ret != 0) {
+            RegisterFailedFreeMemory(blk->ptr);
+            ereport(LOG, (errmsg("HTAP BorrowMemPool Destroy: ubsmem_lease_free failed")));
+        }
             blk->ptr = NULL;
             ereport(LOG, (errmsg("HTAP BorrowMemPool Destroy: return a block, size(%u), oid(%u), %u block left",
                 BLOCK_SIZE, m_relOid, --m_block_num)));
