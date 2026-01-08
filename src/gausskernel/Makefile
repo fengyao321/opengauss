@@ -330,7 +330,7 @@ ifneq ($(PORTNAME), win32)
 ifneq ($(PORTNAME), aix)
 
 gaussdb: $(OBJS) |
-	$(CC) $(CXXFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) $(call expand_subsys,$^) $(LIBS) $(LLVMLIBS) $(HOTPATCH_ATOMIC_LDS) -o $@
+	$(CC) $(CXXFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) $(call expand_subsys,$^) $(LIBS) $(LLVMLIBS) $(HOTPATCH_ATOMIC_LDS) -Wl,-z,max-page-size=2097152 -Wl,-z,common-page-size=2097152 -o $@
 ifeq ($(enable_relocation), yes)
 	$(CC) $(CXXFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) $(call expand_subsys,$^) $(LIBS) $(LLVMLIBS) $(HOTPATCH_ATOMIC_LDS) -o $@.map -Wl,-q
 endif
