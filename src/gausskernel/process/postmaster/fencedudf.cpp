@@ -194,22 +194,9 @@ pid_t StartUDFMaster()
     }
     return fencedMasterPid;
 }
-/*
- * @Description: The main function of UDF RPC server.
- * It will initialize envrionment, create listen socket and startup
- * erverLoop for accept connection and start worker process
- * @IN argc: the number of argment value
- * @IN argv: the argment values
- */
-void FencedUDFMasterMain(int argc, char* argv[])
+
+void FencedUDFMasterSigHandle()
 {
-    SetProcessingMode(FencedProcessing);
-
-    /* Just make set_ps_dispaly ok */
-    IsUnderPostmaster = true;
-    set_ps_display("gaussdb fenced UDF master process", true);
-
-    /* Step 1: Initialize envrionment: signal handle, display info */
     gs_signal_setmask(&t_thrd.libpq_cxt.BlockSig, NULL);
     gs_signal_block_sigusr2();
 
@@ -230,16 +217,37 @@ void FencedUDFMasterMain(int argc, char* argv[])
     (void)gspqsignal(SIGTTIN, SIG_IGN); /* ignored */
     (void)gspqsignal(SIGTTOU, SIG_IGN); /* ignored */
 
-    /* ignore SIGXFSZ, so that ulimit violations work like disk full */
+        /* ignore SIGXFSZ, so that ulimit violations work like disk full */
 #ifdef SIGXFSZ
     (void)gspqsignal(SIGXFSZ, SIG_IGN); /* ignored */
 #endif
 
 #ifdef __linux__
     /* avoid the pprocess of fence quit without any notify,
-     * receive a terminate signal when happens */
+ *      * receive a terminate signal when happens */
     prctl(PR_SET_PDEATHSIG, SIGTERM);
 #endif
+    
+    return;
+}
+
+/*
+ * @Description: The main function of UDF RPC server.
+ * It will initialize envrionment, create listen socket and startup
+ * erverLoop for accept connection and start worker process
+ * @IN argc: the number of argment value
+ * @IN argv: the argment values
+ */
+void FencedUDFMasterMain(int argc, char* argv[])
+{
+    SetProcessingMode(FencedProcessing);
+
+    /* Just make set_ps_dispaly ok */
+    IsUnderPostmaster = true;
+    set_ps_display("gaussdb fenced UDF master process", true);
+
+    /* Step 1: Initialize envrionment: signal handle, display info */
+    FencedUDFMasterSigHandle();
 
 #if ((defined ENABLE_PYTHON2) || (defined ENABLE_PYTHON3))
     BaseInit();
@@ -735,7 +743,7 @@ static void UDFWorkerMain(int socket)
 #ifdef __linux__
     /* avoid the pprocess of fence worker quit without any notify,
      * receive a terminate signal when happens */
-    prctl(PR_SET_PDEATHSIG, SIGTERM); 
+    prctl(PR_SET_PDEATHSIG, SIGTERM);
 #endif
 
     UDFWorkMemContext = AllocSetContextCreate(t_thrd.top_mem_cxt,
