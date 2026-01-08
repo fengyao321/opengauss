@@ -1573,9 +1573,13 @@ static void GPCFillPlanCache(CachedPlanSource* plansource, bool isBuildingCustom
     /* set flag is_support_gplan for plan not shared */
     if (!plansource->gpc.status.InShareTable()) {
         plansource->is_support_gplan = !isBuildingCustomPlan;
-        if (ENABLE_CN_GPC)
-            GPCReGplan(plansource);
-        else if (ENABLE_DN_GPC && plansource->is_support_gplan && plansource->gpc.status.InPrepareStmt()) {
+        if (ENABLE_CN_GPC) {
+            if (plansource->is_param) {
+                GPCReParamGplan(plansource);
+            } else {
+                GPCReGplan(plansource);
+            }
+        } else if (ENABLE_DN_GPC && plansource->is_support_gplan && plansource->gpc.status.InPrepareStmt()) {
             /* add into first_saved_plan if not in */
             plansource->next_saved = u_sess->pcache_cxt.first_saved_plan;
             u_sess->pcache_cxt.first_saved_plan = plansource;
@@ -3159,6 +3163,20 @@ void PlanCacheRelCallback(Datum arg, Oid relid)
 
             CheckRelDependency(plansource, relid);
         }
+        for (plansource = u_sess->param_cxt.ungpc_saved_plan; plansource; plansource = plansource->next_saved) {
+            Assert(plansource->magic == CACHEDPLANSOURCE_MAGIC);
+
+            /* No work if it's already invalidated */
+            if (!plansource->is_valid)
+                continue;
+
+            /* Never invalidate transaction control commands */
+            if (IsTransactionStmtPlan(plansource)) {
+                continue;
+            }
+
+            CheckRelDependency(plansource, relid);
+        }
     }
 
     for (plansource = u_sess->param_cxt.first_saved_plan; plansource; plansource = plansource->next_saved) {
@@ -3307,6 +3325,24 @@ void ResetPlanCache(void)
     }
     if (ENABLE_CN_GPC) {
         for (plansource = u_sess->pcache_cxt.ungpc_saved_plan; plansource; plansource = plansource->next_saved) {
+            Assert(plansource->magic == CACHEDPLANSOURCE_MAGIC);
+
+            /* No work if it's already invalidated */
+            if (!plansource->is_valid)
+                continue;
+
+            /*
+             * We *must not* mark transaction control statements as invalid,
+             * particularly not ROLLBACK, because they may need to be executed in
+             * aborted transactions when we can't revalidate them (cf bug #5269).
+             */
+            if (IsTransactionStmtPlan(plansource)) {
+                continue;
+            }
+
+            ResetPlanCache(plansource);
+        }
+        for (plansource = u_sess->param_cxt.ungpc_saved_plan; plansource; plansource = plansource->next_saved) {
             Assert(plansource->magic == CACHEDPLANSOURCE_MAGIC);
 
             /* No work if it's already invalidated */

@@ -275,6 +275,32 @@ void GPCReGplan(CachedPlanSource* plansource)
     u_sess->pcache_cxt.first_saved_plan = plansource;
 }
 
+void GPCReParamGplan(CachedPlanSource* plansource)
+{
+    /* if is unshared for has cplan, and create gplan this time,
+     * reset to shared and move to first_saved_plan */
+    if (!plansource->is_support_gplan || !plansource->gpc.status.IsUnShareCplan()) {
+        return;
+    }
+    Assert(plansource->is_saved);
+    plansource->gpc.status.SetKind(GPC_SHARED);
+    /* move into first_saved_plan */
+    if (u_sess->param_cxt.ungpc_saved_plan == plansource) {
+        u_sess->param_cxt.ungpc_saved_plan = plansource->next_saved;
+    } else {
+        CachedPlanSource* psrc = NULL;
+        for (psrc = u_sess->param_cxt.ungpc_saved_plan; psrc; psrc = psrc->next_saved) {
+            if (psrc->next_saved == plansource) {
+                psrc->next_saved = plansource->next_saved;
+                break;
+            }
+        }
+    }
+    plansource->gpc.status.SetLoc(GPC_SHARE_IN_LOCAL_SAVE_PLAN_LIST);
+    plansource->next_saved = u_sess->param_cxt.first_saved_plan;
+    u_sess->param_cxt.first_saved_plan = plansource;
+}
+
 void GPCCleanUpSessionSavedPlan()
 {
     if (!ENABLE_GPC) {
@@ -301,8 +327,29 @@ void GPCCleanUpSessionSavedPlan()
             DropCachedPlan(psrc);
         psrc = next;
     }
+
+    psrc = u_sess->param_cxt.first_saved_plan;
+    next = NULL;
+    while (psrc != NULL) {
+        next = psrc->next_saved;
+        Assert (!psrc->gpc.status.InShareTable());
+        if (!psrc->gpc.status.IsPrivatePlan())
+            DropCachedPlan(psrc);
+        psrc = next;
+    }
+
     /* For CN */
     psrc = u_sess->pcache_cxt.ungpc_saved_plan;
+    next = NULL;
+    while (psrc != NULL) {
+        next = psrc->next_saved;
+        Assert (!psrc->gpc.status.InShareTable());
+        if (!psrc->gpc.status.IsPrivatePlan())
+            DropCachedPlan(psrc);
+        psrc = next;
+    }
+
+    psrc = u_sess->param_cxt.ungpc_saved_plan;
     next = NULL;
     while (psrc != NULL) {
         next = psrc->next_saved;
