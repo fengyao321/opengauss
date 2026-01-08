@@ -236,9 +236,9 @@ void FencedUDFMasterMain(int argc, char* argv[])
 #endif
 
 #ifdef __linux__
-    /* avoid the pprocess of fence quit without any notify 
+    /* avoid the pprocess of fence quit without any notify,
      * receive a terminate signal when happens */
-    prctl(PR_SET_PDEATHSIG,SIGTERM);
+    prctl(PR_SET_PDEATHSIG, SIGTERM);
 #endif
 
 #if ((defined ENABLE_PYTHON2) || (defined ENABLE_PYTHON3))
@@ -271,7 +271,6 @@ void FencedUDFMasterMain(int argc, char* argv[])
         ereport(FATAL, (errmodule(MOD_UDF), errmsg("could not create Unix-domain socket: %m")));
 
     SetUDFUnixSocketPath(&unAddr);
-
     unlink(unAddr.sun_path);
     if (bind(listenUDFSocket, (struct sockaddr*)&unAddr, sizeof(unAddr)) < 0) {
         ereport(FATAL, (errmodule(MOD_UDF), errmsg("bind socket path %s failed:%m", unAddr.sun_path)));
@@ -731,12 +730,12 @@ static void UDFWorkerMain(int socket)
 {
     bool hasSetMemLimit = false;
 
-	(void)gspqsignal(SIGTERM, SIGQUITUDFWorker); /* register handler for the sigterm */
+    (void)gspqsignal(SIGTERM, SIGQUITUDFWorker); /* register handler for the sigterm */
 
 #ifdef __linux__
-    /* avoid the pprocess of fence worker quit without any notify 
+    /* avoid the pprocess of fence worker quit without any notify,
      * receive a terminate signal when happens */
-    prctl(PR_SET_PDEATHSIG,SIGTERM); 
+    prctl(PR_SET_PDEATHSIG, SIGTERM); 
 #endif
 
     UDFWorkMemContext = AllocSetContextCreate(t_thrd.top_mem_cxt,
