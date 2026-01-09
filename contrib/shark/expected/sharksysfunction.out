@@ -3524,7 +3524,7 @@ SELECT ISNUMERIC(nvarchar_col) FROM test_is_numeric_table;      --expect: 1
 SELECT ISNUMERIC(varbinary_col) FROM test_is_numeric_table;     --expect: 1
  isnumeric 
 -----------
-         0
+         1
 (1 row)
 
 SELECT ISNUMERIC(text_col) FROM test_is_numeric_table;          --expect: 1

@@ -206,6 +206,9 @@ static void zero_var(NumericVar* var);
 static void init_ro_var_from_var(const NumericVar* value, NumericVar* dest);
 
 static const char* set_var_from_str(const char* str, const char* cp, NumericVar* dest);
+static const char* set_var_from_str_with_sign(const char* str, const char* cp, int sign, NumericVar* dest);
+static const char* set_var_from_non_decimal_integer_str(const char *str, const char *cp, int sign,
+    int base, NumericVar *dest);
 static void set_var_from_num(Numeric value, NumericVar* dest);
 static void set_var_from_var(const NumericVar* value, NumericVar* dest);
 static void init_var_from_var(const NumericVar *value, NumericVar *dest);
@@ -344,6 +347,15 @@ Datum numeric_in(PG_FUNCTION_ARGS)
         PG_RETURN_NUMERIC(res);
     }
 
+    int sign = NUMERIC_POS;
+    if (*cp == '+') {
+        cp++;
+    } else if (*cp == '-') {
+        sign = NUMERIC_NEG;
+        cp++;
+    }
+
+
     /*
      * Check for NaN
      */
@@ -369,10 +381,42 @@ Datum numeric_in(PG_FUNCTION_ARGS)
          * Use set_var_from_str() to parse a normal numeric value
          */
         NumericVar value;
+        int base;
 
         init_var(&value);
 
-        cp = set_var_from_str(str, cp, &value);
+        /*
+         * Determine the number's base by looking for a non-decimal prefix
+         * indicator ("0x", "0o", or "0b").
+         */
+        if (cp[0] == '0')
+        {
+            switch (cp[1])
+            {
+                case 'x':
+                case 'X':
+                    base = 16;
+                    break;
+                case 'o':
+                case 'O':
+                    base = 8;
+                    break;
+                case 'b':
+                case 'B':
+                    base = 2;
+                    break;
+                default:
+                    base = 10;
+            }
+        } else {
+            base = 10;
+        }
+
+        if (base == 10) {
+            cp = set_var_from_str_with_sign(str, cp, sign, &value);
+        } else {
+            cp = set_var_from_non_decimal_integer_str(str, cp + 2, sign, base, &value);
+        }
 
         /*
          * We duplicate a few lines of code here because we would like to
@@ -4482,12 +4526,11 @@ static void zero_var(NumericVar* var)
  * cp is the place to actually start parsing; str is what to use in error
  * reports.  (Typically cp would be the same except advanced over spaces.)
  */
-static const char* set_var_from_str(const char* str, const char* cp, NumericVar* dest)
+static const char* set_var_from_str_with_sign(const char* str, const char* cp, int sign, NumericVar* dest)
 {
     bool have_dp = FALSE;
     int i;
     unsigned char* decdigits = NULL;
-    int sign = NUMERIC_POS;
     int dweight = -1;
     int ddigits;
     int dscale = 0;
@@ -4496,32 +4539,14 @@ static const char* set_var_from_str(const char* str, const char* cp, NumericVar*
     int offset;
     NumericDigit* digits = NULL;
 
-    /*
-     * We first parse the string to extract decimal digits and determine the
-     * correct decimal weight.	Then convert to NBASE representation.
-     */
-    switch (*cp) {
-        case '+':
-            sign = NUMERIC_POS;
-            cp++;
-            break;
-
-        case '-':
-            sign = NUMERIC_NEG;
-            cp++;
-            break;
-        default:
-            break;
-    }
-
     if (*cp == '.') {
         have_dp = TRUE;
         cp++;
     }
 
     if (!isdigit((unsigned char)*cp) && u_sess->attr.attr_sql.sql_compatibility == B_FORMAT) {
-        char* cp = (char*)palloc0(sizeof(char));
-        return cp;
+        char* bcp = (char*)palloc0(sizeof(char));
+        return bcp;
     }
     if (!isdigit((unsigned char)*cp))
         ereport(ERROR,
@@ -4623,6 +4648,208 @@ static const char* set_var_from_str(const char* str, const char* cp, NumericVar*
     /* Return end+1 position for caller */
     return cp;
 }
+
+
+static const char* set_var_from_str(const char* str, const char* cp, NumericVar* dest)
+{
+    int sign = NUMERIC_POS;
+
+    /*
+     * We first parse the string to extract decimal digits and determine the
+     * correct decimal weight.	Then convert to NBASE representation.
+     */
+    switch (*cp) {
+        case '+':
+            sign = NUMERIC_POS;
+            cp++;
+            break;
+
+        case '-':
+            sign = NUMERIC_NEG;
+            cp++;
+            break;
+        default:
+            break;
+    }
+
+    return set_var_from_str_with_sign(str, cp, sign, dest);
+}
+
+static inline int xdigit_value(char dig)
+{
+    return dig >= '0' && dig <= '9' ? dig - '0' :
+        dig >= 'a' && dig <= 'f' ? dig - 'a' + 10 :
+        dig >= 'A' && dig <= 'F' ? dig - 'A' + 10 : -1;
+}
+
+static const char* set_var_from_non_decimal_integer_str(const char *str, const char *cp, int sign,
+    int base, NumericVar *dest)
+{
+    const char *firstdigit = cp;
+    int64        tmp;
+    int64        mul;
+    NumericVar    tmp_var;
+
+    init_var(&tmp_var);
+    zero_var(dest);
+
+    /*
+     * Process input digits in groups that fit in int64.  Here "tmp" is the
+     * value of the digits in the group, and "mul" is base^n, where n is the
+     * number of digits in the group.  Thus tmp < mul, and we must start a new
+     * group when mul * base threatens to overflow PG_INT64_MAX.
+     */
+    tmp = 0;
+    mul = 1;
+
+    if (base == 16)
+    {
+        while (*cp)
+        {
+            if (isxdigit((unsigned char) *cp))
+            {
+                if (mul > PG_INT64_MAX / 16)
+                {
+                    /* Add the contribution from this group of digits */
+                    int64_to_numericvar(mul, &tmp_var);
+                    mul_var(dest, &tmp_var, dest, 0);
+                    int64_to_numericvar(tmp, &tmp_var);
+                    add_var(dest, &tmp_var, dest);
+
+                    /* Result will overflow if weight overflows int16 */
+                    if (dest->weight > SHRT_MAX)
+                        goto out_of_range;
+
+                    /* Begin a new group */
+                    tmp = 0;
+                    mul = 1;
+                }
+
+                tmp = tmp * 16 + xdigit_value(*cp++);
+                mul = mul * 16;
+            }
+            else if (*cp == '_')
+            {
+                /* Underscore must be followed by more digits */
+                cp++;
+                if (!isxdigit((unsigned char) *cp))
+                    goto invalid_syntax;
+            }
+            else
+                break;
+        }
+    }
+    else if (base == 8)
+    {
+        while (*cp)
+        {
+            if (*cp >= '0' && *cp <= '7')
+            {
+                if (mul > PG_INT64_MAX / 8)
+                {
+                    /* Add the contribution from this group of digits */
+                    int64_to_numericvar(mul, &tmp_var);
+                    mul_var(dest, &tmp_var, dest, 0);
+                    int64_to_numericvar(tmp, &tmp_var);
+                    add_var(dest, &tmp_var, dest);
+
+                    /* Result will overflow if weight overflows int16 */
+                    if (dest->weight > SHRT_MAX)
+                        goto out_of_range;
+
+                    /* Begin a new group */
+                    tmp = 0;
+                    mul = 1;
+                }
+
+                tmp = tmp * 8 + (*cp++ - '0');
+                mul = mul * 8;
+            }
+            else if (*cp == '_')
+            {
+                /* Underscore must be followed by more digits */
+                cp++;
+                if (*cp < '0' || *cp > '7')
+                    goto invalid_syntax;
+            }
+            else
+                break;
+        }
+    }
+    else if (base == 2)
+    {
+        while (*cp)
+        {
+            if (*cp >= '0' && *cp <= '1')
+            {
+                if (mul > PG_INT64_MAX / 2)
+                {
+                    /* Add the contribution from this group of digits */
+                    int64_to_numericvar(mul, &tmp_var);
+                    mul_var(dest, &tmp_var, dest, 0);
+                    int64_to_numericvar(tmp, &tmp_var);
+                    add_var(dest, &tmp_var, dest);
+
+                    /* Result will overflow if weight overflows int16 */
+                    if (dest->weight > SHRT_MAX)
+                        goto out_of_range;
+
+                    /* Begin a new group */
+                    tmp = 0;
+                    mul = 1;
+                }
+
+                tmp = tmp * 2 + (*cp++ - '0');
+                mul = mul * 2;
+            }
+            else if (*cp == '_')
+            {
+                /* Underscore must be followed by more digits */
+                cp++;
+                if (*cp < '0' || *cp > '1')
+                    goto invalid_syntax;
+            }
+            else
+                break;
+        }
+    }
+    else
+        /* Should never happen; treat as invalid input */
+        goto invalid_syntax;
+
+    /* Check that we got at least one digit */
+    if (unlikely(cp == firstdigit))
+        goto invalid_syntax;
+
+    /* Add the contribution from the final group of digits */
+    int64_to_numericvar(mul, &tmp_var);
+    mul_var(dest, &tmp_var, dest, 0);
+    int64_to_numericvar(tmp, &tmp_var);
+    add_var(dest, &tmp_var, dest);
+
+    if (dest->weight > SHRT_MAX)
+        goto out_of_range;
+
+    dest->sign = sign;
+
+    free_var(&tmp_var);
+
+    return cp;
+
+out_of_range:
+    ereport(ERROR,
+        (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+         errmsg("value overflows numeric format: \"%s\"", str)));
+
+invalid_syntax:
+    ereport(ERROR,
+        (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+         errmsg("invalid input syntax for type %s: \"%s\"",
+                    "numeric", str)));
+
+    return cp;
+}
+
 
 /*
  * set_var_from_num() -
