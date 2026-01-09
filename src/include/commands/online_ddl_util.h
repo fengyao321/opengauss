@@ -39,7 +39,6 @@ struct DDLGlobalHashKey {
     Oid spcNode;     /* tablespace */
     Oid dbNode;      /* database */
     Oid relId;       /* relation */
-    int2 bucketNode; /* bucketid */
 };
 
 #define ONLINE_DDL_LOG_LEVEL                                                 \
@@ -51,5 +50,6 @@ extern void OnlineDDLExecuteCommand(char* query);
 extern void OnlineDDLEnableRelationAppendMode(Relation relation);
 extern void OnlineDDLCopyRelationIndexs(Relation srcRelation, Relation destRelation, List** srcIndexOidList,
                                         List** destIndexOidList);
+extern void OnlineDDLLockCheck(Oid relid);
 
 #endif /* ONLINE_DDL_UTIL_H */

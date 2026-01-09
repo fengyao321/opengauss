@@ -372,7 +372,8 @@ void performDeletion(const ObjectAddress* object, DropBehavior behavior, int fla
      * Acquire deletion lock on the target object.	(Ideally the caller has
      * done this already, but many places are sloppy about it.)
      */
-    AcquireDeletionLock(object, 0);
+    int deletionFlag = (flags & PERFORM_DELETION_ONLINE_DDL) ? PERFORM_DELETION_ONLINE_DDL : 0;
+    AcquireDeletionLock(object, deletionFlag);
 
     /*
      * Construct a list of objects to delete (ie, the given object plus
@@ -1403,7 +1404,9 @@ static void doDeletion(const ObjectAddress* object, int flags)
             }
             if (relKind == RELKIND_INDEX || relKind == RELKIND_GLOBAL_INDEX) {
                 bool concurrent = (((uint32)flags & PERFORM_DELETION_CONCURRENTLY) == PERFORM_DELETION_CONCURRENTLY);
-                bool concurrent_lock_mode = (((uint32)flags & PERFORM_DELETION_CONCURRENTLY_LOCK) == PERFORM_DELETION_CONCURRENTLY_LOCK);
+                bool concurrent_lock_mode =
+                    (((uint32)flags & PERFORM_DELETION_CONCURRENTLY_LOCK) == PERFORM_DELETION_CONCURRENTLY_LOCK) ||
+                    (((uint32)flags & PERFORM_DELETION_ONLINE_DDL) == PERFORM_DELETION_ONLINE_DDL);
 
                 Assert(object->objectSubId == 0);
                 index_drop(object->objectId, concurrent, concurrent_lock_mode);/*change for index concurrent*/
@@ -1543,9 +1546,11 @@ static void doDeletion(const ObjectAddress* object, int flags)
             RemoveCollationById(object->objectId);
             break;
 
-        case OCLASS_CONSTRAINT:
-            RemoveConstraintById(object->objectId);
+        case OCLASS_CONSTRAINT: {
+            bool enableOnlineDDL = (((uint32)flags & PERFORM_DELETION_ONLINE_DDL) == PERFORM_DELETION_ONLINE_DDL);
+            RemoveConstraintById(object->objectId, enableOnlineDDL);
             break;
+        }
 
         case OCLASS_CONVERSION:
             RemoveConversionById(object->objectId);
@@ -1733,7 +1738,7 @@ void AcquireDeletionLock(const ObjectAddress* object, int flags)
          * it's safe to do so.  In all other cases we need full exclusive
          * lock.
          */
-        if (flags & PERFORM_DELETION_CONCURRENTLY)
+        if ((flags & PERFORM_DELETION_CONCURRENTLY) || (flags & PERFORM_DELETION_ONLINE_DDL))
             LockRelationOid(object->objectId, ShareUpdateExclusiveLock);
         else
             LockRelationOid(object->objectId, AccessExclusiveLock);
@@ -1748,9 +1753,11 @@ void AcquireDeletionLock(const ObjectAddress* object, int flags)
             }
             heap_close(matview, AccessShareLock);
         }
-    } else {
+    } else if (!(flags & PERFORM_DELETION_ONLINE_DDL)) {
         /* assume we should lock the whole object not a sub-object */
         LockDatabaseObject(object->classId, object->objectId, 0, AccessExclusiveLock);
+    } else {
+        LockDatabaseObject(object->classId, object->objectId, 0, ShareUpdateExclusiveLock);
     }
 }
 

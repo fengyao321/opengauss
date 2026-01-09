@@ -37,6 +37,7 @@ typedef enum {
     ONLINE_DDL_STATUS_NONE = 0,
     ONLINE_DDL_START,
     ONLINE_DDL_STATUS_PREPARE,
+    ONLINE_DDL_STATUS_REWRITE_CATALOG,
     ONLINE_DDL_STATUS_BASELINE_COPY,
     ONLINE_DDL_STATUS_CATCHUP,
     ONLINE_DDL_COMMITTING,
@@ -298,7 +299,6 @@ inline DDLGlobalHashKey GetDDLGlobalHashKey(RelFileNode relfilenode, Oid relId)
     hashKey.spcNode = relfilenode.spcNode;
     hashKey.dbNode = relfilenode.dbNode;
     hashKey.relId = relId;
-    hashKey.bucketNode = relfilenode.bucketNode;
     return hashKey;
 }
 

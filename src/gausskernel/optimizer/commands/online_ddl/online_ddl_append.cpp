@@ -1108,7 +1108,6 @@ bool OnlineDDLAppendForNormalTable(OnlineDDLAppender* appender)
     ereport(NOTICE, (errmsg("Online DDL get AccessExclusiveLock for relation %s before commit, "
                             "append data for the last time.",
                             oldRelation->rd_rel->relname.data)));
-
     /* Get AccessExclusiveLock before commit. */
     LockRelation(oldRelation, AccessExclusiveLock);
     UnlockRelation(oldRelation, ShareUpdateExclusiveLock);

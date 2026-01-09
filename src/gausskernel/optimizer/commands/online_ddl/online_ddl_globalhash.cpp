@@ -60,8 +60,7 @@ static int DDLGlobalHashKeyMatch(const void* key1, const void* key2, Size keysiz
     Assert(keysize == sizeof(DDLGlobalHashKey));
 
     /* we just care whether the result is 0 or not */
-    return !((node1->spcNode == node2->spcNode) && (node1->dbNode == node2->dbNode) && (node1->relId == node2->relId) &&
-             (node1->bucketNode == node2->bucketNode));
+    return !((node1->spcNode == node2->spcNode) && (node1->dbNode == node2->dbNode) && (node1->relId == node2->relId));
 }
 
 // init ddl global hash table
@@ -133,8 +132,8 @@ void OnlineDDLRegisterGlobalHashEntry(DDLGlobalHashEntry* entry)
     DDLGlobalHashEntry* result =
         (DDLGlobalHashEntry*)hash_search(g_instance.online_ddl_cxt.globalInfoHash, &key, HASH_ENTER, &found);
     ereport(ONLINE_DDL_LOG_LEVEL, (errmodule(MOD_ONLINE_DDL),
-                                   errmsg("[Online-DDL] OnlineDDLRegisterGlobalHashEntry: hashKey {%u, %u, %u, %u}",
-                                          key.spcNode, key.dbNode, key.relId, key.bucketNode)));
+                                   errmsg("[Online-DDL] OnlineDDLRegisterGlobalHashEntry: hashKey {%u, %u, %u}",
+                                          key.spcNode, key.dbNode, key.relId)));
 
     /*
      * If the entry is found, we need to check the status.
@@ -151,9 +150,9 @@ void OnlineDDLRegisterGlobalHashEntry(DDLGlobalHashEntry* entry)
                 (DDLGlobalHashEntry*)hash_search(g_instance.online_ddl_cxt.globalInfoHash, &key, HASH_ENTER, &found);
             ereport(ONLINE_DDL_LOG_LEVEL,
                     (errmodule(MOD_ONLINE_DDL),
-                     errmsg("[Online-DDL] OnlineDDLRegisterGlobalHashEntry reinit: hashKey {%u, %u, %u, %u}"
+                     errmsg("[Online-DDL] OnlineDDLRegisterGlobalHashEntry reinit: hashKey {%u, %u, %u}"
                             " reason: not found",
-                            key.spcNode, key.dbNode, key.relId, key.bucketNode)));
+                            key.spcNode, key.dbNode, key.relId)));
             Assert(!found);
         } else {
             /* If the status is not end, we need to update the entry. */
@@ -180,9 +179,9 @@ bool OnlineDDLReleaseHashEntry(DDLGlobalHashKey hashKey, TransactionId xid)
     LWLockAcquire(OnlineDDLHashLock, LW_EXCLUSIVE);
     entry = (DDLGlobalHashEntry*)hash_search(g_instance.online_ddl_cxt.globalInfoHash, &hashKey, HASH_FIND, &found);
     ereport(ONLINE_DDL_LOG_LEVEL, (errmodule(MOD_ONLINE_DDL),
-                                   errmsg("[Online-DDL] OnlineDDLReleaseHashEntry: hashKey {%u, %u, %u, %u} ,"
+                                   errmsg("[Online-DDL] OnlineDDLReleaseHashEntry: hashKey {%u, %u, %u} ,"
                                           "find out the entry, found: %d",
-                                          hashKey.spcNode, hashKey.dbNode, hashKey.relId, hashKey.bucketNode, found)));
+                                          hashKey.spcNode, hashKey.dbNode, hashKey.relId, found)));
     if (!found || entry == NULL || entry->operators->getStartXid() != xid) {
         LWLockRelease(OnlineDDLHashLock);
         return false;
@@ -193,8 +192,8 @@ bool OnlineDDLReleaseHashEntry(DDLGlobalHashKey hashKey, TransactionId xid)
         entry = (DDLGlobalHashEntry*)hash_search(g_instance.online_ddl_cxt.globalInfoHash, &hashKey, HASH_REMOVE, NULL);
         ereport(ONLINE_DDL_LOG_LEVEL,
                 (errmodule(MOD_ONLINE_DDL),
-                 errmsg("[Online-DDL] OnlineDDLReleaseHashEntry: hashKey {%u, %u, %u, %u}, %d is disabled.",
-                        hashKey.spcNode, hashKey.dbNode, hashKey.relId, hashKey.bucketNode, operators->getStatus())));
+                 errmsg("[Online-DDL] OnlineDDLReleaseHashEntry: hashKey {%u, %u, %u}, %d is disabled.",
+                        hashKey.spcNode, hashKey.dbNode, hashKey.relId, operators->getStatus())));
         /* free the memory */
         delete operators;
         entry->operators = NULL;
@@ -214,22 +213,25 @@ OnlineDDLRelOperators::OnlineDDLRelOperators(MemoryContext context, Relation rel
                                              OnlineDDLType onlineDDLType)
     : relId(relation->rd_id),
       relfilenode(relation->rd_node),
-      onlineDDLType(onlineDDLType),
       status(ONLINE_DDL_START),
+      onlineDDLType(onlineDDLType),
       startXid(InvalidTransactionId),
       sessionId(0),
+      tempSchemaName(NULL),
+      deltaRelname(NULL),
       deltaRelation(NULL),
       deltaRelid(InvalidOid),
       deltaRelnamespace(InvalidOid),
       ctidMapRelation(NULL),
+      baselineSnapshot(NULL),
       appender(NULL),
       appendMode(appendMode),
+      endCtidInternal({0, 0}),
+      targetBlockNumber(0),
       isForPartition(RELATION_IS_PARTITIONED(relation)),
       partitionAppendMap(NULL),
-      targetBlockNumber(0),
-      context(context),
-      tempSchemaName(NULL),
-      deltaRelname(NULL)
+      currentPartitionOid(0),
+      context(context)
 {}
 
 OnlineDDLRelOperators::~OnlineDDLRelOperators()
@@ -472,7 +474,6 @@ void OnlineDDLRelOperators::OnlineDDLAppendIncrementalData(Relation oldRelation,
                                                            AlteredTableInfo* alterTableInfo)
 {
     List* indexOidList = NIL;
-    ListCell* l = NULL;
     Relation ctidMapIndex = NULL;
 
     /* Get ctid map index */
@@ -509,7 +510,6 @@ void OnlineDDLRelOperators::OnlineDDLAppendIncrementalData(List* oldPartRelList,
                                                            AlteredTableInfo* alterTableInfo)
 {
     List* indexOidList = NIL;
-    ListCell* l = NULL;
     Relation ctidMapIndex = NULL;
 
     /* Get ctid map index */
@@ -554,18 +554,18 @@ bool CheckOnlineDDLStatusRunning(DDLGlobalHashKey hashKey, TransactionId xid)
     if (!found || entry == NULL) {
         ereport(ONLINE_DDL_LOG_LEVEL,
                 (errmodule(MOD_ONLINE_DDL),
-                 errmsg("[Online-DDL] CheckOnlineDDLStatusRunning: hashKey {%u, %u, %u, %u} is disabled,"
+                 errmsg("[Online-DDL] CheckOnlineDDLStatusRunning: hashKey {%u, %u, %u} is disabled,"
                         " reason: not found",
-                        hashKey.spcNode, hashKey.dbNode, hashKey.relId, hashKey.bucketNode)));
+                        hashKey.spcNode, hashKey.dbNode, hashKey.relId)));
         return false;
     }
     if (entry->operators->getStatus() == ONLINE_DDL_STATUS_NONE || entry->operators->getStatus() == ONLINE_DDL_END ||
         xid != entry->operators->getStartXid()) {
         ereport(ONLINE_DDL_LOG_LEVEL,
                 (errmodule(MOD_ONLINE_DDL),
-                 errmsg("[Online-DDL] CheckOnlineDDLStatusRunning: hashKey {%u, %u, %u, %u} is disabled,"
+                 errmsg("[Online-DDL] CheckOnlineDDLStatusRunning: hashKey {%u, %u, %u} is disabled,"
                         " reason: status is %d, or xid not match, current xid %lu, entry xid %lu",
-                        hashKey.spcNode, hashKey.dbNode, hashKey.relId, hashKey.bucketNode,
+                        hashKey.spcNode, hashKey.dbNode, hashKey.relId,
                         entry->operators->getStatus(), xid, entry->operators->getStartXid())));
         return false;
     }

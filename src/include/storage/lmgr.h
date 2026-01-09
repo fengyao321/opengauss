@@ -29,11 +29,13 @@ extern void LockRelationOid(Oid relid, LOCKMODE lockmode);
 extern bool ConditionalLockRelationOid(Oid relid, LOCKMODE lockmode);
 extern void UnlockRelationId(LockRelId* relid, LOCKMODE lockmode);
 extern void UnlockRelationOid(Oid relid, LOCKMODE lockmode);
+extern bool CheckLockRelationOid(Oid relid, LOCKMODE lockmode);
 
 extern void LockRelFileNode(const RelFileNode& rnode, LOCKMODE lockmode);
 extern void UnlockRelFileNode(const RelFileNode& rnode, LOCKMODE lockmode);
 
 extern void LockRelation(Relation relation, LOCKMODE lockmode);
+extern bool CheckLockRelation(Relation relation, LOCKMODE lockmode);
 extern bool ConditionalLockRelation(Relation relation, LOCKMODE lockmode);
 extern void UnlockRelation(Relation relation, LOCKMODE lockmode);
 extern bool LockHasWaitersRelation(Relation relation, LOCKMODE lockmode);
@@ -76,6 +78,7 @@ extern bool ConditionalSubXactLockTableWait(TransactionId xid, SubTransactionId 
 
 /* Lock a general object (other than a relation) of the current database */
 extern void LockDatabaseObject(Oid classid, Oid objid, uint16 objsubid, LOCKMODE lockmode);
+extern bool CheckLockDatabaseObject(Oid classid, Oid objid, uint16 objsubid, LOCKMODE lockmode);
 extern bool ConditionalLockDatabaseObject(Oid classid, Oid objid, uint16 objsubid, LOCKMODE lockmode);
 extern void UnlockDatabaseObject(Oid classid, Oid objid, uint16 objsubid, LOCKMODE lockmode);
 

@@ -27,6 +27,7 @@
 #include "access/xact.h"
 #include "access/transam.h"
 #include "catalog/indexing.h"
+#include "commands/online_ddl_globalhash.h"
 #include "utils/inval.h"
 #include "catalog/pg_object.h"
 #include "catalog/pg_class.h"
@@ -324,12 +325,15 @@ void updatePgObjectType(Oid objectOid, PgObjectType objectType, PgObjectType new
     HeapTuple tup = NULL;
     CommitSeqNo csn = t_thrd.xact_cxt.ShmemVariableCache->nextCommitSeqNo;
     Datum nowtime = TimeGetDatum(GetCurrentTransactionStartTimestamp());
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+    bool enableOnlineDDL = (operators != NULL && operators->getStatus() == ONLINE_DDL_STATUS_REWRITE_CATALOG);
     if (IsInitdb || !IsNormalProcessingMode() || nowtime == (Datum)NULL || !CheckObjectExist(objectOid, objectType)) {
         return;
     }
     // If the same object is updated concurrently, an error will be reported.
     // Therefore, lock the object before the update.
-    LockDatabaseObject(objectOid, (Oid)objectType, 0, ExclusiveLock);
+    // but not in online ddl.
+    LockDatabaseObject(objectOid, (Oid)objectType, 0, !enableOnlineDDL ? ExclusiveLock : ShareUpdateExclusiveLock);
     relation = heap_open(PgObjectRelationId, RowExclusiveLock);
     tup = SearchSysCache2(PGOBJECTID, ObjectIdGetDatum(objectOid), CharGetDatum(objectType));
     if (!HeapTupleIsValid(tup)) {

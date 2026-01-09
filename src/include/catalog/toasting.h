@@ -17,8 +17,9 @@
 /*
  * toasting.c prototypes
  */
-extern void AlterTableCreateToastTable(Oid relOid, Datum reloptions, LOCKMODE partLockMode = AccessExclusiveLock);
-extern void BootstrapToastTable(char *relName,
+extern void AlterTableCreateToastTable(Oid relOid, Datum reloptions, LOCKMODE partLockMode = AccessExclusiveLock,
+                                       bool concurrent = false);
+extern void BootstrapToastTable(char* relName,
                                 Oid toastOid,
                                 Oid toastIndexOid);
 extern bool createToastTableForPartition(Oid relOid, 

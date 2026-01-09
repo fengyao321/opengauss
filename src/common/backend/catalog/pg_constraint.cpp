@@ -487,8 +487,10 @@ char* ChooseConstraintName(const char* name1, const char* name2, const char* lab
 
 /*
  * Delete a single constraint record.
+ *
+ * concurrent: used in online ddl.
  */
-void RemoveConstraintById(Oid conId)
+void RemoveConstraintById(Oid conId, bool concurrent)
 {
     Relation conDesc = NULL;
     HeapTuple tup = NULL;
@@ -511,7 +513,8 @@ void RemoveConstraintById(Oid conId)
          * If the constraint is for a relation, open and exclusive-lock the
          * relation it's for.
          */
-        rel = heap_open(con->conrelid, AccessExclusiveLock);
+        LOCKMODE lockmode = !concurrent ? AccessExclusiveLock : ShareUpdateExclusiveLock;
+        rel = heap_open(con->conrelid, lockmode);
 
         /*
          * We need to update the relcheck count if it is a check constraint

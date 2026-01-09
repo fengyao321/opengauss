@@ -667,6 +667,7 @@ extern bool LockIncrementIfExists(const LOCKTAG *locktag, LOCKMODE lockmode, boo
 extern LockAcquireResult LockAcquireExtended(const LOCKTAG *locktag, LOCKMODE lockmode, bool sessionLock, bool dontWait,
                                              bool report_memory_error, bool allow_con_update = false, int waitSec = 0);
 extern void AbortStrongLockAcquire(void);
+extern bool CheckLock(const LOCKTAG *locktag, LOCKMODE lockmode, bool sessionLock);
 extern bool LockRelease(const LOCKTAG* locktag, LOCKMODE lockmode, bool sessionLock);
 extern void ReleaseLockIfHeld(const LOCKTAG *locktag, LOCKMODE lockmode, bool sessionLock);
 extern void LockReleaseAll(LOCKMETHODID lockmethodid, bool allLocks);
