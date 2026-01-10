@@ -254,7 +254,7 @@ extern Oid CreateConstraintEntry(const char *constraintName,
                                  InformationalConstraint *inforConstraint,
                                  bool condisable = false);
 
-extern void RemoveConstraintById(Oid conId);
+extern void RemoveConstraintById(Oid conId, bool concurrent = false);
 extern void RenameConstraintById(Oid conId, const char *newname);
 extern void SetValidatedConstraintById(Oid conId);
 

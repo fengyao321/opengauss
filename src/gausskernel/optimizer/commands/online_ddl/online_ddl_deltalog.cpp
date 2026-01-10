@@ -44,15 +44,11 @@ const int ONLINE_DDL_DELTALOG_ATTR_NUM = 2; /* operation_type, tup_ctid */
  *
  *
  * The expected format is:
- * online_ddl_temp_schema_<transaction_id>_<tablespace_oid>_<database_oid>_<relation_oid>_<bucket_id>
+ * online_ddl_temp_schema_<transaction_id>_<tablespace_oid>_<database_oid>_<relation_oid>
  *
  * @param npName The schema name to check
  * @param xid Output parameter to store  transaction ID
- * @param spcNode Output parameter to store tablespace OID
- * @param dbNode Output parameter to store database OID
- * @param relId Output parameter to store relation OID
- * @param bucketNode Output parameter to store bucket ID
- *
+ * @param hashkey   Output parameter to store hask entry key
  * @return bool True if the name conforms to the format, false otherwise
  */
 bool OnlineDDLParseTempSchma(char* npName, TransactionId* xid, DDLGlobalHashKey* hashKey)
@@ -85,13 +81,7 @@ bool OnlineDDLParseTempSchma(char* npName, TransactionId* xid, DDLGlobalHashKey*
     remaining = endptr + 1;
 
     uint64 rn = strtoul(remaining, &endptr, 10);
-    if (*endptr != '_' || rn == UINT64_MAX || errno == ERANGE) {
-        return false;
-    }
-    remaining = endptr + 1;
-
-    int2 bn = (int2)strtol(remaining, &endptr, 10);
-    if (*endptr != '\0' || bn > UINT16_MAX || errno == ERANGE) {
+    if (*endptr != '\0' || rn == UINT64_MAX || errno == ERANGE) {
         return false;
     }
 
@@ -102,7 +92,6 @@ bool OnlineDDLParseTempSchma(char* npName, TransactionId* xid, DDLGlobalHashKey*
         hashKey->spcNode = spcn;
         hashKey->dbNode = dbn;
         hashKey->relId = rn;
-        hashKey->bucketNode = bn;
     }
 
     return true;
@@ -124,7 +113,7 @@ void ErrorIfOnlineDDLDeltaLog(Relation rel, bool checkInProgress)
     char* npName = get_namespace_name(rel->rd_rel->relnamespace);
 
     TransactionId xid;
-    DDLGlobalHashKey hashKey = {0, 0, 0, 0};
+    DDLGlobalHashKey hashKey = {0, 0, 0};
     bool ret = OnlineDDLParseTempSchma(npName, &xid, &hashKey);
     if (!ret) {
         return;
@@ -203,7 +192,7 @@ void OnlineDDLDeleteDeltaLog(Relation deltaRelation, ItemPointer tid, Oid partOi
     if (deltaRelation == NULL || !RelationIsValid(deltaRelation)) {
         ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE), errmsg("Delta relation is not valid.")));
     }
-    ereport(NOTICE, (errmsg("Delete delta log (%u, %u, %u)", ItemPointerGetBlockNumber(tid),
+    ereport(ONLINE_DDL_LOG_LEVEL, (errmsg("Delete delta log (%u, %u, %u)", ItemPointerGetBlockNumber(tid),
                             ItemPointerGetOffsetNumber(tid), partOid)));
     HeapTuple tuple;
     TupleDesc tupleDesc;
@@ -225,7 +214,7 @@ void OnlineDDLDeleteDeltaLog(Relation deltaRelation, ItemPointer tid)
     if (deltaRelation == NULL || !RelationIsValid(deltaRelation)) {
         ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE), errmsg("Delta relation is not valid.")));
     }
-    ereport(NOTICE,
+    ereport(ONLINE_DDL_LOG_LEVEL,
             (errmsg("Delete delta log (%u, %u)", ItemPointerGetBlockNumber(tid), ItemPointerGetOffsetNumber(tid))));
     HeapTuple tuple;
     TupleDesc tupleDesc;

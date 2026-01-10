@@ -219,11 +219,10 @@ void OnlineDDLCreateTempSchema(Relation relation)
     Oid spcNode = relFileNode.spcNode;
     Oid dbNode = relFileNode.dbNode;
     Oid relId = relation->rd_id;
-    uint2 bucketNode = relFileNode.bucketNode;
 
     char tempSchemaName[NAMEDATALEN] = {0};
-    errno_t rc = snprintf_s(tempSchemaName, NAMEDATALEN, NAMEDATALEN - 1, "online_ddl_temp_schema_%lu_%lu_%lu_%lu_%u",
-                            xid, spcNode, dbNode, relId, bucketNode);
+    errno_t rc = snprintf_s(tempSchemaName, NAMEDATALEN, NAMEDATALEN - 1, "online_ddl_temp_schema_%lu_%lu_%lu_%lu",
+                            xid, spcNode, dbNode, relId);
 
     securec_check_ss(rc, "\0", "\0");
     operators->setStringInfoTempSchemaName(tempSchemaName);
@@ -343,6 +342,7 @@ bool OnlineDDLInstanceInit(List* wqueue, Relation* relation, List* cmds, LOCKMOD
     u_sess->online_ddl_operators = hashEntry->operators;
     (*relation)->rd_online_ddl_operators = (void*)hashEntry->operators;
     OnlineDDLRelOperators* operators = (OnlineDDLRelOperators*)(*relation)->rd_online_ddl_operators;
+    operators->setStatus(ONLINE_DDL_STATUS_PREPARE);
 
     /* Set relation enable append mode. */
     OnlineDDLEnableRelationAppendMode(*relation);
@@ -390,6 +390,7 @@ bool OnlineDDLInstanceInit(List* wqueue, Relation* relation, List* cmds, LOCKMOD
     /* init ctid map */
     operators->initCtidMapRelation();
 
+    operators->setStatus(ONLINE_DDL_STATUS_REWRITE_CATALOG);
     ereport(NOTICE, (errmsg("Online DDL instance init finish, start to copy baseline data.")));
     return true;
 }

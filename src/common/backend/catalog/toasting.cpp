@@ -70,7 +70,7 @@ extern bool binary_upgrade_is_next_part_toast_pg_class_oid_valid();
  * already done any necessary permission checks.  Callers expect this function
  * to end with CommandCounterIncrement if it makes any changes.
  */
-void AlterTableCreateToastTable(Oid relOid, Datum reloptions, LOCKMODE partLockMode)
+void AlterTableCreateToastTable(Oid relOid, Datum reloptions, LOCKMODE partLockMode, bool concurrent)
 {
     Relation rel;
     bool rel_is_partitioned = check_rel_is_partitioned(relOid);
@@ -82,7 +82,7 @@ void AlterTableCreateToastTable(Oid relOid, Datum reloptions, LOCKMODE partLockM
          * concurrent readers of the pg_class tuple won't have visibility issues,
          * so let's be safe.
          */
-        rel = heap_open(relOid, AccessExclusiveLock);
+        rel = heap_open(relOid, !concurrent ? AccessExclusiveLock : ShareUpdateExclusiveLock);
         if (needs_toast_table(rel))
             (void)create_toast_table(rel, InvalidOid, InvalidOid, reloptions, false, false);
     } else {

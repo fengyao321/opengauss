@@ -191,3 +191,18 @@ void OnlineDDLCopyRelationIndexs(Relation srcRelation, Relation destRelation, Li
         index_close(currentIndex, AccessExclusiveLock);
     }
 }
+
+static const int LOCKMODE_NUM = 4;
+LOCKMODE ddlForbiddenLockmode[LOCKMODE_NUM] = {ShareLock, ShareRowExclusiveLock, ExclusiveLock, AccessExclusiveLock};
+void OnlineDDLLockCheck(Oid relid)
+{
+    for (int i = 0; i < LOCKMODE_NUM; i++) {
+        if (CheckLockRelationOid(relid, ddlForbiddenLockmode[i])) {
+            ereport(
+                WARNING,
+                (errcode(ERRCODE_SUCCESSFUL_COMPLETION),
+                 errmsg("OnlineDDLLockCheck warning, relation %d has lock mode %d, which is forbidden in online ddl.",
+                        relid, ddlForbiddenLockmode[i])));
+        }
+    }
+}

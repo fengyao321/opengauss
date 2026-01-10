@@ -151,6 +151,21 @@ void UnlockRelationOid(Oid relid, LOCKMODE lockmode)
 }
 
 /*
+ * CheckLockRelationOid
+ *
+ * Check if a relation is locked, given only a relation Oid.
+ */
+bool CheckLockRelationOid(Oid relid, LOCKMODE lockmode)
+{
+    LOCKTAG tag;
+
+    SetLocktagRelationOid(&tag, relid);
+
+    return CheckLock(&tag, lockmode, false);
+}
+
+
+/*
  *		LockRelation
  *
  * This is a convenience routine for acquiring an additional lock on an
@@ -215,6 +230,21 @@ void UnlockRelation(Relation relation, LOCKMODE lockmode)
 
     (void)LockRelease(&tag, lockmode, false);
 }
+
+/*
+ * CheckLockRelation
+ *
+ * This is a convenience routine for checking if a relation is locked.
+ */
+bool CheckLockRelation(Relation relation, LOCKMODE lockmode)
+{
+    LOCKTAG tag;
+
+    SET_LOCKTAG_RELATION(tag, relation->rd_lockInfo.lockRelId.dbId, relation->rd_lockInfo.lockRelId.relId);
+
+    return CheckLock(&tag, lockmode, false);
+}
+
 
 void LockRelFileNode(const RelFileNode &rnode, LOCKMODE lockmode)
 {
@@ -878,6 +908,15 @@ void LockDatabaseObject(Oid classid, Oid objid, uint16 objsubid, LOCKMODE lockmo
 
     /* Make sure syscaches are up-to-date with any changes we waited for */
     AcceptInvalidationMessages();
+}
+
+bool CheckLockDatabaseObject(Oid classid, Oid objid, uint16 objsubid, LOCKMODE lockmode)
+{
+    LOCKTAG tag;
+
+    SET_LOCKTAG_OBJECT(tag, u_sess->proc_cxt.MyDatabaseId, classid, objid, objsubid);
+
+    return CheckLock(&tag, lockmode, false);
 }
 
 bool ConditionalLockDatabaseObject(Oid classid, Oid objid, uint16 objsubid, LOCKMODE lockmode)

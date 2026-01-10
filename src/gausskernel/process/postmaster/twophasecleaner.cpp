@@ -1144,9 +1144,9 @@ static bool CheckOnlineDDLBackendsRunning(PGconn* conn, DDLGlobalHashKey hashKey
     int64 sessionID = hashEntry->operators->getSessionId();
     GetActiveBackendList(conn, &activeBackendList);
     if (activeBackendList == NULL) {
-        ereport(LOG, (errmsg("[Online-DDL] CheckOnlineDDLBackendsRunning: hashKey {%u, %u, %u, %u} is disabled,"
+        ereport(LOG, (errmsg("[Online-DDL] CheckOnlineDDLBackendsRunning: hashKey {%u, %u, %u} is disabled,"
                              " reason: no active backend found, sessionID: %ld", hashKey.spcNode,
-                             hashKey.dbNode, hashKey.relId, hashKey.bucketNode, sessionID)));
+                             hashKey.dbNode, hashKey.relId, sessionID)));
         return false;
     }
 
@@ -1157,9 +1157,9 @@ static bool CheckOnlineDDLBackendsRunning(PGconn* conn, DDLGlobalHashKey hashKey
         }
         activeBackend = activeBackend->next;
     }
-    ereport(LOG, (errmsg("[Online-DDL] CheckOnlineDDLBackendsRunning: hashKey {%u, %u, %u, %u} is disabled,"
+    ereport(LOG, (errmsg("[Online-DDL] CheckOnlineDDLBackendsRunning: hashKey {%u, %u, %u} is disabled,"
                          " reason: no active backend found, sessionID: %ld", hashKey.spcNode,
-                         hashKey.dbNode, hashKey.relId, hashKey.bucketNode, sessionID)));
+                         hashKey.dbNode, hashKey.relId, sessionID)));
     return false;
 }
 
@@ -1175,7 +1175,7 @@ static void OnlineDDLDropTempSchemas(PGconn* conn)
         return;
     }
     while (tempSchema != NULL) {
-        DDLGlobalHashKey hashKey = {0, 0, 0, 0};
+        DDLGlobalHashKey hashKey = {0, 0, 0};
         TransactionId xid;
         if (!OnlineDDLParseTempSchma(tempSchema->tempSchemaName, &xid, &hashKey)) {
             tempSchema = tempSchema->next;

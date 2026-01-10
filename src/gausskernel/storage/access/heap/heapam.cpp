@@ -5626,12 +5626,10 @@ l2:
         BlockNumber testBlockNum2 = RelationGetNumberOfBlocks(relation);
         ItemPointerData endCtid = operators->getendCtidInternal();
         rel_end_block = ItemPointerGetBlockNumber(&endCtid);
-        ereport(NOTICE,
-            (errmsg("heap_multi_insert: relation %s in online DDL append mode, rel_end_block %u, testBlockNum %u, testBlockNum2 %u",
-                RelationGetRelationName(relation),
-                rel_end_block,
-                testBlockNum,
-                testBlockNum2)));
+        ereport(ONLINE_DDL_LOG_LEVEL,
+                (errmsg("heap_update: relation %s in online DDL append mode, rel_end_block %u, testBlockNum %u, "
+                        "testBlockNum2 %u",
+                        RelationGetRelationName(relation), rel_end_block, testBlockNum, testBlockNum2)));
     }
 
     /*

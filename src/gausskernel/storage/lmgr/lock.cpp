@@ -1862,6 +1862,39 @@ void RemoveFromWaitQueue(PGPROC *proc, uint32 hashcode)
 }
 
 /*
+ * CheckLock -- check current thrd if it holds the lock
+ *
+ */
+bool CheckLock(const LOCKTAG *locktag, LOCKMODE lockmode, bool sessionLock)
+{
+    LOCKMETHODID lockmethodid = locktag->locktag_lockmethodid;
+    LockMethod lockMethodTable;
+    LOCALLOCKTAG localtag;
+    LOCALLOCK *locallock = NULL;
+
+    CHECK_LOCKMETHODID(lockmethodid);
+    lockMethodTable = LockMethods[lockmethodid];
+    CHECK_LOCKMODE(lockmode, lockMethodTable);
+
+#ifdef LOCK_DEBUG
+    if (LOCK_DEBUG_ENABLED(locktag))
+        ereport(LOG, (errmsg("LockRelease: lock [%u,%u] %s", locktag->locktag_field1, locktag->locktag_field2,
+                             lockMethodTable->lockModeNames[lockmode])));
+#endif
+
+    /*
+     * Find the LOCALLOCK entry for this lock and lockmode
+     */
+    errno_t rc = memset_s(&localtag, sizeof(localtag), 0, sizeof(localtag)); /* must clear padding */
+    securec_check(rc, "", "");
+    localtag.lock = *locktag;
+    localtag.mode = lockmode;
+
+    locallock = (LOCALLOCK *)hash_search(t_thrd.storage_cxt.LockMethodLocalHash, (void *)&localtag, HASH_FIND, NULL);
+    return !((locallock == NULL) || locallock->nLocks <= 0);
+}
+
+/*
  * LockRelease -- look up 'locktag' and release one 'lockmode' lock on it.
  *		Release a session lock if 'sessionLock' is true, else release a
  *		regular transaction lock.

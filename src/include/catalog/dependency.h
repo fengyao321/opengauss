@@ -226,6 +226,7 @@ typedef enum ObjectClass {
 #define PERFORM_DELETION_INTERNAL			0x0001
 #define PERFORM_DELETION_CONCURRENTLY		0x0002
 #define PERFORM_DELETION_CONCURRENTLY_LOCK  0x0020    /* normal drop with concurrent lock mode */
+#define PERFORM_DELETION_ONLINE_DDL         0x0100    /* used in online ddl */
 
 /* ObjectAddressExtra flag bits */
 #define DEPFLAG_ORIGINAL 0x0001  /* an original deletion target */
