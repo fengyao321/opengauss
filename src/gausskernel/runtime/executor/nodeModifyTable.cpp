@@ -1822,7 +1822,7 @@ ldelete:
 
             OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(fake_relation);
             if (operators != NULL) {
-                operators->setCurrentPartitionOid(deletePartitionOid);
+                Assert(fake_relation->rd_id == deletePartitionOid);
             }
 
             if (RelationIsColStore(result_relation_desc)) {
@@ -2689,7 +2689,7 @@ lreplace:
 
                     OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(fake_relation);
                     if (operators != NULL) {
-                        operators->setCurrentPartitionOid(oldPartitionOid);
+                        Assert(fake_relation->rd_id == oldPartitionOid);
                     }
 
                         TupleTableSlot* oldslot = NULL;
@@ -2896,9 +2896,9 @@ lreplace:
 
                         OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(old_fake_relation);
                         if (operators != NULL) {
-                            operators->setCurrentPartitionOid(oldPartitionOid);
+                            Assert(fake_relation->rd_id == oldPartitionOid);
                         }
-                        
+
                         if (bucketid != InvalidBktId) {
                             searchHBucketFakeRelation(
                                 estate->esfRelations, estate->es_query_cxt, old_fake_relation, bucketid, old_fake_relation);

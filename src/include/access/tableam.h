@@ -908,8 +908,7 @@ static inline TM_Result tableam_tuple_delete(Relation relation, ItemPointer tid,
     OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(relation);
     if (operators != NULL && result == TM_Ok) {
         if (operators->getPartitionAppendMap() != NULL) {
-            Oid partOid = operators->getCurrentPartitionOid();
-            operators->recordTupleDelete(relation, tid, partOid);
+            operators->recordTupleDelete(relation, tid, relation->rd_id);
         } else {
             operators->recordTupleDelete(relation, tid);
         }
@@ -928,8 +927,7 @@ static inline TM_Result tableam_tuple_update(Relation relation, Relation parentR
     OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(relation);
     if (operators != NULL && result == TM_Ok) {
         if (operators->getPartitionAppendMap() != NULL) {
-            Oid partOid = operators->getCurrentPartitionOid();
-            operators->recordTupleDelete(relation, otid, partOid);
+            operators->recordTupleDelete(relation, otid, relation->rd_id);
         } else {
             operators->recordTupleDelete(relation, otid);
         }
