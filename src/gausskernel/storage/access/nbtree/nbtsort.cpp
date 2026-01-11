@@ -832,15 +832,13 @@ void _bt_uppershutdown(BTWriteState *wstate, BTPageState *state)
      * by filling in a valid magic number in the metapage.
      */
     // free in function _bt_blwritepage()
-    ADIO_RUN()
-    {
+    /* Only when heap store and adio on, we need to use adio_align_alloc to alloc aligned pages. */
+    if (g_instance.attr.attr_storage.enable_adio_function &&
+            !IsSegmentFileNode(wstate->index->rd_node)) {
         metapage = (Page)adio_align_alloc(BLCKSZ);
-    }
-    ADIO_ELSE()
-    {
+    } else {
         metapage = (Page)palloc(BLCKSZ);
     }
-    ADIO_END();
     _bt_initmetapage(metapage, rootblkno, rootlevel, wstate->inskey->allequalimage, IsSystemRelation(wstate->index));
     _bt_blwritepage(wstate, metapage, BTREE_METAPAGE);
 }
