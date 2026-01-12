@@ -535,3 +535,6 @@ test: seg_shrink_table
 
 # test single column range query
 test: single_col_range
+
+# test pg_indexes_verbose views
+test: pg_indexes_verbose

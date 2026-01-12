@@ -1,0 +1,6 @@
+create table test(c1 int, c2 int, c3 int);
+create index on test(c1, c2);
+create index on test(c1, c3);
+create index on test(c1, c2, c3);
+select tablename, schemaname, indexname, amname, idx_scan, idx_tup_read, idx_tup_fetch, overlap_info from dbe_perf.pg_indexes_verbose where tablename = 'test';
+drop table test;
