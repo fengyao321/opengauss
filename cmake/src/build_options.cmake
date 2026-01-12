@@ -175,7 +175,7 @@ if(ENABLE_OPENSSL3)
     add_definitions(-DENABLE_OPENSSL3)
 endif()
 
-set(PROTECT_OPTIONS -fwrapv -std=c++14 -fnon-call-exceptions ${OPTIMIZE_LEVEL})
+set(PROTECT_OPTIONS -fwrapv -std=c++14 -fnon-call-exceptions ${OPTIMIZE_LEVEL} -D_FORTIFY_SOURCE=2)
 set(WARNING_OPTIONS -Wall -Wendif-labels -Wformat-security)
 set(OPTIMIZE_OPTIONS -pipe -pthread -fno-aggressive-loop-optimizations -fno-expensive-optimizations -fno-omit-frame-pointer -fno-strict-aliasing -freg-struct-return)
 set(CHECK_OPTIONS -Wmissing-format-attribute -Wno-attributes -Wno-unused-but-set-variable -Wno-write-strings -Wpointer-arith)
