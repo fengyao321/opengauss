@@ -1255,6 +1255,7 @@ static void heapgettup_pagemode(HeapScanDesc scan, ScanDirection dir, int nkeys,
             return;
         }
 
+        heap_prefetch(scan, dir);
         heapgetpage((TableScanDesc)scan, page, has_cur_xact_write);
 
         dp = (Page)BufferGetPage(scan->rs_base.rs_cbuf);
