@@ -339,6 +339,20 @@ static XLogRecPtr xlogCopyStart = InvalidXLogRecPtr;
  * ----------------------------------------------------------------
  */
 static void exec_get_bind_message(StringInfo input_message, BindMessage *pqBindMessage, PreparedStatement **pstmt, CachedPlanSource** psrc);
+#if defined(ENABLE_MULTIPLE_NODES) || defined(USE_SPQ)
+static void ProcessCommandUpperZ(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandUpperY(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandUpperO(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandLowerO(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandUpperI(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandLowerI(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandLowerH(StringInfo input_message, volatile bool& send_ready_for_query);
+#endif
+static void ProcessCommandLowerU(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandUpperQ(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandUpperP(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandUpperB(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandUpperE(StringInfo input_message, volatile bool& send_ready_for_query);
 static int InteractiveBackend(StringInfo inBuf);
 static int interactive_getc(void);
 static int ReadCommand(StringInfo inBuf);
@@ -9603,664 +9617,61 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
 #if defined(ENABLE_MULTIPLE_NODES) || defined(USE_SPQ)
             case 'Z':  // exeute plan directly.
             {
-                char* plan_string = NULL;
-                PlannedStmt* planstmt = NULL;
-                int oLen_msg = 0;
-                int cLen_msg = 0;
-                t_thrd.spq_ctx.spq_role = ROLE_QUERY_EXECUTOR;
-
-                /* Set top consumer at the very beginning. */
-                StreamTopConsumerIam();
-                /* Build stream context for stream plan. */
-                InitStreamContext();
-
-                u_sess->exec_cxt.under_stream_runtime = true;
-
-                // get the node id.
-                u_sess->pgxc_cxt.PGXCNodeId = pq_getmsgint(&input_message, 4);
-
-                // Get original length and length of compressed plan.
-                //
-                oLen_msg = pq_getmsgint(&input_message, 4);
-                cLen_msg = pq_getmsgint(&input_message, 4);
-
-                if (unlikely(oLen_msg <= 0 || cLen_msg <= 0 || cLen_msg > oLen_msg)) {
-                    ereport(ERROR,
-                        (errmodule(MOD_OPT),
-                            errcode(ERRCODE_DATA_CORRUPTED),
-                            errmsg(
-                                "unexpected original length %d and length of compressed plan %d", oLen_msg, cLen_msg)));
-                }
-
-                // Copy compressed data from message buffer and then decompress it.
-                //
-                plan_string = (char*)palloc0(cLen_msg);
-                pq_copymsgbytes(&input_message, plan_string, cLen_msg);
-                plan_string = DecompressSerializedPlan(plan_string, cLen_msg, oLen_msg);
-
-                pq_getmsgend(&input_message);
-                ereport(DEBUG2, (errmsg("PLAN END RECEIVED : %s", plan_string)));
-
-                // Starting the transaction early to initialize ResourceOwner,
-                // else, Plan de-serialization code path fails
-                start_xact_command();
-
-                MemoryContext old_cxt = MemoryContextSwitchTo(u_sess->stream_cxt.stream_runtime_mem_cxt);
-                planstmt = (PlannedStmt*)stringToNode(plan_string);
-
-                /* It is safe to free plan_string after deserializing the message */
-                if (plan_string != NULL)
-                    pfree(plan_string);
-
-                InitGlobalNodeDefinition(planstmt);
-                t_thrd.spq_ctx.spq_session_id = planstmt->spq_session_id;
-                t_thrd.spq_ctx.current_id = planstmt->current_id;
-
-                statement_init_metric_context();
-                exec_simple_plan(planstmt);
-
-                MemoryContextSwitchTo(old_cxt);
-
-                // After query done, producer container is not usable anymore.
-                StreamNodeGroup::destroy(STREAM_COMPLETE);
-                u_sess->debug_query_id = 0;
-                send_ready_for_query = true;
+                ProcessCommandUpperZ(&input_message, send_ready_for_query);
             } break;
 
             case 'Y': /* plan with params */
             {
-                t_thrd.spq_ctx.spq_role = ROLE_QUERY_EXECUTOR;
-                if ((IS_PGXC_COORDINATOR || IS_SINGLE_NODE) && (!IS_SPQ_EXECUTOR))
-                    ereport(ERROR,
-                        (errcode(ERRCODE_PROTOCOL_VIOLATION),
-                            errmsg("invalid frontend message type '%c'.", firstchar)));
-
-                /* Set top consumer at the very beginning. */
-                StreamTopConsumerIam();
-                /* Build stream context for stream plan. */
-                InitStreamContext();
-
-                u_sess->exec_cxt.under_stream_runtime = true;
-
-                u_sess->pgxc_cxt.PGXCNodeId = pq_getmsgint(&input_message, 4);
-
-                exec_plan_with_params(&input_message);
-
-                /* After query done, producer container is not usable anymore */
-                StreamNodeGroup::destroy(STREAM_COMPLETE);
-                u_sess->debug_query_id = 0;
-                send_ready_for_query = true;
+                ProcessCommandUpperY(&input_message, send_ready_for_query);
             } break;
 #endif
 
             case 'u': /* Autonomous transaction */
             {
-                int msgType = pq_getmsgbyte(&input_message);
-                u_sess->is_partition_autonomous_session = msgType == 'P';
-                u_sess->is_autonomous_session = true;
-                Oid currentUserId = pq_getmsgint(&input_message, 4);
-                u_sess->autonomous_parent_sessionid = pq_getmsgint64(&input_message);
-                if (currentUserId != GetCurrentUserId()) {
-                    /* Set Session Authorization */
-                    ResourceOwner currentOwner = NULL;
-                    currentOwner = t_thrd.utils_cxt.CurrentResourceOwner;
-                    /* we use session memory context to remember all node info in this cluster. */
-                    MemoryContext old = MemoryContextSwitchTo(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_EXECUTOR));
-
-                    ResourceOwner tmpOwner =
-                            ResourceOwnerCreate(t_thrd.utils_cxt.CurrentResourceOwner, "CheckUserOid",
-                                THREAD_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_SECURITY));
-                    t_thrd.utils_cxt.CurrentResourceOwner = tmpOwner;
-
-                    SetSessionAuthorization(currentUserId, superuser_arg(currentUserId));
-
-                    if (u_sess->proc_cxt.MyProcPort->user_name)
-                        pfree(u_sess->proc_cxt.MyProcPort->user_name);
-
-                    u_sess->proc_cxt.MyProcPort->user_name = pstrdup(GetUserNameFromId(currentUserId));
-                    u_sess->misc_cxt.CurrentUserName = u_sess->proc_cxt.MyProcPort->user_name;
-#ifdef ENABLE_MULTIPLE_NODES
-                    InitMultinodeExecutor(false);
-                    PoolHandle* pool_handle = GetPoolManagerHandle();
-                    if (pool_handle == NULL) {
-                        ereport(ERROR, (errcode(ERRCODE_IO_ERROR), errmsg("Can not connect to pool manager")));
-                        break;
-                    }
-
-                    /*
-                     * We must switch to old memory context, if we use TopMemContext,
-                     * that will cause memory leak when call elog(ERROR), because TopMemContext
-                     * only is reset during thread exit. later we need refactor code section which
-                     * allocate from TopMemContext for better. TopMemcontext is a session level memory
-                     * context, we forbid allocate temp memory from TopMemcontext.
-                     */
-                    MemoryContextSwitchTo(old);
-                    char* session_options_ptr = session_options();
-
-                    /* Pooler initialization has to be made before ressource is released */
-                    PoolManagerConnect(pool_handle,
-                        u_sess->proc_cxt.MyProcPort->database_name,
-                        u_sess->proc_cxt.MyProcPort->user_name,
-                        session_options_ptr);
-                    if (session_options_ptr != NULL)
-                        pfree(session_options_ptr);
-                    MemoryContextSwitchTo(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_EXECUTOR));
-#endif
-                    ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_BEFORE_LOCKS, true, true);
-                    ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_LOCKS, true, true);
-                    ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_AFTER_LOCKS, true, true);
-                    t_thrd.utils_cxt.CurrentResourceOwner = currentOwner;
-                    ResourceOwnerDelete(tmpOwner);
-                    (void)MemoryContextSwitchTo(old); /* fall through */
-                }
+                ProcessCommandLowerU(&input_message, send_ready_for_query);
             }
+
             case 'Q': /* simple query */
             {
-                const char* query_string = NULL;
-                OgRecordAutoController _local_opt(SRT1_Q);
-
-                pgstat_report_trace_id(&u_sess->trace_cxt);
-                query_string = pq_getmsgstring(&input_message);
-                if (query_string == NULL) {
-                    ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
-                                    errmsg("query_string is NULL.")));
-                }
-                if (strlen(query_string) > SECUREC_MEM_MAX_LEN) {
-                    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                                    errmsg("Too long query_string.")));
-                }
-
-                t_thrd.postgres_cxt.clobber_qstr = query_string;
-
-                pq_getmsgend(&input_message);
-
-                pgstatCountSQL4SessionLevel();
-
-                if (!BEENTRY_STMEMENET_CXT.previous_stmt_flushed) {
-                    handle_commit_previous_metirc_context();
-                    BEENTRY_STMEMENET_CXT.previous_stmt_flushed = true;
-                }
-                statement_init_metric_context();
-#ifdef USE_RETRY_STUB
-                if (IsStmtRetryEnabled()) {
-                    u_sess->exec_cxt.RetryController->stub_.StartOneStubTest(firstchar);
-                    u_sess->exec_cxt.RetryController->stub_.ECodeStubTest();
-                }
-#endif
-                detectForDBSD(query_string);
-                exec_simple_query(query_string, QUERY_MESSAGE, &input_message); /* @hdfs Add the second parameter */
-
-                if (MEMORY_TRACKING_QUERY_PEAK)
-                    ereport(LOG, (errmsg("query_string %s, peak memory %ld(kb)", query_string,
-                                         (int64)(t_thrd.utils_cxt.peakedBytesInQueryLifeCycle/1024))));
-                u_sess->debug_query_id = 0;
-                send_ready_for_query = true;
+                ProcessCommandUpperQ(&input_message, send_ready_for_query);
             } break;
+
 #if defined(ENABLE_MULTIPLE_NODES) || defined(USE_SPQ)
             case 'O': /* In pooler stateless resue mode reset connection params */
             {
-                const char* query_string = NULL;
-                char sql[PARAMS_LEN] = {0};
-                char* sql_strtok_r = NULL;
-                char* slot_session_reset = NULL;
-                char* user_name_reset = NULL;
-                char* pgoptions_reset = NULL;
-                char* connection_params = NULL;
-                char* connection_temp_namespace = NULL;
-                int err = -1;
-                MemoryContext oldcontext;
-
-                /* Only pooler stateless reuse mode in the cluster uses 'O' packets. Other paths are invalid. */
-                if(!IsConnFromCoord()) {
-                    ereport(ERROR,
-                        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                            errmsg("Invalid packet path, remoteConnType[%d], remote_host[%s], remote_port[%s].",
-                                u_sess->attr.attr_common.remoteConnType,
-                                u_sess->proc_cxt.MyProcPort->remote_host,
-                                u_sess->proc_cxt.MyProcPort->remote_port)));
-                }
-
-                query_string = pq_getmsgstring(&input_message);
-
-                t_thrd.postgres_cxt.clobber_qstr = query_string;
-
-                pq_getmsgend(&input_message);
-
-                pgstatCountSQL4SessionLevel();
-
-                if (strlen(query_string) + 1 > sizeof(sql)) {
-                    PrintUnexpectedBufferContent(query_string, sizeof(sql));
-                    ereport(ERROR,
-                        (errcode(ERRCODE_SYSTEM_ERROR),
-                            errmsg("Acceptter in pooler stateless resue mode reset connection params %d > sql[%d].",
-                                (int)strlen(query_string) + 1,
-                                (int)sizeof(sql))));
-                }
-
-                err = sprintf_s(sql, sizeof(sql), "%s", query_string);
-                securec_check_ss(err, "", "");
-
-                slot_session_reset = strtok_r(sql, "@", &sql_strtok_r);
-                user_name_reset = strtok_r(NULL, "@", &sql_strtok_r);
-                pgoptions_reset = strtok_r(NULL, "@", &sql_strtok_r);
-                connection_temp_namespace = strtok_r(NULL, "@", &sql_strtok_r);
-                connection_params = sql_strtok_r;
-
-                /* To reset slot session */
-                if (slot_session_reset != NULL) {
-                    exec_simple_query(slot_session_reset, QUERY_MESSAGE);
-                }
-
-                /* Reset user_name pgoptions */
-                if (user_name_reset != NULL && pgoptions_reset != NULL) {
-                    oldcontext = MemoryContextSwitchTo(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_EXECUTOR));
-
-                    /* check if role exits */
-                    ResourceOwner currentOwner = NULL;
-                    currentOwner = t_thrd.utils_cxt.CurrentResourceOwner;
-                    ResourceOwner tmpOwner =
-                            ResourceOwnerCreate(t_thrd.utils_cxt.CurrentResourceOwner, "CheckUserOid",
-                                THREAD_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_SECURITY));
-                    t_thrd.utils_cxt.CurrentResourceOwner = tmpOwner;
-                    if (!OidIsValid(get_role_oid(user_name_reset, false))) {
-                        ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT), errmsg("role \"%s\" does not exist", user_name_reset)));
-                    }
-                    ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_BEFORE_LOCKS, true, true);
-                    ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_LOCKS, true, true);
-                    ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_AFTER_LOCKS, true, true);
-                    t_thrd.utils_cxt.CurrentResourceOwner = currentOwner;
-                    ResourceOwnerDelete(tmpOwner);
-
-                    if (u_sess->proc_cxt.MyProcPort->user_name)
-                        pfree(u_sess->proc_cxt.MyProcPort->user_name);
-                    if (u_sess->proc_cxt.MyProcPort->cmdline_options)
-                        pfree(u_sess->proc_cxt.MyProcPort->cmdline_options);
-
-                    u_sess->proc_cxt.MyProcPort->user_name = pstrdup(user_name_reset);
-                    u_sess->proc_cxt.MyProcPort->cmdline_options = pstrdup(pgoptions_reset);
-
-                    (void)MemoryContextSwitchTo(oldcontext);
-
-                    t_thrd.postgres_cxt.isInResetUserName = true;
-                    PostgresResetUsernamePgoption(u_sess->proc_cxt.MyProcPort->user_name, true);
-                    t_thrd.postgres_cxt.isInResetUserName = false;
-                }
-
-                /* set connection sesseion params , if sender params is sent "null" not exec. */
-                char params_null[] = "null;";
-                if (connection_params != NULL && strcmp(params_null, connection_params) != 0) {
-                    exec_simple_query(connection_params, QUERY_MESSAGE);
-                }
-
-                /* set temp_namespace , if sender temp_namespace is sent "null" not exec. */
-                if (connection_temp_namespace != NULL && strcmp(params_null, connection_temp_namespace) != 0) {
-                    exec_simple_query(connection_temp_namespace, QUERY_MESSAGE);
-                }
-                u_sess->debug_query_id = 0;
-                send_ready_for_query = true;
+                ProcessCommandUpperO(&input_message, send_ready_for_query);
             } break;
 
             case 'o': {
-                // switch role
-                if (unlikely(!IsConnFromCoord())) {
-                    ereport(ERROR,
-                        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                            errmsg("Unsupport receive role msg from remote type[%d], remote host[%s], remote port[%s].",
-                                   u_sess->attr.attr_common.remoteConnType,
-                                   u_sess->proc_cxt.MyProcPort->remote_host,
-                                   u_sess->proc_cxt.MyProcPort->remote_port)));
-                }
-                bool is_reset = (bool)pq_getmsgbyte(&input_message);
-                const char* role_name = pq_getmsgstring(&input_message);
-                if (role_name == NULL) {
-                    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                                    errmsg("wrong role name.")));
-                }
-                if (unlikely(IsAbortedTransactionBlockState())) {
-                    if (InReceivingLocalUserIdChange()) {
-                        SetUserIdAndSecContext(GetOldUserId(true),
-                            u_sess->misc_cxt.SecurityRestrictionContext & (~RECEIVER_LOCAL_USERID_CHANGE));
-                    }
-                    break;
-                }
-                Oid role_oid = GetRoleOid(role_name);
-                Oid save_userid = InvalidOid;
-                int save_sec_context = 0;
-                int sec_context = 0;
-                GetUserIdAndSecContext(&save_userid, &save_sec_context);
-
-                if (is_reset) {
-                    /* reset to origin role */
-                    sec_context = save_sec_context & (~RECEIVER_LOCAL_USERID_CHANGE);
-                } else {
-                    /* set to cn's role */
-                    sec_context = save_sec_context | RECEIVER_LOCAL_USERID_CHANGE;
-                    SetOldUserId(GetCurrentUserId(), true);
-                }
-                SetUserIdAndSecContext(role_oid, sec_context);
+                ProcessCommandLowerO(&input_message, send_ready_for_query);
             } break;
 
             case 'I': {
-                // Procedure overrideStack
-                int pushtype;
-                const char* schema_name = NULL;
-                pushtype = pq_getmsgbyte(&input_message);
-                schema_name = pq_getmsgstring(&input_message);
-                if (strlen(schema_name) > SECUREC_MEM_MAX_LEN) {
-                    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                                    errmsg("Too long schema_name.")));
-                }
-
-                pq_getmsgend(&input_message);
-
-                switch (pushtype) {
-                    case 'P': {
-                        // check the list is override max depth
-                        if (list_length(u_sess->catalog_cxt.overrideStack) > OVERRIDE_STACK_LENGTH_MAX) {
-                            ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION),
-                                            errmsg("The overrideStack list has been reach the max length.")));
-                        }
-                        // push
-                        ResourceOwner currentOwner = t_thrd.utils_cxt.CurrentResourceOwner;
-                        MemoryContext old = MemoryContextSwitchTo(t_thrd.mem_cxt.msg_mem_cxt);
-                        ResourceOwner tmpOwner =
-                            ResourceOwnerCreate(t_thrd.utils_cxt.CurrentResourceOwner, "ForPushProcedure",
-                                THREAD_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_EXECUTOR));
-                        t_thrd.utils_cxt.CurrentResourceOwner = tmpOwner;
-
-                        Oid namespaceOid = get_namespace_oid(schema_name, false);
-
-                        ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_BEFORE_LOCKS, true, true);
-                        ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_LOCKS, true, true);
-                        ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_AFTER_LOCKS, true, true);
-                        t_thrd.utils_cxt.CurrentResourceOwner = currentOwner;
-                        ResourceOwnerDelete(tmpOwner);
-
-                        MemoryContextSwitchTo(old);
-
-                        // construct OverrideSearchPath struct
-                        OverrideSearchPath* search_path = (OverrideSearchPath*)palloc0(sizeof(OverrideSearchPath));
-                        search_path->addCatalog = true;
-                        search_path->addTemp = true;
-                        search_path->schemas = list_make1_oid(namespaceOid);
-
-                        ereport(DEBUG2, (errmodule(MOD_SCHEMA), errmsg("recv pushschema:%s", schema_name)));
-
-                        if (SUPPORT_BIND_SEARCHPATH) {
-                            if (!u_sess->catalog_cxt.baseSearchPathValid) {
-                                recomputeNamespacePath();
-                            }
-                            /*
-                             * If SUPPORT_BIND_SEARCHPATH is true,
-                             * add system's search_path.
-                             * When objects cannot be found in the
-                             * namespace of current function, find
-                             * them in search_path list.
-                             * Otherwise, we can only find objects in
-                             * the namespace of current function.
-                             */
-                            ListCell* l = NULL;
-                            /* Use baseSearchPath not activeSearchPath. */
-                            foreach (l, u_sess->catalog_cxt.baseSearchPath) {
-                                Oid namespaceId = lfirst_oid(l);
-                                /*
-                                 * Append namespaceId to searchpath.
-                                 */
-                                if (!list_member_oid(search_path->schemas, namespaceId)) {
-                                    search_path->schemas = lappend_oid(search_path->schemas, namespaceId);
-                                }
-                            }
-                        }
-                        PushOverrideSearchPath(search_path, true);
-                        pfree(search_path);
-                    } break;
-                    case 'p': {
-                        // pop
-                        if (u_sess->catalog_cxt.overrideStack)
-                            PopOverrideSearchPath();
-                    } break;
-                    case 'C': {
-                        /* set create command schema */
-                        u_sess->catalog_cxt.setCurCreateSchema = true;
-                        u_sess->catalog_cxt.curCreateSchema = MemoryContextStrdup(u_sess->top_transaction_mem_cxt,
-                            schema_name);
-                    } break;
-                    case 'F': {
-                        u_sess->catalog_cxt.setCurCreateSchema = false;
-                        pfree_ext(u_sess->catalog_cxt.curCreateSchema);
-                    } break;
-                    default:
-                        ereport(ERROR,
-                            (errcode(ERRCODE_PROTOCOL_VIOLATION),
-                                errmsg("Invalid message type %d for procedure overrideStack.", pushtype)));
-                        break;
-                }
+                ProcessCommandUpperI(&input_message, send_ready_for_query);
             } break;
             case 'i': /* used for instrumentation */
             {
-                int sub_command = 0;
-                sub_command = pq_getmsgbyte(&input_message);
-
-                switch (sub_command) {
-                    case 'q': /* recv unique sql id from CN, and set it to DN session */
-                    {
-                        u_sess->unique_sql_cxt.unique_sql_cn_id = (uint32)pq_getmsgint(&input_message, sizeof(uint32));
-                        u_sess->unique_sql_cxt.unique_sql_user_id = (Oid)pq_getmsgint(&input_message, sizeof(uint32));
-                        u_sess->unique_sql_cxt.unique_sql_id = (uint64)pq_getmsgint64(&input_message);
-                        u_sess->slow_query_cxt.slow_query.unique_sql_id = u_sess->unique_sql_cxt.unique_sql_id;
-                        pgstat_report_unique_sql_id(false);
-                        Oid procId = 0;
-                        uint64 queryId = 0;
-                        int64 stamp = 0;
-                        if (t_thrd.proc->workingVersionNum >= SLOW_QUERY_VERSION || input_message.cursor < input_message.len ) {
-                            procId = (Oid)pq_getmsgint(&input_message, sizeof(uint32));
-                            queryId = (uint64)pq_getmsgint64(&input_message);
-                            stamp = (int64)pq_getmsgint64(&input_message);
-                            u_sess->wlm_cxt->wlm_params.qid.procId = procId;
-                            u_sess->wlm_cxt->wlm_params.qid.queryId = queryId;
-                            u_sess->wlm_cxt->wlm_params.qid.stamp = stamp;
-                        }
-
-                        ereport(DEBUG1,
-                            (errmodule(MOD_INSTR),
-                                errmsg("[UniqueSQL] "
-                                       "Received new unique cn_id: %u, user_id: %u, sql id: %lu, procId %u, queryId %lu, stamp %ld",
-                                    u_sess->unique_sql_cxt.unique_sql_cn_id,
-                                    u_sess->unique_sql_cxt.unique_sql_user_id,
-                                    u_sess->unique_sql_cxt.unique_sql_id,
-                                    procId,
-                                    queryId,
-                                    stamp)));
-                    } break;
-
-                    case 'S': {
-                        errno_t rc = memcpy_s(&u_sess->globalSessionId.sessionId, sizeof(uint64),
-                            pq_getmsgbytes(&input_message, sizeof(uint64)), sizeof(uint64));
-                        securec_check(rc, "\0", "\0");
-                        u_sess->globalSessionId.nodeId = (uint32)pq_getmsgint(&input_message, sizeof(uint32));
-                        u_sess->globalSessionId.seq = pg_atomic_add_fetch_u64(&g_instance.global_session_seq, 1);
-                        pgstat_report_global_session_id(u_sess->globalSessionId);
-                        t_thrd.proc->globalSessionId = u_sess->globalSessionId;
-                        ereport(DEBUG5, (errmodule(MOD_INSTR),
-                            errmsg("[Global session id] node:%u, session id: %lu, seq id:%lu",
-                            u_sess->globalSessionId.nodeId,
-                            u_sess->globalSessionId.sessionId,
-                            u_sess->globalSessionId.seq)));
-                    } break;
-
-                    case 's': {
-                        /* get unique sql ids, then reply the unique sqls stat */
-                        uint32 count = pq_getmsgint(&input_message, sizeof(uint32));
-                        ReplyUniqueSQLsStat(&input_message, count);
-                    } break;
-
-                    case 'K': /* msg type for get sql-RT count */
-                    {
-                        pgstat_reply_percentile_record_count();
-                        pq_getmsgend(&input_message);
-                    } break;
-
-                    case 'k': /* msg type for replay sql-RT info */
-                    {
-                        pgstat_reply_percentile_record();
-                        pq_getmsgend(&input_message);
-                    } break;
-
-                    default:
-                        break;
-                }
-                pq_getmsgend(&input_message);
-                /* q - for unique sql id */
+                ProcessCommandLowerI(&input_message, send_ready_for_query);
             } break;
 
             case 'h': /* @hdfs hybridmessage query */
             {
-                const char* query_string = NULL;
-
-                /* get the node id. */
-                u_sess->pgxc_cxt.PGXCNodeId = pq_getmsgint(&input_message, 4);
-
-                /* get hybridmesage */
-                query_string = pq_getmsgstring(&input_message);
-                t_thrd.postgres_cxt.clobber_qstr = query_string;
-                pq_getmsgend(&input_message);
-
-                pgstatCountSQL4SessionLevel();
-                statement_init_metric_context();
-
-                /*
-                 * @hdfs
-                 * exec_simpel_query. We set the second paramter to 1
-                 * when we get the hybirmessage. It's default value is 0.
-                 */
-                exec_simple_query(query_string, HYBRID_MESSAGE);
-                u_sess->debug_query_id = 0;
-                send_ready_for_query = true;
+                ProcessCommandLowerH(&input_message, send_ready_for_query);
             } break;
 #endif
             case 'P': /* parse */
             {
-                OgRecordAutoController _local_opt(SRT6_P);
-                const char* stmt_name = NULL;
-                const char* query_string = NULL;
-                int numParams;
-                Oid* paramTypes = NULL;
-                char* paramModes = NULL;
-                char** paramTypeNames = NULL;
-#ifdef ENABLE_MULTIPLE_NODES
-                /* DN: get the node id. */
-                if (IS_PGXC_DATANODE && IsConnFromCoord()) {
-                    u_sess->pgxc_cxt.PGXCNodeId = pq_getmsgint(&input_message, 4);
-                }
-#endif
-                stmt_name = pq_getmsgstring(&input_message);
-                query_string = pq_getmsgstring(&input_message);
-                if (strlen(query_string) > SECUREC_MEM_MAX_LEN) {
-                    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                                    errmsg("Too long query_string.")));
-                }
-                detectForDBSD(query_string);
-                numParams = pq_getmsgint(&input_message, 2);
-                paramTypes = (Oid*)palloc(numParams * sizeof(Oid));
-                if (numParams > 0) {
-                    int i;
-#ifdef ENABLE_MULTIPLE_NODES
-                    if (IsConnFromCoord()) {
-                        paramTypeNames = (char**)palloc(numParams * sizeof(char*));
-                        for (i = 0; i < numParams; i++) {
-                            paramTypeNames[i] = (char*)pq_getmsgstring(&input_message);
-                        }
-                    } else
-#endif /* ENABLE_MULTIPLE_NODES */
-                    {
-                        for (i = 0; i < numParams; i++)
-                            paramTypes[i] = pq_getmsgint(&input_message, 4);
-                    }
-                }
-
-#ifndef ENABLE_MULTIPLE_NODES
-                if (PROC_OUTPARAM_OVERRIDE) {
-                    int numModes = 0;
-                    if (input_message.len - input_message.cursor > 0) {
-                        numModes = pq_getmsgint(&input_message, 2);
-                    } else {
-                        ereport(DEBUG2, (errmodule(MOD_PLSQL), errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                            errmsg("the guc proc_outparam_override is open but message not contains modes.")));
-                    }
-                    if (numModes > 0) {
-                        if (numModes != numParams) {
-                            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                                errmsg("param type num %d does't equal to param mode num %d.", numParams, numModes)));
-                        }
-
-                        paramModes = (char*)palloc(numModes * sizeof(char));
-                        for (int i = 0; i < numParams; i++) {
-                            const char *mode = pq_getmsgbytes(&input_message, 1);
-                            if (*mode != PROARGMODE_IN
-                                && *mode != PROARGMODE_OUT
-                                && *mode != PROARGMODE_INOUT) {
-                                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                                    errmsg("The %dth param mode %s does't exist.", i, mode)));
-                            }
-                            paramModes[i] = *mode;
-                        }
-                    }
-                    if (u_sess->attr.attr_sql.sql_compatibility != A_FORMAT) {
-                        /*
-                         * PROC_OUTPARAM_OVERRIDE only valid in A_FORMAT,
-                         * but message contains paramModes in jdbc when set PROC_OUTPARAM_OVERRIDE,
-                         * so we just free paramModes and set it to null in other sql_compatibility.
-                         */
-                        pfree_ext(paramModes);
-                    }
-                }
-#endif
-                pq_getmsgend(&input_message);
-
-                exec_pre_parse_message();
-                exec_parse_message(query_string, stmt_name, paramTypes, paramTypeNames, paramModes, numParams, true);
-                if (ENABLE_REMOTE_EXECUTE && (libpqsw_redirect() || libpqsw_get_set_command() || libpqsw_command_is_prepare()) &&
-                    !libpqsw_only_localrun()) {
-                    get_redirect_manager()->push_message(firstchar,
-                        &input_message,
-                        true,
-                        libpqsw_get_set_command() ? RT_SET : RT_NORMAL
-                        );
-                }
-                exec_after_parse_message(stmt_name);
+                ProcessCommandUpperP(&input_message, send_ready_for_query);
             } break;
 
             case 'B': /* bind */
             {
-                OgRecordAutoController _local_opt(SRT7_B);
-                exec_pre_bind_message();
-
-                BindMessage pqBindMessage;
-                PreparedStatement* pstmt = NULL;
-                CachedPlanSource* psrc = NULL;
-                exec_get_bind_message(&input_message, &pqBindMessage, &pstmt, &psrc);
-                exec_bind_message(&pqBindMessage, pstmt, psrc, true, get_param_list_info);
-            }  break;
+                ProcessCommandUpperB(&input_message, send_ready_for_query);
+            } break;
 
             case 'E': /* execute */
             {
-                OgRecordAutoController _local_opt(SRT8_E);
-                const char* portal_name = NULL;
-                int max_rows;
-
-                if (unlikely((unsigned int)input_message.len > SECUREC_MEM_MAX_LEN)) {
-                    ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION), errmsg("invalid execute message")));
-                }
-
-                portal_name = pq_getmsgstring(&input_message);
-                max_rows = pq_getmsgint(&input_message, 4);
-                pq_getmsgend(&input_message);
-
-                if (exec_pre_execute_message(portal_name, max_rows, true)) {
-                    break;
-                }
-
-                exec_execute_message(portal_name, max_rows, true);
+                ProcessCommandUpperE(&input_message, send_ready_for_query);
             } break;
 
 #ifdef ENABLE_MULTIPLE_NODES
@@ -11199,6 +10610,750 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
     Assert(false);
 
     return 1; /* keep compiler quiet */
+}
+
+#if defined(ENABLE_MULTIPLE_NODES) || defined(USE_SPQ)
+/*
+ * ProcessCommandUpperZ
+ *
+ * @Description: Execute a plan directly from the coordinator (command 'Z').
+ * @param input_message: The input message containing the plan.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
+ */
+static void ProcessCommandUpperZ(StringInfo input_message, volatile bool& send_ready_for_query)
+{
+    char* plan_string = NULL;
+    PlannedStmt* planstmt = NULL;
+    int oLen_msg = 0;
+    int cLen_msg = 0;
+    t_thrd.spq_ctx.spq_role = ROLE_QUERY_EXECUTOR;
+
+    /* Set top consumer at the very beginning. */
+    StreamTopConsumerIam();
+    /* Build stream context for stream plan. */
+    InitStreamContext();
+
+    u_sess->exec_cxt.under_stream_runtime = true;
+
+    // get the node id.
+    u_sess->pgxc_cxt.PGXCNodeId = pq_getmsgint(input_message, 4);
+
+    // Get original length and length of compressed plan.
+    //
+    oLen_msg = pq_getmsgint(input_message, 4);
+    cLen_msg = pq_getmsgint(input_message, 4);
+
+    if (unlikely(oLen_msg <= 0 || cLen_msg <= 0 || cLen_msg > oLen_msg)) {
+        ereport(ERROR,
+            (errmodule(MOD_OPT),
+                errcode(ERRCODE_DATA_CORRUPTED),
+                errmsg(
+                    "unexpected original length %d and length of compressed plan %d", oLen_msg, cLen_msg)));
+    }
+
+    // Copy compressed data from message buffer and then decompress it.
+    //
+    plan_string = (char*)palloc0(cLen_msg);
+    pq_copymsgbytes(input_message, plan_string, cLen_msg);
+    plan_string = DecompressSerializedPlan(plan_string, cLen_msg, oLen_msg);
+
+    pq_getmsgend(input_message);
+    ereport(DEBUG2, (errmsg("PLAN END RECEIVED : %s", plan_string)));
+
+    // Starting the transaction early to initialize ResourceOwner,
+    // else, Plan de-serialization code path fails
+    start_xact_command();
+
+    MemoryContext old_cxt = MemoryContextSwitchTo(u_sess->stream_cxt.stream_runtime_mem_cxt);
+    planstmt = (PlannedStmt*)stringToNode(plan_string);
+
+    /* It is safe to free plan_string after deserializing the message */
+    if (plan_string != NULL)
+        pfree(plan_string);
+
+    InitGlobalNodeDefinition(planstmt);
+    t_thrd.spq_ctx.spq_session_id = planstmt->spq_session_id;
+    t_thrd.spq_ctx.current_id = planstmt->current_id;
+
+    statement_init_metric_context();
+    exec_simple_plan(planstmt);
+
+    MemoryContextSwitchTo(old_cxt);
+
+    // After query done, producer container is not usable anymore.
+    StreamNodeGroup::destroy(STREAM_COMPLETE);
+    u_sess->debug_query_id = 0;
+    send_ready_for_query = true;
+}
+
+/*
+ * ProcessCommandUpperY
+ *
+ * @Description: Execute a plan with parameters from the coordinator (command 'Y').
+ * @param input_message: The input message containing the plan with parameters.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
+ */
+static void ProcessCommandUpperY(StringInfo input_message, volatile bool& send_ready_for_query)
+{
+    t_thrd.spq_ctx.spq_role = ROLE_QUERY_EXECUTOR;
+    if ((IS_PGXC_COORDINATOR || IS_SINGLE_NODE) && (!IS_SPQ_EXECUTOR))
+        ereport(ERROR,
+            (errcode(ERRCODE_PROTOCOL_VIOLATION),
+                errmsg("invalid frontend message type '%c'.", 'Y')));
+
+    /* Set top consumer at the very beginning. */
+    StreamTopConsumerIam();
+    /* Build stream context for stream plan. */
+    InitStreamContext();
+
+    u_sess->exec_cxt.under_stream_runtime = true;
+
+    u_sess->pgxc_cxt.PGXCNodeId = pq_getmsgint(input_message, 4);
+
+    exec_plan_with_params(input_message);
+
+    /* After query done, producer container is not usable anymore */
+    StreamNodeGroup::destroy(STREAM_COMPLETE);
+    u_sess->debug_query_id = 0;
+    send_ready_for_query = true;
+}
+#endif
+
+/*
+ * ProcessCommandLowerU
+ *
+ * @Description: Process an autonomous transaction command (command 'u').
+ * @param input_message: The input message containing the autonomous transaction information.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
+ */
+static void ProcessCommandLowerU(StringInfo input_message, volatile bool& send_ready_for_query)
+{
+    int msgType = pq_getmsgbyte(input_message);
+    u_sess->is_partition_autonomous_session = msgType == 'P';
+    u_sess->is_autonomous_session = true;
+    Oid currentUserId = pq_getmsgint(input_message, 4);
+    u_sess->autonomous_parent_sessionid = pq_getmsgint64(input_message);
+    if (currentUserId != GetCurrentUserId()) {
+        /* Set Session Authorization */
+        ResourceOwner currentOwner = NULL;
+        currentOwner = t_thrd.utils_cxt.CurrentResourceOwner;
+        /* we use session memory context to remember all node info in this cluster. */
+        MemoryContext old = MemoryContextSwitchTo(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_EXECUTOR));
+
+        ResourceOwner tmpOwner = 
+                ResourceOwnerCreate(t_thrd.utils_cxt.CurrentResourceOwner, "CheckUserOid",
+                    THREAD_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_SECURITY));
+        t_thrd.utils_cxt.CurrentResourceOwner = tmpOwner;
+
+        SetSessionAuthorization(currentUserId, superuser_arg(currentUserId));
+
+        if (u_sess->proc_cxt.MyProcPort->user_name)
+            pfree(u_sess->proc_cxt.MyProcPort->user_name);
+
+        u_sess->proc_cxt.MyProcPort->user_name = pstrdup(GetUserNameFromId(currentUserId));
+        u_sess->misc_cxt.CurrentUserName = u_sess->proc_cxt.MyProcPort->user_name;
+#ifdef ENABLE_MULTIPLE_NODES
+        InitMultinodeExecutor(false);
+        PoolHandle* pool_handle = GetPoolManagerHandle();
+        if (pool_handle == NULL) {
+            ereport(ERROR, (errcode(ERRCODE_IO_ERROR), errmsg("Can not connect to pool manager")));
+            return;
+        }
+
+        /*
+         * We must switch to old memory context, if we use TopMemContext,
+         * that will cause memory leak when call elog(ERROR), because TopMemContext
+         * only is reset during thread exit. later we need refactor code section which
+         * allocate from TopMemContext for better. TopMemcontext is a session level memory
+         * context, we forbid allocate temp memory from TopMemcontext.
+         */
+        MemoryContextSwitchTo(old);
+        char* session_options_ptr = session_options();
+
+        /* Pooler initialization has to be made before ressource is released */
+        PoolManagerConnect(pool_handle,
+            u_sess->proc_cxt.MyProcPort->database_name,
+            u_sess->proc_cxt.MyProcPort->user_name,
+            session_options_ptr);
+        if (session_options_ptr != NULL)
+            pfree(session_options_ptr);
+        MemoryContextSwitchTo(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_EXECUTOR));
+#endif
+        ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_BEFORE_LOCKS, true, true);
+        ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_LOCKS, true, true);
+        ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_AFTER_LOCKS, true, true);
+        t_thrd.utils_cxt.CurrentResourceOwner = currentOwner;
+        ResourceOwnerDelete(tmpOwner);
+        (void)MemoryContextSwitchTo(old); /* fall through */
+    }
+}
+
+/*
+ * ProcessCommandUpperQ - Process the 'Q' command (simple query)
+ *
+ * @param input_message: The input message buffer containing the command data.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
+ */
+static void ProcessCommandUpperQ(StringInfo input_message, volatile bool& send_ready_for_query)
+{
+    const char* query_string = NULL;
+    OgRecordAutoController _local_opt(SRT1_Q);
+
+    pgstat_report_trace_id(&u_sess->trace_cxt);
+    query_string = pq_getmsgstring(input_message);
+    if (query_string == NULL) {
+        ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                        errmsg("query_string is NULL.")));
+    }
+    if (strlen(query_string) > SECUREC_MEM_MAX_LEN) {
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("Too long query_string.")));
+    }
+
+    t_thrd.postgres_cxt.clobber_qstr = query_string;
+
+    pq_getmsgend(input_message);
+
+    pgstatCountSQL4SessionLevel();
+
+    if (!BEENTRY_STMEMENET_CXT.previous_stmt_flushed) {
+        handle_commit_previous_metirc_context();
+        BEENTRY_STMEMENET_CXT.previous_stmt_flushed = true;
+    }
+    statement_init_metric_context();
+#ifdef USE_RETRY_STUB
+    if (IsStmtRetryEnabled()) {
+        u_sess->exec_cxt.RetryController->stub_.StartOneStubTest('Q');
+        u_sess->exec_cxt.RetryController->stub_.ECodeStubTest();
+    }
+#endif
+    detectForDBSD(query_string);
+    exec_simple_query(query_string, QUERY_MESSAGE, input_message); /* @hdfs Add the second parameter */
+
+    if (MEMORY_TRACKING_QUERY_PEAK)
+        ereport(LOG, (errmsg("query_string %s, peak memory %ld(kb)", query_string,
+                             (int64)(t_thrd.utils_cxt.peakedBytesInQueryLifeCycle/1024))));
+    u_sess->debug_query_id = 0;
+    send_ready_for_query = true;
+}
+
+#if defined(ENABLE_MULTIPLE_NODES) || defined(USE_SPQ)
+/*
+ * ProcessCommandUpperO - Process the 'O' command (In pooler stateless resue mode reset connection params)
+ *
+ * @param input_message: The input message buffer containing the command data.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
+ */
+static void ProcessCommandUpperO(StringInfo input_message, volatile bool& send_ready_for_query)
+{
+    const char* query_string = NULL;
+    char sql[PARAMS_LEN] = {0};
+    char* sql_strtok_r = NULL;
+    char* slot_session_reset = NULL;
+    char* user_name_reset = NULL;
+    char* pgoptions_reset = NULL;
+    char* connection_params = NULL;
+    char* connection_temp_namespace = NULL;
+    int err = -1;
+    MemoryContext oldcontext;
+
+    /* Only pooler stateless reuse mode in the cluster uses 'O' packets. Other paths are invalid. */
+    if(!IsConnFromCoord()) {
+        ereport(ERROR,
+            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("Invalid packet path, remoteConnType[%d], remote_host[%s], remote_port[%s].",
+                    u_sess->attr.attr_common.remoteConnType,
+                    u_sess->proc_cxt.MyProcPort->remote_host,
+                    u_sess->proc_cxt.MyProcPort->remote_port)));
+    }
+
+    query_string = pq_getmsgstring(input_message);
+
+    t_thrd.postgres_cxt.clobber_qstr = query_string;
+
+    pq_getmsgend(input_message);
+
+    pgstatCountSQL4SessionLevel();
+
+    if (strlen(query_string) + 1 > sizeof(sql)) {
+        PrintUnexpectedBufferContent(query_string, sizeof(sql));
+        ereport(ERROR,
+            (errcode(ERRCODE_SYSTEM_ERROR),
+                errmsg("Acceptter in pooler stateless resue mode reset connection params %d > sql[%d].",
+                    (int)strlen(query_string) + 1,
+                    (int)sizeof(sql))));
+    }
+
+    err = sprintf_s(sql, sizeof(sql), "%s", query_string);
+    securec_check_ss(err, "", "");
+
+    slot_session_reset = strtok_r(sql, "@", &sql_strtok_r);
+    user_name_reset = strtok_r(NULL, "@", &sql_strtok_r);
+    pgoptions_reset = strtok_r(NULL, "@", &sql_strtok_r);
+    connection_temp_namespace = strtok_r(NULL, "@", &sql_strtok_r);
+    connection_params = sql_strtok_r;
+
+    /* To reset slot session */
+    if (slot_session_reset != NULL) {
+        exec_simple_query(slot_session_reset, QUERY_MESSAGE);
+    }
+
+    /* Reset user_name pgoptions */
+    if (user_name_reset != NULL && pgoptions_reset != NULL) {
+        oldcontext = MemoryContextSwitchTo(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_EXECUTOR));
+
+        /* check if role exits */
+        ResourceOwner currentOwner = NULL;
+        currentOwner = t_thrd.utils_cxt.CurrentResourceOwner;
+        ResourceOwner tmpOwner =
+                ResourceOwnerCreate(t_thrd.utils_cxt.CurrentResourceOwner, "CheckUserOid",
+                    THREAD_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_SECURITY));
+        t_thrd.utils_cxt.CurrentResourceOwner = tmpOwner;
+        if (!OidIsValid(get_role_oid(user_name_reset, false))) {
+            ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT), errmsg("role \"%s\" does not exist", user_name_reset)));
+        }
+        ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_BEFORE_LOCKS, true, true);
+        ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_LOCKS, true, true);
+        ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_AFTER_LOCKS, true, true);
+        t_thrd.utils_cxt.CurrentResourceOwner = currentOwner;
+        ResourceOwnerDelete(tmpOwner);
+
+        if (u_sess->proc_cxt.MyProcPort->user_name)
+            pfree(u_sess->proc_cxt.MyProcPort->user_name);
+        if (u_sess->proc_cxt.MyProcPort->cmdline_options)
+            pfree(u_sess->proc_cxt.MyProcPort->cmdline_options);
+
+        u_sess->proc_cxt.MyProcPort->user_name = pstrdup(user_name_reset);
+        u_sess->proc_cxt.MyProcPort->cmdline_options = pstrdup(pgoptions_reset);
+
+        (void)MemoryContextSwitchTo(oldcontext);
+
+        t_thrd.postgres_cxt.isInResetUserName = true;
+        PostgresResetUsernamePgoption(u_sess->proc_cxt.MyProcPort->user_name, true);
+        t_thrd.postgres_cxt.isInResetUserName = false;
+    }
+
+    /* set connection sesseion params , if sender params is sent "null" not exec. */
+    char params_null[] = "null;";
+    if (connection_params != NULL && strcmp(params_null, connection_params) != 0) {
+        exec_simple_query(connection_params, QUERY_MESSAGE);
+    }
+
+    /* set temp_namespace , if sender temp_namespace is sent "null" not exec. */
+    if (connection_temp_namespace != NULL && strcmp(params_null, connection_temp_namespace) != 0) {
+        exec_simple_query(connection_temp_namespace, QUERY_MESSAGE);
+    }
+    u_sess->debug_query_id = 0;
+    send_ready_for_query = true;
+}
+
+/*
+ * ProcessCommandLowerO - Process the 'o' command (switch role)
+ *
+ * @param input_message: The input message buffer containing the command data.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
+ */
+static void ProcessCommandLowerO(StringInfo input_message, volatile bool& send_ready_for_query)
+{
+    // switch role
+    if (unlikely(!IsConnFromCoord())) {
+        ereport(ERROR,
+            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("Unsupport receive role msg from remote type[%d], remote host[%s], remote port[%s].",
+                    u_sess->attr.attr_common.remoteConnType,
+                    u_sess->proc_cxt.MyProcPort->remote_host,
+                    u_sess->proc_cxt.MyProcPort->remote_port)));
+    }
+    bool is_reset = (bool)pq_getmsgbyte(input_message);
+    const char* role_name = pq_getmsgstring(input_message);
+    if (role_name == NULL) {
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("wrong role name.")));
+    }
+    if (unlikely(IsAbortedTransactionBlockState())) {
+        if (InReceivingLocalUserIdChange()) {
+            SetUserIdAndSecContext(GetOldUserId(true),
+                u_sess->misc_cxt.SecurityRestrictionContext & (~RECEIVER_LOCAL_USERID_CHANGE));
+        }
+        return;
+    }
+    Oid role_oid = GetRoleOid(role_name);
+    Oid save_userid = InvalidOid;
+    int save_sec_context = 0;
+    int sec_context = 0;
+    GetUserIdAndSecContext(&save_userid, &save_sec_context);
+
+    if (is_reset) {
+        /* reset to origin role */
+        sec_context = save_sec_context & (~RECEIVER_LOCAL_USERID_CHANGE);
+    } else {
+        /* set to cn's role */
+        sec_context = save_sec_context | RECEIVER_LOCAL_USERID_CHANGE;
+        SetOldUserId(GetCurrentUserId(), true);
+    }
+    SetUserIdAndSecContext(role_oid, sec_context);
+}
+
+/*
+ * ProcessCommandUpperI - Process the 'I' command (Procedure overrideStack)
+ *
+ * @param input_message: The input message buffer containing the command data.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
+ */
+static void ProcessCommandUpperI(StringInfo input_message, volatile bool& send_ready_for_query)
+{
+    // Procedure overrideStack
+    int pushtype;
+    const char* schema_name = NULL;
+    pushtype = pq_getmsgbyte(input_message);
+    schema_name = pq_getmsgstring(input_message);
+    if (strlen(schema_name) > SECUREC_MEM_MAX_LEN) {
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("Too long schema_name.")));
+    }
+
+    pq_getmsgend(input_message);
+
+    switch (pushtype) {
+        case 'P': {
+            // check the list is override max depth
+            if (list_length(u_sess->catalog_cxt.overrideStack) > OVERRIDE_STACK_LENGTH_MAX) {
+                ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION),
+                                errmsg("The overrideStack list has been reach the max length.")));
+            }
+            // push
+            ResourceOwner currentOwner = t_thrd.utils_cxt.CurrentResourceOwner;
+            MemoryContext old = MemoryContextSwitchTo(t_thrd.mem_cxt.msg_mem_cxt);
+            ResourceOwner tmpOwner =
+                ResourceOwnerCreate(t_thrd.utils_cxt.CurrentResourceOwner, "ForPushProcedure",
+                    THREAD_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_EXECUTOR));
+            t_thrd.utils_cxt.CurrentResourceOwner = tmpOwner;
+
+            Oid namespaceOid = get_namespace_oid(schema_name, false);
+
+            ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_BEFORE_LOCKS, true, true);
+            ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_LOCKS, true, true);
+            ResourceOwnerRelease(tmpOwner, RESOURCE_RELEASE_AFTER_LOCKS, true, true);
+            t_thrd.utils_cxt.CurrentResourceOwner = currentOwner;
+            ResourceOwnerDelete(tmpOwner);
+
+            MemoryContextSwitchTo(old);
+
+            // construct OverrideSearchPath struct
+            OverrideSearchPath* search_path = (OverrideSearchPath*)palloc0(sizeof(OverrideSearchPath));
+            search_path->addCatalog = true;
+            search_path->addTemp = true;
+            search_path->schemas = list_make1_oid(namespaceOid);
+
+            ereport(DEBUG2, (errmodule(MOD_SCHEMA), errmsg("recv pushschema:%s", schema_name)));
+
+            if (SUPPORT_BIND_SEARCHPATH) {
+                if (!u_sess->catalog_cxt.baseSearchPathValid) {
+                    recomputeNamespacePath();
+                }
+                /*
+                 * If SUPPORT_BIND_SEARCHPATH is true,
+                 * add system's search_path.
+                 * When objects cannot be found in the
+                 * namespace of current function, find
+                 * them in search_path list.
+                 * Otherwise, we can only find objects in
+                 * the namespace of current function.
+                 */
+                ListCell* l = NULL;
+                /* Use baseSearchPath not activeSearchPath. */
+                foreach (l, u_sess->catalog_cxt.baseSearchPath) {
+                    Oid namespaceId = lfirst_oid(l);
+                    /*
+                     * Append namespaceId to searchpath.
+                     */
+                    if (!list_member_oid(search_path->schemas, namespaceId)) {
+                        search_path->schemas = lappend_oid(search_path->schemas, namespaceId);
+                    }
+                }
+            }
+            PushOverrideSearchPath(search_path, true);
+            pfree(search_path);
+        } break;
+        case 'p': {
+            // pop
+            if (u_sess->catalog_cxt.overrideStack)
+                PopOverrideSearchPath();
+        } break;
+        case 'C': {
+            /* set create command schema */
+            u_sess->catalog_cxt.setCurCreateSchema = true;
+            u_sess->catalog_cxt.curCreateSchema = MemoryContextStrdup(u_sess->top_transaction_mem_cxt,
+                schema_name);
+        } break;
+        case 'F': {
+            u_sess->catalog_cxt.setCurCreateSchema = false;
+            pfree_ext(u_sess->catalog_cxt.curCreateSchema);
+        } break;
+        default:
+            ereport(ERROR,
+                (errcode(ERRCODE_PROTOCOL_VIOLATION),
+                    errmsg("Invalid message type %d for procedure overrideStack.", pushtype)));
+            break;
+    }
+}
+
+/*
+ * ProcessCommandLowerI - Process the 'i' command (used for instrumentation)
+ *
+ * @param input_message: The input message buffer containing the command data.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
+ */
+static void ProcessCommandLowerI(StringInfo input_message, volatile bool& send_ready_for_query)
+{
+    int sub_command = 0;
+    sub_command = pq_getmsgbyte(input_message);
+
+    switch (sub_command) {
+        case 'q': /* recv unique sql id from CN, and set it to DN session */
+        {
+            u_sess->unique_sql_cxt.unique_sql_cn_id = (uint32)pq_getmsgint(input_message, sizeof(uint32));
+            u_sess->unique_sql_cxt.unique_sql_user_id = (Oid)pq_getmsgint(input_message, sizeof(uint32));
+            u_sess->unique_sql_cxt.unique_sql_id = (uint64)pq_getmsgint64(input_message);
+            u_sess->slow_query_cxt.slow_query.unique_sql_id = u_sess->unique_sql_cxt.unique_sql_id;
+            pgstat_report_unique_sql_id(false);
+            Oid procId = 0;
+            uint64 queryId = 0;
+            int64 stamp = 0;
+            if (t_thrd.proc->workingVersionNum >= SLOW_QUERY_VERSION || input_message->cursor < input_message->len ) {
+                procId = (Oid)pq_getmsgint(input_message, sizeof(uint32));
+                queryId = (uint64)pq_getmsgint64(input_message);
+                stamp = (int64)pq_getmsgint64(input_message);
+                u_sess->wlm_cxt->wlm_params.qid.procId = procId;
+                u_sess->wlm_cxt->wlm_params.qid.queryId = queryId;
+                u_sess->wlm_cxt->wlm_params.qid.stamp = stamp;
+            }
+
+            ereport(DEBUG1,
+                (errmodule(MOD_INSTR),
+                    errmsg("[UniqueSQL] "
+                           "Received new unique cn_id: %u, user_id: %u, sql id: %lu, procId %u, queryId %lu, stamp %ld",
+                        u_sess->unique_sql_cxt.unique_sql_cn_id,
+                        u_sess->unique_sql_cxt.unique_sql_user_id,
+                        u_sess->unique_sql_cxt.unique_sql_id,
+                        procId,
+                        queryId,
+                        stamp)));
+        } break;
+
+        case 'S': {
+            errno_t rc = memcpy_s(&u_sess->globalSessionId.sessionId, sizeof(uint64),
+                pq_getmsgbytes(input_message, sizeof(uint64)), sizeof(uint64));
+            securec_check(rc, "\0", "\0");
+            u_sess->globalSessionId.nodeId = (uint32)pq_getmsgint(input_message, sizeof(uint32));
+            u_sess->globalSessionId.seq = pg_atomic_add_fetch_u64(&g_instance.global_session_seq, 1);
+            pgstat_report_global_session_id(u_sess->globalSessionId);
+            t_thrd.proc->globalSessionId = u_sess->globalSessionId;
+            ereport(DEBUG5, (errmodule(MOD_INSTR),
+                errmsg("[Global session id] node:%u, session id: %lu, seq id:%lu",
+                u_sess->globalSessionId.nodeId,
+                u_sess->globalSessionId.sessionId,
+                u_sess->globalSessionId.seq)));
+        } break;
+
+        case 's': {
+            /* get unique sql ids, then reply the unique sqls stat */
+            uint32 count = pq_getmsgint(input_message, sizeof(uint32));
+            ReplyUniqueSQLsStat(input_message, count);
+        } break;
+
+        case 'K': /* msg type for get sql-RT count */
+        {
+            pgstat_reply_percentile_record_count();
+            pq_getmsgend(input_message);
+        } break;
+
+        case 'k': /* msg type for replay sql-RT info */
+        {
+            pgstat_reply_percentile_record();
+            pq_getmsgend(input_message);
+        } break;
+
+        default:
+            break;
+    }
+    pq_getmsgend(input_message);
+    /* q - for unique sql id */
+}
+
+/*
+ * ProcessCommandLowerH - Process the 'h' command (@hdfs hybridmessage query)
+ *
+ * @param input_message: The input message buffer containing the command data.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
+ */
+static void ProcessCommandLowerH(StringInfo input_message, volatile bool& send_ready_for_query)
+{
+    const char* query_string = NULL;
+
+    /* get the node id. */
+    u_sess->pgxc_cxt.PGXCNodeId = pq_getmsgint(input_message, 4);
+
+    /* get hybridmesage */
+    query_string = pq_getmsgstring(input_message);
+    t_thrd.postgres_cxt.clobber_qstr = query_string;
+    pq_getmsgend(input_message);
+
+    pgstatCountSQL4SessionLevel();
+    statement_init_metric_context();
+
+    /*
+     * @hdfs
+     * exec_simpel_query. We set the second paramter to 1
+     * when we get the hybirmessage. It's default value is 0.
+     */
+    exec_simple_query(query_string, HYBRID_MESSAGE);
+    u_sess->debug_query_id = 0;
+    send_ready_for_query = true;
+}
+#endif
+
+/*
+ * ProcessCommandUpperP - Process the 'P' command (parse)
+ *
+ * @param input_message: The input message buffer containing the command data.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
+ */
+static void ProcessCommandUpperP(StringInfo input_message, volatile bool& send_ready_for_query)
+{
+    OgRecordAutoController _local_opt(SRT6_P);
+    const char* stmt_name = NULL;
+    const char* query_string = NULL;
+    int numParams;
+    Oid* paramTypes = NULL;
+    char* paramModes = NULL;
+    char** paramTypeNames = NULL;
+#ifdef ENABLE_MULTIPLE_NODES
+    /* DN: get the node id. */
+    if (IS_PGXC_DATANODE && IsConnFromCoord()) {
+        u_sess->pgxc_cxt.PGXCNodeId = pq_getmsgint(input_message, 4);
+    }
+#endif
+    stmt_name = pq_getmsgstring(input_message);
+    query_string = pq_getmsgstring(input_message);
+    if (strlen(query_string) > SECUREC_MEM_MAX_LEN) {
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("Too long query_string.")));
+    }
+    detectForDBSD(query_string);
+    numParams = pq_getmsgint(input_message, 2);
+    paramTypes = (Oid*)palloc(numParams * sizeof(Oid));
+    if (numParams > 0) {
+        int i;
+#ifdef ENABLE_MULTIPLE_NODES
+        if (IsConnFromCoord()) {
+            paramTypeNames = (char**)palloc(numParams * sizeof(char*));
+            for (i = 0; i < numParams; i++) {
+                paramTypeNames[i] = (char*)pq_getmsgstring(input_message);
+            }
+        } else
+#endif /* ENABLE_MULTIPLE_NODES */
+        {
+            for (i = 0; i < numParams; i++)
+                paramTypes[i] = pq_getmsgint(input_message, 4);
+        }
+    }
+
+#ifndef ENABLE_MULTIPLE_NODES
+    if (PROC_OUTPARAM_OVERRIDE) {
+        int numModes = 0;
+        if (input_message->len - input_message->cursor > 0) {
+            numModes = pq_getmsgint(input_message, 2);
+        } else {
+            ereport(DEBUG2, (errmodule(MOD_PLSQL), errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("the guc proc_outparam_override is open but message not contains modes.")));
+        }
+        if (numModes > 0) {
+            if (numModes != numParams) {
+                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("param type num %d does't equal to param mode num %d.", numParams, numModes)));
+            }
+
+            paramModes = (char*)palloc(numModes * sizeof(char));
+            for (int i = 0; i < numParams; i++) {
+                const char *mode = pq_getmsgbytes(input_message, 1);
+                if (*mode != PROARGMODE_IN
+                    && *mode != PROARGMODE_OUT
+                    && *mode != PROARGMODE_INOUT) {
+                    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("The %dth param mode %s does't exist.", i, mode)));
+                }
+                paramModes[i] = *mode;
+            }
+        }
+        if (u_sess->attr.attr_sql.sql_compatibility != A_FORMAT) {
+            /*
+             * PROC_OUTPARAM_OVERRIDE only valid in A_FORMAT,
+             * but message contains paramModes in jdbc when set PROC_OUTPARAM_OVERRIDE,
+             * so we just free paramModes and set it to null in other sql_compatibility.
+             */
+            pfree_ext(paramModes);
+        }
+    }
+#endif
+    pq_getmsgend(input_message);
+
+    exec_pre_parse_message();
+    exec_parse_message(query_string, stmt_name, paramTypes, paramTypeNames, paramModes, numParams, true);
+    if (ENABLE_REMOTE_EXECUTE && (libpqsw_redirect() || libpqsw_get_set_command() || libpqsw_command_is_prepare()) &&
+        !libpqsw_only_localrun()) {
+        get_redirect_manager()->push_message('P',
+            input_message,
+            true,
+            libpqsw_get_set_command() ? RT_SET : RT_NORMAL
+            );
+    }
+    exec_after_parse_message(stmt_name);
+}
+
+/*
+ * ProcessCommandUpperB - Process the 'B' command (bind)
+ *
+ * @param input_message: The input message buffer containing the command data.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
+ */
+static void ProcessCommandUpperB(StringInfo input_message, volatile bool& send_ready_for_query)
+{
+    OgRecordAutoController _local_opt(SRT7_B);
+    exec_pre_bind_message();
+
+    BindMessage pqBindMessage;
+    PreparedStatement* pstmt = NULL;
+    CachedPlanSource* psrc = NULL;
+    exec_get_bind_message(input_message, &pqBindMessage, &pstmt, &psrc);
+    exec_bind_message(&pqBindMessage, pstmt, psrc, true, get_param_list_info);
+}
+
+/*
+ * ProcessCommandUpperE - Process the 'E' command (execute)
+ *
+ * @param input_message: The input message buffer containing the command data.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
+ */
+static void ProcessCommandUpperE(StringInfo input_message, volatile bool& send_ready_for_query)
+{
+    OgRecordAutoController _local_opt(SRT8_E);
+    const char* portal_name = NULL;
+    int max_rows;
+
+    if (unlikely((unsigned int)input_message->len > SECUREC_MEM_MAX_LEN)) {
+        ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION), errmsg("invalid execute message")));
+    }
+
+    portal_name = pq_getmsgstring(input_message);
+    max_rows = pq_getmsgint(input_message, 4);
+    pq_getmsgend(input_message);
+
+    if (exec_pre_execute_message(portal_name, max_rows, true)) {
+        return;
+    }
+
+    exec_execute_message(portal_name, max_rows, true);
 }
 
 /*
