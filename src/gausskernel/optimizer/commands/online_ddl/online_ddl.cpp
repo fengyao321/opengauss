@@ -25,6 +25,7 @@
 #include "catalog/pg_class.h"
 #include "catalog/namespace.h"
 #include "commands/tablecmds.h"
+#include "ddes/dms/ss_common_attr.h"
 #include "nodes/parsenodes_common.h"
 #include "utils/mem_snapshot.h"
 #include "utils/palloc.h"
@@ -89,6 +90,21 @@ OnlineDDLType OnlineDDLCheckFeasible(List** wqueue, Relation relation, List* cmd
                  errmsg("Online DDL operation is not supported in transaction block, do it without online ddl.")));
         return ONLINE_DDL_INVALID;
     }
+    if (RelationIsTsStore(relation) || RelationIsColStore(relation) || RelationIsUstoreFormat(relation)) {
+        const char* kind = RelationIsTsStore(relation) ? "time series" :
+                           (RelationIsColStore(relation) ? "column-store" : "ustore");
+        ereport(NOTICE,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("Online DDL operation is not supported for %s tables, do it without online ddl.", kind)));
+        return ONLINE_DDL_INVALID;
+    }
+    if (ENABLE_DMS) {
+        ereport(NOTICE,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("Online DDL operation is not supported for share storage, do it without online ddl.")));
+        return ONLINE_DDL_INVALID;
+    }
+
     /* check need rewrite */
     ListCell* ltab = NULL;
     bool rewriteOpt = false;

@@ -151,9 +151,19 @@ void OnlineDDLCopyRelationIndexs(Relation srcRelation, Relation destRelation, Li
     }
     Oid destRelationOid = destRelation->rd_id;
 
-    if (RelationIsPartition(srcRelation)) {
+    if (RelationIsPartitioned(srcRelation)) {
+        List* gobalIndexList = RelationGetSpecificKindIndexList(srcRelation, true);
+        if (gobalIndexList != NIL) {
+            ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                            errmsg("[Online-DDL] Online copying global index is not supported.")));
+        }
         *srcIndexOidList = RelationGetSpecificKindIndexList(srcRelation, false);
     } else {
+        List* gobalIndexList = RelationGetSpecificKindIndexList(srcRelation, true);
+        if (gobalIndexList != NIL) {
+            ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                            errmsg("[Online-DDL] Online copying global index is not supported.")));
+        }
         *srcIndexOidList = RelationGetIndexList(srcRelation);
     }
 
