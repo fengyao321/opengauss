@@ -1,0 +1,323 @@
+create extension gms_xmlparser;
+--error case test
+declare
+parser gms_xmlparser.parser;
+xml_data clob;
+begin
+xml_data := '';
+parser := gms_xmlparser.newparser();
+gms_xmlparser.parseclob(parser, xml_data);
+gms_xmlparser.freeparser(parser);
+end;
+/
+WARNING:  Invalid XML syntax in clob
+        (null)
+CONTEXT:  referenced column: parseclob4func
+SQL statement "SELECT gms_xmlparser.parseclob4func(parser,str)"
+PL/pgSQL function gms_xmlparser.parseclob(gms_xmlparser.parser,character varying) line 4 at PERFORM
+SQL statement "CALL gms_xmlparser.parseclob(parser,xml_data)"
+PL/pgSQL function inline_code_block line 6 at PERFORM
+declare
+parser gms_xmlparser.parser;
+xml_data clob;
+begin
+parser := gms_xmlparser.newparser();
+gms_xmlparser.parseclob(parser, NULL);
+gms_xmlparser.freeparser(parser);
+end;
+/
+WARNING:  Invalid XML syntax in clob
+        (null)
+CONTEXT:  referenced column: parseclob4func
+SQL statement "SELECT gms_xmlparser.parseclob4func(parser,str)"
+PL/pgSQL function gms_xmlparser.parseclob(gms_xmlparser.parser,character varying) line 4 at PERFORM
+SQL statement "CALL gms_xmlparser.parseclob(parser,NULL)"
+PL/pgSQL function inline_code_block line 5 at PERFORM
+declare
+parser gms_xmlparser.parser;
+xml_data varchar2(2000);
+begin
+xml_data := '';
+parser := gms_xmlparser.newparser();
+gms_xmlparser.parsebuffer(parser, xml_data);
+gms_xmlparser.freeparser(parser);
+end;
+/
+WARNING:  Invalid XML syntax in buffer
+        (null)
+CONTEXT:  referenced column: parsebuffer4func
+SQL statement "SELECT gms_xmlparser.parsebuffer4func(parser,str)"
+PL/pgSQL function gms_xmlparser.parsebuffer(gms_xmlparser.parser,character varying) line 4 at PERFORM
+SQL statement "CALL gms_xmlparser.parsebuffer(parser,xml_data)"
+PL/pgSQL function inline_code_block line 6 at PERFORM
+declare
+parser gms_xmlparser.parser;
+begin
+parser := gms_xmlparser.newparser();
+gms_xmlparser.parsebuffer(parser, NULL);
+gms_xmlparser.freeparser(parser);
+end;
+/
+WARNING:  Invalid XML syntax in buffer
+        (null)
+CONTEXT:  referenced column: parsebuffer4func
+SQL statement "SELECT gms_xmlparser.parsebuffer4func(parser,str)"
+PL/pgSQL function gms_xmlparser.parsebuffer(gms_xmlparser.parser,character varying) line 4 at PERFORM
+SQL statement "CALL gms_xmlparser.parsebuffer(parser,NULL)"
+PL/pgSQL function inline_code_block line 4 at PERFORM
+declare
+parser gms_xmlparser.parser;
+xml_data varchar2(2000);
+begin
+xml_data := '<?xml version="1.0" encoding="UTF-8"?>
+<messege>
+	<warning>
+		Hello World!
+	</warning>
+</messege>';
+parser := gms_xmlparser.newparser();
+gms_xmlparser.parsebuffer(NULL, xml_data);
+gms_xmlparser.freeparser(parser);
+end;
+/
+WARNING:  The input parser is invalid in parsebuffer
+CONTEXT:  referenced column: parsebuffer4func
+SQL statement "SELECT gms_xmlparser.parsebuffer4func(parser,str)"
+PL/pgSQL function gms_xmlparser.parsebuffer(gms_xmlparser.parser,character varying) line 4 at PERFORM
+SQL statement "CALL gms_xmlparser.parsebuffer(NULL,xml_data)"
+PL/pgSQL function inline_code_block line 11 at PERFORM
+declare
+parser gms_xmlparser.parser;
+xml_data CLOB;
+begin
+xml_data := '<?xml version="1.0" encoding="UTF-8"?>
+<messege>
+	<warning>
+		Hello World!
+	</warning>
+</messege>';
+parser := gms_xmlparser.newparser();
+gms_xmlparser.parseclob(NULL, xml_data);
+gms_xmlparser.freeparser(parser);
+end;
+/
+WARNING:  The input parser is invalid in parseclob
+CONTEXT:  referenced column: parseclob4func
+SQL statement "SELECT gms_xmlparser.parseclob4func(parser,str)"
+PL/pgSQL function gms_xmlparser.parseclob(gms_xmlparser.parser,character varying) line 4 at PERFORM
+SQL statement "CALL gms_xmlparser.parseclob(NULL,xml_data)"
+PL/pgSQL function inline_code_block line 11 at PERFORM
+declare
+parser gms_xmlparser.parser;
+begin
+parser := gms_xmlparser.newparser();
+gms_xmlparser.freeparser(NULL);
+gms_xmlparser.freeparser(parser);
+end;
+/
+declare
+parser gms_xmlparser.parser;
+xml_data varchar2(2000);
+begin
+xml_data := '<?xml version="1.0" encoding="UTF-8"?>
+<messege>
+	<warning>
+		Hello World!
+	</warning>
+</messege>';
+parser := gms_xmlparser.newparser();
+gms_xmlparser.parse(NULL, xml_data);
+gms_xmlparser.freeparser(parser);
+end;
+/
+WARNING:  The input parser is invalid in parse
+CONTEXT:  referenced column: parse4proc
+SQL statement "SELECT gms_xmlparser.parse4proc(parser,str)"
+PL/pgSQL function gms_xmlparser.parse(gms_xmlparser.parser,character varying) line 4 at PERFORM
+SQL statement "CALL gms_xmlparser.parse(NULL,xml_data)"
+PL/pgSQL function inline_code_block line 11 at PERFORM
+declare
+parser gms_xmlparser.parser;
+xml_data varchar2(2000);
+begin
+xml_data := '<?xml version="1.0" encoding="UTF-8"?>
+<messege>
+	<warning>
+		Hello World!
+	</warning>
+</messege>';
+parser := gms_xmlparser.newparser();
+gms_xmlparser.parse(parser, NULL);
+gms_xmlparser.freeparser(parser);
+end;
+/
+WARNING:  The resource handle or path name '' is invalid
+CONTEXT:  referenced column: parse4proc
+SQL statement "SELECT gms_xmlparser.parse4proc(parser,str)"
+PL/pgSQL function gms_xmlparser.parse(gms_xmlparser.parser,character varying) line 4 at PERFORM
+SQL statement "CALL gms_xmlparser.parse(parser,NULL)"
+PL/pgSQL function inline_code_block line 11 at PERFORM
+declare
+parser gms_xmlparser.parser;
+xml_data varchar2(2000);
+begin
+xml_data := '';
+parser := gms_xmlparser.newparser();
+gms_xmlparser.parse(parser, xml_data);
+gms_xmlparser.freeparser(parser);
+end;
+/
+WARNING:  The resource handle or path name '' is invalid
+CONTEXT:  referenced column: parse4proc
+SQL statement "SELECT gms_xmlparser.parse4proc(parser,str)"
+PL/pgSQL function gms_xmlparser.parse(gms_xmlparser.parser,character varying) line 4 at PERFORM
+SQL statement "CALL gms_xmlparser.parse(parser,xml_data)"
+PL/pgSQL function inline_code_block line 6 at PERFORM
+declare
+parser gms_xmlparser.parser;
+xml_data varchar2(2000);
+xml_dom gms_xmldom.domdocument;
+begin
+xml_data := '';
+parser := gms_xmlparser.newparser();
+xml_dom := gms_xmlparser.parse(xml_data);
+gms_xmlparser.freeparser(parser);
+end;
+/
+WARNING:  The resource handle or path name '' is invalid
+CONTEXT:  PL/pgSQL function inline_code_block line 7 at assignment
+declare
+parser gms_xmlparser.parser;
+xml_data varchar2(2000);
+xml_dom gms_xmldom.domdocument;
+begin
+xml_data := '';
+parser := gms_xmlparser.newparser();
+xml_dom := gms_xmlparser.parse(NULL);
+gms_xmlparser.freeparser(parser);
+end;
+/
+WARNING:  The resource handle or path name '' is invalid
+CONTEXT:  PL/pgSQL function inline_code_block line 7 at assignment
+declare
+parser gms_xmlparser.parser;
+xml_data varchar2(2000);
+xml_dom gms_xmldom.domdocument;
+begin
+xml_data := '<?xml version="1.0" encoding="UTF-8"?>
+<messege>
+	<warning>
+		Hello World!
+	</warning>
+</messege>';
+parser := gms_xmlparser.newparser();
+gms_xmlparser.parsebuffer(parser, xml_data);
+xml_dom := gms_xmlparser.getdocument(NULL);
+gms_xmlparser.freeparser(parser);
+end;
+/
+declare
+parser gms_xmlparser.parser;
+xml_dom gms_xmldom.domdocument;
+begin
+parser := gms_xmlparser.newparser();
+xml_dom := gms_xmlparser.getdocument(parser);
+gms_xmlparser.freeparser(parser);
+end;
+/
+WARNING:  The input parser is invalid when get document
+CONTEXT:  PL/pgSQL function inline_code_block line 5 at assignment
+declare
+xml_dom gms_xmldom.domdocument;
+begin
+gms_xmldom.freedocument(xml_dom);
+end;
+/
+declare
+parser gms_xmlparser.parser;
+xml_data varchar2(20);
+begin
+xml_data := '<?xml version="1.0" encoding="UTF-8"?>
+<messege>
+	<warning>
+		Hello World!
+	</warning>
+</messege>';
+parser := gms_xmlparser.newparser();
+gms_xmlparser.parsebuffer(parser, xml_data);
+gms_xmlparser.freeparser(parser);
+end;
+/
+ERROR:  value too long for type character varying(20)
+CONTEXT:  PL/pgSQL function inline_code_block line 4 at assignment
+declare
+parser gms_xmlparser.parser;
+xml_data varchar2(20);
+begin
+xml_data := '<?xml version="1.0" encoding="UTF-8"?>
+<messege>
+	<warning>
+		Hello World!
+	</warning>
+</messege>';
+parser := gms_xmlparser.newparser();
+gms_xmlparser.parse(parser, xml_data);
+gms_xmlparser.freeparser(parser);
+end;
+/
+ERROR:  value too long for type character varying(20)
+CONTEXT:  PL/pgSQL function inline_code_block line 4 at assignment
+declare
+parser gms_xmlparser.parser;
+xml_data varchar2(20);
+xml_dom gms_xmldom.domdocument;
+begin
+xml_data := '<?xml version="1.0" encoding="UTF-8"?>
+<messege>
+	<warning>
+		Hello World!
+	</warning>
+</messege>';
+xml_dom := gms_xmlparser.parse(xml_data);
+gms_xmldom.freedocument(xml_dom);
+end;
+/
+ERROR:  value too long for type character varying(20)
+CONTEXT:  PL/pgSQL function inline_code_block line 5 at assignment
+--normal case test
+declare
+parser gms_xmlparser.parser;
+xml_data varchar2(2000);
+lob_data CLOB;
+dom_doc gms_xmldom.domdocument;
+begin
+xml_data := '<?xml version="1.0" encoding="UTF-8"?>
+<messege>
+	<warning>
+		Hello World!
+	</warning>
+</messege>';
+lob_data := '<?xml version="1.0" encoding="UTF-8"?>
+<messege>
+	<warning>
+		Hello World!
+	</warning>
+</messege>';
+parser := gms_xmlparser.newparser();
+gms_xmlparser.parsebuffer(parser, xml_data);
+dom_doc := gms_xmlparser.getdocument(parser);
+gms_xmldom.freedocument(dom_doc);
+
+gms_xmlparser.parseclob(parser, lob_data);
+dom_doc := gms_xmlparser.getdocument(parser);
+gms_xmldom.freedocument(dom_doc);
+
+gms_xmlparser.parse(parser, xml_data);
+dom_doc := gms_xmlparser.getdocument(parser);
+gms_xmldom.freedocument(dom_doc);
+
+dom_doc := gms_xmlparser.parse(xml_data);
+gms_xmldom.freedocument(dom_doc);
+gms_xmlparser.freeparser(parser);
+end;
+/

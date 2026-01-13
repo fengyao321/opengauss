@@ -1,0 +1,5 @@
+# gms_xmlparser extension
+comment = 'Converting the results of a SQL query to a canonical XML format'
+default_version = '1.0'
+module_pathname = '$libdir/gms_xmlparser'
+relocatable = false

@@ -31,6 +31,7 @@ set(CMAKE_MODULE_PATH
     ${CMAKE_CURRENT_SOURCE_DIR}/gms_stats
     ${CMAKE_CURRENT_SOURCE_DIR}/gms_utility
     ${CMAKE_CURRENT_SOURCE_DIR}/gms_profiler
+    $(CMAKE_CURRENT_SOURCE_DIR)/gms_xmlparser
     ${CMAKE_CURRENT_SOURCE_DIR}/gms_lob
     ${CMAKE_CURRENT_SOURCE_DIR}/gms_sql
     ${CMAKE_CURRENT_SOURCE_DIR}/gms_tcp
