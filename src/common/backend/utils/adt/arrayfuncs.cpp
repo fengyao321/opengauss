@@ -6411,6 +6411,8 @@ Datum array_union(PG_FUNCTION_ARGS)
         array_bitmap_copy(ARR_NULLBITMAP(result), nitems1, bitmap2, 0, nitems2);
     }
 
+    PG_FREE_IF_COPY(v1, 0);
+    PG_FREE_IF_COPY(v2, 1);
     PG_RETURN_ARRAYTYPE_P(result);
 }
 
