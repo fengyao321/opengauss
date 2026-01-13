@@ -22,3 +22,16 @@ COMMENT ON FUNCTION pg_catalog.pg_sequence_all_parameters(
     OUT is_exhausted boolean) IS 'sequence all parameters';
 
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0, 0, 0, 0;
+
+do $$
+DECLARE
+ans boolean;
+BEGIN
+    for ans in select case when count(*)=1 then true else false end as ans from (select extname from pg_extension where extname='shark')
+    LOOP
+        if ans = true then
+            ALTER EXTENSION shark UPDATE TO '3.0';
+        end if;
+        exit;
+    END LOOP;
+END$$;
