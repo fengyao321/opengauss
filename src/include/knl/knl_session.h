@@ -3331,6 +3331,7 @@ typedef struct knl_session_context {
     bool local_memory_exhaust;
     bool enable_rack_memory_free_test;
     bool enable_identity_insert;
+    bool enable_special_operator;
     void* online_ddl_operators;
 } knl_session_context;
 
