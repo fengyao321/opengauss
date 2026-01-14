@@ -106,7 +106,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_namespace nsp ON l.classoid = nsp.tableoid AND l.objoid = nsp.oid
+	JOIN pg_catalog.pg_namespace nsp ON l.classoid = nsp.tableoid AND l.objoid = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL

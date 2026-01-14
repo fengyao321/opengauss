@@ -10776,7 +10776,7 @@ DECLARE
             return;
         end if;
         -- make sure not to affect the logic for non-range/list distribution tables
-        EXECUTE immediate 'select a.pclocatortype from (pgxc_class a join pg_catalog.pg_class b on a.pcrelid = b.oid join pg_namespace c on c.oid = b.relnamespace)
+        EXECUTE immediate 'select a.pclocatortype from (pgxc_class a join pg_catalog.pg_class b on a.pcrelid = b.oid join pg_catalog.pg_namespace c on c.oid = b.relnamespace)
                             where b.relname = quote_ident(:1) and c.nspname in (select unnest(current_schemas(false)))' into dist_type using table_name;
         if dist_type <> 'G' and dist_type <> 'L' then
             dist_type = 'H'; -- dist type used to be hardcoded as 'H'
