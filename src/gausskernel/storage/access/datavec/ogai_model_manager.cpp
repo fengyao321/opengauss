@@ -139,6 +139,8 @@ static void SetModelConfigFromDB(ModelConfig* config, const char* modelKey)
 	
     config->apiKey = apiKey ? pstrdup(apiKey) : NULL;
     config->baseUrl = pstrdup(url);
+    config->modelKey = pstrdup(modelKey);
+    config->ownerName = pstrdup(GetUserNameFromId(GetUserId()));
     MemoryContextSwitchTo(spiCtx);
 
     SPI_finish();

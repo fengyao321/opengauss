@@ -285,22 +285,22 @@ Datum load_onnx_model(PG_FUNCTION_ARGS)
     }
 
     const char* modelPath = config.baseUrl;
-    const char* modelName = config.modelName;
+    const char* ownerName = config.ownerName;
 
-    if (modelPath == NULL || modelName == NULL) {
+    if (modelPath == NULL || ownerName == NULL) {
         ereport(ERROR,
                 (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
                      errmsg("model_name or url cannot be NULL for model_key: %s", modelKey)));
     }
 
-    elog(LOG, "load_onnx_model: loading model '%s' from path '%s'", modelName, modelPath);
+    elog(LOG, "load_onnx_model: loading model '%s' from path '%s'", modelKey, modelPath);
     PG_TRY();
     {
-        modelDesc = ONNX_MODEL_MGR->LoadONNXModel(modelName, modelPath);
+        modelDesc = ONNX_MODEL_MGR->LoadONNXModelByKey(modelKey, ownerName, modelPath);
         if (modelDesc == NULL || modelDesc->handle == NULL) {
             ereport(ERROR,
                     (errcode(ERRCODE_EXTERNAL_ROUTINE_EXCEPTION),
-                         errmsg("failed to load ONNX model: %s", modelName)));
+                         errmsg("failed to load ONNX model: %s", modelKey)));
         }
     }
     PG_CATCH();
@@ -337,20 +337,11 @@ Datum unload_onnx_model(PG_FUNCTION_ARGS)
                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                      errmsg("model_key '%s' is not an ONNX model", modelKey)));
     }
-
-    const char* modelPath = config.baseUrl;
-    const char* modelName = config.modelName;
-
-    if (modelPath == NULL || modelName == NULL) {
-        ereport(ERROR,
-                (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
-                     errmsg("model_name or url cannot be NULL for model_key: %s", modelKey)));
-    }
-
-    elog(LOG, "unload_onnx_model: unloading model '%s' from path '%s'", modelName, modelPath);
+    const char* ownerName = config.ownerName;
+    elog(DEBUG1, "unload_onnx_model: unloading model '%s'", modelKey);
     PG_TRY();
     {
-        ONNX_MODEL_MGR->UnloadONNXModel(modelName, modelPath);
+        ONNX_MODEL_MGR->UnloadONNXModelByKey(modelKey, ownerName);
     }
     PG_CATCH();
     {

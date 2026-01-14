@@ -39,8 +39,8 @@ typedef struct ONNXModelDesc {
 } ONNXModelDesc;
 
 typedef struct ONNXModelTag {
-    char modelName[NAMEDATALEN];
-    char modelPath[MAXPATH];
+    char modelKey[NAMEDATALEN];
+    char ownerName[NAMEDATALEN];
 } ONNXModelTag;
 
 typedef struct ONNXModelHashEntry {
@@ -80,10 +80,10 @@ public: // static
 
 public:
     bool IsInit();
-    ONNXModelDesc* LoadONNXModel(const char* modelName, const char* modelPath);
-    void UnloadONNXModel(const char* modelName, const char* modelPath);
-    ONNXModelDesc* GetONNXModelDesc(const char* modelName, const char* modelPath);
-    bool CheckModelLoaded(const char* modelName, const char* modelPath);
+    ONNXModelDesc* LoadONNXModelByKey(const char* modelKey, const char* ownerName,
+                                       const char* modelPath);
+    ONNXModelDesc* GetONNXModelDescByKey(const char* modelKey, const char* ownerName);
+    void UnloadONNXModelByKey(const char* modelKey, const char* ownerName);
 private:
     ONNXModelMgr()
     {}

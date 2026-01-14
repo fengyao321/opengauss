@@ -25,11 +25,26 @@
 #include "knl/knl_variable.h"
 #include "utils/memutils.h"
 #include "miscadmin.h"
+#include "utils/timestamp.h"
 #include "access/datavec/ogai_onnx_wrapper.h"
 #include "access/datavec/ogai_onnx_mgr.h"
 
 #define OGAI_NUM_PARTITIONS 2
 ONNXModelMgr* ONNXModelMgr::onnxModelMgr = NULL;
+
+static inline void InitONNXModelTag(ONNXModelTag* tag, const char* modelKey, const char* ownerName)
+{
+    errno_t rc;
+    
+    rc = memset_s(tag, sizeof(ONNXModelTag), 0, sizeof(ONNXModelTag));
+    securec_check(rc, "\0", "\0");
+    
+    rc = strncpy_s(tag->modelKey, NAMEDATALEN, modelKey, NAMEDATALEN - 1);
+    securec_check(rc, "\0", "\0");
+    
+    rc = strncpy_s(tag->ownerName, NAMEDATALEN, ownerName, NAMEDATALEN - 1);
+    securec_check(rc, "\0", "\0");
+}
 
 /*
  * @Description: get Singleton Instance of onnx model mgr.
@@ -97,13 +112,12 @@ bool ONNXModelMgr::IsInit()
     return isInit;
 }
 
-ONNXModelDesc* ONNXModelMgr::GetONNXModelDesc(const char* modelName, const char* modelPath)
+ONNXModelDesc* ONNXModelMgr::GetONNXModelDescByKey(const char* modelKey, const char* ownerName)
 {
     RWLockGuard guard(mutex, LW_SHARED);
+    
     ONNXModelTag tag;
-    memset_s(&tag, sizeof(tag), 0, sizeof(tag));
-    memcpy_s(tag.modelName, NAMEDATALEN, modelName, NAMEDATALEN - 1);
-    memcpy_s(tag.modelPath, MAXPATH, modelPath, MAXPATH - 1);
+    InitONNXModelTag(&tag, modelKey, ownerName);
     ONNXModelHashEntry* entry = (ONNXModelHashEntry*)hash_search(onnxModelHash, &tag, HASH_FIND, NULL);
     if (entry == NULL || entry->modelDesc == NULL) {
         return NULL;
@@ -111,46 +125,66 @@ ONNXModelDesc* ONNXModelMgr::GetONNXModelDesc(const char* modelName, const char*
     return entry->modelDesc;
 }
 
-ONNXModelDesc* ONNXModelMgr::LoadONNXModel(const char* modelName, const char* modelPath)
+ONNXModelDesc* ONNXModelMgr::LoadONNXModelByKey(const char* modelKey, const char* ownerName,
+                                                 const char* modelPath)
 {
-    RWLockGuard guard(mutex, LW_EXCLUSIVE);
-    bool found = false;
     ONNXModelTag tag;
-    memcpy_s(tag.modelName, NAMEDATALEN, modelName, NAMEDATALEN - 1);
-    memcpy_s(tag.modelPath, MAXPATH, modelPath, MAXPATH - 1);
+    bool found = false;
+
+    RWLockGuard guard(mutex, LW_EXCLUSIVE);
+    InitONNXModelTag(&tag, modelKey, ownerName);
     ONNXModelHashEntry* entry = (ONNXModelHashEntry*)hash_search(onnxModelHash, &tag, HASH_ENTER, &found);
-    if (found) {
-        ereport(ERROR,
-            (errmsg("onnx model mgr: onnx model already exists, model name: %s, model path: %s.", modelName,
-                modelPath)));
-        return NULL;
+    if (found && entry->modelDesc && entry->modelDesc->handle) {
+        elog(WARNING, "[LOAD] Model already loaded");
+        return entry->modelDesc;
     }
 
-    MemoryContext oldcontext = MemoryContextSwitchTo(onnxModelMgr->onnxModelMgrCtx);
+    MemoryContext oldcontext = MemoryContextSwitchTo(onnxModelMgrCtx);
     entry->modelDesc = (ONNXModelDesc*)palloc0(sizeof(ONNXModelDesc));
     MemoryContextSwitchTo(oldcontext);
+    
     int ret = pthread_rwlock_init(&entry->modelDesc->mutex, nullptr);
     if (ret != 0) {
         pfree(entry->modelDesc);
         hash_search(onnxModelHash, &tag, HASH_REMOVE, NULL);
         ereport(ERROR, (errmsg("onnx model mgr: pthread_rwlock_init failed")));
     }
+    
     entry->modelDesc->handle = ONNXLoadModel(onnxEnvHandle, modelPath, NULL, &entry->modelDesc->dim);
+    if (!entry->modelDesc->handle) {
+        pthread_rwlock_destroy(&entry->modelDesc->mutex);
+        pfree(entry->modelDesc);
+        hash_search(onnxModelHash, &tag, HASH_REMOVE, NULL);
+        ereport(ERROR, (errmsg("onnx model mgr: failed to load ONNX model: model_key=%s, path=%s",
+            modelKey, modelPath)));
+    }
+    elog(DEBUG1, "Loaded ONNX model: model_key=%s, owner=%s, dim=%d, path=%s",
+         modelKey, ownerName, entry->modelDesc->dim, modelPath);
     return entry->modelDesc;
 }
 
-void ONNXModelMgr::UnloadONNXModel(const char* modelName, const char* modelPath)
+void ONNXModelMgr::UnloadONNXModelByKey(const char* modelKey, const char* ownerName)
 {
-    RWLockGuard guard(mutex, LW_EXCLUSIVE);
     ONNXModelTag tag;
-    memcpy_s(tag.modelName, NAMEDATALEN, modelName, NAMEDATALEN - 1);
-    memcpy_s(tag.modelPath, MAXPATH, modelPath, MAXPATH - 1);
+
+    RWLockGuard guard(mutex, LW_EXCLUSIVE);
+    InitONNXModelTag(&tag, modelKey, ownerName);
     ONNXModelHashEntry* entry = (ONNXModelHashEntry*)hash_search(onnxModelHash, &tag, HASH_FIND, NULL);
     if (entry == NULL || entry->modelDesc == NULL) {
-        ereport(ERROR,
-            (errmsg("onnx model mgr: can not find onnx model, model name: %s, model path: %s.", modelName, modelPath)));
+        ereport(ERROR, (errmsg("onnx model mgr: can not find model: model_key=%s, owner=%s",
+                               modelKey, ownerName)));
+        return;
     }
-    ONNXUnloadModel(entry->modelDesc->handle);
+    
+    if (entry->modelDesc->handle) {
+        ONNXUnloadModel(entry->modelDesc->handle);
+    }
+    
+    pthread_rwlock_destroy(&entry->modelDesc->mutex);
     pfree(entry->modelDesc);
+    entry->modelDesc = NULL;
+    
     hash_search(onnxModelHash, &tag, HASH_REMOVE, NULL);
+    
+    elog(LOG, "[UNLOAD] Successfully unloaded: model_key=%s, owner=%s", modelKey, ownerName);
 }
