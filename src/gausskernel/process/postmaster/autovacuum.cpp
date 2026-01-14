@@ -3754,6 +3754,12 @@ static void partition_needs_vacanalyze(Oid partid, AutoVacOpts* relopts, Form_pg
     Oid relid = InvalidOid;
     if (partForm->parttype == PART_OBJ_TYPE_TABLE_SUB_PARTITION) {
         relid = partid_get_parentid(partForm->parentid);
+        if (relid == InvalidOid) {
+            *doanalyze = false;
+            *dovacuum = false;
+            *need_freeze = false;
+            return;
+        }
     } else {
         relid = partForm->parentid;
     }
@@ -3860,6 +3866,9 @@ static autovac_table* partition_recheck_autovac(
     partForm = (Form_pg_partition)GETSTRUCT(partTuple);
     if (partForm->parttype == PART_OBJ_TYPE_TABLE_SUB_PARTITION) {
         relid = partid_get_parentid(partForm->parentid);
+        if (relid == InvalidOid) {
+            return NULL;
+        }
     } else {
         relid = partForm->parentid;
     }
