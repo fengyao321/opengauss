@@ -554,13 +554,6 @@ Datum float_str(PG_FUNCTION_ARGS)
     }
     input_deci_digits = precision - int_digits;
 
-    /* max allowed input precision is 38 */
-    if (precision > MAX_PRECISION_LEN)
-        ereport(ERROR,
-                (errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
-                 errmsg("The number '%s' is out of the range for numeric representation (maximum precision 38).",
-                 float_char)));
-
     length = PG_GETARG_INT32(1);
     decimal = PG_GETARG_INT32(SECOND_ARG_INDEX);
     if (length <= 0 || length > MAX_STRING_LEN || decimal < 0) {
