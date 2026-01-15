@@ -257,4 +257,7 @@ extern void SignalTermAllBackEnd();
 extern void SSRestartFailoverPromote();
 extern void SIGBUS_handler(SIGNAL_ARGS);
 extern int SSCountAndPrintChildren(int target);
+#ifdef ENABLE_NEON
+extern void InitProcessGlovbals(void);
+#endif
 #endif /* _POSTMASTER_H */

@@ -205,6 +205,14 @@ while [ $# -gt 0 ]; do
             build_by_cmake='--cmake'
             shift 1
             ;;
+        --cmake_opt)
+            if [ "$2"X = X ]; then
+                echo "no given cmake_opt value"
+                exit 1
+            fi
+            cmake_opt_val="$cmake_opt_val --cmake_opt $2"
+            shift 2
+            ;;
          *)
             echo "Internal Error: option processing error: $1" 1>&2
             echo "please input right paramtenter, the following command may help you"
@@ -219,7 +227,7 @@ ROOT_DIR=$(cd $(dirname "${BASH_SOURCE[0]}") && pwd)
 echo "ROOT_DIR : $ROOT_DIR"
 cd build/script
 chmod a+x build_opengauss.sh
-./build_opengauss.sh -m ${build_version_mode} -3rd ${build_binarylib_dir} ${not_optimized} -pkg server ${build_with_tassl} -pm ${product_mode} ${extra_config_opt} ${build_by_cmake}
+./build_opengauss.sh -m ${build_version_mode} -3rd ${build_binarylib_dir} ${not_optimized} -pkg server ${build_with_tassl} -pm ${product_mode} ${extra_config_opt} ${build_by_cmake} ${cmake_opt_val}
 if [ $? -ne 0 ]; then
     echo "build_opengauss.sh failed, aborting."
     exit 1

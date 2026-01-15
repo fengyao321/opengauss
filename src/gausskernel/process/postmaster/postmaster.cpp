@@ -289,6 +289,9 @@
 #include "access/datavec/ivfnpuadaptor.h"
 #include "access/datavec/pg_prng.h"
 
+#ifdef ENABLE_NEON
+#include "fmgr.h"
+#endif
 #ifdef ENABLE_UT
 #define static
 #endif
@@ -466,6 +469,20 @@ static void PMUpdateDBStateLSN(void);
 static void PMUpdateDBStateHaRebuildReason(void);
 
 #define SignalChildren(sig) SignalSomeChildren(sig, BACKEND_TYPE_ALL)
+
+#ifdef ENABLE_NEON
+/*
+ * Neon: detect whether we are running as a Neon compute node.
+ * In that case, some HA/pooler functionality can be treated as optional.
+ */
+static bool
+IsNeonComputeMode()
+{
+    const char *mode = GetConfigOption("neon.compute_mode", true, false);
+    return (mode != NULL && mode[0] != '\0');
+}
+#endif /* ENABLE_NEON */
+
 static void StartPgjobWorker(void);
 static void StartPoolCleaner(void);
 static void StartCleanStatement(void);
@@ -2722,10 +2739,28 @@ int PostmasterMain(int argc, char* argv[])
                 }
 
                 if (status != STATUS_OK)
+                {
+#ifdef ENABLE_NEON
+                    if (IsNeonComputeMode())
+                    {
+                        ereport(LOG,
+                            (errmsg("could not create ha listen socket for \"%s:%d\" in neon compute mode, skipping",
+                                curhost,
+                                g_instance.attr.attr_network.PoolerPort)));
+                    } else {
+                        ereport(FATAL,
+                            (errmsg("could not create ha listen socket for \"%s:%d\"",
+                                curhost,
+                                g_instance.attr.attr_network.PoolerPort)));
+                    }
+#else
                     ereport(FATAL,
                         (errmsg("could not create ha listen socket for \"%s:%d\"",
                             curhost,
                             g_instance.attr.attr_network.PoolerPort)));
+#endif /* ENABLE_NEON */
+                }
+
             }
         }
 
@@ -4302,6 +4337,12 @@ static int ServerLoop(void)
         }
         ADIO_END();
 #endif
+#ifdef ENABLE_NEON
+        if (g_instance.pid_cxt.WALproposerPID == 0 && pmState == PM_RUN) {
+            g_instance.pid_cxt.WALproposerPID = initialize_util_thread(WALPROPOSER);
+            ereport(WARNING, (errmsg_internal("g_instance.pid_cxt.WALproposerPID:%lu", g_instance.pid_cxt.WALproposerPID)));
+        }
+#endif
 
         if (threadPoolActivated && (pmState == PM_RUN || pmState == PM_HOT_STANDBY))
             g_threadPoolControler->AddWorkerIfNecessary();
@@ -4514,7 +4555,11 @@ static int ServerLoop(void)
          */
         if (g_instance.pid_cxt.PgJobSchdPID == 0 && pmState == PM_RUN &&
             (g_instance.attr.attr_sql.job_queue_processes || t_thrd.postmaster_cxt.start_job_scheduler) &&
-            u_sess->attr.attr_common.upgrade_mode != 1 && !SS_IN_REFORM) {
+            u_sess->attr.attr_common.upgrade_mode != 1 && !SS_IN_REFORM
+#ifdef ENABLE_NEON
+            && !IsNeonComputeMode()
+#endif
+        ) {
             g_instance.pid_cxt.PgJobSchdPID = initialize_util_thread(JOB_SCHEDULER);
 
             if (g_instance.pid_cxt.PgJobSchdPID != 0) {
@@ -4524,7 +4569,11 @@ static int ServerLoop(void)
         }
 #ifdef ENABLE_MULTIPLE_NODES
         if ((IS_PGXC_COORDINATOR) && g_instance.pid_cxt.CommPoolerCleanPID == 0 && pmState == PM_RUN &&
-            u_sess->attr.attr_common.upgrade_mode != 1) {
+            u_sess->attr.attr_common.upgrade_mode != 1
+#ifdef ENABLE_NEON
+            && !IsNeonComputeMode()
+#endif
+        ) {
             StartPoolCleaner();
         }
 #endif
@@ -4569,7 +4618,11 @@ static int ServerLoop(void)
 
 #ifndef ENABLE_FINANCE_MODE
         /* If we have lost the cfs shrinker, try to start a new one */
-        if (g_instance.pid_cxt.CfsShrinkerPID == 0 && pmState <= PM_RUN)
+        if (g_instance.pid_cxt.CfsShrinkerPID == 0 && pmState <= PM_RUN
+#ifdef ENABLE_NEON
+            && !IsNeonComputeMode()
+#endif /* ENABLE_NEON */
+        )
             g_instance.pid_cxt.CfsShrinkerPID = StartCfsShrinkerCapturer();
 #endif
 
@@ -4590,17 +4643,30 @@ static int ServerLoop(void)
             g_instance.pid_cxt.SnapshotPID = snapshot_start();
 
         if (ENABLE_ASP && g_instance.pid_cxt.AshPID == 0 && pmState == PM_RUN && !dummyStandbyMode
-            && !SS_STANDBY_MODE && !SS_PERFORMING_SWITCHOVER && !SS_STANDBY_FAILOVER && !SS_IN_REFORM)
+            && !SS_STANDBY_MODE && !SS_PERFORMING_SWITCHOVER && !SS_STANDBY_FAILOVER && !SS_IN_REFORM
+
+#ifdef ENABLE_NEON
+            && !IsNeonComputeMode()
+#endif
+        )
             g_instance.pid_cxt.AshPID = initialize_util_thread(ASH_WORKER);
 
         /* If we have lost the full sql flush thread, try to start a new one */
         if (ENABLE_STATEMENT_TRACK && g_instance.pid_cxt.StatementPID == 0 && (pmState == PM_RUN || pmState == PM_HOT_STANDBY)
-            && !SS_PERFORMING_SWITCHOVER && !SS_STANDBY_FAILOVER && !SS_IN_REFORM)
+            && !SS_PERFORMING_SWITCHOVER && !SS_STANDBY_FAILOVER && !SS_IN_REFORM
+#ifdef ENABLE_NEON
+            && !IsNeonComputeMode()
+#endif
+        )
             g_instance.pid_cxt.StatementPID = initialize_util_thread(TRACK_STMT_WORKER);
 
         if ((IS_PGXC_COORDINATOR || IS_SINGLE_NODE) && u_sess->attr.attr_common.enable_instr_rt_percentile &&
             g_instance.pid_cxt.PercentilePID == 0 &&
-            pmState == PM_RUN && !SS_IN_REFORM)
+            pmState == PM_RUN && !SS_IN_REFORM
+#ifdef ENABLE_NEON
+            && !IsNeonComputeMode()
+#endif
+        )
             g_instance.pid_cxt.PercentilePID = initialize_util_thread(PERCENTILE_WORKER);
         if (g_instance.stat_cxt.stack_perf_start) {
             g_instance.pid_cxt.StackPerfPID = initialize_util_thread(STACK_PERF_WORKER);
@@ -4608,7 +4674,11 @@ static int ServerLoop(void)
         }
         /* if workload manager is off, we still use this thread to build user hash table */
         if ((ENABLE_WORKLOAD_CONTROL || !WLMIsInfoInit()) && g_instance.pid_cxt.WLMCollectPID == 0 &&
-            pmState == PM_RUN && !dummyStandbyMode && !SS_STANDBY_MODE && !SS_IN_REFORM)
+            pmState == PM_RUN && !dummyStandbyMode && !SS_STANDBY_MODE && !SS_IN_REFORM
+#ifdef ENABLE_NEON
+            && !IsNeonComputeMode()
+#endif
+        )
             g_instance.pid_cxt.WLMCollectPID = initialize_util_thread(WLM_WORKER);
 
         if (ENABLE_WORKLOAD_CONTROL && (g_instance.pid_cxt.WLMMonitorPID == 0) && (pmState == PM_RUN) &&
@@ -7488,11 +7558,19 @@ static void reaper(SIGNAL_ARGS)
 
             /* Before GRAND VERSION NUM 81000, we do not support scheduled job. */
             if (g_instance.pid_cxt.PgJobSchdPID == 0 &&
-                g_instance.attr.attr_sql.job_queue_processes && u_sess->attr.attr_common.upgrade_mode != 1 && !SS_IN_REFORM)
+                g_instance.attr.attr_sql.job_queue_processes && u_sess->attr.attr_common.upgrade_mode != 1 && !SS_IN_REFORM
+#ifdef ENABLE_NEON
+                && !IsNeonComputeMode()
+#endif
+        )
                 g_instance.pid_cxt.PgJobSchdPID = initialize_util_thread(JOB_SCHEDULER);
 
             if ((IS_PGXC_COORDINATOR) && g_instance.pid_cxt.CommPoolerCleanPID == 0 &&
-                u_sess->attr.attr_common.upgrade_mode != 1) {
+                u_sess->attr.attr_common.upgrade_mode != 1
+#ifdef ENABLE_NEON
+                && !IsNeonComputeMode()
+#endif
+        ) {
                 StartPoolCleaner();
             }
 
@@ -7541,7 +7619,11 @@ static void reaper(SIGNAL_ARGS)
 
 #ifndef ENABLE_FINANCE_MODE
             /* If we have lost the cfs shrinker, try to start a new one */
-            if (g_instance.pid_cxt.CfsShrinkerPID == 0 && pmState <= PM_RUN)
+            if (g_instance.pid_cxt.CfsShrinkerPID == 0 && pmState <= PM_RUN
+#ifdef ENABLE_NEON
+                && !IsNeonComputeMode()
+#endif
+        )
                 g_instance.pid_cxt.CfsShrinkerPID = StartCfsShrinkerCapturer();
 #endif
 
@@ -7559,15 +7641,27 @@ static void reaper(SIGNAL_ARGS)
                 !dummyStandbyMode && !SS_STANDBY_MODE && !SS_PERFORMING_SWITCHOVER && !SS_STANDBY_FAILOVER)
                 g_instance.pid_cxt.SnapshotPID = snapshot_start();
             if ((IS_PGXC_COORDINATOR || IS_SINGLE_NODE) && u_sess->attr.attr_common.enable_instr_rt_percentile &&
-                g_instance.pid_cxt.PercentilePID == 0 && !dummyStandbyMode && !SS_IN_REFORM)
+                g_instance.pid_cxt.PercentilePID == 0 && !dummyStandbyMode && !SS_IN_REFORM
+#ifdef ENABLE_NEON
+                && !IsNeonComputeMode()
+#endif
+        )
                 g_instance.pid_cxt.PercentilePID = initialize_util_thread(PERCENTILE_WORKER);
 
             if (ENABLE_ASP && g_instance.pid_cxt.AshPID == 0 && !dummyStandbyMode
-                && !SS_STANDBY_MODE && !SS_PERFORMING_SWITCHOVER && !SS_STANDBY_FAILOVER && !SS_IN_REFORM)
+                && !SS_STANDBY_MODE && !SS_PERFORMING_SWITCHOVER && !SS_STANDBY_FAILOVER && !SS_IN_REFORM
+#ifdef ENABLE_NEON
+                && !IsNeonComputeMode()
+#endif
+        )
                 g_instance.pid_cxt.AshPID = initialize_util_thread(ASH_WORKER);
 
             if (ENABLE_STATEMENT_TRACK && g_instance.pid_cxt.StatementPID == 0
-                && !SS_STANDBY_MODE && !SS_PERFORMING_SWITCHOVER && !SS_STANDBY_FAILOVER && !SS_IN_REFORM)
+                && !SS_STANDBY_MODE && !SS_PERFORMING_SWITCHOVER && !SS_STANDBY_FAILOVER && !SS_IN_REFORM
+#ifdef ENABLE_NEON
+                && !IsNeonComputeMode()
+#endif
+        )
                 g_instance.pid_cxt.StatementPID = initialize_util_thread(TRACK_STMT_WORKER);
 
             if (t_thrd.postmaster_cxt.audit_primary_start && !t_thrd.postmaster_cxt.audit_primary_failover &&
@@ -7643,6 +7737,10 @@ static void reaper(SIGNAL_ARGS)
                 if (g_instance.dms_cxt.SSRecoveryInfo.disaster_cluster_promoting) {
                     g_instance.dms_cxt.SSRecoveryInfo.disaster_cluster_promoting = false;
                 }
+#ifdef ENABLE_NEON
+                /* Report status to postmaster.pid for compatibility with PostgreSQL tools */
+                AddToDataDirLockFile(LOCK_FILE_LINE_PM_STATUS, PM_STATUS_READY);
+#endif /* ENABLE_NEON */
             }
 
             continue;
@@ -8062,7 +8160,11 @@ static void reaper(SIGNAL_ARGS)
             if (!EXIT_STATUS_0(exitstatus))
                 LogChildExit(LOG, _("cfs shrinker process"), pid, exitstatus);
 
-            if (pmState <= PM_RUN)
+            if (pmState <= PM_RUN
+#ifdef ENABLE_NEON
+                && !IsNeonComputeMode()
+#endif
+        )
                 g_instance.pid_cxt.CfsShrinkerPID = StartCfsShrinkerCapturer();
             continue;
         }
@@ -10872,7 +10974,11 @@ static void sigusr1_handler(SIGNAL_ARGS)
 
     /* should not start a worker in shutdown or demotion procedure */
     if (CheckPostmasterSignal(PMSIGNAL_START_CLEAN_STATEMENT) && g_instance.status == NoShutdown &&
-        g_instance.demotion == NoDemote && (!ENABLE_DMS || SS_NORMAL_PRIMARY)) {
+        g_instance.demotion == NoDemote && (!ENABLE_DMS || SS_NORMAL_PRIMARY)
+#ifdef ENABLE_NEON
+        && !IsNeonComputeMode()
+#endif
+        ) {
         /* The statement flush thread wants us to start a clean statement worker process. */
         StartCleanStatement();
     }
@@ -10882,7 +10988,11 @@ static void sigusr1_handler(SIGNAL_ARGS)
     }
 
     if (CheckPostmasterSignal(PMSIGNAL_START_JOB_WORKER) &&
-        g_instance.status == NoShutdown && g_instance.demotion == NoDemote) {
+        g_instance.status == NoShutdown && g_instance.demotion == NoDemote
+#ifdef ENABLE_NEON
+        && !IsNeonComputeMode()
+#endif
+        ) {
         /* the parent process, return 0 if the fork failed, return the PID if fork succeed. */
         StartPgjobWorker();
     }
@@ -14714,6 +14824,27 @@ static void is_memory_backend_reserved(const knl_thread_arg* arg)
     }
 }
 
+#ifdef ENABLE_NEON
+static void InvokeWalProposerMain()
+{
+    static PGFunction walproposer_entry = NULL;
+
+    if (walproposer_entry == NULL) {
+        char funcname[] = "WalProposerMain";
+        CFunInfo func_info = load_external_function("neon", funcname, false, false);
+        walproposer_entry = func_info.user_fn;
+        if (walproposer_entry == NULL) {
+            ereport(LOG,
+                (errmsg("failed to load WalProposerMain from neon extension"),
+                    errhint("Ensure the neon extension is installed and WalProposerMain is exported.")));
+            return;
+        }
+    }
+
+    ((void (*)(Datum))walproposer_entry)((Datum)0);
+}
+#endif
+
 template <knl_thread_role thread_role>
 int GaussDbThreadMain(knl_thread_arg* arg)
 {
@@ -14976,6 +15107,20 @@ int GaussDbThreadMain(knl_thread_arg* arg)
         case SPQ_COORDINATOR: {
             spq_adps_coordinator_thread_main();
             proc_exit(0);
+        } break;
+#endif
+#ifdef ENABLE_NEON
+        case WALPROPOSER: {
+            if(g_instance.loadedNeonPlugin){
+                t_thrd.proc_cxt.MyPMChildSlot = AssignPostmasterChildSlot();
+                if (t_thrd.proc_cxt.MyPMChildSlot == -1) {
+                    return STATUS_ERROR;
+                }
+                InitProcessAndShareMemory();
+                /* Load neon library and run WalProposerMain as the thread entry. */
+                InvokeWalProposerMain();
+                proc_exit(0);
+            }
         } break;
 #endif
         case LOGICAL_READ_RECORD: {
@@ -15479,6 +15624,9 @@ static ThreadMetaData GaussdbThreadGate[] = {
     { GaussDbThreadMain<THREADPOOL_LISTENER>, THREADPOOL_LISTENER, "TPLlistener", "thread pool listner" , false},
     { GaussDbThreadMain<THREADPOOL_SCHEDULER>, THREADPOOL_SCHEDULER, "TPLscheduler", "thread pool scheduler", false},
     { GaussDbThreadMain<THREADPOOL_STREAM>, THREADPOOL_STREAM, "TPLstream", "thread pool stream" , false},
+#ifdef ENABLE_NEON
+    { GaussDbThreadMain<WALPROPOSER>, WALPROPOSER, "WALproposer", "WAL proposer" },
+#endif   /* ENABLE_NEON */
     { GaussDbThreadMain<STREAM_WORKER>, STREAM_WORKER, "streamworker", "stream worker" },
     { GaussDbThreadMain<AUTOVACUUM_LAUNCHER>, AUTOVACUUM_LAUNCHER, "AVClauncher", "autovacuum launcher" },
     { GaussDbThreadMain<AUTOVACUUM_WORKER>, AUTOVACUUM_WORKER, "AVCworker", "autovacuum worker" },

@@ -28,6 +28,10 @@ set(TGT_misc_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/pgfincore.cpp
 )
 
+if("${ENABLE_NEON}" STREQUAL "ON")
+    list(APPEND TGT_misc_SRC ${CMAKE_CURRENT_SOURCE_DIR}/timeout.cpp)
+endif()
+
 set(TGT_misc_INC 
     ${PROJECT_TRUNK_DIR}/distribute/include
     ${PROJECT_SRC_DIR}/include

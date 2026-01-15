@@ -1225,7 +1225,9 @@ void knl_instance_init()
 
     g_instance.pq_inited = false;
     g_instance.diskann_pq_inited = false;
-
+#ifdef ENABLE_NEON
+    g_instance.loadedNeonPlugin = false;
+#endif
 #ifdef USE_SPQ
     knl_g_spq_context_init(&g_instance.spq_cxt);
 #endif

@@ -65,6 +65,9 @@ extern void drop_rel_all_forks_buffers();
 extern void drop_rel_one_fork_buffers();
 extern void drop_rel_all_cucache();
 
+#ifdef ENABLE_NEON
+extern void bgwriter_sighup_handler(SIGNAL_ARGS);
+#endif
 typedef struct DelFileTag {
     RelFileNode rnode;
     int32 maxSegNo;

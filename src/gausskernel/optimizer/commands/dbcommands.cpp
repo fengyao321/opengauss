@@ -712,8 +712,11 @@ Oid createdb(const CreatedbStmt* stmt)
                 xlrec.src_tablespace_id = dst_deftablespace;
                 XLogBeginInsert();
                 XLogRegisterData((char*)&xlrec, sizeof(xl_dbase_create_rec));
-                (void)XLogInsert(RM_DBASE_ID, XLOG_DBASE_CREATE | XLR_SPECIAL_REL_UPDATE);
-
+                XLogRecPtr lsn = XLogInsert(RM_DBASE_ID, XLOG_DBASE_CREATE | XLR_SPECIAL_REL_UPDATE);
+#ifdef ENABLE_NEON
+                if (set_lwlsn_db_hook)
+                    set_lwlsn_db_hook(lsn);
+#endif /* ENABLE_NEON */
                 pfree_ext(srcpath);
                 pfree_ext(dstpath);
             }
@@ -2543,6 +2546,10 @@ void dbase_redo(XLogReaderState* record)
     if (info == XLOG_DBASE_CREATE) {
         xl_dbase_create_rec* xlrec = (xl_dbase_create_rec*)XLogRecGetData(record);
         xlog_db_create(xlrec->db_id, xlrec->tablespace_id, xlrec->src_db_id, xlrec->src_tablespace_id);
+#ifdef ENABLE_NEON
+        if (set_lwlsn_db_hook)
+            set_lwlsn_db_hook(record->EndRecPtr);
+#endif /* ENABLE_NEON */
     } else if (info == XLOG_DBASE_DROP) {
         xl_dbase_drop_rec* xlrec = (xl_dbase_drop_rec*)XLogRecGetData(record);
         xlog_db_drop(record->EndRecPtr, xlrec->db_id, xlrec->tablespace_id);

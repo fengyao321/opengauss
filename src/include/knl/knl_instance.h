@@ -294,6 +294,9 @@ typedef struct knl_g_pid_context {
     ThreadId DmsAuxiliaryPID;
     ThreadId SyncAuxiliaryPID;
     ThreadId SqlLimitPID;
+#ifdef ENABLE_NEON
+    ThreadId WALproposerPID;
+#endif
 #ifdef ENABLE_HTAP
     ThreadId IMCStoreVacuumPID;
 #endif
@@ -1716,6 +1719,9 @@ typedef struct knl_instance_context {
     knl_g_dms_context dms_cxt;
     bool pq_inited;
     bool diskann_pq_inited;
+#ifdef ENABLE_NEON
+    bool loadedNeonPlugin;
+#endif
 #ifdef USE_SPQ
     knl_g_spq_context spq_cxt;
 #endif

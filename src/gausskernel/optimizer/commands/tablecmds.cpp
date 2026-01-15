@@ -20801,7 +20801,11 @@ static void atexecset_table_space_internal(Relation rel, RelFileNode& newrnode, 
     SMgrRelation dstrel;
 
     /* Open old and new relation */
+#ifdef ENABLE_NEON
+    dstrel = smgropen(newrnode, rel->rd_backend, 0, rel->rd_rel->relpersistence);
+#else
     dstrel = smgropen(newrnode, rel->rd_backend);
+#endif /* ENABLE_NEON */
 
     /* open rel storage avoid relcache invalided*/
     RelationOpenSmgr(rel);
@@ -21129,7 +21133,12 @@ static void copy_relation_data(Relation rel, SMgrRelation* dstptr, ForkNumber fo
     // dangerous if we still use dst and rel->smgr.
     //
     RelationOpenSmgr(rel);
+#ifdef ENABLE_NEON
+    *dstptr = dst = smgropen(newFileNode, backendId, 0, rel->rd_rel->relpersistence);
+#else
     *dstptr = dst = smgropen(newFileNode, backendId);
+#endif /* ENABLE_NEON */
+
     src = rel->rd_smgr;
 
     /* maybe can add prefetch here */
@@ -21203,7 +21212,12 @@ static void copy_relation_data(Relation rel, SMgrRelation* dstptr, ForkNumber fo
         } else {
             if (RelationIsUstoreFormat(rel)) {
                 if (ExecuteUndoActionsForPartition(rel, dst, forkNum, blkno, blkno, ROLLBACK_OP_FOR_MOVE_TBLSPC)) {
+#ifdef ENABLE_NEON
+                    *dstptr = dst = smgropen(newFileNode, backendId, 0, rel->rd_rel->relpersistence);
+#else
                     *dstptr = dst = smgropen(newFileNode, backendId);
+#endif /* ENABLE_NEON */
+
                     src = rel->rd_smgr;
                 }
             } else {

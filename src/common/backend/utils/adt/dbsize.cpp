@@ -159,6 +159,10 @@ static int64 db_dir_size(const char* path)
     return dirsize;
 }
 
+#ifdef ENABLE_NEON
+dbsize_hook_type dbsize_hook = NULL;
+#endif /* ENABLE_NEON */
+
 /*
  * calculate size of database in all tablespaces
  */
@@ -177,6 +181,13 @@ static int64 calculate_database_size(Oid dbOid)
     aclresult = pg_database_aclcheck(dbOid, GetUserId(), ACL_CONNECT);
     if (aclresult != ACLCHECK_OK)
         aclcheck_error(aclresult, ACL_KIND_DATABASE, get_and_check_db_name(dbOid));
+
+#ifdef ENABLE_NEON
+    if (dbsize_hook) {
+        totalsize = (*dbsize_hook)(dbOid);
+        return totalsize;
+    }
+#endif /* ENABLE_NEON */
 
     /* Get the vgname in DSS mode */
     if (ENABLE_DSS)

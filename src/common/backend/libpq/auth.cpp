@@ -634,6 +634,7 @@ void ClientAuthentication(Port* port)
             break;
 
         case uaMD5:
+#ifndef ENABLE_NEON
             /*Forbid remote connection with initial user.*/
             if (isRemoteInitialUser(port)) {
                 ereport(FATAL,
@@ -644,9 +645,14 @@ void ClientAuthentication(Port* port)
             status = recv_and_check_password_packet(port);
             needCheckLockStatus = true;
             break;
+#else
+            status = STATUS_OK;
+            break;
+#endif
         /* Database Security:  Support SHA256.*/
         case uaSHA256:
         case uaSM3:
+#ifndef ENABLE_NEON
             /*Forbid remote connection with initial user.*/
             if (isRemoteInitialUser(port)) {
                 ereport(FATAL,
@@ -673,6 +679,10 @@ void ClientAuthentication(Port* port)
             status = recv_and_check_password_packet(port);
             needCheckLockStatus = true;
             break;
+#else
+            status = STATUS_OK;
+            break;
+#endif
         case uaPAM:
 #ifdef USE_PAM
             status = CheckPAMAuth(port, port->user_name, "");
