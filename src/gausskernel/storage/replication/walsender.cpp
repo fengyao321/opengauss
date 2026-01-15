@@ -4752,7 +4752,7 @@ static void InitWalSnd(void)
             OwnLatch((Latch *)&walsnd->latch);
             t_thrd.walsender_cxt.MyWalSnd = (WalSnd *)walsnd;
 #ifdef ENABLE_NEON
-            MyWalSnd = (WalSnd *)walsnd;  /* Sync with THR_LOCAL variable */
+            MyWalSnd = (WalSnd *)walsnd;  /* Sync with ThreadLocal variable */
 #endif
             break;
         }
@@ -4830,7 +4830,7 @@ static void WalSndKill(int code, Datum arg)
      */
     t_thrd.walsender_cxt.MyWalSnd = NULL;
 #ifdef ENABLE_NEON
-    MyWalSnd = NULL;  /* Sync with THR_LOCAL variable */
+    MyWalSnd = NULL;  /* Sync with ThreadLocal variable */
 #endif
     DisownLatch(&walsnd->latch);
 
