@@ -43,7 +43,9 @@
 /* FLag and mask for TOAST in parallel decoding */
 #define TOAST_FLAG ((uint32)1 << 31)
 #define TOAST_MASK (((uint32)1 << 31) - 1)
-
+#ifdef ENABLE_NEON
+extern void        (*Custom_XLogReaderRoutines)(XLogReaderRoutine *xlr);
+#endif
 typedef void (*LogicalOutputPluginWriterWrite)(
     struct LogicalDecodingContext* lr, XLogRecPtr Ptr, TransactionId xid, bool last_write);
 typedef LogicalOutputPluginWriterWrite LogicalOutputPluginWriterPrepareWrite;

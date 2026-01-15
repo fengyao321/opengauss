@@ -123,6 +123,16 @@ void InitUndoFile(void)
     if (EnableLocalSysCache()) {
         return;
     }
+#ifdef ENABLE_NEON
+    /*
+     * In neon_walredo process, undo file subsystem is not used.
+     * Skip initialization to avoid assertion failures when this
+     * function is called multiple times during walredo.
+     */
+    if (t_thrd.xlog_cxt.am_wal_redo_postgres) {
+        return;
+    }
+#endif
     Assert(u_sess->storage_cxt.UndoFileCxt == NULL);
     u_sess->storage_cxt.UndoFileCxt = AllocSetContextCreate(u_sess->top_mem_cxt, "UndoFileSmgr", ALLOCSET_DEFAULT_SIZES);
 }

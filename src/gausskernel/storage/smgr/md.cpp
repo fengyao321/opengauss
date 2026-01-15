@@ -228,6 +228,16 @@ void mdinit(void)
     if (EnableLocalSysCache()) {
         return;
     }
+#ifdef ENABLE_NEON
+    /*
+     * In neon_walredo process, smgrinit() is called for each WAL record,
+     * which would call mdinit() repeatedly. Skip if already initialized
+     * to avoid memory leaks from creating duplicate memory contexts.
+     */
+    if (t_thrd.xlog_cxt.am_wal_redo_postgres && u_sess->storage_cxt.MdCxt != NULL) {
+        return;
+    }
+#endif
     u_sess->storage_cxt.MdCxt = AllocSetContextCreate(u_sess->top_mem_cxt, "MdSmgr", ALLOCSET_DEFAULT_MINSIZE,
                                                       ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE);
 }

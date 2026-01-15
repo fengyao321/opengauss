@@ -489,6 +489,27 @@ void shmem_exit(int code)
         gs_set_hs_shm_data(NULL);
     }
 
+#ifdef ENABLE_NEON
+    /*
+     * Call before_shmem_exit callbacks.
+     *
+     * These should be things that need most of the system to still be up and
+     * working, such as cleanup of temp relations, which requires catalog
+     * access; or things that need to be completed because later cleanup steps
+     * depend on them, such as releasing lwlocks.
+     */
+    if (t_thrd.postmaster_cxt.redirection_done)
+        ereport(DEBUG3, (errmsg("shmem_exit(%d): %d before_shmem_exit callbacks to make",
+            code, t_thrd.storage_cxt.before_shmem_exit_index)));
+    while (--t_thrd.storage_cxt.before_shmem_exit_index >= 0) {
+        pg_on_exit_callback func =
+            t_thrd.storage_cxt.before_shmem_exit_list[t_thrd.storage_cxt.before_shmem_exit_index].function;
+        if (!IsCalledInSessExit(func)) {
+            (*func)(code, t_thrd.storage_cxt.before_shmem_exit_list[t_thrd.storage_cxt.before_shmem_exit_index].arg);
+        }
+    }
+    t_thrd.storage_cxt.before_shmem_exit_index = 0;
+#endif
     if (t_thrd.postmaster_cxt.redirection_done)
         ereport(DEBUG3, (errmsg("shmem_exit(%d): %d callbacks to make", code, t_thrd.storage_cxt.on_shmem_exit_index)));
 
@@ -541,6 +562,32 @@ void on_proc_exit(pg_on_exit_callback function, Datum arg)
     }
 }
 
+
+#ifdef ENABLE_NEON
+/* ----------------------------------------------------------------
+ *        before_shmem_exit
+ *
+ *        Register early callback to perform user-level cleanup,
+ *        e.g. transaction abort, before we begin shutting down
+ *        low-level subsystems.
+ * ----------------------------------------------------------------
+ */
+void before_shmem_exit(pg_on_exit_callback function, Datum arg)
+{
+    if (t_thrd.storage_cxt.before_shmem_exit_index >= MAX_ON_EXITS)
+        ereport(FATAL, (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED), errmsg_internal("out of before_shmem_exit slots")));
+
+    t_thrd.storage_cxt.before_shmem_exit_list[t_thrd.storage_cxt.before_shmem_exit_index].function = function;
+    t_thrd.storage_cxt.before_shmem_exit_list[t_thrd.storage_cxt.before_shmem_exit_index].arg = arg;
+
+    ++t_thrd.storage_cxt.before_shmem_exit_index;
+
+    if (!t_thrd.storage_cxt.atexit_callback_setup) {
+        t_thrd.storage_cxt.atexit_callback_setup = true;
+    }
+}
+#endif
+
 /* ----------------------------------------------------------------
  *		on_shmem_exit
  *
@@ -580,6 +627,29 @@ void cancel_shmem_exit(pg_on_exit_callback function, Datum arg)
         --t_thrd.storage_cxt.on_shmem_exit_index;
 }
 
+#ifdef ENABLE_NEON
+/* ----------------------------------------------------------------
+ *        cancel_before_shmem_exit
+ *
+ *        this function removes a previously-registered before_shmem_exit
+ *        callback.  We only look at the latest entry for removal, as we
+ *         expect callers to add and remove temporary before_shmem_exit
+ *         callbacks in strict LIFO order.
+ * ----------------------------------------------------------------
+ */
+void cancel_before_shmem_exit(pg_on_exit_callback function, Datum arg)
+{
+    if (t_thrd.storage_cxt.before_shmem_exit_index > 0 &&
+        t_thrd.storage_cxt.before_shmem_exit_list[t_thrd.storage_cxt.before_shmem_exit_index - 1].function
+        == function &&
+        t_thrd.storage_cxt.before_shmem_exit_list[t_thrd.storage_cxt.before_shmem_exit_index - 1].arg == arg)
+        --t_thrd.storage_cxt.before_shmem_exit_index;
+    else
+        elog(ERROR, "before_shmem_exit callback (%p,0x%llx) is not the latest entry",
+             function, (long long) arg);
+}
+#endif
+
 /* ----------------------------------------------------------------
  *		on_exit_reset
  *
@@ -591,6 +661,9 @@ void cancel_shmem_exit(pg_on_exit_callback function, Datum arg)
  */
 void on_exit_reset(void)
 {
+#ifdef ENABLE_NEON
+    t_thrd.storage_cxt.before_shmem_exit_index = 0;
+#endif
     t_thrd.storage_cxt.on_shmem_exit_index = 0;
     t_thrd.storage_cxt.on_proc_exit_index = 0;
 }

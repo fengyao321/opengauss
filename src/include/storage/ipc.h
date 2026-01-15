@@ -84,4 +84,11 @@ extern void CreateSharedMemoryAndSemaphores(bool makePrivate, int port);
 extern void cancelShmemExit(pg_on_exit_callback function, Datum arg);
 
 extern void internal_delete_library();
+
+#ifdef ENABLE_NEON
+extern void cancel_before_shmem_exit(pg_on_exit_callback function, Datum arg);
+extern void CalcMaxBackends(void);
+extern Size ComputeTotalSizeOfShmem();
+#endif
+
 #endif /* IPC_H */

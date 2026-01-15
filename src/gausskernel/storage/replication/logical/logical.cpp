@@ -67,7 +67,9 @@ typedef struct ParallelLogicalErrorCallbackState {
 } ParallelLogicalErrorCallbackState;
 
 LogicalDispatcher g_Logicaldispatcher[20];
-
+#ifdef ENABLE_NEON
+void        (*Custom_XLogReaderRoutines)(XLogReaderRoutine *xlr);
+#endif
 /* wrappers around output plugin callbacks */
 static void output_plugin_error_callback(void *arg);
 static void startup_cb_wrapper(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is_init);
@@ -159,6 +161,13 @@ static LogicalDecodingContext *StartupDecodingContext(List *output_plugin_option
     if (!fast_forward)
         LoadOutputPlugin(&ctx->callbacks, NameStr(slot->data.plugin));
 
+#ifdef ENABLE_NEON
+    if (Custom_XLogReaderRoutines != NULL) {
+        XLogReaderRoutine xlr;
+        Custom_XLogReaderRoutines(&xlr);
+        read_page = xlr.page_read;
+    }
+#endif
     /*
      * Now that the slot's xmin has been set, we can announce ourselves as a
      * logical decoding backend which doesn't need to be checked individually

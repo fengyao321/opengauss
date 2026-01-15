@@ -164,6 +164,28 @@ typedef struct {
     bool messageReceiveNoTimeout;
 } ReplicationCxt;
 
+#ifdef ENABLE_NEON
+/* A sample associating a WAL location with the time it was written. */
+typedef struct {
+    XLogRecPtr    lsn;
+    TimestampTz time;
+} WalTimeSample;
+
+/* The size of our buffer of time samples. */
+#define LAG_TRACKER_BUFFER_SIZE 8192
+
+/* A mechanism for tracking replication lag. */
+typedef struct {
+    XLogRecPtr    last_lsn;
+    WalTimeSample buffer[LAG_TRACKER_BUFFER_SIZE];
+    int            write_head;
+    int            read_heads[NUM_SYNC_REP_WAIT_MODE];
+    WalTimeSample last_read[NUM_SYNC_REP_WAIT_MODE];
+} LagTracker;
+
+static LagTracker *lag_tracker;
+#endif
+
 /* Signal handlers */
 static void WalSndSigHupHandler(SIGNAL_ARGS);
 static void WalSndShutdownHandler(SIGNAL_ARGS);
@@ -175,7 +197,13 @@ static void IdentifyCommand(Node* cmd_node, ReplicationCxt* repCxt, const char *
 static void HandleWalReplicationCommand(const char *cmd_string, ReplicationCxt* repCxt);
 typedef void (*WalSndSendDataCallback)(void);
 static int WalSndLoop(WalSndSendDataCallback send_data);
+
+#ifdef ENABLE_NEON
+void InitWalSnd(void);
+#else
 static void InitWalSnd(void);
+#endif /* ENABLE_NEON */
+
 static void WalSndHandshake(void);
 static void WalSndKill(int code, Datum arg);
 
@@ -229,7 +257,11 @@ static void WalSndWriteLogicalAdvanceXLog(TimestampTz now);
 
 static void WalSndPrepareWrite(LogicalDecodingContext *ctx, XLogRecPtr lsn, TransactionId xid, bool last_write);
 static void WalSndWriteData(LogicalDecodingContext *ctx, XLogRecPtr lsn, TransactionId xid, bool last_write);
+#ifdef ENABLE_NEON
+XLogRecPtr WalSndWaitForWal(XLogRecPtr loc);
+#else
 static XLogRecPtr WalSndWaitForWal(XLogRecPtr loc);
+#endif
 
 static void XLogRead(char *buf, XLogRecPtr startptr, Size count);
 
@@ -258,6 +290,11 @@ void process_clean_slot_message();
 void wal_snd_clean_slot(char *msgbuf, char *slot_name);
 
 char *DataDir = ".";
+
+#ifdef ENABLE_NEON
+/* Define MyWalSnd for compatibility with extensions that expect it as an exported symbol */
+THR_LOCAL WalSnd* MyWalSnd = NULL;
+#endif
 
 static void XLogSendLSN(void)
 {
@@ -2039,7 +2076,11 @@ static void WalSndHandleMessage(XLogRecPtr *RecentFlushPoint)
 /*
  * Wait till WAL < loc is flushed to disk so it can be safely read.
  */
+#ifdef ENABLE_NEON
+XLogRecPtr WalSndWaitForWal(XLogRecPtr loc)
+#else
 static XLogRecPtr WalSndWaitForWal(XLogRecPtr loc)
+#endif
 {
     int wakeEvents;
     static XLogRecPtr RecentFlushPtr = InvalidXLogRecPtr;
@@ -4573,7 +4614,11 @@ static void WalSndCheckTimeOut(TimestampTz now)
 }
 
 /* Initialize a per-walsender data structure for this walsender process */
+#ifdef ENABLE_NEON
+void InitWalSnd(void)
+#else
 static void InitWalSnd(void)
+#endif
 {
     int i;
     errno_t rc = 0;
@@ -4706,7 +4751,9 @@ static void InitWalSnd(void)
             /* don't need the lock anymore */
             OwnLatch((Latch *)&walsnd->latch);
             t_thrd.walsender_cxt.MyWalSnd = (WalSnd *)walsnd;
-
+#ifdef ENABLE_NEON
+            MyWalSnd = (WalSnd *)walsnd;  /* Sync with THR_LOCAL variable */
+#endif
             break;
         }
     }
@@ -4714,6 +4761,25 @@ static void InitWalSnd(void)
         ereport(FATAL, (errcode(ERRCODE_TOO_MANY_CONNECTIONS), errmsg("number of requested standby connections "
                                                                       "exceeds max_wal_senders (currently %d)",
                                                                       g_instance.attr.attr_storage.max_wal_senders)));
+    
+#ifdef ENABLE_NEON
+    /* Sync MyWalSnd with t_thrd context */
+    MyWalSnd = t_thrd.walsender_cxt.MyWalSnd;
+    /* Initialize empty timestamp buffer for lag tracking. */
+    /*
+     * In OpenGauss, TopMemoryContext may be sealed at this point, which prevents
+     * direct allocation. Temporarily unseal it to allocate memory, then seal it again.
+     */
+    bool was_sealed = false;
+    if (TopMemoryContext->is_sealed) {
+        was_sealed = true;
+        MemoryContextUnSeal(TopMemoryContext);
+    }
+    lag_tracker = (LagTracker *)MemoryContextAllocZero(TopMemoryContext, sizeof(LagTracker));
+    if (was_sealed) {
+        MemoryContextSeal(TopMemoryContext);
+    }
+#endif
 
     /* Arrange to clean up at walsender exit */
     on_shmem_exit(WalSndKill, 0);
@@ -4763,7 +4829,9 @@ static void WalSndKill(int code, Datum arg)
      * handlers won't try to touch the latch after it's no longer ours.
      */
     t_thrd.walsender_cxt.MyWalSnd = NULL;
-
+#ifdef ENABLE_NEON
+    MyWalSnd = NULL;  /* Sync with THR_LOCAL variable */
+#endif
     DisownLatch(&walsnd->latch);
 
     if (code > 0) {
@@ -7694,3 +7762,179 @@ static int WalSndTimeout()
     }
 }
 
+#ifdef ENABLE_NEON
+void ProcessStandbyReply(XLogRecPtr    writePtr,
+                    XLogRecPtr    flushPtr,
+                    XLogRecPtr    applyPtr,
+                    TimestampTz replyTime,
+                    bool        replyRequested)
+{
+    TimeOffset writeLag;
+    TimeOffset flushLag;
+    TimeOffset applyLag;
+    bool clearLagTimes;
+    TimestampTz now;
+    static bool fullyAppliedLastTime = false;
+
+    /* See if we can compute the round-trip lag for these positions. */
+    now = GetCurrentTimestamp();
+    writeLag = LagTrackerRead(SYNC_REP_WAIT_WRITE, writePtr, now);
+    flushLag = LagTrackerRead(SYNC_REP_WAIT_FLUSH, flushPtr, now);
+    applyLag = LagTrackerRead(SYNC_REP_WAIT_APPLY, applyPtr, now);
+
+    /*
+     * If the standby reports that it has fully replayed the WAL in two
+     * consecutive reply messages, then the second such message must result
+     * from wal_receiver_status_interval expiring on the standby.  This is a
+     * convenient time to forget the lag times measured when it last
+     * wrote/flushed/applied a WAL record, to avoid displaying stale lag data
+     * until more WAL traffic arrives.
+     */
+    clearLagTimes = false;
+    if (applyPtr == t_thrd.walsender_cxt.sentPtr) {
+        if (fullyAppliedLastTime)
+            clearLagTimes = true;
+        fullyAppliedLastTime = true;
+    } else {
+        fullyAppliedLastTime = false;
+    }
+
+    /* Send a reply if the standby requested one. */
+    if (replyRequested)
+        WalSndKeepalive(false);
+
+    /*
+     * Update shared state for this WalSender process based on reply data from
+     * standby.
+     */
+    {
+        WalSnd       *walsnd = t_thrd.walsender_cxt.MyWalSnd;
+
+        SpinLockAcquire(&walsnd->mutex);
+        walsnd->write = writePtr;
+        walsnd->flush = flushPtr;
+        walsnd->apply = applyPtr;
+        if (writeLag != -1 || clearLagTimes)
+            walsnd->writeLag = writeLag;
+        if (flushLag != -1 || clearLagTimes)
+            walsnd->flushLag = flushLag;
+        if (applyLag != -1 || clearLagTimes)
+            walsnd->applyLag = applyLag;
+        walsnd->replyTime = replyTime;
+        SpinLockRelease(&walsnd->mutex);
+    }
+
+    if (!AM_WAL_STANDBY_SENDER)
+        SyncRepReleaseWaiters();
+
+    /*
+     * Advance our local xmin horizon when the client confirmed a flush.
+     */
+    if (t_thrd.slot_cxt.MyReplicationSlot && flushPtr != InvalidXLogRecPtr) {
+        if (SlotIsLogical(t_thrd.slot_cxt.MyReplicationSlot)) {
+            LogicalConfirmReceivedLocation(flushPtr);
+        } else {
+            PhysicalConfirmReceivedLocation(flushPtr);
+        }
+    }
+}
+
+/*
+ * Find out how much time has elapsed between the moment WAL location 'lsn'
+ * (or the highest known earlier LSN) was flushed locally and the time 'now'.
+ * We have a separate read head for each of the reported LSN locations we
+ * receive in replies from standby; 'head' controls which read head is
+ * used.  Whenever a read head crosses an LSN which was written into the
+ * lag buffer with LagTrackerWrite, we can use the associated timestamp to
+ * find out the time this LSN (or an earlier one) was flushed locally, and
+ * therefore compute the lag.
+ *
+ * Return -1 if no new sample data is available, and otherwise the elapsed
+ * time in microseconds.
+ */
+TimeOffset LagTrackerRead(int head, XLogRecPtr lsn, TimestampTz now)
+{
+    TimestampTz time = 0;
+
+    /* Read all unread samples up to this LSN or end of buffer. */
+    while (lag_tracker->read_heads[head] != lag_tracker->write_head &&
+           lag_tracker->buffer[lag_tracker->read_heads[head]].lsn <= lsn) {
+        time = lag_tracker->buffer[lag_tracker->read_heads[head]].time;
+        lag_tracker->last_read[head] =
+            lag_tracker->buffer[lag_tracker->read_heads[head]];
+        lag_tracker->read_heads[head] =
+            (lag_tracker->read_heads[head] + 1) % LAG_TRACKER_BUFFER_SIZE;
+    }
+
+    /*
+     * If the lag tracker is empty, that means the standby has processed
+     * everything we've ever sent so we should now clear 'last_read'.  If we
+     * didn't do that, we'd risk using a stale and irrelevant sample for
+     * interpolation at the beginning of the next burst of WAL after a period
+     * of idleness.
+     */
+    if (lag_tracker->read_heads[head] == lag_tracker->write_head)
+        lag_tracker->last_read[head].time = 0;
+
+    if (time > now) {
+        /* If the clock somehow went backwards, treat as not found. */
+        return -1;
+    } else if (time == 0) {
+        /*
+         * We didn't cross a time.  If there is a future sample that we
+         * haven't reached yet, and we've already reached at least one sample,
+         * let's interpolate the local flushed time.  This is mainly useful
+         * for reporting a completely stuck apply position as having
+         * increasing lag, since otherwise we'd have to wait for it to
+         * eventually start moving again and cross one of our samples before
+         * we can show the lag increasing.
+         */
+        if (lag_tracker->read_heads[head] == lag_tracker->write_head) {
+            /* There are no future samples, so we can't interpolate. */
+            return -1;
+        } else if (lag_tracker->last_read[head].time != 0) {
+            /* We can interpolate between last_read and the next sample. */
+            double        fraction;
+            WalTimeSample prev = lag_tracker->last_read[head];
+            WalTimeSample next = lag_tracker->buffer[lag_tracker->read_heads[head]];
+
+            if (lsn < prev.lsn) {
+                /*
+                 * Reported LSNs shouldn't normally go backwards, but it's
+                 * possible when there is a timeline change.  Treat as not
+                 * found.
+                 */
+                return -1;
+            }
+
+            Assert(prev.lsn < next.lsn);
+
+            if (prev.time > next.time) {
+                /* If the clock somehow went backwards, treat as not found. */
+                return -1;
+            }
+
+            /* See how far we are between the previous and next samples. */
+            fraction =
+                (double) (lsn - prev.lsn) / (double) (next.lsn - prev.lsn);
+
+            /* Scale the local flush time proportionally. */
+            time = (TimestampTz)
+                ((double) prev.time + (next.time - prev.time) * fraction);
+        } else {
+            /*
+             * We have only a future sample, implying that we were entirely
+             * caught up but and now there is a new burst of WAL and the
+             * standby hasn't processed the first sample yet.  Until the
+             * standby reaches the future sample the best we can do is report
+             * the hypothetical lag if that sample were to be replayed now.
+             */
+            time = lag_tracker->buffer[lag_tracker->read_heads[head]].time;
+        }
+    }
+
+    /* Return the elapsed time since local flush time in microseconds. */
+    Assert(time != 0);
+    return now - time;
+}
+#endif

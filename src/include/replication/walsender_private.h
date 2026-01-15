@@ -83,6 +83,17 @@ typedef struct LogCtrlData {
  * Each walsender has a WalSnd struct in shared memory.
  */
 typedef struct WalSnd {
+#ifdef ENABLE_NEON
+    /* Measured lag times, or -1 for unknown/none. */
+    TimeOffset    writeLag;
+    TimeOffset    flushLag;
+    TimeOffset    applyLag;
+    /*
+     * Timestamp of the last message received from standby.
+     */
+    TimestampTz replyTime;
+#endif
+
     ThreadId pid; /* this walsender's process id, or 0 */
     int lwpId;
     WalSndState state;           /* this walsender's state */
@@ -242,5 +253,9 @@ extern THR_LOCAL WalSndCtlData* WalSndCtl;
 extern volatile bool bSyncStat;
 extern volatile bool bSyncStatStatBefore;
 extern void WalSndSetState(WalSndState state);
+#ifdef ENABLE_NEON
+#define SlotIsPhysical(slot) ((slot)->data.database == InvalidOid)
+#define SlotIsLogical(slot) ((slot)->data.database != InvalidOid)
+#endif
 
 #endif /* _WALSENDER_PRIVATE_H */

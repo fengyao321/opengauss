@@ -92,7 +92,9 @@
 #endif
 #include "access/datavec/utils.h"
 
+#ifndef ENABLE_NEON
 extern void CalcMaxBackends(void);
+#endif
 #ifdef ENABLE_MULTIPLE_NODES
 extern void InitDisasterCache();
 #endif

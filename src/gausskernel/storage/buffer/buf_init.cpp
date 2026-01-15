@@ -206,8 +206,15 @@ void InitBufferPool(void)
     DataCacheMgr::NewSingletonInstance();
 
 #ifdef ENABLE_HTAP
+#ifdef ENABLE_NEON
+    if (!t_thrd.xlog_cxt.am_wal_redo_postgres) {
+        IMCUDataCacheMgr::NewSingletonInstance();
+        SSIMCUDataCacheMgr::NewSingletonInstance();
+    }
+#else
     IMCUDataCacheMgr::NewSingletonInstance();
     SSIMCUDataCacheMgr::NewSingletonInstance();
+#endif
 #endif
 
     /* Init onnx runtime buffers */

@@ -209,11 +209,28 @@ const char* XlogGetRemainExtentTypeName(StatRemainExtentType remainExtentType);
 #define CurrentThreadIsWorker()                                                                                        \
     (t_thrd.role == WORKER || t_thrd.role == THREADPOOL_WORKER || t_thrd.role == STREAMING_BACKEND)
 
+/*
+ * SegmentCheck - Check segment storage invariants
+ *
+ * In neon walredo mode, segment storage is not used (we use inmem_smgr),
+ * so we skip these checks to avoid false PANICs.
+ */
+#ifdef ENABLE_NEON
+#define SegmentCheck(condition)                              \
+    do {                                                      \
+        if (t_thrd.xlog_cxt.am_wal_redo_postgres) {           \
+            /* Skip segment checks in neon walredo mode */    \
+        } else if (!(condition)) {                            \
+            ereport(PANIC, (errmsg("SegmentCheck failed. File:%s, Line:%d", __FILE__, __LINE__)));  \
+        }                                                     \
+    } while (0)
+#else
 #define SegmentCheck(condition)                              \
     do {                                                      \
         if (!(condition))                                     \
             ereport(PANIC, (errmsg("SegmentCheck failed. File:%s, Line:%d", __FILE__, __LINE__)));  \
     } while (0)
+#endif
 
 extern Oid get_database_oid_by_name(const char *dbname);
 extern Oid get_tablespace_oid_by_name(const char *tablespacename);

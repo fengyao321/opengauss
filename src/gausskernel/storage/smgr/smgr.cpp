@@ -33,6 +33,11 @@
 #include "postmaster/aiocompleter.h"
 #include "catalog/pg_partition_fn.h"
 
+#ifdef ENABLE_NEON
+#include "catalog/pg_tablespace.h"
+#endif
+
+#ifndef ENABLE_NEON
 /*
  * This struct of function pointers defines the API between smgr.c and
  * any individual storage manager module.  Note that smgr subfunctions are
@@ -64,7 +69,7 @@ typedef struct f_smgr {
     void (*smgr_async_write)(SMgrRelation reln, ForkNumber forknum, AioDispatchDesc_t **dList, int32 dn);
     void (*smgr_move_buckets)(const RelFileNodeBackend &dest, const RelFileNodeBackend &src, List *bList);
 } f_smgr;
-
+#endif
 static const f_smgr smgrsw[] = {
     /* magnetic disk */
     { mdinit,
@@ -150,7 +155,6 @@ static const f_smgr smgrsw[] = {
         NULL
     }
 };
-
 static const int NSmgr = lengthof(smgrsw);
 static void push_unlink_rel_one_fork_to_hashtbl(RelFileNode node, ForkNumber forkNum);
 
@@ -168,6 +172,12 @@ static inline int ChooseSmgrManager(const RelFileNode& rnode)
     return MD_MANAGER;
 }
 
+#ifdef ENABLE_NEON
+smgr_hook_type smgr_hook = NULL;
+smgr_init_hook_type smgr_init_hook = NULL;
+smgr_shutdown_hook_type smgr_shutdown_hook = NULL;
+slru_read_hook_type slru_read_hook = NULL;
+#endif
 
 /*
  *	smgrinit(), smgrshutdown() -- Initialize or shut down storage
@@ -177,6 +187,30 @@ static inline int ChooseSmgrManager(const RelFileNode& rnode)
  * case), *not* during postmaster start.  Therefore, any resources created
  * here or destroyed in smgrshutdown are backend-local.
  */
+#ifdef ENABLE_NEON
+void smgrinit(void)
+{
+    int i;
+    static bool shutdown_registered = false;
+
+    for (i = 0; i < NSmgr; i++) {
+        if (smgrsw[i].smgr_init) {
+            (*(smgrsw[i].smgr_init))();
+        }
+    }
+
+    /* register the shutdown proc - only once to avoid exhausting on_proc_exit slots */
+    if (!shutdown_registered && (!IS_THREAD_POOL_SESSION || EnableLocalSysCache())) {
+        on_proc_exit(smgrshutdown, 0);
+        shutdown_registered = true;
+    }
+
+    if (smgr_init_hook)
+        (*smgr_init_hook)();
+
+    InitSync();
+}
+#else
 void smgrinit(void)
 {
     int i;
@@ -194,6 +228,37 @@ void smgrinit(void)
 
     InitSync();
 }
+#endif
+
+#ifdef ENABLE_NEON
+const f_smgr* smgr_standard(BackendId backend, RelFileNode rnode)
+{
+    int which = ChooseSmgrManager(rnode);
+    return &smgrsw[which];
+}
+
+void smgr_init_standard(void)
+{
+    mdinit();
+}
+
+void smgr_shutdown_standard(void)
+{
+}
+
+const f_smgr* smgr(BackendId backend, RelFileNode rnode)
+{
+    const f_smgr *result;
+
+    if (smgr_hook) {
+        result = (*smgr_hook)(backend, rnode);
+    } else {
+        result = smgr_standard(backend, rnode);
+    }
+
+    return result;
+}
+#endif
 
 /*
  * on_proc_exit hook for smgr cleanup during backend shutdown
@@ -231,7 +296,11 @@ static int RelFileNodeBackendCompareWithoutOpt(const void* left, const void* rig
  *
  *      This does not attempt to actually open the underlying file.
  */
+#ifdef ENABLE_NEON
+SMgrRelation smgropen(const RelFileNode& rnode, BackendId backend, int col /* = 0 */, char relpersistence)
+#else
 SMgrRelation smgropen(const RelFileNode& rnode, BackendId backend, int col /* = 0 */)
+#endif
 {
     RelFileNodeBackend brnode;
     SMgrRelation reln;
@@ -296,6 +365,9 @@ SMgrRelation smgropen(const RelFileNode& rnode, BackendId backend, int col /* = 
             }
 
             reln->smgr_which = ChooseSmgrManager(rnode);
+#ifdef ENABLE_NEON
+            reln->smgr = smgr(backend, rnode);
+#endif
             /* used for undofile.c */
             reln->fileState = NULL;
 
@@ -359,6 +431,9 @@ SMgrRelation smgropen(const RelFileNode& rnode, BackendId backend, int col /* = 
         }
     }
     END_CRIT_SECTION();
+#ifdef ENABLE_NEON
+    reln->smgr_relpersistence = relpersistence;
+#endif
     return reln;
 }
 
@@ -421,7 +496,11 @@ bool smgrexists(SMgrRelation reln, ForkNumber forknum, BlockNumber blockNum)
     if (reln == NULL) {
         return false;
     }
+#ifdef ENABLE_NEON
+    return (*((*reln->smgr).smgr_exists))(reln, forknum, blockNum);
+#else
     return (*(smgrsw[reln->smgr_which].smgr_exists))(reln, forknum, blockNum);
+#endif
 }
 
 /*
@@ -450,7 +529,11 @@ void smgrclose(SMgrRelation reln, BlockNumber blockNum)
     }
 
     for (forknum = 0; forknum < max_forknum; forknum++) {
+#ifdef ENABLE_NEON
+        (*((*reln->smgr).smgr_close))(reln, (ForkNumber)forknum, blockNum);
+#else
         (*(smgrsw[reln->smgr_which].smgr_close))(reln, (ForkNumber)forknum, blockNum);
+#endif
     }
     owner = reln->smgr_owner;
 
@@ -581,11 +664,27 @@ void smgrcreate(SMgrRelation reln, ForkNumber forknum, bool isRedo)
      * should be here and not in commands/tablespace.c?  But that would imply
      * importing a lot of stuff that smgr.c oughtn't know, either.
      */
+#ifdef ENABLE_NEON
+    /*
+     * In neon_walredo process, we use inmem_smgr which doesn't require
+     * disk operations. Skip TablespaceCreateDbspace to avoid attempting
+     * to create directories on disk.
+     */
+    if (!t_thrd.xlog_cxt.am_wal_redo_postgres) {
     TablespaceCreateDbspace(reln->smgr_rnode.node.spcNode, 
                             reln->smgr_rnode.node.dbNode,
                             isRedo);
-
+    }
+#else
+    TablespaceCreateDbspace(reln->smgr_rnode.node.spcNode, 
+                            reln->smgr_rnode.node.dbNode,
+                            isRedo);
+#endif
+#ifdef ENABLE_NEON
+    (*((*reln->smgr).smgr_create))(reln, forknum, isRedo);
+#else
     (*(smgrsw[reln->smgr_which].smgr_create))(reln, forknum, isRedo);
+#endif
 }
 
 /*
@@ -726,7 +825,11 @@ void smgrdounlinkfork(SMgrRelation reln, ForkNumber forknum, bool isRedo)
 void smgrextend(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
                 char *buffer, bool skipFsync)
 {
+#ifdef ENABLE_NEON
+    (*((*reln->smgr).smgr_extend))(reln, forknum, blocknum, buffer, skipFsync);
+#else
     (*(smgrsw[reln->smgr_which].smgr_extend))(reln, forknum, blocknum, buffer, skipFsync);
+#endif
 }
 
 /*
@@ -734,7 +837,11 @@ void smgrextend(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
  */
 void smgrprefetch(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum)
 {
+#ifdef ENABLE_NEON
+    (*((*reln->smgr).smgr_prefetch))(reln, forknum, blocknum);
+#else
     (*(smgrsw[reln->smgr_which].smgr_prefetch))(reln, forknum, blocknum);
+#endif
 }
 
 /*
@@ -743,7 +850,11 @@ void smgrprefetch(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum)
  */
 void smgrasyncread(SMgrRelation reln, ForkNumber forknum, AioDispatchDesc_t **dList, int32 dn)
 {
+#ifdef ENABLE_NEON
+    (*((*reln->smgr).smgr_async_read))(reln, forknum, dList, dn);
+#else
     (*(smgrsw[reln->smgr_which].smgr_async_read))(reln, forknum, dList, dn);
+#endif
 }
 
 /*
@@ -752,12 +863,20 @@ void smgrasyncread(SMgrRelation reln, ForkNumber forknum, AioDispatchDesc_t **dL
  */
 void smgrasyncwrite(SMgrRelation reln, ForkNumber forknum, AioDispatchDesc_t **dList, int32 dn)
 {
+#ifdef ENABLE_NEON
+    (*((*reln->smgr).smgr_async_write))(reln, forknum, dList, dn);
+#else
     (*(smgrsw[reln->smgr_which].smgr_async_write))(reln, forknum, dList, dn);
+#endif
 }
 
 void smgrbulkread(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, int blockCount, char* buffer)
 {
+#ifdef ENABLE_NEON
+    (*((*reln->smgr).smgr_bulkread))(reln, forknum, blocknum, blockCount, buffer);
+#else
     (*(smgrsw[reln->smgr_which].smgr_bulkread))(reln, forknum, blocknum, blockCount, buffer);
+#endif
 }
 
 /*
@@ -769,7 +888,11 @@ void smgrbulkread(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, i
  */
 SMGR_READ_STATUS smgrread(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, char *buffer)
 {
+#ifdef ENABLE_NEON
+    return (*((*reln->smgr).smgr_read))(reln, forknum, blocknum, buffer);
+#else
     return (*(smgrsw[reln->smgr_which].smgr_read))(reln, forknum, blocknum, buffer);
+#endif
 }
 
 /*
@@ -789,7 +912,11 @@ SMGR_READ_STATUS smgrread(SMgrRelation reln, ForkNumber forknum, BlockNumber blo
  */
 void smgrwrite(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, const char *buffer, bool skipFsync)
 {
+#ifdef ENABLE_NEON
+    (*((*reln->smgr).smgr_write))(reln, forknum, blocknum, buffer, skipFsync);
+#else
     (*(smgrsw[reln->smgr_which].smgr_write))(reln, forknum, blocknum, buffer, skipFsync);
+#endif
 }
 
 /*
@@ -799,7 +926,11 @@ void smgrwrite(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, cons
 void smgrwriteback(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
                    BlockNumber nblocks, RelFileNode relNode)
 {
+#ifdef ENABLE_NEON
+    (*((*reln->smgr).smgr_writeback))(reln, forknum, blocknum, nblocks, relNode);
+#else
     (*(smgrsw[reln->smgr_which].smgr_writeback))(reln, forknum, blocknum, nblocks, relNode);
+#endif
 }
 
 /*
@@ -809,8 +940,11 @@ void smgrwriteback(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 BlockNumber smgrnblocks(SMgrRelation reln, ForkNumber forknum)
 {
     BlockNumber result = InvalidBlockNumber;
-
+#ifdef ENABLE_NEON
+    result = (*((*reln->smgr).smgr_nblocks))(reln, forknum);
+#else
     result = (*(smgrsw[reln->smgr_which].smgr_nblocks))(reln, forknum);
+#endif
     if (forknum == MAIN_FORKNUM) {
         reln->smgr_cached_nblocks = result;
     }
@@ -852,8 +986,11 @@ BlockNumber smgrtotalblocks(SMgrRelation reln, ForkNumber forknum)
 void smgrtruncatefunc(SMgrRelation reln, ForkNumber forknum, BlockNumber nblocks)
 {
     CacheInvalidateSmgr(reln->smgr_rnode);
-
+#ifdef ENABLE_NEON
+    (*((*reln->smgr).smgr_truncate))(reln, forknum, nblocks);
+#else
     (*(smgrsw[reln->smgr_which].smgr_truncate))(reln, forknum, nblocks);
+#endif
 }
 
 /*
@@ -918,7 +1055,11 @@ void smgrtruncate(SMgrRelation reln, ForkNumber forknum, BlockNumber nblocks)
  */
 void smgrimmedsync(SMgrRelation reln, ForkNumber forknum)
 {
+#ifdef ENABLE_NEON
+    (*((*reln->smgr).smgr_immedsync))(reln, forknum);
+#else
     (*(smgrsw[reln->smgr_which].smgr_immedsync))(reln, forknum);
+#endif
 }
 
 

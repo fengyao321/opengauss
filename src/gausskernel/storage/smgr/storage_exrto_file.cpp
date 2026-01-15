@@ -220,6 +220,16 @@ void exrto_init(void)
     if (EnableLocalSysCache()) {
         return;
     }
+#ifdef ENABLE_NEON
+    /*
+     * In neon_walredo process, exrto subsystem is not used.
+     * Skip initialization to avoid assertion failures when this
+     * function is called multiple times during walredo.
+     */
+    if (t_thrd.xlog_cxt.am_wal_redo_postgres) {
+        return;
+    }
+#endif
     Assert(u_sess->storage_cxt.exrto_standby_read_file_cxt == NULL);
     u_sess->storage_cxt.exrto_standby_read_file_cxt =
         AllocSetContextCreate(u_sess->top_mem_cxt, "ExrtoFileSmgr", ALLOCSET_DEFAULT_SIZES);
