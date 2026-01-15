@@ -160,6 +160,60 @@ typedef struct XLogReaderState XLogReaderState;
 typedef int (*XLogPageReadCB)(XLogReaderState* xlogreader, XLogRecPtr targetPagePtr, int reqLen,
     XLogRecPtr targetRecPtr, char* readBuf, TimeLineID* pageTLI, char* xlog_path);
 
+#ifdef ENABLE_NEON
+typedef void (*WALSegmentOpenCB) (XLogReaderState *xlogreader,
+        XLogSegNo nextSegNo,
+        TimeLineID *tli_p);
+
+typedef void (*WALSegmentCloseCB) (XLogReaderState *xlogreader);
+
+typedef struct XLogReaderRoutine
+{
+    /*
+     * Data input callback
+     *
+     * This callback shall read at least reqLen valid bytes of the xlog page
+     * starting at targetPagePtr, and store them in readBuf.  The callback
+     * shall return the number of bytes read (never more than XLOG_BLCKSZ), or
+     * -1 on failure.  The callback shall sleep, if necessary, to wait for the
+     * requested bytes to become available.  The callback will not be invoked
+     * again for the same page unless more than the returned number of bytes
+     * are needed.
+     *
+     * targetRecPtr is the position of the WAL record we're reading.  Usually
+     * it is equal to targetPagePtr + reqLen, but sometimes xlogreader needs
+     * to read and verify the page or segment header, before it reads the
+     * actual WAL record it's interested in.  In that case, targetRecPtr can
+     * be used to determine which timeline to read the page from.
+     *
+     * The callback shall set ->seg.ws_tli to the TLI of the file the page was
+     * read from.
+     */
+    XLogPageReadCB page_read;
+
+    /*
+     * Callback to open the specified WAL segment for reading.  ->seg.ws_file
+     * shall be set to the file descriptor of the opened segment.  In case of
+     * failure, an error shall be raised by the callback and it shall not
+     * return.
+     *
+     * "nextSegNo" is the number of the segment to be opened.
+     *
+     * "tli_p" is an input/output argument. WALRead() uses it to pass the
+     * timeline in which the new segment should be found, but the callback can
+     * use it to return the TLI that it actually opened.
+     */
+    WALSegmentOpenCB segment_open;
+
+    /*
+     * WAL segment close callback.  ->seg.ws_file shall be set to a negative
+     * number.
+     */
+    WALSegmentCloseCB segment_close;
+} XLogReaderRoutine;
+
+#define XL_ROUTINE(...) &(XLogReaderRoutine){__VA_ARGS__}
+#endif
 typedef struct {
     /* Is this block ref in use? */
     bool in_use;
@@ -232,6 +286,23 @@ typedef struct XLogRecord {
     /* XLogRecordBlockHeaders and XLogRecordDataHeader follow, no padding */
 } XLogRecord;
 
+#ifdef ENABLE_NEON
+/* WALOpenSegment represents a WAL segment being read. */
+typedef struct WALOpenSegment
+{
+    int            ws_file;        /* segment file descriptor */
+    XLogSegNo    ws_segno;        /* segment number */
+    TimeLineID    ws_tli;            /* timeline ID of the currently open file */
+} WALOpenSegment;
+
+/* WALSegmentContext carries context information about WAL segments to read */
+typedef struct WALSegmentContext
+{
+    char        ws_dir[MAXPGPATH];
+    int            ws_segsize;
+} WALSegmentContext;
+#endif
+
 struct XLogReaderState {
     /*
      * 
@@ -262,6 +333,27 @@ struct XLogReaderState {
      */
     XLogPageReadCB read_page;
 
+#ifdef ENABLE_NEON
+    /*
+     * Callback to open the specified WAL segment for reading.  ->seg.ws_file
+     * shall be set to the file descriptor of the opened segment.  In case of
+     * failure, an error shall be raised by the callback and it shall not
+     * return.
+     *
+     * "nextSegNo" is the number of the segment to be opened.
+     *
+     * "tli_p" is an input/output argument. WALRead() uses it to pass the
+     * timeline in which the new segment should be found, but the callback can
+     * use it to return the TLI that it actually opened.
+     */
+    WALSegmentOpenCB segment_open;
+
+    /*
+     * WAL segment close callback.  ->seg.ws_file shall be set to a negative
+     * number.
+     */
+    WALSegmentCloseCB segment_close;
+#endif
     /*
      * System identifier of the xlog files we're about to read.  Set to zero
      * (the default value) if unknown or unimportant.
@@ -315,6 +407,13 @@ struct XLogReaderState {
     char* readBuf;
     uint32 readLen;
     char* readBufOrigin;
+
+#ifdef ENABLE_NEON
+    /* last read XLOG position for data currently in readBuf */
+    WALSegmentContext segcxt;
+    WALOpenSegment seg;
+    uint32        segoff;
+#endif
 
     /* per-reading for dss */
     XLogRecPtr preReadStartPtr;

@@ -1191,6 +1191,7 @@ bool DecodeXLogRecord(XLogReaderState *state, XLogRecord *record, char **errorms
     }
 
     state->isDecode = true;
+
     return true;
 
 shortdata_err:
@@ -1227,10 +1228,12 @@ char *XLogRecGetBlockImage(XLogReaderState *record, uint8 block_id, uint16 *hole
 {
     DecodedBkpBlock *bkpb = NULL;
 
-    if (!record->blocks[block_id].in_use)
+    if (!record->blocks[block_id].in_use) {
         return NULL;
-    if (!record->blocks[block_id].has_image)
+    }
+    if (!record->blocks[block_id].has_image) {
         return NULL;
+    }
 
     bkpb = &record->blocks[block_id];
 

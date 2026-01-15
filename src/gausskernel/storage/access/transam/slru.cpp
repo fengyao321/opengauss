@@ -65,6 +65,9 @@
 #include "pgstat.h"
 #include "utils/builtins.h"
 #include "storage/file/fio_device.h"
+#ifdef ENABLE_NEON
+#include "storage/smgr/smgr.h"
+#endif /* ENABLE_NEON */
 
 /*
  * During SimpleLruFlush(), we will usually not need to write/fsync more
@@ -110,9 +113,18 @@ static inline int execSimpleLruReadPageReadOnly(SlruCtl ctl, int64 pageno, Trans
      * If enableBank, we only need to search the slots of target bank.
      * If not, we need to search all slots.
      */
+#ifdef ENABLE_NEON
+    volatile XLogCtlData *xlogctl = t_thrd.shemem_ptr_cxt.XLogCtl;
+    bool neonReplicaMode = (xlogctl != NULL && xlogctl->NeonReplicaMode);
+#endif /* ENABLE_NEON */
     for (slotno = bankstart; slotno < bankend; slotno++) {
         if (shared->page_number[slotno] == pageno && shared->page_status[slotno] != SLRU_PAGE_EMPTY &&
             shared->page_status[slotno] != SLRU_PAGE_READ_IN_PROGRESS) {
+#ifdef ENABLE_NEON
+            if (neonReplicaMode) {
+                break;  /* Go to exclusive lock path to re-read */
+            }
+#endif /* ENABLE_NEON */
             /* See comments for SlruRecentlyUsed macro */
             SlruRecentlyUsedFunc(shared, slotno);
             return slotno;
@@ -447,6 +459,21 @@ int SimpleLruReadPage(SlruCtl ctl, int64 pageno, bool write_ok, TransactionId xi
                 /* Now we must recheck state from the top */
                 continue;
             }
+#ifdef ENABLE_NEON
+            /*
+             * NEON REPLICA MODE:
+             * In Neon replica mode, we cannot trust cached SLRU pages because
+             * the primary may have committed new transactions that we don't know about.
+             * Force a re-read from pageserver to get the latest commit status.
+             */
+            volatile XLogCtlData *xlogctl = t_thrd.shemem_ptr_cxt.XLogCtl;
+            if (xlogctl != NULL && xlogctl->NeonReplicaMode) {
+                /* Mark page as empty to force re-read */
+                shared->page_status[slotno] = SLRU_PAGE_EMPTY;
+                shared->page_dirty[slotno] = false;
+                continue;
+            }
+#endif /* ENABLE_NEON */
             /* Otherwise, it's ready to use */
             SlruRecentlyUsedFunc(shared, slotno);
             return slotno;
@@ -710,14 +737,49 @@ static bool SlruPhysicalReadPage(SlruCtl ctl, int64 pageno, int slotno)
      * already-truncated segments of the commit log (see notes in
      * SlruPhysicalWritePage).	Hence, if we are t_thrd.xlog_cxt.InRecovery, allow the case
      * where the file doesn't exist, and return zeroes instead.
+     *
+     * In Neon mode, SLRU files may not exist in the basebackup, so also allow
+     * missing files and return zeroes.
      */
     fd = BasicOpenFile(path, O_RDWR | PG_BINARY, S_IRUSR | S_IWUSR);
     if (fd < 0) {
+#ifdef ENABLE_NEON
+        extern bool NeonRecoveryRequested;
+        if (errno != ENOENT || (!t_thrd.xlog_cxt.InRecovery && !NeonRecoveryRequested)) {
+#else
         if (errno != ENOENT || !t_thrd.xlog_cxt.InRecovery) {
+#endif /* ENABLE_NEON */
             t_thrd.xact_cxt.slru_errcause = SLRU_OPEN_FAILED;
             t_thrd.xact_cxt.slru_errno = errno;
             return false;
         }
+
+        /*
+         * In Neon mode, try to read the SLRU segment from pageserver using the hook.
+         * The hook reads the entire segment and we extract the specific page.
+         */
+#ifdef ENABLE_NEON
+        if (NeonRecoveryRequested && slru_read_hook != NULL) {
+            /* Allocate buffer for entire segment */
+            char *segment_buffer = (char *)palloc(SLRU_PAGES_PER_SEGMENT * BLCKSZ);
+            int n_blocks = slru_read_hook(path, segno, segment_buffer);
+            if (n_blocks > 0 && rpageno < n_blocks) {
+                /* Copy the requested page from segment buffer */
+                rc = memcpy_s(shared->page_buffer[slotno], BLCKSZ,
+                              segment_buffer + rpageno * BLCKSZ, BLCKSZ);
+                securec_check(rc, "\0", "\0");
+                pfree(segment_buffer);
+                return true;
+            } else if (n_blocks > 0 && rpageno >= n_blocks) {
+                /* Page beyond what's in the segment - zero it */
+                rc = memset_s(shared->page_buffer[slotno], BLCKSZ, 0, BLCKSZ);
+                securec_check(rc, "\0", "\0");
+                pfree(segment_buffer);
+                return true;
+            }
+            pfree(segment_buffer);
+        }
+#endif
 
         ereport(LOG, (errmodule(MOD_SLRU), errmsg("file \"%s\" doesn't exist, zero page %ld in buffer", path, pageno)));
         rc = memset_s(shared->page_buffer[slotno], BLCKSZ, 0, BLCKSZ);
@@ -766,7 +828,12 @@ static bool SlruPhysicalReadPage(SlruCtl ctl, int64 pageno, int slotno)
     pgstat_report_waitevent(WAIT_EVENT_SLRU_READ);
     if (pread(fd, shared->page_buffer[slotno], BLCKSZ, (off_t)offset) != BLCKSZ) {
         pgstat_report_waitevent(WAIT_EVENT_END);
+#ifdef ENABLE_NEON
+        extern bool NeonRecoveryRequested;
+        if (!t_thrd.xlog_cxt.InRecovery && !NeonRecoveryRequested) {
+#else
         if (!t_thrd.xlog_cxt.InRecovery) {
+#endif /* ENABLE_NEON */
             t_thrd.xact_cxt.slru_errcause = SLRU_READ_FAILED;
             t_thrd.xact_cxt.slru_errno = errno;
             (void)close(fd);
@@ -1037,7 +1104,6 @@ static void SlruReportIOError(SlruCtl ctl, int64 pageno, TransactionId xid)
             break;
     }
 }
-
 
 /*
  * Macro to mark a buffer slot "most recently used".  Note multiple evaluation

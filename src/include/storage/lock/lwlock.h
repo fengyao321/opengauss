@@ -318,6 +318,10 @@ enum BuiltinTrancheIds
      * Each trancheId above should have a corresponding item in BuiltinTrancheNames;
      */
     LWTRANCHE_NATIVE_TRANCHE_NUM,
+#ifdef ENABLE_NEON
+    LWTRANCHE_NEON_RELSIZE,
+    LWTRANCHE_NEON_LWLSN,
+#endif
     LWTRANCHE_UNKNOWN = 65535
 };
 
