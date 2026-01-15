@@ -2312,12 +2312,12 @@ void AtEOXact_PgStat(bool isCommit)
     if (xact_state != NULL) {
         PgStat_TableXactStatus* trans = NULL;
 
-        Assert(xact_state->nest_level == 1);
+        Assert(xact_state->nest_level == 1 || StreamThreadAmI());
         Assert(xact_state->prev == NULL);
         for (trans = xact_state->first; trans != NULL; trans = trans->next) {
             PgStat_TableStatus* tabstat = NULL;
 
-            Assert(trans->nest_level == 1);
+            Assert(trans->nest_level == 1 || StreamThreadAmI());
             Assert(trans->upper == NULL);
             tabstat = trans->parent;
             Assert(tabstat->trans == trans);
