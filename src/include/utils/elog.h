@@ -378,6 +378,19 @@ typedef struct FormatCallStack {
 #endif
 
 /* Only used in sprintf_s or scanf_s cluster function */
+#ifdef ENABLE_NEON
+#define securec_check_ss(errno, charList, ...)                                                                     \
+    {                                                                                                              \
+        if (unlikely(errno == -1)) {                                                                               \
+            freeSecurityFuncSpace(const_cast<char*>(charList), ##__VA_ARGS__);                                     \
+            elog(ERROR,                                                                                            \
+                "%s : %d : The destination buffer or format is a NULL pointer or the invalid parameter handle is " \
+                "invoked.",                                                                                        \
+                __FILE__,                                                                                          \
+                __LINE__);                                                                                         \
+        }                                                                                                          \
+    }
+#else
 #define securec_check_ss(errno, charList, ...)                                                                     \
     {                                                                                                              \
         if (unlikely(errno == -1)) {                                                                               \
@@ -389,6 +402,7 @@ typedef struct FormatCallStack {
                 __LINE__);                                                                                         \
         }                                                                                                          \
     }
+#endif
 
 /* ----------
  * API for catching ereport(ERROR) exits.  Use these macros like so:

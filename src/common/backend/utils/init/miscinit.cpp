@@ -73,6 +73,10 @@
 
 #define DIRECTORY_LOCK_FILE "postmaster.pid"
 
+#ifdef ENABLE_NEON
+BackendType MyBackendType;
+#endif
+
 #define INIT_SESSION_MAX_INT32_BUFF 20
 
 #define InvalidPid ((pid_t)(-1))
@@ -1832,6 +1836,9 @@ void AddToDataDirLockFile(int target_line, const char* str)
  */
 void ValidatePgVersion(const char* path)
 {
+#ifdef ENABLE_NEON
+        return;
+#endif
     char full_path[MAXPGPATH];
     FILE* file = NULL;
     int ret;
@@ -2186,3 +2193,40 @@ void initDSSConf(void)
     XLogSegmentSize = DSS_XLOG_SEG_SIZE;
     SetConfigOption("wal_segment_size", DSS_WAL_SEGMENT_SIZE_STR, PGC_INTERNAL, PGC_S_OVERRIDE);
 }
+
+#ifdef ENABLE_NEON
+#include "libpq/pqsignal.h"
+#include "access/datavec/pg_prng.h"
+void InitStandaloneProcess(const char * argv0)
+{
+    Assert(!IsPostmasterEnvironment);
+    ThreadId MyProcPid = gs_thread_self();
+    TimestampTz MyStartTimestamp = GetCurrentTimestamp();
+    pg_time_t MyStartTime = timestamptz_to_time_t(MyStartTimestamp);
+
+    uint64 rseed;
+
+    rseed = ((uint64) MyProcPid) ^
+        ((uint64) MyStartTimestamp << 12) ^
+        ((uint64) MyStartTimestamp >> 20);
+
+    pg_prng_seed(&pg_global_prng_state, rseed);
+
+#ifndef WIN32
+    srandom(pg_prng_uint32(&pg_global_prng_state));
+#endif
+
+    pqinitmask();
+    PG_SETMASK(&t_thrd.libpq_cxt.BlockSig);
+
+    /* Compute paths, no postmaster to inherit from */
+    if (my_exec_path[0] == '\0') {
+        if (find_my_exec(argv0, my_exec_path) < 0)
+            elog(FATAL, "%s: could not locate my own executable path",
+                 argv0);
+    }
+
+    if (t_thrd.proc_cxt.pkglib_path[0] == '\0')
+        get_pkglib_path(my_exec_path, t_thrd.proc_cxt.pkglib_path);
+}
+#endif

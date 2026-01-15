@@ -56,6 +56,10 @@
 #include "executor/exec/execdesc.h"
 #include "libpq/pqformat.h"
 
+#ifdef ENABLE_NEON
+BufferUsage pgBufferUsage;
+#endif
+
 extern const char* GetStreamType(Stream* node);
 extern void insert_obsscaninfo(
     uint64 queryid, const char* rel_name, int64 file_count, double scan_data_size, double total_time, int format);
