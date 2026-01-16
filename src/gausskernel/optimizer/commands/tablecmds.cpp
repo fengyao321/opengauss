@@ -2514,7 +2514,12 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
         hashbucket = std_opt->hashbucket;
         bucketcnt =  std_opt->bucketcnt;
         storage_type = (std_opt->segment == true) ? SEGMENT_PAGE : HEAP_DISK;
-
+#ifdef ENABLE_NEON
+        if (storage_type == SEGMENT_PAGE) {
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("segment-page storage is not supported in Neon branching")));
+        }
+#endif
         if (pg_strcasecmp(ORIENTATION_COLUMN, StdRdOptionsGetStringData(std_opt, orientation, ORIENTATION_ROW)) == 0) {
             orientedFrom = (Node*)makeString(ORIENTATION_COLUMN);
             storeChar = ORIENTATION_COLUMN;
