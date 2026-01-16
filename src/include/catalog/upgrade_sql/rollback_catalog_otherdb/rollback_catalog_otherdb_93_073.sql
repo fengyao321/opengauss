@@ -35,20 +35,20 @@ CREATE OR REPLACE VIEW referential_constraints AS
              AS character_data) AS delete_rule
 
     FROM (pg_namespace ncon
-          INNER JOIN pg_constraint con ON ncon.oid = con.connamespace
-          INNER JOIN pg_class c ON con.conrelid = c.oid AND con.contype = 'f')
-         LEFT JOIN pg_depend d1  -- find constraint's dependency on an index
+          INNER JOIN pg_catalog.pg_constraint con ON ncon.oid = con.connamespace
+          INNER JOIN pg_catalog.pg_class c ON con.conrelid = c.oid AND con.contype = 'f')
+         LEFT JOIN pg_catalog.pg_depend d1  -- find constraint's dependency on an index
           ON d1.objid = con.oid AND d1.classid = 'pg_constraint'::regclass
              AND d1.refclassid = 'pg_class'::regclass AND d1.refobjsubid = 0
-         LEFT JOIN pg_depend d2  -- find pkey/unique constraint for that index
+         LEFT JOIN pg_catalog.pg_depend d2  -- find pkey/unique constraint for that index
           ON d2.refclassid = 'pg_constraint'::regclass
              AND d2.classid = 'pg_class'::regclass
              AND d2.objid = d1.refobjid AND d2.objsubid = 0
              AND d2.deptype = 'i'
-         LEFT JOIN pg_constraint pkc ON pkc.oid = d2.refobjid
+         LEFT JOIN pg_catalog.pg_constraint pkc ON pkc.oid = d2.refobjid
             AND pkc.contype IN ('p', 'u')
             AND pkc.conrelid = con.confrelid
-         LEFT JOIN pg_namespace npkc ON pkc.connamespace = npkc.oid
+         LEFT JOIN pg_catalog.pg_namespace npkc ON pkc.connamespace = npkc.oid
 
     WHERE pg_catalog.pg_has_role(c.relowner, 'USAGE')
           -- SELECT privilege omitted, per SQL standard

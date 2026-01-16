@@ -9,7 +9,7 @@ CREATE VIEW pg_catalog.pg_publication_tables AS
          pg_catalog.pg_get_publication_tables(P.pubname) relid
          FROM pg_catalog.pg_publication P) gpt,
          pg_class C
-         JOIN pg_namespace N ON (N.oid = C.relnamespace)
+         JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.oid = gpt.relid;
 
 -- create query_node_reform_info_from_dms

@@ -140,9 +140,9 @@ CREATE OR REPLACE VIEW pg_catalog.pg_roles_v1 AS
         pgxc_group.group_name as nodegroup,
         roltempspace,
         rolspillspace
-    FROM pg_catalog.pg_authid LEFT JOIN pg_db_role_setting s
+    FROM pg_catalog.pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
     ON (pg_authid.oid = setrole AND setdatabase = 0)
-    LEFT JOIN pgxc_group
+    LEFT JOIN pg_catalog.pgxc_group
     ON (pg_authid.rolnodegroup = pgxc_group.oid);
 
 CREATE OR REPLACE VIEW pg_catalog.pg_user_v1 AS
@@ -163,9 +163,9 @@ CREATE OR REPLACE VIEW pg_catalog.pg_user_v1 AS
         pgxc_group.group_name AS nodegroup,
         roltempspace AS tempspacelimit,
         rolspillspace AS spillspacelimit
-    FROM pg_catalog.pg_authid LEFT JOIN pg_db_role_setting s
+    FROM pg_catalog.pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
     ON (pg_authid.oid = setrole AND setdatabase = 0)
-    LEFT JOIN pgxc_group
+    LEFT JOIN pg_catalog.pgxc_group
     ON (pg_authid.rolnodegroup = pgxc_group.oid)
     WHERE rolcanlogin;
 
@@ -186,7 +186,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_shadow_v1 AS
         setconfig AS useconfig,
         roltempspace AS tempspacelimit,
         rolspillspace AS spillspacelimit
-    FROM pg_catalog.pg_authid LEFT JOIN pg_db_role_setting s
+    FROM pg_catalog.pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
     ON (pg_authid.oid = setrole AND setdatabase = 0)
     WHERE rolcanlogin;
 
@@ -1040,8 +1040,8 @@ create view pg_catalog.gs_auditing_access as
             from pg_catalog.gs_auditing_policy_filters
             where p.Oid=policyoid) as filter_name
     from pg_catalog.gs_auditing_policy p
-        left join gs_auditing_policy_access a ON (a.policyoid=p.Oid)
-        left join gs_labels l ON (a.labelname=l.labelname)
+        left JOIN pg_catalog.gs_auditing_policy_access a ON (a.policyoid=p.Oid)
+        left JOIN pg_catalog.gs_labels l ON (a.labelname=l.labelname)
     where length(a.accesstype) > 0 order by 1,3;
 
 create view pg_catalog.gs_auditing_privilege as
@@ -1066,8 +1066,8 @@ create view pg_catalog.gs_auditing_privilege as
             from pg_catalog.gs_auditing_policy_filters
             where p.Oid=policyoid) as filter_name
         from pg_catalog.gs_auditing_policy p
-            left join gs_auditing_policy_privileges priv ON (priv.policyoid=p.Oid)
-            left join gs_labels l ON (priv.labelname=l.labelname)
+            left JOIN pg_catalog.gs_auditing_policy_privileges priv ON (priv.policyoid=p.Oid)
+            left JOIN pg_catalog.gs_labels l ON (priv.labelname=l.labelname)
         where length(priv.privilegetype) > 0 order by 1,3;
 
 create view pg_catalog.gs_auditing as
@@ -1171,7 +1171,7 @@ CASE l.fqdntype
     logicaloperator
     from pg_catalog.gs_masking_policy_filters
     where p.Oid=policyoid) as filter_name
-from pg_catalog.gs_masking_policy p join gs_masking_policy_actions a ON (p.Oid=a.policyoid ) join gs_labels l ON (a.actlabelname=l.labelname) WHERE l.fqdntype='column' or l.fqdntype='table' order by polname;
+from pg_catalog.gs_masking_policy p JOIN pg_catalog.gs_masking_policy_actions a ON (p.Oid=a.policyoid ) JOIN pg_catalog.gs_labels l ON (a.actlabelname=l.labelname) WHERE l.fqdntype='column' or l.fqdntype='table' order by polname;
 
 GRANT SELECT ON TABLE pg_catalog.gs_masking TO PUBLIC;
 
@@ -1581,8 +1581,8 @@ CREATE OR REPLACE VIEW pg_catalog.MY_JOBS AS
 			j.interval AS interval,
 			j.failure_count AS failures,
 			p.what AS what
-	FROM pg_catalog.pg_authid a JOIN pg_job j ON (a.rolname = j.log_user)
-	LEFT JOIN pg_job_proc p ON (j.job_id = p.job_id)
+	FROM pg_catalog.pg_authid a JOIN pg_catalog.pg_job j ON (a.rolname = j.log_user)
+	LEFT JOIN pg_catalog.pg_job_proc p ON (j.job_id = p.job_id)
 	WHERE a.rolname = current_user;
 
 GRANT SELECT ON MY_JOBS TO public;
@@ -1595,7 +1595,7 @@ CREATE OR REPLACE VIEW pg_catalog.DV_SESSIONS AS
 		sa.usesysid AS USER#,
 		ad.rolname AS USERNAME
 	FROM pg_catalog.pg_stat_get_activity(NULL) AS sa
-	LEFT JOIN pg_authid ad ON(sa.usesysid = ad.oid)
+	LEFT JOIN pg_catalog.pg_authid ad ON(sa.usesysid = ad.oid)
 	WHERE sa.application_name <> 'JobScheduler';
 
 
@@ -2217,7 +2217,7 @@ CREATE OPERATOR CLASS byteawithoutorderwithequalcol_ops DEFAULT
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0, 0, 0, 0;
 
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0, 0, 0, 3236;
-UPDATE pg_index SET indisunique = false WHERE indexrelid = 3234;
+UPDATE pg_catalog.pg_index SET indisunique = false WHERE indexrelid = 3234;
 CREATE INDEX streaming_cont_query_schema_change_index ON pg_catalog.streaming_cont_query USING BTREE(matrelid oid_ops, active bool_ops);
 
 -- 1. create system relation streaming_reaper_status and its indexes.
@@ -2332,7 +2332,7 @@ DECLARE
     dist_type text;
     BEGIN
         -- make sure not to affect the logic for non-range/list distribution tables
-        EXECUTE immediate 'select a.pclocatortype from (pgxc_class a join pg_class b on a.pcrelid = b.oid join pg_namespace c on c.oid = b.relnamespace)
+        EXECUTE immediate 'select a.pclocatortype from (pgxc_class a JOIN pg_catalog.pg_class b on a.pcrelid = b.oid JOIN pg_catalog.pg_namespace c on c.oid = b.relnamespace)
                             where b.relname = quote_ident(:1) and c.nspname in (select unnest(current_schemas(false)))' into dist_type using table_name;
         if dist_type <> 'G' and dist_type <> 'L' then
             dist_type = 'H'; -- dist type used to be hardcoded as 'H'

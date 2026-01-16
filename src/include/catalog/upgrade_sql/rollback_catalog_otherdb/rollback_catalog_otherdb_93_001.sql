@@ -2,7 +2,7 @@ SET search_path TO information_schema;
 
 BEGIN
 IF working_version_num() > 92923 THEN
-UPDATE pg_class
+UPDATE pg_catalog.pg_class
 set reloptions = (CASE WHEN array_length(array_remove(reloptions, 'segment=on'), 1) = 0
                      then NULL
                      else array_remove(reloptions, 'segment=on')
@@ -138,12 +138,12 @@ CREATE OR REPLACE VIEW columns AS
                           OR (c.relkind in ('v', 'f') AND pg_column_is_updatable(c.oid, a.attnum, false))
                 THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_updatable
 
-    FROM (pg_attribute a LEFT JOIN pg_attrdef ad ON attrelid = adrelid AND attnum = adnum)
-         JOIN (pg_class c JOIN pg_namespace nc ON (c.relnamespace = nc.oid)) ON a.attrelid = c.oid
-         JOIN (pg_type t JOIN pg_namespace nt ON (t.typnamespace = nt.oid)) ON a.atttypid = t.oid
-         LEFT JOIN (pg_type bt JOIN pg_namespace nbt ON (bt.typnamespace = nbt.oid))
+    FROM (pg_attribute a LEFT JOIN pg_catalog.pg_attrdef ad ON attrelid = adrelid AND attnum = adnum)
+         JOIN (pg_class c JOIN pg_catalog.pg_namespace nc ON (c.relnamespace = nc.oid)) ON a.attrelid = c.oid
+         JOIN (pg_type t JOIN pg_catalog.pg_namespace nt ON (t.typnamespace = nt.oid)) ON a.atttypid = t.oid
+         LEFT JOIN (pg_type bt JOIN pg_catalog.pg_namespace nbt ON (bt.typnamespace = nbt.oid))
            ON (t.typtype = 'd' AND t.typbasetype = bt.oid)
-         LEFT JOIN (pg_collation co JOIN pg_namespace nco ON (co.collnamespace = nco.oid))
+         LEFT JOIN (pg_collation co JOIN pg_catalog.pg_namespace nco ON (co.collnamespace = nco.oid))
            ON a.attcollation = co.oid AND (nco.nspname, co.collname) <> ('pg_catalog', 'default')
 
     WHERE (NOT pg_catalog.pg_is_other_temp_schema(nc.oid))
@@ -251,7 +251,7 @@ CREATE VIEW information_schema.element_types AS
            FROM pg_proc p
 
          ) AS x (objschema, objname, objtype, objdtdid, objtypeid, objcollation)
-         LEFT JOIN (pg_collation co JOIN pg_namespace nco ON (co.collnamespace = nco.oid))
+         LEFT JOIN (pg_collation co JOIN pg_catalog.pg_namespace nco ON (co.collnamespace = nco.oid))
            ON x.objcollation = co.oid AND (nco.nspname, co.collname) <> ('pg_catalog', 'default')
 
     WHERE n.oid = x.objschema

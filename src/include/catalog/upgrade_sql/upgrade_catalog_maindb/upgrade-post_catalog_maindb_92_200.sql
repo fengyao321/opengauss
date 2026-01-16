@@ -5487,7 +5487,7 @@ BEGIN
     SELECT text(oid) FROM pg_catalog.pg_authid WHERE rolname=SESSION_USER INTO user_id;
     SELECT SESSION_USER INTO user_name;
     SELECT CURRENT_DATABASE() INTO db_name;
-    SELECT pg_backend_pid() INTO mybackendid;
+    SELECT pg_catalog.pg_backend_pid() INTO mybackendid;
     curSessionFound = false;
     IF flag = true THEN
         SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo, split_part(thread_id,''@'',1) backendid FROM pg_catalog.pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE
@@ -5661,7 +5661,7 @@ BEGIN
     SELECT text(oid) FROM pg_catalog.pg_authid WHERE rolname=SESSION_USER INTO user_id;
     SELECT SESSION_USER INTO user_name;
     SELECT CURRENT_DATABASE() INTO db_name;
-    SELECT pg_backend_pid() INTO mybackendid;
+    SELECT pg_catalog.pg_backend_pid() INTO mybackendid;
     curSessionFound = false;
     IF flag = true THEN
         SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo, split_part(thread_id,''@'',1) backendid FROM pg_catalog.pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE
@@ -6001,7 +6001,7 @@ DECLARE
                 query_str := 'SELECT * FROM pg_catalog.pg_stat_get_wlm_session_info(1)';
 
                 IF flag > 0 THEN
-                        EXECUTE 'INSERT INTO gs_wlm_session_query_info_all ' || query_str;
+                        EXECUTE 'INSERT INTO pg_catalog.gs_wlm_session_query_info_all ' || query_str;
                 ELSE
                         EXECUTE query_str;
                 END IF;
@@ -6279,7 +6279,7 @@ BEGIN
     SELECT text(oid) FROM pg_catalog.pg_authid WHERE rolname=SESSION_USER INTO user_id;
     SELECT SESSION_USER INTO user_name;
     SELECT CURRENT_DATABASE() INTO db_name;
-    SELECT pg_backend_pid() INTO mybackendid;
+    SELECT pg_catalog.pg_backend_pid() INTO mybackendid;
     curSessionFound = false;
     IF flag = true THEN
         SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo, split_part(thread_id,''@'',1) backendid FROM pg_catalog.pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE
@@ -6424,8 +6424,8 @@ DECLARE
         query_str := 'SELECT * FROM pg_catalog.pg_stat_get_wlm_operator_info(1)';
 
         IF flag > 0 THEN
-            EXECUTE 'INSERT INTO gs_wlm_ec_operator_info ' || query_ec_str;
-            EXECUTE 'INSERT INTO gs_wlm_operator_info ' || query_str;
+            EXECUTE 'INSERT INTO pg_catalog.gs_wlm_ec_operator_info ' || query_ec_str;
+            EXECUTE 'INSERT INTO pg_catalog.gs_wlm_operator_info ' || query_str;
         ELSE
             EXECUTE query_ec_str;
             EXECUTE query_str;

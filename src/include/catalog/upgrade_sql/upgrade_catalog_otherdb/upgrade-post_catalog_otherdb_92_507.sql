@@ -522,20 +522,20 @@ CREATE OPERATOR pg_catalog./ (
     PROCEDURE = int16div
 );
 
-UPDATE pg_operator SET oprnegate = 6001 WHERE oid = 6000;
-UPDATE pg_operator SET oprnegate = 6000 WHERE oid = 6001;
-UPDATE pg_operator SET oprnegate = 6005 WHERE oid = 6002;
-UPDATE pg_operator SET oprnegate = 6004 WHERE oid = 6003;
-UPDATE pg_operator SET oprnegate = 6003 WHERE oid = 6004;
-UPDATE pg_operator SET oprnegate = 6002 WHERE oid = 6005;
-UPDATE pg_operator SET oprcom = 6000 WHERE oid = 6000;
-UPDATE pg_operator SET oprcom = 6001 WHERE oid = 6001;
-UPDATE pg_operator SET oprcom = 6004 WHERE oid = 6002;
-UPDATE pg_operator SET oprcom = 6005 WHERE oid = 6003;
-UPDATE pg_operator SET oprcom = 6002 WHERE oid = 6004;
-UPDATE pg_operator SET oprcom = 6003 WHERE oid = 6005;
-UPDATE pg_operator SET oprcom = 6006 WHERE oid = 6006;
-UPDATE pg_operator SET oprcom = 6008 WHERE oid = 6008;
+UPDATE pg_catalog.pg_operator SET oprnegate = 6001 WHERE oid = 6000;
+UPDATE pg_catalog.pg_operator SET oprnegate = 6000 WHERE oid = 6001;
+UPDATE pg_catalog.pg_operator SET oprnegate = 6005 WHERE oid = 6002;
+UPDATE pg_catalog.pg_operator SET oprnegate = 6004 WHERE oid = 6003;
+UPDATE pg_catalog.pg_operator SET oprnegate = 6003 WHERE oid = 6004;
+UPDATE pg_catalog.pg_operator SET oprnegate = 6002 WHERE oid = 6005;
+UPDATE pg_catalog.pg_operator SET oprcom = 6000 WHERE oid = 6000;
+UPDATE pg_catalog.pg_operator SET oprcom = 6001 WHERE oid = 6001;
+UPDATE pg_catalog.pg_operator SET oprcom = 6004 WHERE oid = 6002;
+UPDATE pg_catalog.pg_operator SET oprcom = 6005 WHERE oid = 6003;
+UPDATE pg_catalog.pg_operator SET oprcom = 6002 WHERE oid = 6004;
+UPDATE pg_catalog.pg_operator SET oprcom = 6003 WHERE oid = 6005;
+UPDATE pg_catalog.pg_operator SET oprcom = 6006 WHERE oid = 6006;
+UPDATE pg_catalog.pg_operator SET oprcom = 6008 WHERE oid = 6008;
 
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0, 0, 0, 0;
 
@@ -549,7 +549,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_gtt_attached_pids WITH (security_barrier) A
     array(select pid from pg_catalog.pg_gtt_attached_pid(c.oid)) AS pids
  FROM
      pg_class c
-     LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
  WHERE c.relpersistence='g' AND c.relkind in('r', 'S', 'L');
 
 CREATE OR REPLACE VIEW pg_catalog.pg_seclabels AS
@@ -569,8 +569,8 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
-	JOIN pg_namespace nsp ON rel.relnamespace = nsp.oid
+	JOIN pg_catalog.pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
+	JOIN pg_catalog.pg_namespace nsp ON rel.relnamespace = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -585,10 +585,10 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
-	JOIN pg_attribute att
+	JOIN pg_catalog.pg_class rel ON l.classoid = rel.tableoid AND l.objoid = rel.oid
+	JOIN pg_catalog.pg_attribute att
 	     ON rel.oid = att.attrelid AND l.objsubid = att.attnum
-	JOIN pg_namespace nsp ON rel.relnamespace = nsp.oid
+	JOIN pg_catalog.pg_namespace nsp ON rel.relnamespace = nsp.oid
 WHERE
 	l.objsubid != 0
 UNION ALL
@@ -605,8 +605,8 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_proc pro ON l.classoid = pro.tableoid AND l.objoid = pro.oid
-	JOIN pg_namespace nsp ON pro.pronamespace = nsp.oid
+	JOIN pg_catalog.pg_proc pro ON l.classoid = pro.tableoid AND l.objoid = pro.oid
+	JOIN pg_catalog.pg_namespace nsp ON pro.pronamespace = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -622,8 +622,8 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_type typ ON l.classoid = typ.tableoid AND l.objoid = typ.oid
-	JOIN pg_namespace nsp ON typ.typnamespace = nsp.oid
+	JOIN pg_catalog.pg_type typ ON l.classoid = typ.tableoid AND l.objoid = typ.oid
+	JOIN pg_catalog.pg_namespace nsp ON typ.typnamespace = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -635,7 +635,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_largeobject_metadata lom ON l.objoid = lom.oid
+	JOIN pg_catalog.pg_largeobject_metadata lom ON l.objoid = lom.oid
 WHERE
 	l.classoid = 'pg_catalog.pg_largeobject'::regclass AND l.objsubid = 0
 UNION ALL
@@ -647,7 +647,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_language lan ON l.classoid = lan.tableoid AND l.objoid = lan.oid
+	JOIN pg_catalog.pg_language lan ON l.classoid = lan.tableoid AND l.objoid = lan.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -659,7 +659,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_seclabel l
-	JOIN pg_namespace nsp ON l.classoid = nsp.tableoid AND l.objoid = nsp.oid
+	JOIN pg_catalog.pg_namespace nsp ON l.classoid = nsp.tableoid AND l.objoid = nsp.oid
 WHERE
 	l.objsubid = 0
 UNION ALL
@@ -671,7 +671,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_shseclabel l
-	JOIN pg_database dat ON l.classoid = dat.tableoid AND l.objoid = dat.oid
+	JOIN pg_catalog.pg_database dat ON l.classoid = dat.tableoid AND l.objoid = dat.oid
 UNION ALL
 SELECT
 	l.objoid, l.classoid, 0::int4 AS objsubid,
@@ -681,7 +681,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_shseclabel l
-	JOIN pg_tablespace spc ON l.classoid = spc.tableoid AND l.objoid = spc.oid
+	JOIN pg_catalog.pg_tablespace spc ON l.classoid = spc.tableoid AND l.objoid = spc.oid
 UNION ALL
 SELECT
 	l.objoid, l.classoid, 0::int4 AS objsubid,
@@ -691,7 +691,7 @@ SELECT
 	l.provider, l.label
 FROM
 	pg_shseclabel l
-	JOIN pg_authid rol ON l.classoid = rol.tableoid AND l.objoid = rol.oid;
+	JOIN pg_catalog.pg_authid rol ON l.classoid = rol.tableoid AND l.objoid = rol.oid;
 GRANT SELECT ON pg_catalog.pg_seclabels TO PUBLIC;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_statio_all_sequences AS
@@ -703,7 +703,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_statio_all_sequences AS
                     pg_stat_get_blocks_hit(C.oid) AS blks_read,
             pg_stat_get_blocks_hit(C.oid) AS blks_hit
     FROM pg_catalog.pg_class C
-            LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+            LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind = 'S' or C.relkind = 'L';
 GRANT SELECT ON pg_catalog.pg_statio_all_sequences TO PUBLIC;
 
@@ -1051,7 +1051,7 @@ CREATE OR REPLACE VIEW dbe_perf.statio_all_sequences AS
     pg_stat_get_blocks_hit(C.oid) AS blks_read,
     pg_stat_get_blocks_hit(C.oid) AS blks_hit
   FROM pg_catalog.pg_class C
-       LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+       LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind = 'S' or C.relkind = 'L';
 
 SET search_path = information_schema;
@@ -2921,7 +2921,7 @@ begin
         tmp := substr(tmp,2);
         ansvec := tmp::oidvector;
         RAISE INFO ' %' ,ansvec;
-        update pg_proc set allargtypes = coalesce(ansvec, proargtypes) where oid=aa;
+        update pg_catalog.pg_proc set allargtypes = coalesce(ansvec, proargtypes) where oid=aa;
    end loop;
 end;
 /
@@ -3119,11 +3119,11 @@ declare
 begin
     -- FUNC_MAX_ARGS_INROW = 666
     -- only in param
-    update pg_proc set allargtypesext = proargtypesext 
+    update pg_catalog.pg_proc set allargtypesext = proargtypesext 
         where proallargtypes is null and pronargs > 666;
 
     -- include out param
-    update pg_proc set allargtypesext = proallargtypes 
+    update pg_catalog.pg_proc set allargtypesext = proallargtypes 
         where proallargtypes is not null and array_length(proallargtypes, 1) > 666;
 
     -- update allargtypes
@@ -3146,7 +3146,7 @@ begin
         end loop;
         tmpstr2 := substr(tmpstr2,2);
         ansvec := tmpstr2::oidvector;
-        update pg_proc set allargtypes = ansvec where oid = i;
+        update pg_catalog.pg_proc set allargtypes = ansvec where oid = i;
     end loop;
 end;
 DROP FUNCTION IF EXISTS pg_catalog.nlssort(text, text) CASCADE;

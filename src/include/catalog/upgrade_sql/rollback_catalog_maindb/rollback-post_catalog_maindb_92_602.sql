@@ -163,7 +163,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
 			S.datname AS dbname,
 			S.backend_start,
 			S.query
-	FROM pg_catalog.pg_pool_validate(false, ' ') AS C LEFT JOIN pg_stat_activity AS S
+	FROM pg_catalog.pg_pool_validate(false, ' ') AS C LEFT JOIN pg_catalog.pg_stat_activity AS S
 			ON (C.pid = S.sessionid);
 
 DROP FUNCTION IF EXISTS pg_catalog.pg_stat_get_wlm_session_iostat_info(integer) cascade;
@@ -966,7 +966,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_get_invalid_backends AS
 			S.datname AS dbname,
 			S.backend_start,
 			S.query
-	FROM pg_catalog.pg_pool_validate(false, ' ') AS C LEFT JOIN pg_stat_activity AS S
+	FROM pg_catalog.pg_pool_validate(false, ' ') AS C LEFT JOIN pg_catalog.pg_stat_activity AS S
 			ON (C.pid = S.sessionid);
 
 DROP FUNCTION IF EXISTS pg_catalog.pg_stat_get_wlm_session_iostat_info(integer) cascade;
@@ -2190,7 +2190,7 @@ BEGIN
     SELECT text(oid) FROM pg_catalog.pg_authid WHERE rolname=SESSION_USER INTO user_id;
     SELECT SESSION_USER INTO user_name;
     SELECT CURRENT_DATABASE() INTO db_name;
-    SELECT pg_backend_pid() INTO mybackendid;
+    SELECT pg_catalog.pg_backend_pid() INTO mybackendid;
     curSessionFound = false;    
     IF flag = true THEN 
         SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo, split_part(thread_id,''@'',1) backendid FROM pg_catalog.pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE 

@@ -49,7 +49,7 @@ BEGIN
 END
 $do$;
 
-update pg_index set indisunique=false where indexrelid=9666;
+update pg_catalog.pg_index set indisunique=false where indexrelid=9666;
 DROP FUNCTION IF EXISTS pg_catalog.gs_get_shared_memctx_detail() cascade;
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_PROC, 5255;
 CREATE OR REPLACE FUNCTION pg_catalog.gs_get_shared_memctx_detail(

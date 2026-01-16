@@ -11,10 +11,10 @@ WITH index_raw AS (
         am.amname
     FROM
         pg_index i
-        JOIN pg_class c ON c.oid = i.indexrelid
-        JOIN pg_class tc ON tc.oid = i.indrelid
-        JOIN pg_namespace n ON n.oid = tc.relnamespace
-        JOIN pg_am am ON am.oid = c.relam
+        JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
+        JOIN pg_catalog.pg_class tc ON tc.oid = i.indrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid = tc.relnamespace
+        JOIN pg_catalog.pg_am am ON am.oid = c.relam
 ),
 overlap AS (
     SELECT
@@ -58,7 +58,7 @@ SELECT
 FROM
     index_raw i
     LEFT JOIN overlap o ON i.indexrelid = o.indexrelid
-    LEFT JOIN pg_stat_all_indexes s ON s.indexrelid = i.indexrelid;
+    LEFT JOIN pg_catalog.pg_stat_all_indexes s ON s.indexrelid = i.indexrelid;
 
 CREATE OR REPLACE VIEW DBE_PERF.pg_indexes_verbose AS
 WITH index_raw AS (
@@ -73,10 +73,10 @@ WITH index_raw AS (
         am.amname
     FROM
         pg_index i
-        JOIN pg_class c ON c.oid = i.indexrelid
-        JOIN pg_class tc ON tc.oid = i.indrelid
-        JOIN pg_namespace n ON n.oid = tc.relnamespace
-        JOIN pg_am am ON am.oid = c.relam
+        JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
+        JOIN pg_catalog.pg_class tc ON tc.oid = i.indrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid = tc.relnamespace
+        JOIN pg_catalog.pg_am am ON am.oid = c.relam
 ),
 overlap AS (
     SELECT
@@ -114,7 +114,7 @@ SELECT
 FROM
     index_raw i
     LEFT JOIN overlap o ON i.indexrelid = o.indexrelid
-    LEFT JOIN pg_stat_all_indexes s ON s.indexrelid = i.indexrelid
+    LEFT JOIN pg_catalog.pg_stat_all_indexes s ON s.indexrelid = i.indexrelid
 WHERE
     i.schemaname <> 'pg_catalog'
     and i.schemaname <> 'db4ai'

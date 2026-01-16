@@ -1,6 +1,6 @@
 --rollback INDEX
-update pg_index set indisunique=true where indexrelid=3486;
-update pg_index set indisunique=true where indexrelid=3487;
+update pg_catalog.pg_index set indisunique=true where indexrelid=3486;
+update pg_catalog.pg_index set indisunique=true where indexrelid=3487;
 
 --rollback TYPE
 DROP TYPE IF EXISTS pg_catalog.event_trigger;
