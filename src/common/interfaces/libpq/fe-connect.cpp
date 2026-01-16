@@ -265,6 +265,7 @@ static const PQconninfoOption PQconninfoOptions[] = {
         DefaultTargetSessionAttrs, NULL,
         "Target-Session-Attrs", "", 15, /* sizeof("prefer-standby") = 15 */
         offsetof(struct pg_conn, target_session_attrs)},
+    {"force_no_truncation", NULL, "0", NULL, "Force param values to have no truncation in text format", "", 1, 0},
 
     /* Terminating entry --- MUST BE LAST */
     {NULL, NULL, NULL, NULL, NULL, NULL, 0, 0}};
@@ -992,6 +993,15 @@ static void fillPGconn(PGconn* conn, PQconninfoOption* connOptions)
         conn->client_logic->enable_client_encryption = false;
     }
 #endif
+    tmp = conninfo_getval(connOptions, "force_no_truncation");
+    conn->force_no_truncation = false;
+    if (tmp != NULL) {
+        if (strcmp(tmp, "1") == 0) {
+            conn->force_no_truncation = true;
+        } else {
+            conn->force_no_truncation = false;
+        }
+    }
 }
 
 /*

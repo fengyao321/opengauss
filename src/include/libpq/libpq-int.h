@@ -562,6 +562,8 @@ struct pg_conn {
 #ifdef HAVE_CE
     PGClientLogic* client_logic;
 #endif
+    /* force param values to have no truncation in text format */
+    bool force_no_truncation;
 };
 
 /* PGcancel stores all data necessary to cancel a connection. A copy of this

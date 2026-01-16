@@ -1698,6 +1698,15 @@ static int PQsendQueryGuts(PGconn* conn, const char* command, const char* stmtNa
                         &conn->errorMessage, libpq_gettext("length must be given for binary parameter\n"));
                     goto sendFailed;
                 }
+            } else if (conn->force_no_truncation) {
+                if (paramLengths != NULL) {
+                    nbytes = paramLengths[i];
+                } else {
+                    printfPQExpBuffer(
+                        &conn->errorMessage, libpq_gettext(
+                            "length must be given when force_no_truncation is true\n"));
+                    goto sendFailed;
+                }
             } else {
                 /* text parameter, do not use paramLengths */
                 nbytes = strlen(paramValues[i]);
@@ -1784,6 +1793,15 @@ static bool PQsendEachTupleParam(PGconn* conn, int nParams, int nBatchCount, con
                     } else {
                         printfPQExpBuffer(
                             &conn->errorMessage, libpq_gettext("length must be given for binary parameter\n"));
+                        return false;
+                    }
+                } else if (conn->force_no_truncation) {
+                    if (paramLengths != NULL) {
+                        nbytes = paramLengths[tuple * nParams + i];
+                    } else {
+                        printfPQExpBuffer(
+                            &conn->errorMessage, libpq_gettext(
+                                "length must be given when force_no_truncation is true\n"));
                         return false;
                     }
                 } else {
