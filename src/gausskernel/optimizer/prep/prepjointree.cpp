@@ -3870,6 +3870,13 @@ static bool is_safe_pull_up_sublink_having(PlannerInfo* root)
         return false;
     }
 
+    // targetList should not contain sublink
+    sublinkList = pull_sublink((Node*)root->parse->targetList, 0, false, false);
+    if (sublinkList != NIL) {
+        list_free(sublinkList);
+        return false;
+    }
+
     // expr args should be agg and sublink
     foreach(lc, expr->args)
     {

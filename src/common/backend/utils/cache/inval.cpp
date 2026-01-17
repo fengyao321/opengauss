@@ -995,12 +995,14 @@ static void MakeSharedInvalidMessagesArray(const SharedInvalidationMessage* msgs
     }
 
     if ((inval_cxt->numSharedInvalidMessagesArray + n) > inval_cxt->maxSharedInvalidMessagesArray) {
-        while ((inval_cxt->numSharedInvalidMessagesArray + n) > inval_cxt->maxSharedInvalidMessagesArray)
-            inval_cxt->maxSharedInvalidMessagesArray *= 2;
+        int maxSharedInvalidMessagesArray = inval_cxt->maxSharedInvalidMessagesArray;
+        while ((inval_cxt->numSharedInvalidMessagesArray + n) > maxSharedInvalidMessagesArray) {
+            maxSharedInvalidMessagesArray *= 2;
+        }
 
-        inval_cxt->SharedInvalidMessagesArray =
-            (SharedInvalidationMessage*)repalloc(inval_cxt->SharedInvalidMessagesArray,
-                inval_cxt->maxSharedInvalidMessagesArray * sizeof(SharedInvalidationMessage));
+        inval_cxt->SharedInvalidMessagesArray = (SharedInvalidationMessage*)repalloc(
+            inval_cxt->SharedInvalidMessagesArray, maxSharedInvalidMessagesArray * sizeof(SharedInvalidationMessage));
+        inval_cxt->maxSharedInvalidMessagesArray = maxSharedInvalidMessagesArray;
     }
 
     /*
