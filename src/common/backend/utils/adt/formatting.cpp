@@ -7819,7 +7819,9 @@ Datum to_timestamp_with_fmt_nls(PG_FUNCTION_ARGS)
     int tz = 0;
 
     if (nls_fmt) {
+        MemoryContext oldContext = MemoryContextSwitchTo(fcinfo->flinfo->fn_mcxt);
         u_sess->parser_cxt.nls_fmt_str = pg_strtoupper(text_to_cstring(nls_fmt));
+        MemoryContextSwitchTo(oldContext);
     }
     struct pg_tm tm;
     fsec_t fsec = 0;
