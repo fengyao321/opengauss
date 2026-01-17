@@ -335,6 +335,11 @@ void SetRelationIsScannable(Relation relation)
 
     PageInit(page, BLCKSZ, 0, true);
     PageSetChecksumInplace(page, 0);
+#ifdef ENABLE_NEON
+    if (XLogIsNeeded() && RelationNeedsWAL(relation)) {
+        log_newpage(&relation->rd_node, MAIN_FORKNUM, 0, page, true);
+    }
+#endif
     smgrextend(relation->rd_smgr, MAIN_FORKNUM, 0, (char *) page, true);
 
     if (ENABLE_DSS) {
