@@ -10,7 +10,7 @@ begin
     if have_column = false then
         DROP INDEX IF EXISTS pg_catalog.pg_proc_proname_all_args_nsp_index;
     else
-        update pg_index set indisunique=true where indexrelid=9666;
+        update pg_catalog.pg_index set indisunique=true where indexrelid=9666;
     end if;
 end;
 DROP INDEX IF EXISTS pg_catalog.gs_uid_relid_index;

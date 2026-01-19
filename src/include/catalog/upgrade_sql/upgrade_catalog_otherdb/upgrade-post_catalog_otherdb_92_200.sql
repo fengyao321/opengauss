@@ -28,9 +28,9 @@ CREATE OR REPLACE VIEW pg_catalog.pg_roles AS
         rolmonitoradmin,
         roloperatoradmin,
         rolpolicyadmin
-    FROM pg_catalog.pg_authid LEFT JOIN pg_db_role_setting s
+    FROM pg_catalog.pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
     ON (pg_authid.oid = setrole AND setdatabase = 0)
-    LEFT JOIN pgxc_group
+    LEFT JOIN pg_catalog.pgxc_group
     ON (pg_authid.rolnodegroup = pgxc_group.oid);
 
 GRANT SELECT ON TABLE pg_catalog.pg_roles TO PUBLIC;
@@ -57,9 +57,9 @@ CREATE OR REPLACE VIEW pg_catalog.pg_user AS
         rolmonitoradmin AS usemonitoradmin,
         roloperatoradmin AS useoperatoradmin,
         rolpolicyadmin AS usepolicyadmin
-    FROM pg_catalog.pg_authid LEFT JOIN pg_db_role_setting s
+    FROM pg_catalog.pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
     ON (pg_authid.oid = setrole AND setdatabase = 0)
-    LEFT JOIN pgxc_group
+    LEFT JOIN pg_catalog.pgxc_group
     ON (pg_authid.rolnodegroup = pgxc_group.oid)
     WHERE rolcanlogin;
 
@@ -86,7 +86,7 @@ CREATE OR REPLACE VIEW pg_catalog.pg_shadow AS
         rolmonitoradmin AS usemonitoradmin,
         roloperatoradmin AS useoperatoradmin,
         rolpolicyadmin AS usepolicyadmin
-    FROM pg_catalog.pg_authid LEFT JOIN pg_db_role_setting s
+    FROM pg_catalog.pg_authid LEFT JOIN pg_catalog.pg_db_role_setting s
     ON (pg_authid.oid = setrole AND setdatabase = 0)
     WHERE rolcanlogin;
 
@@ -286,7 +286,7 @@ CREATE OR REPLACE VIEW pg_catalog.DB_OBJECTS AS
 		cs.relnamespace AS NAMESPACE,
 		po.ctime AS CREATED,
 		po.mtime AS LAST_DDL_TIME
-	FROM pg_catalog.pg_class cs left join pg_object po
+	FROM pg_catalog.pg_class cs left JOIN pg_catalog.pg_object po
 		on (po.object_oid = cs.oid and po.object_type in('r', 'f', 'i', 's', 'v'))
 		where cs.relkind in('r', 'f', 'i', 'S', 'v')
 	UNION
@@ -298,7 +298,7 @@ CREATE OR REPLACE VIEW pg_catalog.DB_OBJECTS AS
 		pc.pronamespace AS NAMESPACE,
 		po.ctime AS CREATED,
 		po.mtime AS LAST_DDL_TIME
-	FROM pg_catalog.pg_proc pc left join pg_object po
+	FROM pg_catalog.pg_proc pc left JOIN pg_catalog.pg_object po
 		on (po.object_oid = pc.oid and po.object_type = 'P')
 	UNION
 	SELECT
@@ -310,7 +310,7 @@ CREATE OR REPLACE VIEW pg_catalog.DB_OBJECTS AS
 		NULL::timestamptz AS CREATED,
 		NULL::timestamptz AS LAST_DDL_TIME
 	FROM pg_catalog.pg_rewrite re
-		LEFT JOIN pg_class cs ON (cs.oid = re.ev_class)
+		LEFT JOIN pg_catalog.pg_class cs ON (cs.oid = re.ev_class)
 	UNION
 	SELECT
 		pg_get_userbyid(cs.relowner) AS OWNER,
@@ -321,7 +321,7 @@ CREATE OR REPLACE VIEW pg_catalog.DB_OBJECTS AS
 		NULL::timestamptz AS CREATED,
 		NULL::timestamptz AS LAST_DDL_TIME
 	FROM pg_catalog.pg_trigger tr
-		LEFT JOIN pg_class cs ON (cs.oid = tr.tgrelid)
+		LEFT JOIN pg_catalog.pg_class cs ON (cs.oid = tr.tgrelid)
 	UNION
 	SELECT
 		pg_get_userbyid(te.typowner) AS OWNER,
@@ -370,7 +370,7 @@ CREATE OR REPLACE VIEW pg_catalog.MY_OBJECTS AS
 		cs.relnamespace AS NAMESPACE,
 		po.ctime AS CREATED,
 		po.mtime AS LAST_DDL_TIME
-	FROM pg_catalog.pg_class cs left join pg_object po
+	FROM pg_catalog.pg_class cs left JOIN pg_catalog.pg_object po
 		on (po.object_oid = cs.oid and po.object_type in('r', 'f', 'i', 's', 'v'))
 	WHERE cs.relkind in('r', 'f', 'i', 'S', 'v')
 		AND pg_get_userbyid(cs.relowner)=current_user::text
@@ -382,7 +382,7 @@ CREATE OR REPLACE VIEW pg_catalog.MY_OBJECTS AS
 		pc.pronamespace AS NAMESPACE,
 		po.ctime AS CREATED,
 		po.mtime AS LAST_DDL_TIME
-	FROM pg_catalog.pg_proc pc left join pg_object po
+	FROM pg_catalog.pg_proc pc left JOIN pg_catalog.pg_object po
 		on (po.object_oid = pc.oid and po.object_type = 'P')
 	WHERE pg_get_userbyid(pc.proowner)=current_user::text
 	UNION
@@ -394,7 +394,7 @@ CREATE OR REPLACE VIEW pg_catalog.MY_OBJECTS AS
 		NULL::timestamptz AS CREATED,
 		NULL::timestamptz AS LAST_DDL_TIME
 	FROM pg_catalog.pg_rewrite re
-		LEFT JOIN pg_class cs ON (cs.oid = re.ev_class)
+		LEFT JOIN pg_catalog.pg_class cs ON (cs.oid = re.ev_class)
 	WHERE pg_get_userbyid(cs.relowner)=current_user::text
 	UNION
 	SELECT
@@ -405,7 +405,7 @@ CREATE OR REPLACE VIEW pg_catalog.MY_OBJECTS AS
 		NULL::timestamptz AS CREATED,
 		NULL::timestamptz AS LAST_DDL_TIME
 	FROM pg_catalog.pg_trigger tr
-		LEFT JOIN pg_class cs ON (cs.oid = tr.tgrelid)
+		LEFT JOIN pg_catalog.pg_class cs ON (cs.oid = tr.tgrelid)
 	WHERE pg_get_userbyid(cs.relowner)=current_user::text
 	UNION
 	SELECT
@@ -456,7 +456,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_OBJECTS AS
 		cs.relnamespace AS NAMESPACE,
 		po.ctime AS CREATED,
 		po.mtime AS LAST_DDL_TIME
-	FROM pg_catalog.pg_class cs left join pg_object po
+	FROM pg_catalog.pg_class cs left JOIN pg_catalog.pg_object po
 		on (po.object_oid = cs.oid and po.object_type in('r', 'f', 'i', 's', 'v'))
 		where cs.relkind in('r', 'f', 'i', 'S', 'v')
 	UNION
@@ -468,7 +468,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_OBJECTS AS
 		pc.pronamespace AS NAMESPACE,
 		po.ctime AS CREATED,
 		po.mtime AS LAST_DDL_TIME
-	FROM pg_catalog.pg_proc pc left join pg_object po
+	FROM pg_catalog.pg_proc pc left JOIN pg_catalog.pg_object po
 		on (po.object_oid = pc.oid and po.object_type = 'P')
 	UNION
 	SELECT
@@ -480,7 +480,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_OBJECTS AS
 		NULL::timestamptz AS CREATED,
 		NULL::timestamptz AS LAST_DDL_TIME
 	FROM pg_catalog.pg_rewrite re
-		LEFT JOIN pg_class cs ON (cs.oid = re.ev_class)
+		LEFT JOIN pg_catalog.pg_class cs ON (cs.oid = re.ev_class)
 	UNION
 	SELECT
 		pg_get_userbyid(cs.relowner) AS OWNER,
@@ -491,7 +491,7 @@ CREATE OR REPLACE VIEW pg_catalog.ADM_OBJECTS AS
 		NULL::timestamptz AS CREATED,
 		NULL::timestamptz AS LAST_DDL_TIME
 	FROM pg_catalog.pg_trigger tr
-		LEFT JOIN pg_class cs ON (cs.oid = tr.tgrelid)
+		LEFT JOIN pg_catalog.pg_class cs ON (cs.oid = tr.tgrelid)
 	UNION
 	SELECT
 		pg_get_userbyid(te.typowner) AS OWNER,
@@ -655,7 +655,7 @@ CREATE OR REPLACE VIEW DBE_PERF.workload_sql_count AS
     sum(S.dml_count)::bigint AS dml_count,
     sum(S.dcl_count)::bigint AS dcl_count
     FROM
-      pg_user left join pg_stat_get_sql_count() AS S on pg_user.usename = S.user_name
+      pg_user left JOIN pg_catalog.pg_stat_get_sql_count() AS S on pg_user.usename = S.user_name
     GROUP by pg_user.respool;
 
 CREATE OR REPLACE VIEW DBE_PERF.workload_sql_elapse_time AS
@@ -678,7 +678,7 @@ CREATE OR REPLACE VIEW DBE_PERF.workload_sql_elapse_time AS
     MIN(S.min_delete_elapse) AS min_delete_elapse,
     ((sum(S.total_delete_elapse) / greatest(sum(S.delete_count), 1))::bigint) AS avg_delete_elapse
     FROM
-      pg_user left join pg_stat_get_sql_count() AS S on pg_user.usename = S.user_name
+      pg_user left JOIN pg_catalog.pg_stat_get_sql_count() AS S on pg_user.usename = S.user_name
     GROUP by pg_user.respool;
 
 CREATE OR REPLACE FUNCTION dbe_perf.get_summary_workload_sql_count
@@ -2031,7 +2031,7 @@ CREATE OR REPLACE VIEW DBE_PERF.statio_all_indexes AS
   FROM pg_catalog.pg_class C JOIN
        pg_index X ON C.oid = X.indrelid JOIN
        pg_class I ON I.oid = X.indexrelid
-       LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+       LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind IN ('r', 't');
 
 CREATE OR REPLACE FUNCTION DBE_PERF.get_global_statio_all_indexes
@@ -2080,10 +2080,10 @@ DECLARE
         S.relname AS relname,
         T.relname AS toastname,
         CI.relname AS toastindexname
-    FROM pg_catalog.pg_class S JOIN pg_namespace N ON N.oid = S.relnamespace
-        LEFT JOIN pg_class T on T.oid = S.reltoastrelid
-        JOIN pg_index I ON T.oid = I.indrelid
-        JOIN pg_class CI ON CI.oid = I.indexrelid
+    FROM pg_catalog.pg_class S JOIN pg_catalog.pg_namespace N ON N.oid = S.relnamespace
+        LEFT JOIN pg_catalog.pg_class T on T.oid = S.reltoastrelid
+        JOIN pg_catalog.pg_index I ON T.oid = I.indrelid
+        JOIN pg_catalog.pg_class CI ON CI.oid = I.indexrelid
     WHERE S.relkind IN (''r'', ''t'') AND T.relname is not NULL';
     return query execute query_str;
   END; $$
@@ -2555,8 +2555,8 @@ DECLARE
           C.tidx_blks_read AS tidx_blks_read,
           C.tidx_blks_hit AS tidx_blks_hit
       FROM dbe_perf.statio_sys_tables C
-          LEFT JOIN pg_class O ON C.relid = O.reltoastrelid
-          LEFT JOIN pg_namespace N ON O.relnamespace = N.oid';
+          LEFT JOIN pg_catalog.pg_class O ON C.relid = O.reltoastrelid
+          LEFT JOIN pg_catalog.pg_namespace N ON O.relnamespace = N.oid';
       FOR row_data IN EXECUTE(query_str) LOOP
         schemaname := row_data.schemaname;
         IF row_data.toastrelname IS NULL THEN
@@ -5487,7 +5487,7 @@ BEGIN
     SELECT text(oid) FROM pg_catalog.pg_authid WHERE rolname=SESSION_USER INTO user_id;
     SELECT SESSION_USER INTO user_name;
     SELECT CURRENT_DATABASE() INTO db_name;
-    SELECT pg_backend_pid() INTO mybackendid;
+    SELECT pg_catalog.pg_backend_pid() INTO mybackendid;
     curSessionFound = false;
     IF flag = true THEN
         SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo, split_part(thread_id,''@'',1) backendid FROM pg_catalog.pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE
@@ -5661,7 +5661,7 @@ BEGIN
     SELECT text(oid) FROM pg_catalog.pg_authid WHERE rolname=SESSION_USER INTO user_id;
     SELECT SESSION_USER INTO user_name;
     SELECT CURRENT_DATABASE() INTO db_name;
-    SELECT pg_backend_pid() INTO mybackendid;
+    SELECT pg_catalog.pg_backend_pid() INTO mybackendid;
     curSessionFound = false;
     IF flag = true THEN
         SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo, split_part(thread_id,''@'',1) backendid FROM pg_catalog.pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE
@@ -6001,7 +6001,7 @@ DECLARE
                 query_str := 'SELECT * FROM pg_catalog.pg_stat_get_wlm_session_info(1)';
 
                 IF flag > 0 THEN
-                        EXECUTE 'INSERT INTO gs_wlm_session_query_info_all ' || query_str;
+                        EXECUTE 'INSERT INTO pg_catalog.gs_wlm_session_query_info_all ' || query_str;
                 ELSE
                         EXECUTE query_str;
                 END IF;
@@ -6279,7 +6279,7 @@ BEGIN
     SELECT text(oid) FROM pg_catalog.pg_authid WHERE rolname=SESSION_USER INTO user_id;
     SELECT SESSION_USER INTO user_name;
     SELECT CURRENT_DATABASE() INTO db_name;
-    SELECT pg_backend_pid() INTO mybackendid;
+    SELECT pg_catalog.pg_backend_pid() INTO mybackendid;
     curSessionFound = false;
     IF flag = true THEN
         SQL_STMT := 'SELECT username,database,time,type,result,client_conninfo, split_part(thread_id,''@'',1) backendid FROM pg_catalog.pg_query_audit(''1970-1-1'',''9999-12-31'') WHERE
@@ -6424,8 +6424,8 @@ DECLARE
         query_str := 'SELECT * FROM pg_catalog.pg_stat_get_wlm_operator_info(1)';
 
         IF flag > 0 THEN
-            EXECUTE 'INSERT INTO gs_wlm_ec_operator_info ' || query_ec_str;
-            EXECUTE 'INSERT INTO gs_wlm_operator_info ' || query_str;
+            EXECUTE 'INSERT INTO pg_catalog.gs_wlm_ec_operator_info ' || query_ec_str;
+            EXECUTE 'INSERT INTO pg_catalog.gs_wlm_operator_info ' || query_str;
         ELSE
             EXECUTE query_ec_str;
             EXECUTE query_str;

@@ -36,9 +36,9 @@ CREATE VIEW tables AS
            CAST(null AS character_data) AS commit_action,
            CAST(d.description AS information_schema.character_data) AS TABLE_COMMENT
 
-    FROM pg_namespace nc JOIN pg_class c ON (nc.oid = c.relnamespace)
-           LEFT JOIN (pg_type t JOIN pg_namespace nt ON (t.typnamespace = nt.oid)) ON (c.reloftype = t.oid)
-           LEFT JOIN pg_description d on d.objoid = c.oid and objsubid = 0
+    FROM pg_namespace nc JOIN pg_catalog.pg_class c ON (nc.oid = c.relnamespace)
+           LEFT JOIN (pg_type t JOIN pg_catalog.pg_namespace nt ON (t.typnamespace = nt.oid)) ON (c.reloftype = t.oid)
+           LEFT JOIN pg_catalog.pg_description d on d.objoid = c.oid and objsubid = 0
 
     WHERE c.relkind IN ('r', 'm', 'v', 'f')
           AND (c.relname not like 'mlog\_%' AND c.relname not like 'matviewmap\_%')
@@ -171,14 +171,14 @@ CREATE VIEW columns AS
                AS character_data)
             AS EXTRA
 
-    FROM (pg_attribute a LEFT JOIN pg_attrdef ad ON attrelid = adrelid AND attnum = adnum)
-         JOIN (pg_class c JOIN pg_namespace nc ON (c.relnamespace = nc.oid)) ON a.attrelid = c.oid
-         JOIN (pg_type t JOIN pg_namespace nt ON (t.typnamespace = nt.oid)) ON a.atttypid = t.oid
-         LEFT JOIN (pg_type bt JOIN pg_namespace nbt ON (bt.typnamespace = nbt.oid))
+    FROM (pg_attribute a LEFT JOIN pg_catalog.pg_attrdef ad ON attrelid = adrelid AND attnum = adnum)
+         JOIN (pg_class c JOIN pg_catalog.pg_namespace nc ON (c.relnamespace = nc.oid)) ON a.attrelid = c.oid
+         JOIN (pg_type t JOIN pg_catalog.pg_namespace nt ON (t.typnamespace = nt.oid)) ON a.atttypid = t.oid
+         LEFT JOIN (pg_type bt JOIN pg_catalog.pg_namespace nbt ON (bt.typnamespace = nbt.oid))
            ON (t.typtype = 'd' AND t.typbasetype = bt.oid)
-         LEFT JOIN (pg_collation co JOIN pg_namespace nco ON (co.collnamespace = nco.oid))
+         LEFT JOIN (pg_collation co JOIN pg_catalog.pg_namespace nco ON (co.collnamespace = nco.oid))
            ON a.attcollation = co.oid AND (nco.nspname, co.collname) <> ('pg_catalog', 'default')
-         LEFT JOIN pg_description d on d.objoid = a.attrelid  and d.objsubid = a.attnum
+         LEFT JOIN pg_catalog.pg_description d on d.objoid = a.attrelid  and d.objsubid = a.attnum
 
     WHERE (NOT pg_catalog.pg_is_other_temp_schema(nc.oid))
 
@@ -286,7 +286,7 @@ CREATE VIEW element_types AS
            FROM pg_proc p
 
          ) AS x (objschema, objname, objtype, objdtdid, objtypeid, objcollation)
-         LEFT JOIN (pg_collation co JOIN pg_namespace nco ON (co.collnamespace = nco.oid))
+         LEFT JOIN (pg_collation co JOIN pg_catalog.pg_namespace nco ON (co.collnamespace = nco.oid))
            ON x.objcollation = co.oid AND (nco.nspname, co.collname) <> ('pg_catalog', 'default')
 
     WHERE n.oid = x.objschema

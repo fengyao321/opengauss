@@ -2,7 +2,7 @@ SET search_path TO information_schema;
 
 BEGIN
 IF working_version_num() > 92923 THEN
-UPDATE pg_class
+UPDATE pg_catalog.pg_class
 set reloptions = (CASE WHEN array_length(array_remove(reloptions, 'segment=on'), 1) = 0
                 then NULL
                 else array_remove(reloptions, 'segment=on')

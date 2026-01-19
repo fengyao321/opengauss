@@ -522,20 +522,20 @@ CREATE OPERATOR pg_catalog./ (
     PROCEDURE = int16div
 );
 
-UPDATE pg_operator SET oprnegate = 6001 WHERE oid = 6000;
-UPDATE pg_operator SET oprnegate = 6000 WHERE oid = 6001;
-UPDATE pg_operator SET oprnegate = 6005 WHERE oid = 6002;
-UPDATE pg_operator SET oprnegate = 6004 WHERE oid = 6003;
-UPDATE pg_operator SET oprnegate = 6003 WHERE oid = 6004;
-UPDATE pg_operator SET oprnegate = 6002 WHERE oid = 6005;
-UPDATE pg_operator SET oprcom = 6000 WHERE oid = 6000;
-UPDATE pg_operator SET oprcom = 6001 WHERE oid = 6001;
-UPDATE pg_operator SET oprcom = 6004 WHERE oid = 6002;
-UPDATE pg_operator SET oprcom = 6005 WHERE oid = 6003;
-UPDATE pg_operator SET oprcom = 6002 WHERE oid = 6004;
-UPDATE pg_operator SET oprcom = 6003 WHERE oid = 6005;
-UPDATE pg_operator SET oprcom = 6006 WHERE oid = 6006;
-UPDATE pg_operator SET oprcom = 6008 WHERE oid = 6008;
+UPDATE pg_catalog.pg_operator SET oprnegate = 6001 WHERE oid = 6000;
+UPDATE pg_catalog.pg_operator SET oprnegate = 6000 WHERE oid = 6001;
+UPDATE pg_catalog.pg_operator SET oprnegate = 6005 WHERE oid = 6002;
+UPDATE pg_catalog.pg_operator SET oprnegate = 6004 WHERE oid = 6003;
+UPDATE pg_catalog.pg_operator SET oprnegate = 6003 WHERE oid = 6004;
+UPDATE pg_catalog.pg_operator SET oprnegate = 6002 WHERE oid = 6005;
+UPDATE pg_catalog.pg_operator SET oprcom = 6000 WHERE oid = 6000;
+UPDATE pg_catalog.pg_operator SET oprcom = 6001 WHERE oid = 6001;
+UPDATE pg_catalog.pg_operator SET oprcom = 6004 WHERE oid = 6002;
+UPDATE pg_catalog.pg_operator SET oprcom = 6005 WHERE oid = 6003;
+UPDATE pg_catalog.pg_operator SET oprcom = 6002 WHERE oid = 6004;
+UPDATE pg_catalog.pg_operator SET oprcom = 6003 WHERE oid = 6005;
+UPDATE pg_catalog.pg_operator SET oprcom = 6006 WHERE oid = 6006;
+UPDATE pg_catalog.pg_operator SET oprcom = 6008 WHERE oid = 6008;
 
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0, 0, 0, 0;
 
@@ -2923,7 +2923,7 @@ begin
         tmp := substr(tmp,2);
         ansvec := tmp::oidvector;
         RAISE INFO ' %' ,ansvec;
-        update pg_proc set allargtypes = coalesce(ansvec, proargtypes) where oid=aa;
+        update pg_catalog.pg_proc set allargtypes = coalesce(ansvec, proargtypes) where oid=aa;
    end loop;
 end;
 /
@@ -3120,11 +3120,11 @@ declare
 begin
     -- FUNC_MAX_ARGS_INROW = 666
     -- only in param
-    update pg_proc set allargtypesext = proargtypesext 
+    update pg_catalog.pg_proc set allargtypesext = proargtypesext 
         where proallargtypes is null and pronargs > 666;
 
     -- include out param
-    update pg_proc set allargtypesext = proallargtypes 
+    update pg_catalog.pg_proc set allargtypesext = proallargtypes 
         where proallargtypes is not null and array_length(proallargtypes, 1) > 666;
 
     -- update allargtypes
@@ -3147,7 +3147,7 @@ begin
         end loop;
         tmpstr2 := substr(tmpstr2,2);
         ansvec := tmpstr2::oidvector;
-        update pg_proc set allargtypes = ansvec where oid = i;
+        update pg_catalog.pg_proc set allargtypes = ansvec where oid = i;
     end loop;
 end;
 DROP FUNCTION IF EXISTS pg_catalog.nlssort(text, text) CASCADE;

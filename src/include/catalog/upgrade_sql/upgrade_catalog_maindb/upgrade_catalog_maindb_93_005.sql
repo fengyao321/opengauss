@@ -17,7 +17,7 @@ SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 98
  )WITH(oids=true) TABLESPACE pg_default;
 
 BEGIN
-UPDATE pg_class
+UPDATE pg_catalog.pg_class
 set reloptions = (CASE WHEN array_length(array_remove(reloptions, 'segment=on'), 1) = 0
                      then NULL
                      else array_remove(reloptions, 'segment=on')

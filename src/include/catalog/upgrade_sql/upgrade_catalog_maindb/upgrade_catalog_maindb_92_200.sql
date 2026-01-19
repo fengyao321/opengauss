@@ -2184,7 +2184,7 @@ CREATE OPERATOR CLASS byteawithoutorderwithequalcol_ops DEFAULT
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0, 0, 0, 0;
 
 SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0, 0, 0, 3236;
-UPDATE pg_index SET indisunique = false WHERE indexrelid = 3234;
+UPDATE pg_catalog.pg_index SET indisunique = false WHERE indexrelid = 3234;
 CREATE INDEX streaming_cont_query_schema_change_index ON pg_catalog.streaming_cont_query USING BTREE(matrelid oid_ops, active bool_ops);
 
 -- 1. create system relation streaming_reaper_status and its indexes.

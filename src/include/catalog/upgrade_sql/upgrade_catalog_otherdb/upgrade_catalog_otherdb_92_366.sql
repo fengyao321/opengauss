@@ -55,7 +55,7 @@ BEGIN
         query_str := 'CREATE SEQUENCE db4ai.snapshot_sequence;';
         EXECUTE IMMEDIATE query_str;
     end if;
-    update pg_class set relacl = null where relname = 'snapshot_sequence' and relnamespace = 4991;
+    update pg_catalog.pg_class set relacl = null where relname = 'snapshot_sequence' and relnamespace = 4991;
     query_str := 'GRANT UPDATE ON db4ai.snapshot_sequence TO PUBLIC;';
     EXECUTE IMMEDIATE query_str;
 END$$;

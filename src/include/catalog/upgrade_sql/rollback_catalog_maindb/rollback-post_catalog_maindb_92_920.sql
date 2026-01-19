@@ -12,7 +12,7 @@ BEGIN
                     N.nspname AS schemaname,
                     C.relname AS tablename
                 FROM pg_catalog.pg_publication P, pg_class C
-                    JOIN pg_namespace N ON (N.oid = C.relnamespace)
+                    JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
                 WHERE C.oid IN (SELECT relid FROM pg_catalog.pg_get_publication_tables(P.pubname));
         end if;
         exit;
