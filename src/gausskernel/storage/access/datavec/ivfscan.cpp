@@ -1148,12 +1148,12 @@ IndexScanDesc ivfflatbeginscan_internal(Relation index, int nkeys, int norderbys
     
     so->RabitqCtx = AllocSetContextCreate(CurrentMemoryContext,
         "IVFRabitQ scan temporary context", ALLOCSET_DEFAULT_SIZES);
-    so->rbqParams = (RabitqQueryParams *)palloc(sizeof(RabitqQueryParams));
+    so->rbqParams = (RabitqQueryParams *)palloc0(sizeof(RabitqQueryParams));
     so->rbqParams->dim = dimensions;
-    so->rbqParams->funcType = GetFunctionType(so->procinfo, so->normprocinfo);
     so->rbqParams->rbqConfig = IvfInitRbqConfigOnDisk(index, &so->enableRabitQ, dimensions);
     so->rbqParams->rbqConfig->rbqQueryBits = u_sess->datavec_ctx.rbq_query_bits;
     so->rbqParams->rbqConfig->kreorder = 0;
+    so->rbqParams->funcType = so->enableRabitQ ? GetFunctionType(so->procinfo, so->normprocinfo) : 0;
     so->rbqParams->qrbqVec = NULL;
 
     scan->opaque = so;
