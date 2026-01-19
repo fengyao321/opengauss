@@ -1821,7 +1821,7 @@ ldelete:
             }
 
             OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(fake_relation);
-            if (operators != NULL) {
+            if (operators != NULL && isPartitionedRelation(result_relation_desc->rd_rel)) {
                 Assert(fake_relation->rd_id == deletePartitionOid);
             }
 
@@ -2688,7 +2688,7 @@ lreplace:
                     fake_relation = fake_part_rel;
 
                     OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(fake_relation);
-                    if (operators != NULL) {
+                    if (operators != NULL && isPartitionedRelation(result_relation_desc->rd_rel)) {
                         Assert(fake_relation->rd_id == oldPartitionOid);
                     }
 
@@ -2895,7 +2895,7 @@ lreplace:
                                                          RowExclusiveLock);
 
                         OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(old_fake_relation);
-                        if (operators != NULL) {
+                        if (operators != NULL && isPartitionedRelation(result_relation_desc->rd_rel)) {
                             Assert(fake_relation->rd_id == oldPartitionOid);
                         }
 

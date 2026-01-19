@@ -177,6 +177,13 @@ OnlineDDLType OnlineDDLCheckFeasible(List** wqueue, Relation relation, List* cmd
                         errorType = cmd->subtype;
                         break;
                     }
+                    case AT_SplitPartition:
+                    case AT_SplitSubPartition:
+                    case AT_MergePartition: {
+                        allowed = true;
+                        rewriteOpt |= allowed;
+                        break;
+                    }
                     default: {
                         break;
                     }

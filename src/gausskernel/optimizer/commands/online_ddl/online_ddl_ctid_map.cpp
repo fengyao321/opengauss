@@ -294,3 +294,123 @@ ItemPointerData OnlineDDLGetTargetCtid(ItemPointer oldTid, Oid* partOid, Relatio
 
     return result;
 }
+
+void OldCtidGetNewPartitionAndCtid(ItemPointer oldTid, Oid* partOid, ItemPointer newTid, Relation relation,
+                                   Relation indexRelation)
+{
+    if (oldTid == NULL || !ItemPointerIsValid(oldTid)) {
+        ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                        errmsg("OnlineDDLGetTargetCtid error: old ctid is null or invalid.")));
+    }
+    if (relation == NULL || !RelationIsValid(relation)) {
+        ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                        errmsg("OnlineDDLGetTargetCtid error: relation is null or invalid.")));
+    }
+    if (indexRelation == NULL || !RelationIsValid(indexRelation)) {
+        ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                        errmsg("OnlineDDLGetTargetCtid error: index relation is null or invalid.")));
+    }
+
+    Datum values[3];
+    bool isnull[3];
+
+    IndexScanDesc indexScanDesc;
+    ScanState* scanState = makeNode(ScanState);
+    bool bucketChanged = false;
+
+    ScanKeyData scanKey[3];
+    const AttrNumber keyNum = 1;
+    const int oldCtidAttrId = 1;
+    const RegProcedure tideqOid = 1292;
+
+    ItemPointer tid = NULL;
+    ScanKeyEntryInitialize(&scanKey[0], 0, oldCtidAttrId, BTEqualStrategyNumber, TIDOID, 0, tideqOid,
+                           PointerGetDatum(oldTid));
+
+    ScanDirection scandirection = ForwardScanDirection;
+    indexScanDesc = scan_handler_idx_beginscan(relation, indexRelation, SnapshotNow, keyNum, 0, scanState);
+    indexScanDesc->xs_want_itup = true;
+    scan_handler_idx_rescan_local(indexScanDesc, scanKey, keyNum, NULL, 0);
+
+    if ((tid = scan_handler_idx_getnext_tid(indexScanDesc, scandirection, &bucketChanged)) != NULL) {
+        IndexScanDesc indexdesc = GetIndexScanDesc(indexScanDesc);
+        index_deform_tuple(indexdesc->xs_itup, RelationGetDescr(indexRelation), values, isnull);
+#ifdef USE_ASSERT_CHECKING
+        ItemPointer resultOldTid = DatumGetItemPointer(values[0]);
+        Assert(ItemPointerEquals(resultOldTid, oldTid));
+#endif
+
+        *partOid = DatumGetObjectId(values[1]);
+        ItemPointerSetBlockNumber(newTid, ItemPointerGetBlockNumber(DatumGetItemPointer(values[2])));
+        ItemPointerSetOffsetNumber(newTid, ItemPointerGetOffsetNumber(DatumGetItemPointer(values[2])));
+    } else {
+        *partOid = InvalidOid;
+        ItemPointerSetInvalid(newTid);
+    }
+
+    pfree(scanState);
+    scan_handler_idx_endscan(indexScanDesc);
+}
+
+bool OldCtidAndPartitionGetNewCtid(ItemPointer oldTid, Oid* partOid, ItemPointer newTid, Relation relation,
+                                   Relation indexRelation)
+{
+    if (oldTid == NULL || !ItemPointerIsValid(oldTid)) {
+        ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                        errmsg("OnlineDDLGetTargetCtid error: old ctid is null or invalid.")));
+    }
+    if (partOid == NULL || *partOid == InvalidOid) {
+        ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                        errmsg("OnlineDDLGetTargetCtid error: part oid is null or invalid.")));
+    }
+    if (relation == NULL || !RelationIsValid(relation)) {
+        ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                        errmsg("OnlineDDLGetTargetCtid error: relation is null or invalid.")));
+    }
+    if (indexRelation == NULL || !RelationIsValid(indexRelation)) {
+        ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                        errmsg("OnlineDDLGetTargetCtid error: index relation is null or invalid.")));
+    }
+
+    Datum values[3];
+    bool isnull[3];
+
+    IndexScanDesc indexScanDesc;
+    ScanState* scanState = makeNode(ScanState);
+    bool bucketChanged = false;
+
+    ScanKeyData scanKey[3];
+    const AttrNumber keyNum = 2;
+    const int oldCtidAttrId = 1;
+    const int partOidAttrId = 2;
+    const RegProcedure tideqOid = 1292;
+    const RegProcedure oideqOid = 184;
+
+    ItemPointer tid = NULL;
+    ScanKeyEntryInitialize(&scanKey[0], 0, oldCtidAttrId, BTEqualStrategyNumber, TIDOID, 0, tideqOid,
+                           PointerGetDatum(oldTid));
+    ScanKeyEntryInitialize(&scanKey[1], 0, partOidAttrId, BTEqualStrategyNumber, OIDOID, 0, oideqOid,
+                           ObjectIdGetDatum(*partOid));
+
+    ScanDirection scandirection = ForwardScanDirection;
+    indexScanDesc = scan_handler_idx_beginscan(relation, indexRelation, SnapshotNow, keyNum, 0, scanState);
+    indexScanDesc->xs_want_itup = true;
+    scan_handler_idx_rescan_local(indexScanDesc, scanKey, keyNum, NULL, 0);
+
+    bool found = false;
+    if ((tid = scan_handler_idx_getnext_tid(indexScanDesc, scandirection, &bucketChanged)) != NULL) {
+        IndexScanDesc indexdesc = GetIndexScanDesc(indexScanDesc);
+        index_deform_tuple(indexdesc->xs_itup, RelationGetDescr(indexRelation), values, isnull);
+#ifdef USE_ASSERT_CHECKING
+        ItemPointer resultOldTid = DatumGetItemPointer(values[0]);
+        Assert(ItemPointerEquals(resultOldTid, oldTid));
+#endif
+        ItemPointerSetBlockNumber(newTid, ItemPointerGetBlockNumber(DatumGetItemPointer(values[2])));
+        ItemPointerSetOffsetNumber(newTid, ItemPointerGetOffsetNumber(DatumGetItemPointer(values[2])));
+        found = true;
+    }
+    pfree(scanState);
+    scan_handler_idx_endscan(indexScanDesc);
+
+    return found;
+}

@@ -31,6 +31,14 @@
 extern const int ONLINE_DDL_APPENDER_MAX_SCAN_TIMES;
 extern const int ONLINE_DDL_APPENDER_MAX_FINISH_PAGES;
 
+enum OnlineDDLScenario {
+    ONLINE_DDL_REWRITE_ROW_TABLE = 0,
+    ONLINE_DDL_REWRITE_ROW_PARTITIONED_TABLE,
+    ONLINE_DDL_SPLIT_PARTITION,
+    ONLINE_DDL_SPLIT_SUBPARTITION,
+    ONLINE_DDL_MERGE_PARTITION,
+};
+
 // mapping old partition Oid to temp table Oid
 struct PartitionOidMapEntry {
     Oid oldPartOid;    // old partition Oid
@@ -69,13 +77,19 @@ inline bool CompareItemPointer(ItemPointer a, ItemPointer b)
     }
 }
 
+// for rewrite row table or split partition
 extern OnlineDDLAppender* OnlineDDLInitAppender(Relation oldRelation, Relation newRelation, Relation deltaRelation,
                                                 Relation ctidMapRelation, Relation ctidMapIndex,
                                                 ItemPointerData endCtid, AlteredTableInfo* alterTableInfo);
+// for rewrite row partitioned table
 extern OnlineDDLAppender* OnlineDDLInitAppender(List* oldPartitionList, List* newOidList, Relation deltaRelation,
                                                 Relation ctidMapRelation, Relation ctidMapIndex,
                                                 HTAB* partitionAppendMap, AlteredTableInfo* alterTableInfo);
-extern bool OnlineDDLAppend(OnlineDDLAppender* operators);
+// for merge partition
+extern OnlineDDLAppender* OnlineDDLInitAppender(List* oldPartitionList, Relation newRelation, Relation deltaRelation,
+                                                Relation ctidMapRelation, Relation ctidMapIndex,
+                                                HTAB* partitionAppendMap, AlteredTableInfo* alterTableInfo);
+extern bool OnlineDDLAppend(OnlineDDLAppender* appender, OnlineDDLScenario scenario);
 extern bool OnlineDDLOnlyCheck(OnlineDDLAppender* appender);
 extern void AddPartitionOidMapping(OnlineDDLAppender* appender, Oid oldPartOid, Oid tempTableOid);
 extern Oid GetTempTableFromOldPartition(OnlineDDLAppender* appender, Oid oldPartOid);
