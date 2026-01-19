@@ -154,8 +154,15 @@ Selectivity clauselist_selectivity(
      * If there's exactly one clause, then no use in trying to match up pairs,
      * so just go directly to clause_selectivity().
      */
-    if (list_length(clauses) == 1)
-        return clause_selectivity(root, (Node*)linitial(clauses), varRelid, jointype, sjinfo, varratio_cached, false, use_poisson);
+    if (list_length(clauses) == 1) {
+        s1 = clause_selectivity(root, (Node*)linitial(clauses), varRelid, jointype, sjinfo,
+            varratio_cached, false, use_poisson);
+        if (ENABLE_CACHEDPLAN_MGR && root->glob->boundParams != NULL &&
+            root->glob->boundParams->uParamInfo != DEFUALT_INFO) {
+            root->glob->boundParams->params_lazy_bind = true;
+        }
+        return s1;
+    }
 
     /* initialize es_selectivity class, list_length(clauses) can be 0 when called by set_baserel_size_estimates */
     if (list_length(clauses) >= 2 && use_muti_stats &&
