@@ -417,6 +417,7 @@ function Unreg()
             exit 1
         fi
         dsscmd kickh -i ${INSTANCE_ID} -D ${DSS_HOME} >> /dev/null 2>&1
+        dsscmd clean_dhb_lock -i ${INSTANCE_ID} -D ${DSS_HOME} >> /dev/null 2>&1
     fi
 
     if [[ $? != 0 ]]
