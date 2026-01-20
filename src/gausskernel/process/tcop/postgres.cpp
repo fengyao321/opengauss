@@ -339,54 +339,61 @@ static XLogRecPtr xlogCopyStart = InvalidXLogRecPtr;
  * ----------------------------------------------------------------
  */
 static void exec_get_bind_message(StringInfo input_message, BindMessage *pqBindMessage, PreparedStatement **pstmt, CachedPlanSource** psrc);
+#define MAX_PROCESS_COMMAND_FUNC_NUM 256 /* 0-255 */
+typedef void (*ProcessCommandFunc)(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+ProcessCommandFunc g_ProcessCommandFuncs[MAX_PROCESS_COMMAND_FUNC_NUM];
 #if defined(ENABLE_MULTIPLE_NODES) || defined(USE_SPQ)
-static void ProcessCommandUpperZ(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperY(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperO(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandLowerO(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperI(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandLowerI(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandLowerH(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperM(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandLowerQ(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandLowerE(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandUpperZ(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperY(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperO(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerO(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperI(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerI(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerH(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperM(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerQ(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerE(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerR(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerS(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
 #endif
-static void ProcessCommandLowerU(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperQ(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperP(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperB(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperE(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandLowerU(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperQ(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperP(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperB(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperE(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
 #ifdef ENABLE_MULTIPLE_NODES
-static void ProcessCommandLowerK(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandLowerG(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandLowerT(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandLowerB(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandLowerW(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperR(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperA(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperL(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandLowerN(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperN(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandLowerL(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandLowerJ(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandLowerZ(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperG(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperT(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandLowerK(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerG(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerT(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerB(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperW(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerW(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperR(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperA(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperL(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerN(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperN(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerL(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerJ(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerZ(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperG(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperT(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
 #endif
-static void ProcessCommandUpperF(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperC(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperD(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperH(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperS(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperK(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperX(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperU(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandLowerY(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandUpperJ(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandEof(StringInfo input_message, volatile bool& send_ready_for_query);
-static void ProcessCommandNop(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandUpperF(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperC(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperD(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperH(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperS(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperK(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperX(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperU(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerY(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperJ(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandUpperV(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandEof(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandNop(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
 #ifdef ENABLE_HTAP
-static void ProcessCommandLowerX(StringInfo input_message, volatile bool& send_ready_for_query);
+static void ProcessCommandLowerX(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
 #endif
 
 static int InteractiveBackend(StringInfo inBuf);
@@ -416,6 +423,67 @@ extern void SetRemoteDestTupleReceiverParams(DestReceiver *self);
 static int getSingleNodeIdx_internal(ExecNodes* exec_nodes, ParamListInfo params);
 #endif
 extern void CancelAutoAnalyze();
+
+void InitProcessCommandFuncs()
+{
+#if defined(ENABLE_MULTIPLE_NODES) || defined(USE_SPQ)
+    g_ProcessCommandFuncs['Z'] = ProcessCommandUpperZ;
+    g_ProcessCommandFuncs['Y'] = ProcessCommandUpperY;
+    g_ProcessCommandFuncs['O'] = ProcessCommandUpperO;
+    g_ProcessCommandFuncs['o'] = ProcessCommandLowerO;
+    g_ProcessCommandFuncs['I'] = ProcessCommandUpperI;
+    g_ProcessCommandFuncs['i'] = ProcessCommandLowerI;
+    g_ProcessCommandFuncs['h'] = ProcessCommandLowerH;
+    g_ProcessCommandFuncs['M'] = ProcessCommandUpperM;
+    g_ProcessCommandFuncs['q'] = ProcessCommandLowerQ;
+    g_ProcessCommandFuncs['e'] = ProcessCommandLowerE;
+    g_ProcessCommandFuncs['r'] = ProcessCommandLowerR;
+    g_ProcessCommandFuncs['s'] = ProcessCommandLowerS;
+#endif
+
+#ifdef ENABLE_MULTIPLE_NODES
+    g_ProcessCommandFuncs['k'] = ProcessCommandLowerK;
+    g_ProcessCommandFuncs['g'] = ProcessCommandLowerG;
+    g_ProcessCommandFuncs['t'] = ProcessCommandLowerT;
+    g_ProcessCommandFuncs['b'] = ProcessCommandLowerB;
+    g_ProcessCommandFuncs['W'] = ProcessCommandUpperW;
+    g_ProcessCommandFuncs['w'] = ProcessCommandLowerW;
+    g_ProcessCommandFuncs['R'] = ProcessCommandUpperR;
+    g_ProcessCommandFuncs['A'] = ProcessCommandUpperA;
+    g_ProcessCommandFuncs['L'] = ProcessCommandUpperL;
+    g_ProcessCommandFuncs['n'] = ProcessCommandLowerN;
+    g_ProcessCommandFuncs['N'] = ProcessCommandUpperN;
+    g_ProcessCommandFuncs['l'] = ProcessCommandLowerL;
+    g_ProcessCommandFuncs['j'] = ProcessCommandLowerJ;
+    g_ProcessCommandFuncs['z'] = ProcessCommandLowerZ;
+    g_ProcessCommandFuncs['G'] = ProcessCommandUpperG;
+    g_ProcessCommandFuncs['T'] = ProcessCommandUpperT;
+#endif
+
+#ifdef ENABLE_HTAP
+    g_ProcessCommandFuncs['x'] = ProcessCommandLowerX;
+#endif
+
+    g_ProcessCommandFuncs['u'] = ProcessCommandLowerU;
+    g_ProcessCommandFuncs['Q'] = ProcessCommandUpperQ;
+    g_ProcessCommandFuncs['P'] = ProcessCommandUpperP;
+    g_ProcessCommandFuncs['B'] = ProcessCommandUpperB;
+    g_ProcessCommandFuncs['E'] = ProcessCommandUpperE;
+    g_ProcessCommandFuncs['F'] = ProcessCommandUpperF;
+    g_ProcessCommandFuncs['C'] = ProcessCommandUpperC;
+    g_ProcessCommandFuncs['D'] = ProcessCommandUpperD;
+    g_ProcessCommandFuncs['H'] = ProcessCommandUpperH;
+    g_ProcessCommandFuncs['S'] = ProcessCommandUpperS;
+    g_ProcessCommandFuncs['K'] = ProcessCommandUpperK;
+    g_ProcessCommandFuncs['X'] = ProcessCommandUpperX;
+    g_ProcessCommandFuncs['U'] = ProcessCommandUpperU;
+    g_ProcessCommandFuncs['y'] = ProcessCommandLowerY;
+    g_ProcessCommandFuncs['J'] = ProcessCommandUpperJ;
+    g_ProcessCommandFuncs['V'] = ProcessCommandUpperV;
+    g_ProcessCommandFuncs['d'] = ProcessCommandNop;
+    g_ProcessCommandFuncs['c'] = ProcessCommandNop;
+    g_ProcessCommandFuncs['f'] = ProcessCommandNop;
+}
 
 void EnableDoingCommandRead()
 {
@@ -8956,6 +9024,7 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
             MyProcPort->protocol_config->fn_comm_reset();
         }
 
+#ifdef ENABLE_MULTIPLE_NODES
         /* statement retry phase : long jump */
         if (IsStmtRetryEnabled()) {
             bool is_extended_query = u_sess->postgres_cxt.doing_extended_query_message;
@@ -8975,14 +9044,14 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
                     pq_disk_disable_temp_file();
             }
         }
-
+#endif
         /* Report the error to the client and/or server log */
         EmitErrorReport();
 
         /* reset global values of perm space */
         perm_space_value_reset();
 
-#ifdef USE_RETRY_STUB
+#if defined(USE_RETRY_STUB) && defined(ENABLE_MULTIPLE_NODES)
         if (IsStmtRetryEnabled())
             u_sess->exec_cxt.RetryController->stub_.CloseOneStub();
 #endif
@@ -9212,6 +9281,7 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
     }
     PG_END_TRY();
     /* statement retry phase : RI */
+#ifdef ENABLE_MULTIPLE_NODES
     if (IsStmtRetryEnabled() && u_sess->exec_cxt.RetryController->IsQueryRetrying()) {
         /*
          * if stmt is retring, we can't send ready for query
@@ -9236,7 +9306,7 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
             u_sess->exec_cxt.RetryController->CleanPreparedStmt();
         }
     }
-
+#endif
     bool template0_locked = false;
     OgRecordOperator _local_tmp_opt(false, SRT13_BEFORE_QUERY);
     OgRecordOperator _local_tmp_opt1(false, SRT14_AFTER_QUERY);
@@ -9249,12 +9319,13 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
         if (og_time_record_is_started()) {
             _local_tmp_opt.enter();
         }
+#ifdef ENABLE_MULTIPLE_NODES
         /*
          * Since max_query_rerty_times is a USERSET GUC, so must check Statement retry
          * in each query loop here.
          */
         StmtRetryValidate(u_sess->exec_cxt.RetryController);
-
+#endif
         /* Add the pg_delete_audit operation to audit log */
         t_thrd.audit.Audit_delete = false;
 
@@ -9313,11 +9384,6 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
         if (RecoveryInProgress()) {
 
         }
-        if (send_ready_for_query && u_sess->stream_cxt.global_obj == NULL &&
-            u_sess->instr_cxt.global_instr != NULL) {
-            u_sess->instr_cxt.global_instr = NULL;
-            u_sess->instr_cxt.thread_instr = NULL;
-        }
 
         /*
          * (1) If we've reached idle state, tell the frontend we're ready for
@@ -9333,6 +9399,10 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
          * processor wants a call too, if we are not in a transaction block.
          */
         if (send_ready_for_query) {
+            if (u_sess->stream_cxt.global_obj == NULL && u_sess->instr_cxt.global_instr != NULL) {
+                u_sess->instr_cxt.global_instr = NULL;
+                u_sess->instr_cxt.thread_instr = NULL;
+            }
             /*
              * Instrumentation: should update unique sql stat here
              *
@@ -9346,19 +9416,21 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
 
             UnlimitCurrentQuery();
             if (is_unique_sql_enabled()) {
+#ifdef ENABLE_MULTIPLE_NODES
                 if (need_update_unique_sql_row_stat())
+#endif
                     UpdateUniqueSQLStatOnRemote();
                 UniqueSQLStatCountResetReturnedRows();
                 UniqueSQLStatCountResetParseCounter();
             }
-
+#ifdef ENABLE_MULTIPLE_NODES
             if (IsStmtRetryEnabled()) {
 #ifdef USE_RETRY_STUB
                 u_sess->exec_cxt.RetryController->stub_.FinishStubTest(u_sess->exec_cxt.RetryController->PBEFlowStr());
 #endif
                 u_sess->exec_cxt.RetryController->FinishRetry();
             }
-
+#endif
             if (IsAbortedTransactionBlockState()) {
                 set_ps_display("idle in transaction (aborted)", false);
                 pgstat_report_activity(STATE_IDLEINTRANSACTION_ABORTED, NULL);
@@ -9457,10 +9529,10 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
          */
         if (IS_UNIQUE_SQL_TRACK_TOP)
             SetIsTopUniqueSQL(false);
-
+#ifdef ENABLE_MULTIPLE_NODES
         /* disable tempfile anyway */
         pq_disk_disable_temp_file();
-
+#endif
         if (IS_THREAD_POOL_WORKER) {
             t_thrd.threadpool_cxt.worker->WaitMission();
             Assert(CheckMyDatabaseMatch());
@@ -9556,7 +9628,7 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
         /* update our elapsed time statistics. */
         timeInfoRecordStart();
         _local_tmp_opt1.enter();
-
+#ifdef ENABLE_MULTIPLE_NODES
         /* stmt retry routine phase : pack input_message */
         if (IsStmtRetryEnabled()) {
 #ifdef USE_ASSERT_CHECKING
@@ -9572,7 +9644,7 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
             u_sess->exec_cxt.RetryController->LogTraceInfo(MessageInfo(firstchar, input_message.len));
             ereport(DEBUG2, (errmodule(MOD_CN_RETRY), errmsg("%s cache command.", PRINT_PREFIX_TYPE_PATH)));
         }
-
+#endif
         /*
          * (4) disable async signal conditions again.
          */
@@ -9584,7 +9656,7 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
          * slept.
          */
         reload_configfile();
-
+#ifdef ENABLE_MULTIPLE_NODES
         // (6) process pooler reload before the next transaction begin.
         //
         if (IsGotPoolReload() &&
@@ -9592,7 +9664,7 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
             processPoolerReload();
             ResetGotPoolReload(false);
         }
-
+#endif
         /*
          * call the protocol hook to process the request.
          */
@@ -9646,490 +9718,31 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
         u_sess->exec_cxt.single_shard_stmt = false;
         /* Set statement_timestamp */
         SetCurrentStatementStartTimestamp();
-
+#ifdef ENABLE_MULTIPLE_NODES
         if (u_sess->proc_cxt.MyProcPort && u_sess->proc_cxt.MyProcPort->is_logic_conn)
             LIBCOMM_DEBUG_LOG("postgres to node[nid:%d,sid:%d] with msg:%c.",
                 u_sess->proc_cxt.MyProcPort->gs_sock.idx,
                 u_sess->proc_cxt.MyProcPort->gs_sock.sid,
                 firstchar);
-
+#endif
         if (ENABLE_REMOTE_EXECUTE && libpqsw_process_message(firstchar, &input_message)) {
             _local_tmp_opt1.exit();
             continue;
         }
         _local_tmp_opt1.exit();
-        switch (firstchar) {
-#if defined(ENABLE_MULTIPLE_NODES) || defined(USE_SPQ)
-            case 'Z':  // exeute plan directly.
-            {
-                ProcessCommandUpperZ(&input_message, send_ready_for_query);
-            } break;
-
-            case 'Y': /* plan with params */
-            {
-                ProcessCommandUpperY(&input_message, send_ready_for_query);
-            } break;
-#endif
-
-            case 'u': /* Autonomous transaction */
-            {
-                ProcessCommandLowerU(&input_message, send_ready_for_query);
-            } break;
-
-            case 'Q': /* simple query */
-            {
-                ProcessCommandUpperQ(&input_message, send_ready_for_query);
-            } break;
-
-#if defined(ENABLE_MULTIPLE_NODES) || defined(USE_SPQ)
-            case 'O': /* In pooler stateless resue mode reset connection params */
-            {
-                ProcessCommandUpperO(&input_message, send_ready_for_query);
-            } break;
-
-            case 'o': {
-                ProcessCommandLowerO(&input_message, send_ready_for_query);
-            } break;
-
-            case 'I': {
-                ProcessCommandUpperI(&input_message, send_ready_for_query);
-            } break;
-            case 'i': /* used for instrumentation */
-            {
-                ProcessCommandLowerI(&input_message, send_ready_for_query);
-            } break;
-
-            case 'h': /* @hdfs hybridmessage query */
-            {
-                ProcessCommandLowerH(&input_message, send_ready_for_query);
-            } break;
-#endif
-            case 'P': /* parse */
-            {
-                ProcessCommandUpperP(&input_message, send_ready_for_query);
-            } break;
-
-            case 'B': /* bind */
-            {
-                ProcessCommandUpperB(&input_message, send_ready_for_query);
-            } break;
-
-            case 'E': /* execute */
-            {
-                ProcessCommandUpperE(&input_message, send_ready_for_query);
-            } break;
-
-#ifdef ENABLE_MULTIPLE_NODES
-            case 'k':
-            {
-                ProcessCommandLowerK(&input_message, send_ready_for_query);
+        do {
+            if (firstchar >= 0 && firstchar <= MAX_PROCESS_COMMAND_FUNC_NUM) {
+                if (g_ProcessCommandFuncs[firstchar] != NULL) {
+                    g_ProcessCommandFuncs[firstchar](&input_message, send_ready_for_query, query_started);
+                    break;
+                }
+            } else if (firstchar == EOF) {
+                ProcessCommandEof(&input_message, send_ready_for_query, query_started);
                 break;
             }
-#endif
-            case 'F': /* fastpath function call */
-            {
-                ProcessCommandUpperF(&input_message, send_ready_for_query);
-            } break;
-
-            case 'C': /* close */
-            {
-                ProcessCommandUpperC(&input_message, send_ready_for_query);
-            } break;
-
-            case 'D': /* describe */
-            {
-                ProcessCommandUpperD(&input_message, send_ready_for_query);
-            } break;
-
-            case 'H': /* flush */
-            {
-                ProcessCommandUpperH(&input_message, send_ready_for_query);
-            } break;
-
-            case 'S': /* sync */
-            {
-                ProcessCommandUpperS(&input_message, send_ready_for_query);
-            } break;
-
-            case 'K': /* client conn info net_time*/
-            {
-                ProcessCommandUpperK(&input_message, send_ready_for_query);
-            } break;
-
-                /*
-                 * 'V' means remote client driver support trace, for low version server,
-                 * client does not send this message.
-                 */
-            case 'V':
-                BEENTRY_STMEMENET_CXT.remote_support_trace = true;
-                query_started = false;
-                break;
-
-                /*
-                 * 'X' means that the frontend is closing down the socket.
-                 * means unexpected loss of frontend connection. perform
-                 * normal shutdown.
-                 */
-            case 'X': /* frontend closing down the socket */
-            {
-                ProcessCommandUpperX(&input_message, send_ready_for_query);
-            } break;
-
-                /* EOF means unexpected loss of frontend connection. Either way,
-                 * perform normal shutdown.
-                 */
-            case EOF:
-                ProcessCommandEof(&input_message, send_ready_for_query);
-                break;
-
-                /* fall through */
-            case 'd': /* copy data */
-            case 'c': /* copy done */
-            case 'f': /* copy fail */
-
-                /*
-                 * Accept but ignore these messages, per protocol spec; we
-                 * probably got here because a COPY failed, and the frontend
-                 * is still sending data.
-                 */
-                ProcessCommandNop(&input_message, send_ready_for_query);
-                break;
-#if defined(ENABLE_MULTIPLE_NODES) || defined(USE_SPQ)
-            case 'M': /* Command ID */
-            {
-                ProcessCommandUpperM(&input_message, send_ready_for_query);
-            } break;
-
-            case 'q': /* query id */
-            {
-                ProcessCommandLowerQ(&input_message, send_ready_for_query);
-            } break;
-
-            case 'e': /* threadid */
-            {
-                ProcessCommandLowerE(&input_message, send_ready_for_query);
-            } break;
-
-            case 'r': /* query id with sync */
-            {
-#ifndef USE_SPQ
-                /* We only process 'r' message on PGCX_DATANODE. */
-                if (IS_PGXC_COORDINATOR || IS_SINGLE_NODE)
-                    ereport(ERROR,
-                        (errcode(ERRCODE_PROTOCOL_VIOLATION),
-                            errmsg("invalid frontend message type '%c'.", firstchar)));
-#endif
-
-                /* Set top consumer at the very beginning. */
-                StreamTopConsumerIam();
-                List* oidlist = NIL;
-                int oidcount = 0;
-
-                /* Set the query id we were passed down */
-                errno_t rc = memcpy_s(&u_sess->debug_query_id,
-                    sizeof(uint64),
-                    pq_getmsgbytes(&input_message, sizeof(uint64)),
-                    sizeof(uint64));
-                securec_check(rc, "\0", "\0");
-                ereport(DEBUG1, (errmsg("Received new query id %lu", u_sess->debug_query_id)));
-                rc = memcpy_s(&oidcount, sizeof(int),
-                    pq_getmsgbytes(&input_message, sizeof(int)), sizeof(int));
-                securec_check(rc,"\0","\0");
-                for (int i = 0; i < oidcount; i++) {
-                    Oid tmp = InvalidOid;
-                    rc = memcpy_s(&tmp, sizeof(Oid),
-                        pq_getmsgbytes(&input_message, sizeof(Oid)), sizeof(Oid));
-                    securec_check(rc,"\0","\0");
-                    oidlist = lappend_oid(oidlist, tmp);
-                }
-
-                pq_getmsgend(&input_message);
-
-                /*
-                 * Set top consumer for stream plan to ensure debug_query_id
-                 * being removed when errors occurs between 'r' message and 'Z' message.
-                 * The flag isStreamTopConsumer will be reset in StreamNodeGroup::destroy
-                 * 'Z' and 'Y' messages.
-                 */
-                StreamNodeGroup::grantStreamConnectPermission();
-
-                StringInfoData buf;
-                pq_beginmessage(&buf, 'l');
-                pq_sendint16(&buf, g_instance.attr.attr_network.comm_control_port);
-                pq_sendint16(&buf, g_instance.attr.attr_network.comm_sctp_port);
-                uint16 len = strlen(g_instance.attr.attr_common.PGXCNodeName) + 1;
-                pq_sendint16(&buf, len);
-                pq_sendbytes(&buf, g_instance.attr.attr_common.PGXCNodeName, len);
-                pq_endmessage(&buf);
-                if (SS_PRIMARY_MODE && oidcount > 0) {
-                    StringInfoData bufoid;
-                    pq_beginmessage(&bufoid, 'i');
-                    pq_sendint(&bufoid, oidcount, 4);
-                    ListCell *oid;
-                    foreach (oid, oidlist) {
-                        Oid relOid = lfirst_oid(oid);
-                        Relation rel = heap_open(relOid, AccessShareLock);
-                        BlockNumber ReadBlkNum = RelationGetNumberOfBlocks(rel);
-                        heap_sync(rel);
-                        heap_close(rel, AccessShareLock);
-                        pq_sendint(&bufoid, (int)relOid, 4);
-                        pq_sendint(&bufoid, (int)ReadBlkNum, 4);
-                    }
-                    pq_endmessage(&bufoid);
-                }
-                pq_putemptymessage('O'); /* PlanIdComplete */
-                pq_flush();
-            } break;
-#endif
-#ifdef ENABLE_MULTIPLE_NODES
-            case 'g': /* gxid */
-            {
-                ProcessCommandLowerG(&input_message, send_ready_for_query);
-            } break;
-#endif
-#if defined(ENABLE_MULTIPLE_NODES) || defined(USE_SPQ)
-            case 's': /* snapshot */
-            {
-#ifdef USE_SPQ
-                errno_t rc = EOK;
-                Snapshot cursnap = u_sess->spq_cxt.snapshot;
-                int satisfies;
-                rc = memcpy_s(&satisfies, sizeof(int),
-                                  pq_getmsgbytes(&input_message, sizeof(int)), sizeof(int));
-                    securec_check(rc,"\0","\0");
-                cursnap->satisfies = (SnapshotSatisfiesMethod)satisfies;
-                rc = memcpy_s(&cursnap->xmin, sizeof(TransactionId),
-                                  pq_getmsgbytes(&input_message, sizeof(TransactionId)), sizeof(TransactionId));
-                    securec_check(rc,"\0","\0");
-                rc = memcpy_s(&cursnap->xmax, sizeof(TransactionId),
-                                  pq_getmsgbytes(&input_message, sizeof(TransactionId)), sizeof(TransactionId));
-                    securec_check(rc,"\0","\0");
-                rc = memcpy_s(&cursnap->snapshotcsn, sizeof(CommitSeqNo),
-                                  pq_getmsgbytes(&input_message, sizeof(CommitSeqNo)), sizeof(CommitSeqNo));
-                    securec_check(rc,"\0","\0");
-                break;
-            }
-#else
-                int gtm_snapshot_type = -1;
-
-                if (GTM_LITE_MODE) { /* gtm lite mode */
-                    rc = memcpy_s(&ss_need_sync_wait_all, sizeof(int),
-                                  pq_getmsgbytes(&input_message, sizeof(bool)), sizeof(bool));
-                    securec_check(rc,"\0","\0");
-                    rc = memcpy_s(&cn_xc_maintain_mode, sizeof(bool),
-                                  pq_getmsgbytes(&input_message, sizeof(bool)), sizeof(bool));
-                    securec_check(rc,"\0","\0");
-                    rc = memcpy_s(&csn, sizeof(uint64),
-                                  pq_getmsgbytes(&input_message, sizeof(uint64)), sizeof(uint64));
-                    securec_check(rc,"\0","\0");
-                    rc = memcpy_s(&gtm_snapshot_type, sizeof(int),
-                                  pq_getmsgbytes(&input_message, sizeof(int)), sizeof(int));
-                    securec_check(rc,"\0","\0");
-                    remote_gtm_mode = pq_getmsgbyte(&input_message);
-                    pq_getmsgend(&input_message);
-                    /* if message length is correct, set u_sess variables */
-                    u_sess->utils_cxt.cn_xc_maintain_mode = cn_xc_maintain_mode;
-                    if (gtm_snapshot_type == GTM_SNAPSHOT_TYPE_LOCAL) {
-                        UnsetGlobalSnapshotData();
-                    } else {
-                        u_sess->utils_cxt.is_autovacuum_snapshot =
-                            (gtm_snapshot_type == GTM_SNAPSHOT_TYPE_AUTOVACUUM) ? true : false;
-                        ereport(DEBUG1, (errmodule(MOD_DISASTER_READ), errmsg("dn receive snapshot csn %lu", csn)));
-                        SetGlobalSnapshotData(InvalidTransactionId, InvalidTransactionId, csn,
-                                              InvalidTransactionTimeline, ss_need_sync_wait_all);
-                        /* quickly set my recent global xmin */
-                        u_sess->utils_cxt.RecentGlobalXmin = GetOldestXmin(NULL, true);
-                        u_sess->utils_cxt.RecentGlobalCatalogXmin = GetOldestCatalogXmin();
-                    }
-                }
-                /* check gtm mode, remote should be false, local cannot be true */
-                if (remote_gtm_mode != g_instance.attr.attr_storage.enable_gtm_free &&
-                    (t_thrd.proc->workingVersionNum >= 92012))
-                    ereport(FATAL,
-                        (errcode(ERRCODE_SYSTEM_ERROR),
-                            errmsg("gtm mode unconsistency, remote mode is %s, local mode is %s.",
-                                remote_gtm_mode ? "on" : "off",
-                                g_instance.attr.attr_storage.enable_gtm_free ? "on" : "off")));
-                /* Should not do any distributed operation when CN u_sess->attr.attr_common.xc_maintenance_mode is true
-                 */
-                if (u_sess->utils_cxt.cn_xc_maintain_mode != u_sess->attr.attr_common.xc_maintenance_mode)
-                    ereport(WARNING,
-                        (errmsg("cn_xc_maintain_mode: %s, xc_maintain_mode: %s",
-                            u_sess->utils_cxt.cn_xc_maintain_mode ? "on" : "off",
-                            u_sess->attr.attr_common.xc_maintenance_mode ? "on" : "off")));
-                break;
-            }
-#endif
-#endif
-#ifdef ENABLE_MULTIPLE_NODES
-            case 't': /* timestamp */
-                ProcessCommandLowerT(&input_message, send_ready_for_query);
-                break;
-
-            case 'b': /* barrier */
-            {
-                ProcessCommandLowerB(&input_message, send_ready_for_query);
-            }
-            break;
-
-            case 'W': {
-                WLMGeneralParam* g_wlm_params = &u_sess->wlm_cxt->wlm_params;
-
-                g_wlm_params->qid.procId = (Oid)pq_getmsgint(&input_message, 4);
-                g_wlm_params->qid.queryId = (uint64)pq_getmsgint64(&input_message);
-
-                int flags[2];
-
-                flags[0] = (int)pq_getmsgint(&input_message, 4);
-
-                g_wlm_params->cpuctrl = *((unsigned char*)&flags[0]);
-                g_wlm_params->memtrack = *((unsigned char*)&flags[0] + sizeof(char));
-                g_wlm_params->iostate = *((unsigned char*)&flags[0] + 2 * sizeof(char));
-                g_wlm_params->iotrack = *((unsigned char*)&flags[0] + 3 * sizeof(char));
-
-                flags[1] = (int)pq_getmsgint(&input_message, 4);
-                g_wlm_params->iocontrol = *((unsigned char*)&flags[1]);
-
-                g_wlm_params->complicate = *((unsigned char*)&flags[1] + sizeof(char)) ? 0 : 1;
-
-                g_wlm_params->dopvalue = (unsigned char)pq_getmsgint(&input_message, 4);
-                g_wlm_params->io_priority = pq_getmsgint(&input_message, 4);
-                g_wlm_params->iops_limits = pq_getmsgint(&input_message, 4);
-                g_wlm_params->qid.stamp = (TimestampTz)pq_getmsgint64(&input_message);
-
-                /* get the name of cgroup */
-                const char* cgname = pq_getmsgstring(&input_message);
-
-                /* get the name of respool */
-                const char* respool = pq_getmsgstring(&input_message);
-
-                if (StringIsValid(respool)) {
-                    rc = snprintf_s(g_wlm_params->rpdata.rpname,
-                        sizeof(g_wlm_params->rpdata.rpname),
-                        sizeof(g_wlm_params->rpdata.rpname) - 1,
-                        "%s",
-                        respool);
-                    securec_check_ss(rc, "", "");
-                }
-
-                /* get the node group name */
-                const char* ngname = pq_getmsgstring(&input_message);
-
-                if (StringIsValid(ngname)) {
-                    rc = snprintf_s(g_wlm_params->ngroup,
-                        sizeof(g_wlm_params->ngroup),
-                        sizeof(g_wlm_params->ngroup) - 1,
-                        "%s",
-                        ngname);
-                    securec_check_ss(rc, "", "");
-                }
-
-                /* local dn has vcgroup */
-                if (*g_instance.wlm_cxt->local_dn_ngname && *g_wlm_params->ngroup &&
-                    0 != strcmp(g_instance.wlm_cxt->local_dn_ngname, g_wlm_params->ngroup)) {
-                    /* Get the node group information */
-                    t_thrd.wlm_cxt.thread_node_group = g_instance.wlm_cxt->local_dn_nodegroup;
-
-                    /* check if the control group is valid and set it for foreign user */
-                    if (t_thrd.wlm_cxt.thread_node_group->foreignrp) {
-                        u_sess->wlm_cxt->local_foreign_respool = t_thrd.wlm_cxt.thread_node_group->foreignrp;
-                    } else {
-                        WLMSetControlGroup(GSCGROUP_INVALID_GROUP);
-                    }
-                } else {
-                    /* Get the node group information */
-                    t_thrd.wlm_cxt.thread_node_group = WLMMustGetNodeGroupFromHTAB(g_wlm_params->ngroup);
-
-                    WLMSetControlGroup(cgname);
-                }
-
-                t_thrd.wlm_cxt.thread_climgr = &t_thrd.wlm_cxt.thread_node_group->climgr;
-                t_thrd.wlm_cxt.thread_srvmgr = &t_thrd.wlm_cxt.thread_node_group->srvmgr;
-
-                pq_getmsgend(&input_message);
-            } break;
-            case 'w': {
-                ProcessCommandLowerW(&input_message, send_ready_for_query);
-            } break;
-            case 'R': /* reply collect info */
-            {
-                ProcessCommandUpperR(&input_message, send_ready_for_query);
-            } break;
-
-            case 'A': /* msg type for compute pool  */
-            {
-                ProcessCommandUpperA(&input_message, send_ready_for_query);
-            } break;
-
-#ifdef ENABLE_MULTIPLE_NODES
-            case 'L': /* link gc_fdw  */
-            {
-                ProcessCommandUpperL(&input_message, send_ready_for_query);
-            } break;
-#endif
-            case 'n': /* commiting */
-            {
-                ProcessCommandLowerN(&input_message, send_ready_for_query);
-                break;
-            }
-            case 'N': /* commit csn */
-                ProcessCommandUpperN(&input_message, send_ready_for_query);
-                break;
-
-#ifdef ENABLE_MULTIPLE_NODES
-            case 'l': /* get and handle csn for csnminsync */
-                ProcessCommandLowerL(&input_message, send_ready_for_query);
-                break;
-#endif
-
-            case 'j': /* check gtm mode */
-            {
-                ProcessCommandLowerJ(&input_message, send_ready_for_query);
-                break;
-            }
-#endif
-            case 'U': /* msg type for batch Bind-Execute for PBE */
-            {
-                ProcessCommandUpperU(&input_message, send_ready_for_query);
-            } break;
-
-#ifdef ENABLE_MULTIPLE_NODES
-            case 'z': /* pbe for ddl */
-                ProcessCommandLowerZ(&input_message, send_ready_for_query);
-                break;
-
-            case 'G': /* MSG_TYPE_PGXC_BUCKET_MAP for PGXCBucketMap and PGXCNodeId */
-            {
-                ProcessCommandUpperG(&input_message, send_ready_for_query);
-            } break;
-#endif
-            case 'y': /* sequence from cn 2 dn */
-            {
-                ProcessCommandLowerY(&input_message, send_ready_for_query);
-            } break;
-            
-            case 'J': /* Trace ID */
-            {
-                ProcessCommandUpperJ(&input_message, send_ready_for_query);
-            } break;
-
-#ifdef ENABLE_MULTIPLE_NODES
-            case 'T':
-            {
-                ProcessCommandUpperT(&input_message, send_ready_for_query);
-            } break;
-#endif
-
-#ifdef ENABLE_HTAP
-            case 'x': /* imcs query */
-                ProcessCommandLowerX(&input_message, send_ready_for_query);
-                break;
-#endif
-            default:
-                ereport(FATAL,
-                    (errcode(ERRCODE_PROTOCOL_VIOLATION), errmsg("invalid frontend message type %c", firstchar)));
-                break;
-        }
+            ereport(FATAL,
+                        (errcode(ERRCODE_PROTOCOL_VIOLATION), errmsg("invalid frontend message type %c", firstchar)));
+        } while (0);
     } /* end of input-reading loop */
 
     gstrace_exit(GS_TRC_ID_PostgresMain);
@@ -10147,7 +9760,7 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
  * @param input_message: The input message containing the plan.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperZ(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperZ(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     char* plan_string = NULL;
     PlannedStmt* planstmt = NULL;
@@ -10220,7 +9833,7 @@ static void ProcessCommandUpperZ(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message containing the plan with parameters.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperY(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperY(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     t_thrd.spq_ctx.spq_role = ROLE_QUERY_EXECUTOR;
     if ((IS_PGXC_COORDINATOR || IS_SINGLE_NODE) && (!IS_SPQ_EXECUTOR))
@@ -10253,7 +9866,7 @@ static void ProcessCommandUpperY(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message containing the autonomous transaction information.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandLowerU(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerU(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     int msgType = pq_getmsgbyte(input_message);
     u_sess->is_partition_autonomous_session = msgType == 'P';
@@ -10315,7 +9928,7 @@ static void ProcessCommandLowerU(StringInfo input_message, volatile bool& send_r
     }
 
     /* continue deal with simple query */
-    ProcessCommandUpperQ(input_message, send_ready_for_query);
+    ProcessCommandUpperQ(input_message, send_ready_for_query, query_started);
 }
 
 /*
@@ -10324,7 +9937,7 @@ static void ProcessCommandLowerU(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperQ(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperQ(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     const char* query_string = NULL;
     OgRecordAutoController _local_opt(SRT1_Q);
@@ -10374,7 +9987,7 @@ static void ProcessCommandUpperQ(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperO(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperO(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     const char* query_string = NULL;
     char sql[PARAMS_LEN] = {0};
@@ -10483,7 +10096,7 @@ static void ProcessCommandUpperO(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandLowerO(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerO(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     // switch role
     if (unlikely(!IsConnFromCoord())) {
@@ -10530,7 +10143,7 @@ static void ProcessCommandLowerO(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperI(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperI(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     // Procedure overrideStack
     int pushtype;
@@ -10634,7 +10247,7 @@ static void ProcessCommandUpperI(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandLowerI(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerI(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     int sub_command = 0;
     sub_command = pq_getmsgbyte(input_message);
@@ -10717,7 +10330,7 @@ static void ProcessCommandLowerI(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandLowerH(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerH(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     const char* query_string = NULL;
 
@@ -10749,7 +10362,7 @@ static void ProcessCommandLowerH(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperP(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperP(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     OgRecordAutoController _local_opt(SRT6_P);
     const char* stmt_name = NULL;
@@ -10847,7 +10460,7 @@ static void ProcessCommandUpperP(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperB(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperB(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     OgRecordAutoController _local_opt(SRT7_B);
     exec_pre_bind_message();
@@ -10865,7 +10478,7 @@ static void ProcessCommandUpperB(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperE(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperE(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     OgRecordAutoController _local_opt(SRT8_E);
     const char* portal_name = NULL;
@@ -10893,7 +10506,7 @@ static void ProcessCommandUpperE(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperR(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperR(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     /* start an xact for this function invocation */
     start_xact_command();
@@ -10909,7 +10522,7 @@ static void ProcessCommandUpperR(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperA(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperA(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     process_request(input_message);
 }
@@ -10920,7 +10533,7 @@ static void ProcessCommandUpperA(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperL(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperL(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     start_xact_command();
 
@@ -10935,7 +10548,7 @@ static void ProcessCommandUpperL(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandLowerK(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerK(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     /* no k msg from cn now, but keep these code for gray upgrade */
     if (!ENABLE_DN_GPC)
@@ -10979,7 +10592,7 @@ static void ProcessCommandLowerK(StringInfo input_message, volatile bool& send_r
     }
 }
 
-static void ProcessCommandLowerG(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerG(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     errno_t rc = EOK;
 
@@ -11011,7 +10624,7 @@ static void ProcessCommandLowerG(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperF(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperF(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     /* Report query to various monitoring facilities. */
     pgstat_report_activity(STATE_FASTPATH, NULL);
@@ -11058,7 +10671,7 @@ static void ProcessCommandUpperF(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperC(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperC(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     OgRecordAutoController _local_opt(SRT11_C);
     int close_type;
@@ -11127,7 +10740,7 @@ static void ProcessCommandUpperC(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperD(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperD(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     OgRecordAutoController _local_opt(SRT9_D);
     int describe_type;
@@ -11178,7 +10791,7 @@ static void ProcessCommandUpperD(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperH(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperH(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     pq_getmsgend(input_message);
     if (t_thrd.postgres_cxt.whereToSendOutput == DestRemote) {
@@ -11194,7 +10807,7 @@ static void ProcessCommandUpperH(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperS(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperS(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     pq_getmsgend(input_message);
     exec_sync_message();
@@ -11207,7 +10820,7 @@ static void ProcessCommandUpperS(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperK(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperK(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     int64 net_trans_time = pq_getmsgint64(input_message);
     u_sess->stat_cxt.localTimeInfoArray[NET_TRANS_TIME] = net_trans_time;
@@ -11222,9 +10835,21 @@ static void ProcessCommandUpperK(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperX(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperX(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     deal_fronted_lost();
+}
+
+/*
+ * ProcessCommandUpperV - Process the 'V' command (client conn driver support trace info)
+ *
+ * @param input_message: The input message buffer containing the command data.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
+ */
+static void ProcessCommandUpperV(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
+{
+    BEENTRY_STMEMENET_CXT.remote_support_trace = true;
+    query_started = false;
 }
 
 /*
@@ -11233,7 +10858,7 @@ static void ProcessCommandUpperX(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperU(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperU(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     OgRecordAutoController _local_opt(SRT12_U);
     if (!u_sess->attr.attr_common.support_batch_bind)
@@ -11276,7 +10901,7 @@ static void ProcessCommandUpperU(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperJ(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperJ(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     char* trace_id = NULL;
     trace_id = (char*)pq_getmsgstring(input_message);
@@ -11291,12 +10916,12 @@ static void ProcessCommandUpperJ(StringInfo input_message, volatile bool& send_r
     elog(DEBUG1, "trace_id:%s start", u_sess->trace_cxt.trace_id);
 }
 
-static void ProcessCommandNop(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandNop(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     /* nothing to do */
 }
 
-static void ProcessCommandEof(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandEof(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     if (!BEENTRY_STMEMENET_CXT.previous_stmt_flushed) {
         handle_commit_previous_metirc_context();
@@ -11305,14 +10930,14 @@ static void ProcessCommandEof(StringInfo input_message, volatile bool& send_read
 }
 
 #if defined(ENABLE_MULTIPLE_NODES) || defined(USE_SPQ)
-static void ProcessCommandUpperM(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperM(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     CommandId cid = (CommandId)pq_getmsgint(input_message, 4);
     ereport(DEBUG1, (errmsg("Received cmd id %u", cid)));
     SaveReceivedCommandId(cid);
 }
 
-static void ProcessCommandLowerQ(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerQ(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     errno_t rc = EOK;
 
@@ -11327,12 +10952,153 @@ static void ProcessCommandLowerQ(StringInfo input_message, volatile bool& send_r
     pgstat_report_queryid(u_sess->debug_query_id);
 }
 
-static void ProcessCommandLowerE(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerE(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     /* Set the thread id we were passed down */
     u_sess->instr_cxt.gs_query_id->procId = (Oid)pq_getmsgint(input_message, 4);
     u_sess->exec_cxt.need_track_resource = (bool)pq_getmsgbyte(input_message);
     pq_getmsgend(input_message);
+}
+
+static void ProcessCommandLowerR(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
+{
+#ifndef USE_SPQ
+    /* We only process 'r' message on PGCX_DATANODE. */
+    if (IS_PGXC_COORDINATOR || IS_SINGLE_NODE)
+        ereport(ERROR,
+            (errcode(ERRCODE_PROTOCOL_VIOLATION),
+                errmsg("invalid frontend message type '%c'.", 'r')));
+#endif
+
+    /* Set top consumer at the very beginning. */
+    StreamTopConsumerIam();
+    List* oidlist = NIL;
+    int oidcount = 0;
+
+    /* Set the query id we were passed down */
+    errno_t rc = memcpy_s(&u_sess->debug_query_id,
+        sizeof(uint64),
+        pq_getmsgbytes(input_message, sizeof(uint64)),
+        sizeof(uint64));
+    securec_check(rc, "\0", "\0");
+    ereport(DEBUG1, (errmsg("Received new query id %lu", u_sess->debug_query_id)));
+    rc = memcpy_s(&oidcount, sizeof(int),
+        pq_getmsgbytes(input_message, sizeof(int)), sizeof(int));
+    securec_check(rc,"\0","\0");
+    for (int i = 0; i < oidcount; i++) {
+        Oid tmp = InvalidOid;
+        rc = memcpy_s(&tmp, sizeof(Oid),
+            pq_getmsgbytes(input_message, sizeof(Oid)), sizeof(Oid));
+        securec_check(rc,"\0","\0");
+        oidlist = lappend_oid(oidlist, tmp);
+    }
+
+    pq_getmsgend(input_message);
+
+    /*
+     * Set top consumer for stream plan to ensure debug_query_id
+     * being removed when errors occurs between 'r' message and 'Z' message.
+     * The flag isStreamTopConsumer will be reset in StreamNodeGroup::destroy
+     * 'Z' and 'Y' messages.
+     */
+    StreamNodeGroup::grantStreamConnectPermission();
+
+    StringInfoData buf;
+    pq_beginmessage(&buf, 'l');
+    pq_sendint16(&buf, g_instance.attr.attr_network.comm_control_port);
+    pq_sendint16(&buf, g_instance.attr.attr_network.comm_sctp_port);
+    uint16 len = strlen(g_instance.attr.attr_common.PGXCNodeName) + 1;
+    pq_sendint16(&buf, len);
+    pq_sendbytes(&buf, g_instance.attr.attr_common.PGXCNodeName, len);
+    pq_endmessage(&buf);
+    if (SS_PRIMARY_MODE && oidcount > 0) {
+        StringInfoData bufoid;
+        pq_beginmessage(&bufoid, 'i');
+        pq_sendint(&bufoid, oidcount, 4);
+        ListCell *oid;
+        foreach (oid, oidlist) {
+            Oid relOid = lfirst_oid(oid);
+            Relation rel = heap_open(relOid, AccessShareLock);
+            BlockNumber ReadBlkNum = RelationGetNumberOfBlocks(rel);
+            heap_sync(rel);
+            heap_close(rel, AccessShareLock);
+            pq_sendint(&bufoid, (int)relOid, 4);
+            pq_sendint(&bufoid, (int)ReadBlkNum, 4);
+        }
+        pq_endmessage(&bufoid);
+    }
+    pq_putemptymessage('O'); /* PlanIdComplete */
+    pq_flush();
+}
+
+static void ProcessCommandLowerS(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
+{
+#ifdef USE_SPQ
+    errno_t rc = EOK;
+    Snapshot cursnap = u_sess->spq_cxt.snapshot;
+    int satisfies;
+    rc = memcpy_s(&satisfies, sizeof(int),
+                      pq_getmsgbytes(input_message, sizeof(int)), sizeof(int));
+    securec_check(rc,"\0","\0");
+    cursnap->satisfies = (SnapshotSatisfiesMethod)satisfies;
+    rc = memcpy_s(&cursnap->xmin, sizeof(TransactionId),
+                      pq_getmsgbytes(input_message, sizeof(TransactionId)), sizeof(TransactionId));
+    securec_check(rc,"\0","\0");
+    rc = memcpy_s(&cursnap->xmax, sizeof(TransactionId),
+                      pq_getmsgbytes(input_message, sizeof(TransactionId)), sizeof(TransactionId));
+    securec_check(rc,"\0","\0");
+    rc = memcpy_s(&cursnap->snapshotcsn, sizeof(CommitSeqNo),
+                      pq_getmsgbytes(input_message, sizeof(CommitSeqNo)), sizeof(CommitSeqNo));
+    securec_check(rc,"\0","\0");
+#else
+    int gtm_snapshot_type = -1;
+
+    if (GTM_LITE_MODE) { /* gtm lite mode */
+        rc = memcpy_s(&ss_need_sync_wait_all, sizeof(int),
+                      pq_getmsgbytes(input_message, sizeof(bool)), sizeof(bool));
+        securec_check(rc,"\0","\0");
+        rc = memcpy_s(&cn_xc_maintain_mode, sizeof(bool),
+                      pq_getmsgbytes(input_message, sizeof(bool)), sizeof(bool));
+        securec_check(rc,"\0","\0");
+        rc = memcpy_s(&csn, sizeof(uint64),
+                      pq_getmsgbytes(input_message, sizeof(uint64)), sizeof(uint64));
+        securec_check(rc,"\0","\0");
+        rc = memcpy_s(&gtm_snapshot_type, sizeof(int),
+                      pq_getmsgbytes(input_message, sizeof(int)), sizeof(int));
+        securec_check(rc,"\0","\0");
+        remote_gtm_mode = pq_getmsgbyte(input_message);
+        pq_getmsgend(input_message);
+        /* if message length is correct, set u_sess variables */
+        u_sess->utils_cxt.cn_xc_maintain_mode = cn_xc_maintain_mode;
+        if (gtm_snapshot_type == GTM_SNAPSHOT_TYPE_LOCAL) {
+            UnsetGlobalSnapshotData();
+        } else {
+            u_sess->utils_cxt.is_autovacuum_snapshot =
+                (gtm_snapshot_type == GTM_SNAPSHOT_TYPE_AUTOVACUUM) ? true : false;
+            ereport(DEBUG1, (errmodule(MOD_DISASTER_READ), errmsg("dn receive snapshot csn %lu", csn)));
+            SetGlobalSnapshotData(InvalidTransactionId, InvalidTransactionId, csn,
+                                  InvalidTransactionTimeline, ss_need_sync_wait_all);
+            /* quickly set my recent global xmin */
+            u_sess->utils_cxt.RecentGlobalXmin = GetOldestXmin(NULL, true);
+            u_sess->utils_cxt.RecentGlobalCatalogXmin = GetOldestCatalogXmin();
+        }
+    }
+    /* check gtm mode, remote should be false, local cannot be true */
+    if (remote_gtm_mode != g_instance.attr.attr_storage.enable_gtm_free &&
+        (t_thrd.proc->workingVersionNum >= 92012))
+        ereport(FATAL,
+            (errcode(ERRCODE_SYSTEM_ERROR),
+                errmsg("gtm mode unconsistency, remote mode is %s, local mode is %s.",
+                    remote_gtm_mode ? "on" : "off",
+                    g_instance.attr.attr_storage.enable_gtm_free ? "on" : "off")));
+    /* Should not do any distributed operation when CN u_sess->attr.attr_common.xc_maintenance_mode is true
+     */
+    if (u_sess->utils_cxt.cn_xc_maintain_mode != u_sess->attr.attr_common.xc_maintenance_mode)
+        ereport(WARNING,
+            (errmsg("cn_xc_maintain_mode: %s, xc_maintain_mode: %s",
+                u_sess->utils_cxt.cn_xc_maintain_mode ? "on" : "off",
+                u_sess->attr.attr_common.xc_maintenance_mode ? "on" : "off")));
+#endif
 }
 
 #endif
@@ -13239,7 +13005,7 @@ void exec_get_bind_message(StringInfo input_message, BindMessage *pqBindMessage,
 }
 
 #ifdef ENABLE_MULTIPLE_NODES
-static void ProcessCommandLowerT(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerT(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     /* Set statement_timestamp() */
     TimestampTz gtmstart_timestamp = (TimestampTz)pq_getmsgint64(input_message);
@@ -13263,7 +13029,7 @@ static void ProcessCommandLowerT(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandLowerB(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerB(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     int command;
     char* id = NULL;
@@ -13311,7 +13077,7 @@ static void ProcessCommandLowerB(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandLowerL(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerL(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     uint64 csn;
     CsnType csn_type;
@@ -13356,7 +13122,7 @@ static void ProcessCommandLowerL(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandLowerJ(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerJ(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     int remote_gtm_mode;
     remote_gtm_mode = pq_getmsgbyte(input_message);
@@ -13376,7 +13142,7 @@ static void ProcessCommandLowerJ(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandLowerZ(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerZ(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     exec_get_ddl_params(input_message);
 }
@@ -13387,7 +13153,7 @@ static void ProcessCommandLowerZ(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperG(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperG(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     errno_t rc = EOK;
     if (u_sess->top_transaction_mem_cxt == NULL) {
@@ -13415,7 +13181,7 @@ static void ProcessCommandUpperG(StringInfo input_message, volatile bool& send_r
     pq_getmsgend(input_message);
 }
 
-static void ProcessCommandUpperT(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperT(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     LWLockAcquire(XLogMaxCSNLock, LW_SHARED);
     CommitSeqNo maxCSN = t_thrd.xact_cxt.ShmemVariableCache->xlogMaxCSN;
@@ -13431,12 +13197,97 @@ static void ProcessCommandUpperT(StringInfo input_message, volatile bool& send_r
 }
 
 /*
+ * ProcessCommandUpperW - Process the 'W' command (WLM Control Group)
+ *
+ * @param input_message: The input message buffer containing the command data.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
+ */
+static void ProcessCommandUpperW(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
+{
+    int rc = 0;
+    WLMGeneralParam* g_wlm_params = &u_sess->wlm_cxt->wlm_params;
+
+    g_wlm_params->qid.procId = (Oid)pq_getmsgint(input_message, 4);
+    g_wlm_params->qid.queryId = (uint64)pq_getmsgint64(input_message);
+
+    int flags[2];
+
+    flags[0] = (int)pq_getmsgint(input_message, 4);
+
+    g_wlm_params->cpuctrl = *((unsigned char*)&flags[0]);
+    g_wlm_params->memtrack = *((unsigned char*)&flags[0] + sizeof(char));
+    g_wlm_params->iostate = *((unsigned char*)&flags[0] + 2 * sizeof(char));
+    g_wlm_params->iotrack = *((unsigned char*)&flags[0] + 3 * sizeof(char));
+
+    flags[1] = (int)pq_getmsgint(input_message, 4);
+    g_wlm_params->iocontrol = *((unsigned char*)&flags[1]);
+
+    g_wlm_params->complicate = *((unsigned char*)&flags[1] + sizeof(char)) ? 0 : 1;
+
+    g_wlm_params->dopvalue = (unsigned char)pq_getmsgint(input_message, 4);
+    g_wlm_params->io_priority = pq_getmsgint(input_message, 4);
+    g_wlm_params->iops_limits = pq_getmsgint(input_message, 4);
+    g_wlm_params->qid.stamp = (TimestampTz)pq_getmsgint64(input_message);
+
+    /* get the name of cgroup */
+    const char* cgname = pq_getmsgstring(input_message);
+
+    /* get the name of respool */
+    const char* respool = pq_getmsgstring(input_message);
+
+    if (StringIsValid(respool)) {
+        rc = snprintf_s(g_wlm_params->rpdata.rpname,
+            sizeof(g_wlm_params->rpdata.rpname),
+            sizeof(g_wlm_params->rpdata.rpname) - 1,
+            "%s",
+            respool);
+        securec_check_ss(rc, "", "");
+    }
+
+    /* get the node group name */
+    const char* ngname = pq_getmsgstring(input_message);
+
+    if (StringIsValid(ngname)) {
+        rc = snprintf_s(g_wlm_params->ngroup,
+            sizeof(g_wlm_params->ngroup),
+            sizeof(g_wlm_params->ngroup) - 1,
+            "%s",
+            ngname);
+        securec_check_ss(rc, "", "");
+    }
+
+    /* local dn has vcgroup */
+    if (*g_instance.wlm_cxt->local_dn_ngname && *g_wlm_params->ngroup &&
+        0 != strcmp(g_instance.wlm_cxt->local_dn_ngname, g_wlm_params->ngroup)) {
+        /* Get the node group information */
+        t_thrd.wlm_cxt.thread_node_group = g_instance.wlm_cxt->local_dn_nodegroup;
+
+        /* check if the control group is valid and set it for foreign user */
+        if (t_thrd.wlm_cxt.thread_node_group->foreignrp) {
+            u_sess->wlm_cxt->local_foreign_respool = t_thrd.wlm_cxt.thread_node_group->foreignrp;
+        } else {
+            WLMSetControlGroup(GSCGROUP_INVALID_GROUP);
+        }
+    } else {
+        /* Get the node group information */
+        t_thrd.wlm_cxt.thread_node_group = WLMMustGetNodeGroupFromHTAB(g_wlm_params->ngroup);
+
+        WLMSetControlGroup(cgname);
+    }
+
+    t_thrd.wlm_cxt.thread_climgr = &t_thrd.wlm_cxt.thread_node_group->climgr;
+    t_thrd.wlm_cxt.thread_srvmgr = &t_thrd.wlm_cxt.thread_node_group->srvmgr;
+
+    pq_getmsgend(input_message);
+}
+
+/*
  * ProcessCommandLowerW - Process the 'w' command (dynamic WLM)
  *
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandLowerW(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerW(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     Assert(StringIsValid(g_instance.attr.attr_common.PGXCNodeName));
 
@@ -13461,7 +13312,7 @@ static void ProcessCommandLowerW(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandLowerN(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerN(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     errno_t rc = EOK;
     uint64 csn = 0;
@@ -13491,7 +13342,7 @@ static void ProcessCommandLowerN(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandUpperN(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandUpperN(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     errno_t rc = EOK;
     uint64 csn = 0;
@@ -13517,7 +13368,7 @@ static void ProcessCommandUpperN(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandLowerY(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerY(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     if (!IS_PGXC_DATANODE)
         ereport(
@@ -13558,7 +13409,7 @@ static void ProcessCommandLowerY(StringInfo input_message, volatile bool& send_r
  * @param input_message: The input message buffer containing the command data.
  * @param send_ready_for_query: Flag to indicate if we need to send ready for query message.
  */
-static void ProcessCommandLowerX(StringInfo input_message, volatile bool& send_ready_for_query)
+static void ProcessCommandLowerX(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
 {
     if (t_thrd.postmaster_cxt.HaShmData->current_mode == STANDBY_MODE &&
         t_thrd.postmaster_cxt.HaShmData->is_cascade_standby) {

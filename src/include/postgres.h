@@ -1033,6 +1033,7 @@ extern void exec_describe_statement_message(const char* stmt_name);
 extern void exec_get_ddl_params(StringInfo input_message);
 #endif
 
+void InitProcessCommandFuncs();
 #define STRUCT_CONTAINER(type, membername, ptr) ((type *)((char *)(ptr)-offsetof(type, membername)))
 
 #endif /* POSTGRES_H */

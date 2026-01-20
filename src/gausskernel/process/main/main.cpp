@@ -78,6 +78,7 @@ extern int encrypte_main(int argc, char* const argv[]);
  */
 int main(int argc, char* argv[])
 {
+    InitProcessCommandFuncs();
     char* mmap_env = NULL;
 
     /* disable THP (transparent huge page) early before mallocs happen */
