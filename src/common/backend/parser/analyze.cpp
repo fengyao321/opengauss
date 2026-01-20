@@ -6865,6 +6865,7 @@ static void ParseColumnErrorCallback(void* arg)
     if (colname != NULL && strcmp(colname, "?column?")) {
         errcontext("referenced column: %s", colname);
     }
+    pfree_ext(colname);
 }
 
 static List* TransformAllValuesDirectly(ParseState* pstate, SelectStmt* selectStmt, List* targetColsAttrs)
