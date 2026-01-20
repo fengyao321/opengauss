@@ -1103,9 +1103,32 @@ void mdasyncwrite(SMgrRelation reln, ForkNumber forkNumber, AioDispatchDesc_t **
 
         off_t offset_true = FileSeek(v->mdfd_vfd, 0L, SEEK_END);
         if (offset > offset_true) {
-            /* debug error */
-            ereport(PANIC, (errmsg("md async write error,write offset(%ld), file size(%ld)", (int64)offset,
-                                   (int64)offset_true)));
+            /*
+             * If the relation has been dropped or replaced (e.g. by VACUUM FULL),
+             * the file may have been truncated or removed. In this case, we skip
+             * the write rather than PANIC, consistent with mdwrite/mdextend handling.
+             * This is a defensive fallback; the pagewriter should have already
+             * filtered out such buffers via check_unlink_rel_hashtbl.
+             */
+            if (check_unlink_rel_hashtbl(smgr_rel->smgr_rnode.node, fork_num)) {
+                ereport(WARNING,
+                    (errmsg("md async write skipped for unlinked relation, "
+                            "write offset(%ld), file size(%ld), rel %u/%u/%u fork %d blk %u",
+                            (int64)offset, (int64)offset_true,
+                            smgr_rel->smgr_rnode.node.spcNode,
+                            smgr_rel->smgr_rnode.node.dbNode,
+                            smgr_rel->smgr_rnode.node.relNode,
+                            fork_num, block_num)));
+                return;
+            }
+            /* Not an unlinked relation - this is a real data integrity issue */
+            ereport(PANIC, (errmsg("md async write error, write offset(%ld), "
+                                   "file size(%ld), rel %u/%u/%u fork %d blk %u",
+                                   (int64)offset, (int64)offset_true,
+                                   smgr_rel->smgr_rnode.node.spcNode,
+                                   smgr_rel->smgr_rnode.node.dbNode,
+                                   smgr_rel->smgr_rnode.node.relNode,
+                                   fork_num, block_num)));
         }
 
         if (dList[i]->blockDesc.descType == AioWrite) {
