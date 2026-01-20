@@ -24,6 +24,7 @@
 #include "postgres.h"
 #include "knl/knl_variable.h"
 #include "utils/memutils.h"
+#include "miscadmin.h"
 #include "access/datavec/ogai_model_framework.h"
 #include "access/datavec/ogai_onnx_mgr.h"
 #include "access/datavec/ogai_onnx_embedding.h"
@@ -39,10 +40,16 @@ Vector** ONNXEmbeddingClient::BatchEmbed(OGAIString* texts, size_t textNum, int*
 {
     ONNXModelDesc* modelDesc = NULL;
 
-    modelDesc = ONNX_MODEL_MGR->GetONNXModelDesc(config->modelName, config->baseUrl);
+    if (config->modelKey && config->ownerName) {
+        modelDesc = ONNX_MODEL_MGR->GetONNXModelDescByKey(config->modelKey, config->ownerName);
+        if (!modelDesc || !modelDesc->handle) {
+            modelDesc = ONNX_MODEL_MGR->LoadONNXModelByKey(config->modelKey, config->ownerName, config->baseUrl);
+        }
+    }
+
     if (!modelDesc || !modelDesc->handle) {
-        modelDesc = ONNX_MODEL_MGR->LoadONNXModel(config->modelName, config->baseUrl);
-    };
+        elog(ERROR, "Failed to get or load ONNX model");
+    }
 
     RWLockGuard guard(modelDesc->mutex, LW_SHARED);
     float** embeddings = (float**)palloc0(textNum * sizeof(float*));

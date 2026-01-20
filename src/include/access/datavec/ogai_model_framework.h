@@ -47,6 +47,8 @@ typedef struct ModelConfig {
     char* apiKey;
     char* modelName;
     char* baseUrl;
+    char* modelKey;
+    char* ownerName;
     size_t maxBatch;
     size_t timeout;
     size_t dimension;
