@@ -5,8 +5,49 @@ drop view if exists sys.views;
 drop view if exists sys.procedures;
 drop view if exists sys.all_objects;
 drop view if exists sys.tables;
+drop view if exists sys.all_columns;
 drop function if exists sys.ts_procedure_object_internal;
 drop function if exists sys.ts_tables_obj_internal;
+
+
+create or replace view sys.all_columns as
+select
+  a.attrelid as object_id,
+  a.attname as name,
+  cast(a.attnum as int) as column_id,
+  a.atttypid as system_type_id,
+  a.atttypid as user_type_id,
+  sys.tsql_type_max_length_helper(t.typname, a.attlen, a.atttypmod) as max_length,
+  sys.ts_numeric_precision_helper(t.typname, a.atttypmod) as precision,
+  sys.ts_numeric_scale_helper(t.typname, a.atttypmod) as scale,
+  coll.collname as collation_name,
+  cast(case a.attnotnull when 't' then 0 else 1 end as bit) as is_nullable,
+  cast(0 as bit) as is_ansi_padded,
+  cast(0 as bit) as is_rowguidcol,
+  cast(0 as bit) as is_identity,
+  cast(case when d.adgencol = 'p' then 1 else 0 end as bit) as is_computed,
+  cast(0 as bit) as is_filestream,
+  sys.ts_is_publication_helper(a.attrelid) as is_replicated,
+  cast(0 as bit) as is_non_sql_subscribed,
+  cast(0 as bit) as is_merge_published,
+  cast(0 as bit) as is_dts_replicated,
+  cast(0 as bit) as is_xml_document,
+  cast(0 as oid) as xml_collection_id,
+  d.oid as default_object_id,
+  cast(0 as int) as rule_object_id,
+  cast(0 as bit) as is_sparse,
+  cast(0 as bit) as is_column_set,
+  cast(0 as tinyint) as generated_always_type,
+  cast('NOT_APPLICABLE' as nvarchar(60)) as generated_always_type_desc
+from pg_attribute a
+inner join pg_class c on c.oid = attrelid
+inner join pg_namespace s on s.oid = c.relnamespace
+inner join pg_type t on t.oid = a.atttypid
+left join pg_attrdef d on a.attrelid = d.adrelid and a.attnum = d.adnum
+left join pg_collation coll on coll.oid = a.attcollation
+where not a.attisdropped and a.attnum > 0
+and c.relkind in ('r', 'v', 'm', 'f')
+and has_column_privilege(c.oid, a.attname, 'SELECT');
 
 create or replace function sys.ts_tables_obj_internal()
 returns table (
@@ -61,7 +102,7 @@ inner join pg_namespace s on s.oid = t.relnamespace
 left join pg_object o on o.object_oid = t.oid
 where t.relpersistence in ('p', 'u', 't')
 and (t.relkind = 'r' or t.relkind = 'f')
-and has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(t.relname), 'SELECT');
+and has_table_privilege(t.oid, 'SELECT');
 end $$
 language plpgsql;
 
@@ -194,7 +235,7 @@ from pg_class c
 inner join pg_namespace s on s.oid = c.relnamespace
 left join pg_object o on o.object_oid = c.oid
 where relkind in ('S', 'L')
-and has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), 'SELECT')
+and has_table_privilege(c.oid, 'SELECT')
 union all
 select
   c.relname as name,
@@ -213,7 +254,7 @@ from pg_class c
 inner join pg_namespace s on c.relnamespace = s.oid
 left join pg_object o on o.object_oid = c.oid 
 where c.relkind in ('v', 'm')
-and has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), 'SELECT')
+and has_table_privilege(c.oid, 'SELECT')
 union all
 select
   pi.out_name as name,
@@ -257,7 +298,7 @@ from pg_constraint con
 inner join pg_class c on c.oid = con.conrelid
 inner join pg_namespace s on s.oid = con.connamespace
 where con.contype in ('c', 'p', 'u', 'f')
-and has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), 'SELECT')
+and has_table_privilege(c.oid, 'SELECT')
 union all
 select
   tg.tgname as name,
@@ -276,7 +317,7 @@ from pg_trigger tg
 inner join pg_class c on c.oid = tg.tgrelid
 inner join pg_namespace s on s.oid = c.relnamespace
 left join pg_object o on o.object_oid = tg.oid
-where has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), 'SELECT')
+where has_table_privilege(c.oid, 'SELECT')
 union all
 select
   cast(null as name) as name,
@@ -295,7 +336,7 @@ from pg_attrdef ad
 inner join pg_class c on c.oid = ad.adrelid
 inner join pg_namespace s on s.oid = c.relnamespace
 left join pg_object o on o.object_oid = ad.adrelid
-where has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), 'SELECT')
+where has_table_privilege(c.oid, 'SELECT')
 union all
 select
   syn.synname as name,
@@ -362,7 +403,7 @@ from pg_class t
 inner join pg_namespace s on t.relnamespace = s.oid
 inner join pg_object o on o.object_oid = t.oid 
 where t.relkind in ('v', 'm')
-and has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(t.relname), 'SELECT')
+and has_table_privilege(t.oid, 'SELECT')
 and s.nspname not in ('information_schema', 'pg_catalog', 'dbe_perf', 'sys', 'information_schema_tsql');
 
 -- sys.objects
@@ -400,7 +441,7 @@ inner join pg_namespace s on s.oid = c.relnamespace
 inner join pg_object o on o.object_oid = c.oid
 where relkind in ('S', 'L')
 and s.nspname not in ('information_schema', 'pg_catalog', 'sys', 'information_schema_tsql')
-and has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), 'SELECT')
+and has_table_privilege(c.oid, 'SELECT')
 union all
 select
   v.name as name,
@@ -459,7 +500,7 @@ from pg_constraint con
 inner join pg_class c on c.oid = con.conrelid
 inner join pg_namespace s on s.oid = con.connamespace
 where con.contype in ('c', 'p', 'u', 'f')
-and has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), 'SELECT')
+and has_table_privilege(c.oid, 'SELECT')
 and s.nspname not in ('information_schema', 'pg_catalog', 'sys', 'information_schema_tsql')
 union all
 select
@@ -479,7 +520,7 @@ from pg_trigger tg
 inner join pg_class c on c.oid = tg.tgrelid
 inner join pg_namespace s on s.oid = c.relnamespace
 inner join pg_object o on o.object_oid = tg.oid
-where has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), 'SELECT')
+where has_table_privilege(c.oid, 'SELECT')
 and s.nspname not in ('information_schema', 'pg_catalog', 'sys', 'information_schema_tsql')
 union all
 select
@@ -499,7 +540,7 @@ from pg_attrdef ad
 inner join pg_class c on c.oid = ad.adrelid
 inner join pg_namespace s on s.oid = c.relnamespace
 inner join pg_object o on o.object_oid = ad.adrelid
-where has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), 'SELECT')
+where has_table_privilege(c.oid, 'SELECT')
 and s.nspname not in ('information_schema', 'pg_catalog', 'sys', 'information_schema_tsql')
 union all
 select
@@ -576,7 +617,7 @@ from pg_class t
 inner join pg_namespace s on s.oid = t.relnamespace
 where t.relpersistence in ('p', 'u', 't')
 and t.relkind in ('r', 'v', 'm', 'S')
-and has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(t.relname), 'SELECT')
+and has_table_privilege(t.oid, 'SELECT')
 union all
 select 
   cast(c.conname as name) as name,
@@ -618,7 +659,7 @@ from pg_constraint c
 inner join pg_class t on c.conrelid = t.oid
 inner join pg_namespace s on s.oid = c.connamespace
 where c.contype in ('f', 'c', 'p', 'u')
-and has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(t.relname), 'SELECT')
+and has_table_privilege(t.oid, 'SELECT')
 union all
 select 
   cast(null as name) as name,
@@ -649,7 +690,7 @@ select
 from pg_attrdef ad
 inner join pg_class c on ad.adrelid = c.oid
 inner join pg_namespace s on c.relnamespace = s.oid
-and has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), 'SELECT')
+and has_table_privilege(c.oid, 'SELECT')
 union all
 select
   cast(p.proname as name) as name,
@@ -718,7 +759,7 @@ select
 from pg_trigger t
 inner join pg_class c on t.tgrelid = t.oid
 inner join pg_namespace s on c.relnamespace = s.oid
-where has_table_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), 'SELECT,TRIGGER')
+where has_table_privilege(c.oid, 'SELECT,TRIGGER')
 union all
 select
   cast(y.synname as name) as name,
@@ -800,7 +841,7 @@ left join pg_collation coll on coll.oid = a.attcollation
 left join gs_encrypted_columns e on e.rel_id = a.attrelid and e.column_name = a.attname
 where not a.attisdropped and a.attnum > 0
 and c.relkind in ('r', 'v', 'm', 'f')
-and has_column_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), a.attname, 'SELECT')
+and has_column_privilege(c.oid, a.attname, 'SELECT')
 and s.nspname not in ('information_schema', 'pg_catalog', 'dbe_perf', 'sys', 'information_schema_tsql');
 
 
@@ -873,7 +914,7 @@ left join pg_collation coll on coll.oid = a.attcollation
 left join gs_encrypted_columns e on e.rel_id = a.attrelid and e.column_name = a.attname
 where not a.attisdropped and a.attnum > 0
 and c.relkind in ('r', 'v', 'm', 'f')
-and has_column_privilege(quote_ident(s.nspname) ||'.'||quote_ident(c.relname), a.attname, 'SELECT')
+and has_column_privilege(c.oid, a.attname, 'SELECT')
 and s.nspname not in ('information_schema', 'pg_catalog', 'dbe_perf', 'sys', 'information_schema_tsql')
 and is_identity = 1::bit;
 
