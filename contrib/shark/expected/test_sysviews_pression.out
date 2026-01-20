@@ -1,0 +1,202 @@
+create user sysadmin_test_user with sysadmin password 'Test@123';
+alter session set session authorization sysadmin_test_user password 'Test@123';
+select count(*) from all_columns;     
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from all_objects;       
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from all_views;          
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from check_constraints;  
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from columns;           
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from configurations;     
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from database_principals;
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from databases;          
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from foreign_key_columns;
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from foreign_keys;       
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from identity_columns; 
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from index_columns;      
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from indexes;            
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from key_constraints;    
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from objects;            
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from procedures;         
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from schemas;            
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from sequences;          
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from server_principals;  
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from synonyms;           
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from syscolumns;              
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from sysdatabases;       
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from sysforeignkeys;     
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from sysindexes;         
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from sysindexkeys;       
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from sysobjects;         
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from sysprocesses;       
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from system_objects;     
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from sysusers;           
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from tables;             
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from trigger_events;     
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from triggers;           
+ count 
+--?.*
+--?.*
+(1 row)
+
+select count(*) from views;              
+ count 
+--?.*
+--?.*
+(1 row)
+
+RESET SESSION AUTHORIZATION;
+drop user sysadmin_test_user cascade;
