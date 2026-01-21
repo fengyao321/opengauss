@@ -96,7 +96,7 @@ typedef struct find_inlist2join_context {
  *        in inlist2join QRW optimization optimization.
  */
 typedef struct fix_subquery_vars_context {
-    Var* v;
+    Node* v;
     Index old_varno;
     Index new_varno;
 } fix_subquery_vars_context;
@@ -259,9 +259,20 @@ static bool fix_subquery_vars_expr_walker(Node* expr, fix_subquery_vars_context*
             v->varno = context->new_varno;
         }
 
-        context->v = v;
+        context->v = (Node*)v;
     }
+    if (IsA(expr, PlaceHolderVar)) {
+        PlaceHolderVar* v = (PlaceHolderVar*)expr;
+        if (bms_is_member(context->old_varno, v->phrels)) {
+            /* Ensure we have a modifiable copy */
+            v->phrels = bms_copy(v->phrels);
+            /* Remove old, add new */
+            v->phrels = bms_del_member(v->phrels, context->old_varno);
+            v->phrels = bms_add_member(v->phrels, context->new_varno);
+        }
 
+        context->v = (Node*)v;
+    }
     return expression_tree_walker(expr, (bool (*)())fix_subquery_vars_expr_walker, (void*)context);
 }
 
@@ -290,7 +301,7 @@ static Var* fix_subquery_vars_expr(Node* expr, Index old_varno, Index new_varno)
 
     (void)fix_subquery_vars_expr_walker(expr, &ctx);
 
-    return ctx.v;
+    return (Var*)ctx.v;
 }
 
 /*
