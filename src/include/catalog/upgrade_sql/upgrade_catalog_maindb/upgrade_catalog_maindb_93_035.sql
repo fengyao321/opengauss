@@ -3,7 +3,7 @@ DECLARE
     compress_table_count INT;
 BEGIN
   SELECT COUNT(*) INTO compress_table_count
-  FROM pg_class
+  FROM pg_catalog.pg_class
   WHERE reloptions IS NOT NULL
   AND EXISTS (
     SELECT 1

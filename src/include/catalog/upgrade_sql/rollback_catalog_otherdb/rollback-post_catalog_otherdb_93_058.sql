@@ -1,7 +1,7 @@
 DECLARE
 cnt int;
 BEGIN
-select count(*) into cnt from pg_am where amname = 'diskann';
+select count(*) into cnt FROM pg_catalog.pg_am where amname = 'diskann';
 if cnt = 1 then
         DROP OPERATOR FAMILY IF EXISTS pg_catalog.vector_l2_ops USING diskann CASCADE;
         DROP OPERATOR CLASS IF EXISTS pg_catalog.vector_l2_ops USING diskann CASCADE; 

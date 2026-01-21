@@ -10,7 +10,7 @@ DECLARE
 BEGIN
     SELECT EXISTS (
         SELECT 1
-        FROM pg_proc
+        FROM pg_catalog.pg_proc
         WHERE proname = 'pg_relation_is_updatable'
     ) INTO function_exists;
     IF function_exists THEN
@@ -45,7 +45,7 @@ BEGIN
            CAST(CASE WHEN t.typname IS NOT NULL THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_typed,
            CAST(null AS character_data) AS commit_action
 
-    FROM pg_namespace nc JOIN pg_catalog.pg_class c ON (nc.oid = c.relnamespace)
+    FROM pg_catalog.pg_namespace nc JOIN pg_catalog.pg_class c ON (nc.oid = c.relnamespace)
            LEFT JOIN (pg_catalog.pg_type t JOIN pg_catalog.pg_namespace nt ON (t.typnamespace = nt.oid)) ON (c.reloftype = t.oid)
 
     WHERE c.relkind IN ('r', 'm', 'v', 'f')
@@ -64,7 +64,7 @@ DECLARE
 BEGIN
     SELECT EXISTS (
         SELECT 1
-        FROM pg_proc
+        FROM pg_catalog.pg_proc
         WHERE proname = 'pg_column_is_updatable'
     ) INTO function_exists;
     IF function_exists THEN
@@ -199,7 +199,7 @@ DECLARE
 BEGIN
     SELECT EXISTS (
         SELECT 1
-        FROM pg_class c
+        FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
         WHERE c.relname = 'data_type_privileges'
           AND n.nspname = 'information_schema'
@@ -235,7 +235,7 @@ DECLARE
 BEGIN
     SELECT EXISTS (
         SELECT 1
-        FROM pg_class c
+        FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
         WHERE c.relname = 'element_types'
           AND n.nspname = 'information_schema'
@@ -280,13 +280,13 @@ BEGIN
            CAST(null AS cardinal_number) AS maximum_cardinality,
            CAST('a' || CAST(x.objdtdid AS text) AS sql_identifier) AS dtd_identifier
 
-    FROM pg_namespace n, pg_type at, pg_namespace nbt, pg_type bt,
+    FROM pg_catalog.pg_namespace n, pg_type at, pg_namespace nbt, pg_type bt,
          (
            /* columns, attributes */
            SELECT c.relnamespace, CAST(c.relname AS sql_identifier),
                   CASE WHEN c.relkind = 'c' THEN 'USER-DEFINED TYPE'::text ELSE 'TABLE'::text END,
                   a.attnum, a.atttypid, a.attcollation
-           FROM pg_class c, pg_attribute a
+           FROM pg_catalog.pg_class c, pg_attribute a
            WHERE c.oid = a.attrelid
                  AND c.relkind IN ('r', 'm', 'v', 'f', 'c')
                  AND (c.relname not like 'mlog\_%' AND c.relname not like 'matviewmap\_%')
@@ -297,7 +297,7 @@ BEGIN
            /* domains */
            SELECT t.typnamespace, CAST(t.typname AS sql_identifier),
                   'DOMAIN'::text, 1, t.typbasetype, t.typcollation
-           FROM pg_type t
+           FROM pg_catalog.pg_type t
            WHERE t.typtype = 'd'
 
            UNION ALL
@@ -307,14 +307,14 @@ BEGIN
                   'ROUTINE'::text, (ss.x).n, (ss.x).x, 0
            FROM (SELECT p.pronamespace, p.proname, p.oid,
                         _pg_expandarray(coalesce(p.proallargtypes, p.proargtypes::oid[])) AS x
-                 FROM pg_proc p) AS ss
+                 FROM pg_catalog.pg_proc p) AS ss
 
            UNION ALL
 
            /* result types */
            SELECT p.pronamespace, CAST(p.proname || '_' || CAST(p.oid AS text) AS sql_identifier),
                   'ROUTINE'::text, 0, p.prorettype, 0
-           FROM pg_proc p
+           FROM pg_catalog.pg_proc p
 
          ) AS x (objschema, objname, objtype, objdtdid, objtypeid, objcollation)
          LEFT JOIN (pg_catalog.pg_collation co JOIN pg_catalog.pg_namespace nco ON (co.collnamespace = nco.oid))

@@ -14,7 +14,7 @@ DROP OPERATOR CLASS IF EXISTS pg_catalog.sparsevec_ops USING ubtree CASCADE;
 DECLARE
     cnt int;
 BEGIN
-    select count(*) into cnt from pg_am where amname = 'ivfflat';
+    select count(*) into cnt FROM pg_catalog.pg_am where amname = 'ivfflat';
     if cnt = 1 then
         DROP OPERATOR FAMILY IF EXISTS pg_catalog.vector_l2_ops USING ivfflat CASCADE; 
         DROP OPERATOR CLASS IF EXISTS pg_catalog.vector_l2_ops USING ivfflat CASCADE; 
@@ -30,7 +30,7 @@ END;
 DECLARE
     cnt int;
 BEGIN
-    select count(*) into cnt from pg_am where amname = 'hnsw';
+    select count(*) into cnt FROM pg_catalog.pg_am where amname = 'hnsw';
     if cnt = 1 then
         DROP OPERATOR FAMILY IF EXISTS pg_catalog.vector_l2_ops USING hnsw CASCADE;
         DROP OPERATOR CLASS IF EXISTS pg_catalog.vector_l2_ops USING hnsw CASCADE; 
@@ -58,7 +58,7 @@ END;
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'sparsevec' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'sparsevec' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.l2_distance(sparsevec, sparsevec) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.inner_product(sparsevec, sparsevec) CASCADE;
@@ -96,7 +96,7 @@ DROP FUNCTION IF EXISTS pg_catalog.sparsevec_recv(internal, oid, int4) CASCADE;
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'sparsevec' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'sparsevec' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.sparsevec_out(pg_catalog.sparsevec) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.sparsevec_send(pg_catalog.sparsevec) CASCADE;
@@ -108,7 +108,7 @@ DROP TYPE IF EXISTS pg_catalog._sparsevec CASCADE;
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'vector' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'vector' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.inner_product(vector, vector) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.cosine_distance(vector, vector) CASCADE;
@@ -167,7 +167,7 @@ DROP FUNCTION IF EXISTS pg_catalog.vector_recv(internal, oid, int4) CASCADE;
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'vector' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'vector' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.vector_out(pg_catalog.vector) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.vector_send(pg_catalog.vector) CASCADE;

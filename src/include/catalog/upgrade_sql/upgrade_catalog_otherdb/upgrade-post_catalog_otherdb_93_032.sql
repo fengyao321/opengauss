@@ -1,7 +1,7 @@
 DECLARE
 con int;
 BEGIN
-    select count(*) from pg_proc where proname='json_object' and oid=3400 into con;
+    select count(*) FROM pg_catalog.pg_proc where proname='json_object' and oid=3400 into con;
     if con = 1 then
         DROP FUNCTION IF EXISTS pg_catalog.json_object() CASCADE;
     end if;
@@ -17,7 +17,7 @@ as 'json_object';
 DECLARE
 ans boolean;
 BEGIN
-  select case when count(*)=1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+  select case when count(*)=1 then true else false end as ans from (select nspname FROM pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
   if ans = true then
 -----------------------------------------------------------------------------------------------------------------------------------------------------
 	DROP VIEW IF EXISTS DBE_PERF.local_active_session cascade;

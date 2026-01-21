@@ -70,7 +70,7 @@ CREATE SCHEMA IF NOT EXISTS ogai;
 GRANT USAGE ON SCHEMA ogai TO PUBLIC;
 
 DO $$ BEGIN
-IF NOT EXISTS(SELECT 1 FROM pg_catalog.pg_type WHERE typname = 'model_provider_type' AND typnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'ogai')) THEN
+IF NOT EXISTS(SELECT 1 FROM pg_catalog.pg_type WHERE typname = 'model_provider_type' AND typnamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = 'ogai')) THEN
     CREATE TYPE ogai.model_provider_type AS ENUM (
         'openai',
         'onnx',
@@ -95,10 +95,10 @@ CREATE TABLE IF NOT EXISTS ogai.model_sources
 );
 
 DO $$ BEGIN
-IF NOT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname = 'model_sources_model_key_idx') THEN
+IF NOT EXISTS(SELECT 1 FROM pg_catalog.pg_indexes WHERE indexname = 'model_sources_model_key_idx') THEN
     CREATE INDEX model_sources_model_key_idx ON ogai.model_sources (model_key);
 END IF;
-IF NOT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname = 'model_sources_owner_name_idx') THEN
+IF NOT EXISTS(SELECT 1 FROM pg_catalog.pg_indexes WHERE indexname = 'model_sources_owner_name_idx') THEN
     CREATE INDEX model_sources_owner_name_idx ON ogai.model_sources (owner_name);
 END IF;
 END $$;

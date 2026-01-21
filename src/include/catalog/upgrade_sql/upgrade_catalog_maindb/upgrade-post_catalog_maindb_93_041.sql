@@ -207,7 +207,7 @@ BEGIN
     END IF;
 
     BEGIN
-        EXECUTE 'SELECT rolsystemadmin FROM pg_roles WHERE rolname=CURRENT_USER' INTO STRICT adminuser;
+        EXECUTE 'SELECT rolsystemadmin FROM pg_catalog.pg_roles WHERE rolname=CURRENT_USER' INTO STRICT adminuser;
         IF adminuser IS FALSE THEN
             RAISE EXCEPTION 'In the current version, the DB4AI.SNAPSHOT feature is available only to administrators.';
         END IF;
@@ -460,7 +460,7 @@ BEGIN
            pg_catalog.string_agg('t' || s_id::TEXT || '.f' || ordinal_position::TEXT || ' AS ' || ident::TEXT, ', ')
     FROM ( SELECT ordinal_position, pg_catalog.quote_ident(column_name) AS ident
         FROM information_schema.columns
-        WHERE table_schema = (SELECT nspname FROM pg_namespace WHERE oid=pg_catalog.pg_my_temp_schema())
+        WHERE table_schema = (SELECT nspname FROM pg_catalog.pg_namespace WHERE oid=pg_catalog.pg_my_temp_schema())
             AND table_name = '_db4ai_tmp_x' || s_id::TEXT
             ORDER BY ordinal_position
     ) INTO STRICT proj_cmd, i_commands[4], i_commands[5];
@@ -695,7 +695,7 @@ BEGIN
     END;
 
     BEGIN
-        EXECUTE 'SELECT rolsystemadmin FROM pg_roles WHERE rolname=CURRENT_USER' INTO STRICT adminuser;
+        EXECUTE 'SELECT rolsystemadmin FROM pg_catalog.pg_roles WHERE rolname=CURRENT_USER' INTO STRICT adminuser;
         IF adminuser IS FALSE THEN
             RAISE EXCEPTION 'In the current version, the DB4AI.SNAPSHOT feature is available only to administrators.';
         END IF;
@@ -1532,7 +1532,7 @@ BEGIN
     END IF;
 
     BEGIN
-        EXECUTE 'SELECT rolsystemadmin FROM pg_roles WHERE rolname=CURRENT_USER' INTO STRICT adminuser;
+        EXECUTE 'SELECT rolsystemadmin FROM pg_catalog.pg_roles WHERE rolname=CURRENT_USER' INTO STRICT adminuser;
         IF adminuser IS FALSE THEN
             RAISE EXCEPTION 'In the current version, the DB4AI.SNAPSHOT feature is available only to administrators.';
         END IF;
@@ -1570,7 +1570,7 @@ BEGIN
     END IF;
 
     BEGIN
-        EXECUTE 'SELECT rolsystemadmin FROM pg_roles WHERE rolname=CURRENT_USER' INTO STRICT adminuser;
+        EXECUTE 'SELECT rolsystemadmin FROM pg_catalog.pg_roles WHERE rolname=CURRENT_USER' INTO STRICT adminuser;
         IF adminuser IS FALSE THEN
             RAISE EXCEPTION 'In the current version, the DB4AI.SNAPSHOT feature is available only to administrators.';
         END IF;
@@ -1703,7 +1703,7 @@ BEGIN
     END;
 
     BEGIN
-        EXECUTE 'SELECT rolsystemadmin FROM pg_roles WHERE rolname=CURRENT_USER' INTO STRICT adminuser;
+        EXECUTE 'SELECT rolsystemadmin FROM pg_catalog.pg_roles WHERE rolname=CURRENT_USER' INTO STRICT adminuser;
         IF adminuser IS FALSE THEN
             RAISE EXCEPTION 'In the current version, the DB4AI.SNAPSHOT feature is available only to administrators.';
         END IF;
@@ -1820,7 +1820,7 @@ BEGIN
     END;
 
     BEGIN
-        EXECUTE 'SELECT rolsystemadmin FROM pg_roles WHERE rolname=CURRENT_USER' INTO STRICT adminuser;
+        EXECUTE 'SELECT rolsystemadmin FROM pg_catalog.pg_roles WHERE rolname=CURRENT_USER' INTO STRICT adminuser;
         IF adminuser IS FALSE THEN
             RAISE EXCEPTION 'In the current version, the DB4AI.SNAPSHOT feature is available only to administrators.';
         END IF;

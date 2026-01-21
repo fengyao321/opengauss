@@ -5,8 +5,8 @@ DECLARE
     havefunc8 boolean;
     haveoper15 boolean;
 BEGIN
-    select count(*)>0 into havefunc8 from pg_amproc where amprocfamily = 2595 and amprocnum = 8;
-    select count(*)>0 into haveoper15 from pg_amop where amopfamily = 2595 and amopstrategy = 15;
+    select count(*)>0 into havefunc8 FROM pg_catalog.pg_amproc where amprocfamily = 2595 and amprocnum = 8;
+    select count(*)>0 into haveoper15 FROM pg_catalog.pg_amop where amopfamily = 2595 and amopstrategy = 15;
 
     IF havefunc8 = true then
         ALTER OPERATOR FAMILY circle_ops USING gist DROP FUNCTION 8 (circle, circle);

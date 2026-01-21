@@ -28,19 +28,19 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_all_tables AS
             pg_catalog.pg_stat_get_analyze_count(C.oid) AS analyze_count,
             pg_catalog.pg_stat_get_autoanalyze_count(C.oid) AS autoanalyze_count,
             pg_catalog.pg_stat_get_last_data_changed_time(C.oid) AS last_data_changed
-    FROM pg_class C LEFT JOIN
+    FROM pg_catalog.pg_class C LEFT JOIN
          pg_index I ON C.oid = I.indrelid
          LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind IN ('r', 't', 'm')
     GROUP BY C.oid, N.nspname, C.relname;
 
 CREATE OR REPLACE VIEW pg_catalog.pg_stat_sys_tables AS
-    SELECT * FROM pg_stat_all_tables
+    SELECT * FROM pg_catalog.pg_stat_all_tables
     WHERE schemaname IN ('pg_catalog', 'information_schema') OR
           schemaname ~ '^pg_toast';
 
 CREATE OR REPLACE VIEW pg_catalog.pg_stat_user_tables AS
-    SELECT * FROM pg_stat_all_tables
+    SELECT * FROM pg_catalog.pg_stat_all_tables
     WHERE schemaname NOT IN ('pg_catalog', 'information_schema') AND
           schemaname !~ '^pg_toast';
 
@@ -63,19 +63,19 @@ CREATE OR REPLACE VIEW pg_catalog.pg_stat_all_indexes AS
             pg_catalog.pg_stat_get_numscans(I.oid) AS idx_scan,
             pg_catalog.pg_stat_get_tuples_returned(I.oid) AS idx_tup_read,
             pg_catalog.pg_stat_get_tuples_fetched(I.oid) AS idx_tup_fetch
-    FROM pg_class C JOIN
+    FROM pg_catalog.pg_class C JOIN
             pg_index X ON C.oid = X.indrelid JOIN
             pg_class I ON I.oid = X.indexrelid
             LEFT JOIN pg_catalog.pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind IN ('r', 't', 'm');
 
 CREATE OR REPLACE VIEW pg_catalog.pg_stat_sys_indexes AS
-    SELECT * FROM pg_stat_all_indexes
+    SELECT * FROM pg_catalog.pg_stat_all_indexes
     WHERE schemaname IN ('pg_catalog', 'information_schema') OR
           schemaname ~ '^pg_toast';
 
 CREATE OR REPLACE VIEW pg_catalog.pg_stat_user_indexes AS
-    SELECT * FROM pg_stat_all_indexes
+    SELECT * FROM pg_catalog.pg_stat_all_indexes
     WHERE schemaname NOT IN ('pg_catalog', 'information_schema') AND
           schemaname !~ '^pg_toast';
 
