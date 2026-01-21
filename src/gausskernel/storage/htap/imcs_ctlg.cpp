@@ -93,12 +93,15 @@ void CheckForSSMode(Relation rel, bool isShareMemory)
 
 bool CheckDBName(const char* dbname)
 {
-    if (strcmp(dbname, get_database_name(u_sess->proc_cxt.MyDatabaseId)) != 0) {
-        return false;
-    } else {
+    bool checkSuccess = false;
+    char* curDBName = get_database_name(u_sess->proc_cxt.MyDatabaseId);
+
+    if (curDBName != nullptr && strcmp(dbname, curDBName) == 0) {
+        checkSuccess = true;
         pg_atomic_add_fetch_u32(&g_instance.imcstore_cxt.dbname_reference_count, 1);
-        return true;
     }
+    pfree_ext(curDBName);
+    return checkSuccess;
 }
 
 void CheckAndSetDBName()
@@ -130,7 +133,9 @@ void CheckAndSetDBName()
     if (dbnameRefCount == 0) {
         pg_atomic_add_fetch_u32(&g_instance.imcstore_cxt.dbname_reference_count, 1);
         g_instance.imcstore_cxt.dboid = u_sess->proc_cxt.MyDatabaseId;
-        g_instance.imcstore_cxt.dbname = pg_strdup(get_database_name(u_sess->proc_cxt.MyDatabaseId));
+        char* tempDbName = get_database_name(u_sess->proc_cxt.MyDatabaseId);
+        g_instance.imcstore_cxt.dbname = MemoryContextStrdup(IMCS_HASH_TABLE->m_imcs_context, tempDbName);
+        pfree(tempDbName);
         if (IMCS_IS_PRIMARY_MODE) {
             ereport(LOG, (errmsg("HTAP: Set DB name: %s.", g_instance.imcstore_cxt.dbname)));
         } else {
@@ -156,9 +161,12 @@ void ResetDBNameIfNeed()
             g_instance.imcstore_cxt.should_clean = true;
             SetLatch(&g_instance.imcstore_cxt.vacuum_latch);
         }
-        ereport(LOG, (errmsg("No imcstore tables left, cur DB name: %s, Reset it.", g_instance.imcstore_cxt.dbname)));
+        if (g_instance.imcstore_cxt.dbname != NULL) {
+            ereport(LOG,
+                (errmsg("No imcstore tables left, cur DB name: %s, Reset it.", g_instance.imcstore_cxt.dbname)));
+        }
         g_instance.imcstore_cxt.dboid = InvalidOid;
-        g_instance.imcstore_cxt.dbname = nullptr;
+        pfree_ext(g_instance.imcstore_cxt.dbname);
     }
     pthread_rwlock_unlock(&g_instance.imcstore_cxt.context_mutex);
 }
