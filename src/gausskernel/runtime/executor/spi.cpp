@@ -2612,7 +2612,7 @@ bool RememberSpiPlanRef(CachedPlan* cplan, CachedPlanSource* plansource)
     if (cplan->isShared()) {
         (void)pg_atomic_fetch_add_u32((volatile uint32*)&cplan->global_refcount, 1);
         ans = true;
-    } else if (!plansource->is_oneshot) {
+    } else if (!plansource->is_oneshot && plansource->is_saved) {
         cplan->refcount++;
         ans = true;
     }
