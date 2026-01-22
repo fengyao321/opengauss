@@ -986,7 +986,7 @@ static bool is_temp_table(const char relpst);
 
 	LABEL LANGUAGE LARGE_P LAST_P LATERAL_P LC_COLLATE_P LC_CTYPE_P LEADING LEAKPROOF LINES
 	LEAST LESS LEFT LEVEL LIKE LIMIT LIST LISTEN LOAD LOCAL LOCALTIME LOCALTIMESTAMP
-	LOCATION LOCK_P LOCKED LOG_P LOGGING LOGIN_ANY LOGIN_FAILURE LOGIN_SUCCESS LOGOUT LOOP
+	LOCATION LOCK_P LOCKED LOG_P LOGGING LOGIN_ANY LOGIN_FAILURE LOGIN_SUCCESS LOGOUT LONG LOOP
 	MAPPING MASKING MASTER MATCH MATERIALIZED MATCHED MAXEXTENTS MAXSIZE MAXTRANS MAXVALUE MERGE MESSAGE_TEXT METHOD MINUS_P MINUTE_P MINUTE_SECOND_P MINVALUE MINEXTENTS MODE
 	MODEL MODIFY_P MONTH_P MOVE MOVEMENT MYSQL_ERRNO
 	// DB4AI
@@ -1075,6 +1075,7 @@ static bool is_temp_table(const char relpst);
 %nonassoc   CLUSTER
 %nonassoc	SET				/* see relation_expr_opt_alias */
 %nonassoc	AUTO_INCREMENT
+%nonassoc   LONG
 %right      PRIOR SEPARATOR_P
 %right      FEATURES TARGET // DB4AI
 %left		UNION EXCEPT MINUS_P
@@ -1137,7 +1138,7 @@ static bool is_temp_table(const char relpst);
 /* Unary Operators */
 %left		AT				/* sets precedence for AT TIME ZONE */
 %left		COLLATE
-%right		UMINUS BY NAME_P PASSING ROW TYPE_P VALUE_P
+%right		UMINUS BY NAME_P PASSING ROW RAW TYPE_P VALUE_P
 %left		'[' ']'
 %left		'(' ')'
 %left		EMPTY_FROM_CLAUSE
@@ -27594,7 +27595,11 @@ ConstTypename:
 GenericType:
 			type_function_name opt_type_modifiers
 				{
-					$$ = makeTypeName($1);
+					if (unlikely(strcmp($1, "long") == 0)) {
+						$$ = SystemTypeName("clob");
+					} else {
+						$$ = makeTypeName($1);
+					}
 					$$->typmods = $2;
 					$$->location = @1;
 				}
@@ -27602,6 +27607,11 @@ GenericType:
 				{
 					$$ = makeTypeNameFromNameList(lcons(makeString($1), $2));
 					$$->typmods = $3;
+					$$->location = @1;
+				}
+			| LONG RAW
+				{
+					$$ = SystemTypeName("blob");
 					$$->location = @1;
 				}
 		;
@@ -32344,6 +32354,7 @@ unreserved_keyword:
 			| LOGIN_FAILURE
 			| LOGIN_SUCCESS
 			| LOGOUT
+			| LONG
 			| LOOP
 			| MAP
 			| MAPPING

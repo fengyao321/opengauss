@@ -1,0 +1,47 @@
+DROP SCHEMA sch_long_raw_01 CASCADE;
+
+CREATE SCHEMA sch_long_raw_01;
+
+SET CURRENT_SCHEMA TO sch_long_raw_01;
+
+create table tab_long_raw(a long raw);
+
+insert into tab_long_raw
+  (a)
+values
+  ('AAAAAAAAAAAAAAAAAAAAAA');
+
+select a
+  from tab_long_raw;
+
+select pg_catalog.format_type(a.atttypid, a.atttypmod)
+  from pg_catalog.pg_attribute a
+ inner join pg_catalog.pg_class b on a.attrelid = b.oid
+ inner join pg_catalog.pg_namespace c on b.relnamespace = c.oid
+ where b.relname = 'tab_long_raw'
+   and c.nspname = 'sch_long_raw_01';
+
+create table tab_long_01(a long);
+
+insert into tab_long_01
+  (a)
+values
+  ('231h432u89sdhfksdh2341234jdklfjaskl');
+
+select a
+  from tab_long_01;
+
+select pg_catalog.format_type(a.atttypid, a.atttypmod)
+  from pg_catalog.pg_attribute a
+ inner join pg_catalog.pg_class b on a.attrelid = b.oid
+ inner join pg_catalog.pg_namespace c on b.relnamespace = c.oid
+ where b.relname = 'tab_long_01'
+   and c.nspname = 'sch_long_raw_01';
+
+
+drop table tab_long_raw;
+
+drop table tab_long_01;
+
+drop schema sch_long_raw_01;
+
