@@ -89,19 +89,11 @@ typedef struct MatrixMemFunc {
                             void **local_ptr);
     int (*ubsmem_shmem_unmap)(void *local_ptr, size_t length);
     int (*ubsmem_shmem_set_ownership)(const char *name, void *start, size_t length, int prot);
-    int (*ubsmem_shmem_write_lock)(const char *name);
-    int (*ubsmem_shmem_read_lock)(const char *name);
-    int (*ubsmem_shmem_unlock)(const char *name);
-    int (*ubsmem_shmem_list_lookup)(const char *prefix, ubsmem_shmem_desc_t *shm_list, uint32_t *shm_cnt);
-    int (*ubsmem_shmem_lookup)(const char *name, ubsmem_shmem_info_t *shm_info);
-    int (*ubsmem_shmem_attach)(const char *name);
-    int (*ubsmem_shmem_detach)(const char *name);
     int (*ubsmem_lease_malloc)(const char *region_name, size_t size, ubsmem_distance_t mem_distance, uint64_t flags,
                                void **local_ptr);
     int (*ubsmem_lease_free)(void *local_ptr);
     int (*ubsmem_lookup_cluster_statistic)(ubsmem_cluster_info_t* info);
     int (*ubsmem_shmem_faults_register)(shmem_faults_func registerFunc);
-    int (*ubsmem_local_nid_query)(uint32_t* nid);
 } MatrixMemFunc;
 
 extern MatrixMemFunc g_matrixMemFunc;

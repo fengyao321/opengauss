@@ -85,13 +85,6 @@ void MatrixMemFuncInit(char* ubsMemPath)
         {"ubsmem_shmem_map", (void**)&g_matrixMemFunc.ubsmem_shmem_map},
         {"ubsmem_shmem_unmap", (void**)&g_matrixMemFunc.ubsmem_shmem_unmap},
         {"ubsmem_shmem_set_ownership", (void**)&g_matrixMemFunc.ubsmem_shmem_set_ownership},
-        {"ubsmem_shmem_write_lock", (void**)&g_matrixMemFunc.ubsmem_shmem_write_lock},
-        {"ubsmem_shmem_read_lock", (void**)&g_matrixMemFunc.ubsmem_shmem_read_lock},
-        {"ubsmem_shmem_unlock", (void**)&g_matrixMemFunc.ubsmem_shmem_unlock},
-        {"ubsmem_shmem_list_lookup", (void**)&g_matrixMemFunc.ubsmem_shmem_list_lookup},
-        {"ubsmem_shmem_lookup", (void**)&g_matrixMemFunc.ubsmem_shmem_lookup},
-        {"ubsmem_shmem_attach", (void**)&g_matrixMemFunc.ubsmem_shmem_attach},
-        {"ubsmem_shmem_detach", (void**)&g_matrixMemFunc.ubsmem_shmem_detach},
         {"ubsmem_lease_malloc", (void**)&g_matrixMemFunc.ubsmem_lease_malloc},
         {"ubsmem_lease_free", (void**)&g_matrixMemFunc.ubsmem_lease_free},
         {"ubsmem_lookup_cluster_statistic", (void**)&g_matrixMemFunc.ubsmem_lookup_cluster_statistic}};
@@ -359,62 +352,6 @@ int ubsmem_shmem_set_ownership(const char *name, void *start, size_t length, int
         return g_matrixMemFunc.ubsmem_shmem_set_ownership(name, start, length, prot);
     };
     return Retry(funcin, "ubsmem_shmem_set_ownership");
-}
-
-int ubsmem_shmem_write_lock(const char *name)
-{
-    std::function<int()> funcin = [&]() -> int {
-        return g_matrixMemFunc.ubsmem_shmem_write_lock(name);
-    };
-    return Retry(funcin, "ubsmem_shmem_write_lock");
-}
-
-int ubsmem_shmem_read_lock(const char *name)
-{
-    std::function<int()> funcin = [&]() -> int {
-        return g_matrixMemFunc.ubsmem_shmem_read_lock(name);
-    };
-    return Retry(funcin, "ubsmem_shmem_read_lock");
-}
-
-int ubsmem_shmem_unlock(const char *name)
-{
-    std::function<int()> funcin = [&]() -> int {
-        return g_matrixMemFunc.ubsmem_shmem_unlock(name);
-    };
-    return Retry(funcin, "ubsmem_shmem_unlock");
-}
-
-int ubsmem_shmem_list_lookup(const char *prefix, ubsmem_shmem_desc_t *shm_list, uint32_t *shm_cnt)
-{
-    std::function<int()> funcin = [&]() -> int {
-        return g_matrixMemFunc.ubsmem_shmem_list_lookup(prefix, shm_list, shm_cnt);
-    };
-    return Retry(funcin, "ubsmem_shmem_list_lookup");
-}
-
-int ubsmem_shmem_lookup(const char *name, ubsmem_shmem_info_t *shm_info)
-{
-    std::function<int()> funcin = [&]() -> int {
-        return g_matrixMemFunc.ubsmem_shmem_lookup(name, shm_info);
-    };
-    return Retry(funcin, "ubsmem_shmem_lookup");
-}
-
-int ubsmem_shmem_attach(const char *name)
-{
-    std::function<int()> funcin = [&]() -> int {
-        return g_matrixMemFunc.ubsmem_shmem_attach(name);
-    };
-    return Retry(funcin, "ubsmem_shmem_attach");
-}
-
-int ubsmem_shmem_detach(const char *name)
-{
-    std::function<int()> funcin = [&]() -> int {
-        return g_matrixMemFunc.ubsmem_shmem_detach(name);
-    };
-    return Retry(funcin, "ubsmem_shmem_detach");
 }
 
 int ubsmem_lookup_cluster_statistic(ubsmem_cluster_info_t* info)
