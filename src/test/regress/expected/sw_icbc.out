@@ -583,13 +583,13 @@ explain (costs off) select id, (select id from t2 start with t2.id = t1.id conne
 ERROR:  START WITH CONNECT BY clauses must have at least one prior key.
 --not support pseudo column in order siblings by
 explain (costs off) select *, level from t1 start with id = 1 connect by prior id = pid order siblings by 4;
-ERROR:  Not support refer startwith Pseudo column in order siblings by.
+ERROR:  column level should not be used in ORDER SIBLINGS BY clause.
 explain (costs off) select *, connect_by_root id from t1 start with id = 1 connect by prior id = pid order siblings by 4;
-ERROR:  CONNECT BY ROOT operator is not supported in the START WITH or in the CONNECT BY condition
+ERROR:  connect_by_root should not be called in ORDER SIBLINGS BY clause.
 explain (costs off) select *, sys_connect_by_path(name, '/') from t1 start with id = 1 connect by prior id = pid order siblings by 4;
-ERROR:  SYS_CONNECT_BY_PATH function is not allowed here
+ERROR:  sys_connect_by_path should not be called in ORDER SIBLINGS BY clause.
 explain (costs off) select *, sys_connect_by_path(name, '/') from t1 start with id = 1 connect by prior id = pid order siblings by sys_connect_by_path(name, '/');
-ERROR:  SYS_CONNECT_BY_PATH function is not allowed here
+ERROR:  sys_connect_by_path should not be called in ORDER SIBLINGS BY clause.
 --unsupport case
 select prior id cc from t1 start with id = 1 connect by prior id = pid;
  cc 
