@@ -324,7 +324,9 @@ static int InitChunkPools(MemRawChunkPool** chunkPools, MemReserveMode reserveMo
             NULL,
             1 /* async */);
         if (result != 0) {
-            // avoid destruction of this pool during cleanup
+            // ensure any partially initialized internals are cleaned
+            MemRawChunkPoolDestroy(chunkPools[i]);
+            // free the pool structure itself
             MemNumaFreeLocal(chunkPools[i], sizeof(MemRawChunkPool), (int)i);
             chunkPools[i] = NULL;
             MOT_REPORT_ERROR(MOT_ERROR_INTERNAL,
@@ -337,6 +339,12 @@ static int InitChunkPools(MemRawChunkPool** chunkPools, MemReserveMode reserveMo
             // order all other chunk pools to abort reservation
             for (uint32_t j = 0; j < i; ++j) {
                 MemRawChunkPoolAbortReserve(chunkPools[j]);
+                // Also destroy previously initialized pools to prevent memory leak
+                if (chunkPools[j] != NULL) {
+                    MemRawChunkPoolDestroy(chunkPools[j]);
+                    MemNumaFreeLocal(chunkPools[j], sizeof(MemRawChunkPool), (int)j);
+                    chunkPools[j] = NULL;
+                }
             }
             break;
         }
@@ -349,6 +357,21 @@ static int InitChunkPools(MemRawChunkPool** chunkPools, MemReserveMode reserveMo
             if (result == 0) {
                 result = MemRawChunkPoolWaitReserve(chunkPools[i]);
                 if (result != 0) {
+                    for (uint32_t j = i; j < g_memGlobalCfg.m_nodeCount; ++j) {
+                        if (chunkPools[j] != NULL) {
+                            MemRawChunkPoolDestroy(chunkPools[j]);
+                            MemNumaFreeLocal(chunkPools[j], sizeof(MemRawChunkPool), (int)j);
+                            chunkPools[j] = NULL;
+                        }
+                    }
+                    // Clean up previous pools too
+                    for (uint32_t j = 0; j < i; ++j) {
+                        if (chunkPools[j] != NULL) {
+                            MemRawChunkPoolDestroy(chunkPools[j]);
+                            MemNumaFreeLocal(chunkPools[j], sizeof(MemRawChunkPool), (int)j);
+                            chunkPools[j] = NULL;
+                        }
+                    }
                     MOT_REPORT_ERROR(MOT_ERROR_INTERNAL,
                         "Chunk Store Initialization",
                         "%s chunk pool initialization for node %u failed during waiting for pre-allocation with error: "
@@ -357,11 +380,21 @@ static int InitChunkPools(MemRawChunkPool** chunkPools, MemReserveMode reserveMo
                         i,
                         ErrorCodeToString(result),
                         result);
-                    // continue as cleanup
+                    // Clean up this and previous pools
+                    break;
                 }
             } else {
                 // in case of failure abort quickly rather than waiting
                 MemRawChunkPoolAbortReserve(chunkPools[i]);
+                // Clean up this and subsequent pools
+                for (uint32_t j = i; j < g_memGlobalCfg.m_nodeCount; ++j) {
+                    if (chunkPools[j] != NULL) {
+                        MemRawChunkPoolDestroy(chunkPools[j]);
+                        MemNumaFreeLocal(chunkPools[j], sizeof(MemRawChunkPool), (int)j);
+                        chunkPools[j] = NULL;
+                    }
+                }
+                break;
             }
         }
     }

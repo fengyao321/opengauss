@@ -109,6 +109,8 @@ private:
  * memory pool.
  */
 class alignas(64) TxnManager {
+private:
+    void CleanupInited();
 public:
     /** @brief Destructor. */
     ~TxnManager();

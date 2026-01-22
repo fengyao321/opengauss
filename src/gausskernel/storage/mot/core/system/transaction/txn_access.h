@@ -490,6 +490,8 @@ private:
         Done
     } m_initPhase;
 
+    bool CleanupInited();
+
     RC LookupFilterRow(Access* curr_acc, const AccessType type, bool isCommitted, Row*& r_local_Row);
 
     RC SecIdxUpdGenerateDeleteKeys(Access* primaryAccess, TxnIxColUpdate* colUpd);

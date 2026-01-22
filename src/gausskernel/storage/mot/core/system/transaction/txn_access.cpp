@@ -122,6 +122,45 @@ void TxnAccess::ClearAccessSet()
     m_accessesSetBuff = nullptr;
 }
 
+bool TxnAccess::CleanupInited()
+{
+    switch (m_initPhase) {
+        case Done:
+            if (m_accessPool) {
+                ObjAllocInterface::FreeObjPool(&m_accessPool);
+                m_accessPool = nullptr;
+            }
+        case CreateAccessPool:
+            if (m_insertManager) {
+                delete m_insertManager;
+                m_insertManager = nullptr;
+            }
+        case CreateInsertSet:
+            if (m_rowsSet) {
+                delete m_rowsSet;
+                m_rowsSet = nullptr;
+            }
+            if (m_sentinelObjectPool) {
+                delete m_sentinelObjectPool;
+                m_sentinelObjectPool = nullptr;
+            }
+        case CreateRowSet:
+        case CreateRowZero:
+            if (m_rowZero) {
+                MemFree(m_rowZero, m_txnManager->m_global);
+                m_rowZero = nullptr;
+            }
+        case InitDummyInd:
+        case InitDummyTab:
+            m_dummyTable.Cleanup();
+        case AllocBuf:
+            MemFree(m_accessesSetBuff, m_txnManager->m_global);
+            m_accessesSetBuff = nullptr;
+        default:
+            break;
+    }
+}
+
 bool TxnAccess::Init(TxnManager* manager)
 {
     m_initPhase = Startup;
@@ -149,6 +188,7 @@ bool TxnAccess::Init(TxnManager* manager)
 
     // initialize dummy table
     if (!m_dummyTable.Init(m_txnManager->m_isRecoveryTxn, m_txnManager->m_global)) {
+        CleanupInited();
         MOT_REPORT_ERROR(
             MOT_ERROR_OOM, "Transaction Initialization", "Failed to initialize dummy table for session %u", sessionId);
         return false;
@@ -157,7 +197,8 @@ bool TxnAccess::Init(TxnManager* manager)
 
     // create row zero
     ptr = MemAlloc(sizeof(Row) + MAX_TUPLE_SIZE, m_txnManager->m_global);
-    if (!ptr) {
+    if (ptr == nullptr) {
+        CleanupInited();
         MOT_REPORT_ERROR(
             MOT_ERROR_OOM, "Transaction Initialization", "Failed to allocate row zero for session %u", sessionId);
         return false;
@@ -169,6 +210,7 @@ bool TxnAccess::Init(TxnManager* manager)
     // create rows set
     m_rowsSet = new (std::nothrow) TxnOrderedSet_t();
     if (m_rowsSet == nullptr) {
+        CleanupInited();
         MOT_REPORT_ERROR(MOT_ERROR_OOM,
             "Transaction Initialization",
             "Failed to allocate row set for session %u",
@@ -177,6 +219,9 @@ bool TxnAccess::Init(TxnManager* manager)
     }
     m_sentinelObjectPool = new (std::nothrow) S_SentinelNodePool();
     if (m_sentinelObjectPool == nullptr) {
+        delete m_rowsSet;
+        m_rowsSet = nullptr;
+        CleanupInited();
         MOT_REPORT_ERROR(MOT_ERROR_OOM,
             "Transaction Initialization",
             "Failed to allocate sentinel node set for session %u",
@@ -187,12 +232,14 @@ bool TxnAccess::Init(TxnManager* manager)
     m_initPhase = CreateInsertSet;
     m_insertManager = new (std::nothrow) TxnInsertAction();
     if (m_insertManager == nullptr) {
+        CleanupInited();
         MOT_REPORT_ERROR(
             MOT_ERROR_OOM, "Transaction Initialization", "Failed to allocate Insert set for session %u", sessionId);
         return false;
     }
 
     if (!m_insertManager->Init(manager)) {
+        CleanupInited();
         MOT_REPORT_ERROR(
             MOT_ERROR_OOM, "Transaction Initialization", "Failed to INIT Insert set for session %u", sessionId);
         return false;
@@ -200,6 +247,7 @@ bool TxnAccess::Init(TxnManager* manager)
     m_initPhase = CreateAccessPool;
     m_accessPool = ObjAllocInterface::GetObjPool(sizeof(Access), !manager->m_global);
     if (!m_accessPool) {
+        CleanupInited();
         MOT_REPORT_ERROR(MOT_ERROR_OOM,
             "Initialize ObjectPool",
             "Failed to allocate Access pool for session %d",

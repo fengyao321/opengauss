@@ -55,6 +55,7 @@ class alignas(64) GcManager {
 public:
     ~GcManager()
     {
+        m_GcQueues.clear();
         if (m_limboGroupPool) {
             ObjAllocInterface::FreeObjPool(&m_limboGroupPool);
         }

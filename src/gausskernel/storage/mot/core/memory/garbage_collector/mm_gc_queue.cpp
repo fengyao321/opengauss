@@ -114,7 +114,17 @@ GcQueue::GcQueue(const GcQueueEntry& entry) : m_queueType(entry.m_type)
 
 GcQueue::~GcQueue()
 {
+    LimboGroup * current = m_limboHead;
+    while (current != nullptr) {
+        LimboGroup* next = current->m_next;
+        if (m_manager != nullptr) {
+            m_manager->DestroyLimboGroup(current);
+        }
+        current = next;
+    }
+
     if (m_deleteVector != nullptr) {
+        m_deleteVector->clear();
         delete m_deleteVector;
         m_deleteVector = nullptr;
     }

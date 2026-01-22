@@ -78,11 +78,17 @@ bool GcManager::Initialize()
         m_GcQueues.push_back(GcQueue(gcQueuesParams[q]));
         result = m_GcQueues[q].Initialize(this);
         if (result == false) {
+            m_GcQueues.clear();
+            ObjAllocInterface::FreeObjPool(&m_limboGroupPool);
+            m_limboGroupPool = nullptr;
             return result;
         }
     }
 
     if (!m_reservedManager.initialize()) {
+        m_GcQueues.clear();
+        ObjAllocInterface::FreeObjPool(&m_limboGroupPool);
+        m_limboGroupPool = nullptr;
         MOT_REPORT_ERROR(MOT_ERROR_OOM, "Create GC Context", "Failed to create GcQueueReservedMemory");
         result = false;
     }

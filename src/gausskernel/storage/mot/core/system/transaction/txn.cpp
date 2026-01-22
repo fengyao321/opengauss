@@ -941,6 +941,7 @@ TxnManager::~TxnManager()
 
     if (m_dummyIndex != nullptr) {
         delete m_dummyIndex;
+        m_dummyIndex = nullptr;
     }
     if (m_gcSession != nullptr) {
         m_gcSession->GcCleanAll();
@@ -950,12 +951,43 @@ TxnManager::~TxnManager()
         m_gcSession = nullptr;
     }
 
-    MemFreeObject<TxnAccess>(m_accessMgr, m_global);
-    m_accessMgr = nullptr;
-    delete m_key;
-    delete m_txnDdlAccess;
+    if (m_accessMgr != nullptr) {
+        MemFreeObject<TxnAccess>(m_accessMgr, m_global);
+        m_accessMgr = nullptr;
+    }
+    if (m_key != nullptr) {
+        delete m_key;
+        m_key = nullptr;
+    }
+    if (m_txnDdlAccess != nullptr) {
+        delete m_txnDdlAccess;
+    }
+    delete m_errIx;
     m_errIx = nullptr;
     m_sessionContext = nullptr;
+}
+
+void TxnManager::CleanupInited()
+{
+    if (m_dummyIndex != nullptr) {
+        delete m_dummyIndex;
+        m_dummyIndex = nullptr;
+    }
+    if (m_txnDdlAccess != nullptr) {
+        delete m_txnDdlAccess;
+        m_txnDdlAccess = nullptr;
+    }
+    if (m_accessMgr != nullptr) {
+        MemFreeObject<TxnAccess>(m_accessMgr, m_global);
+        m_accessMgr = nullptr;
+    }
+    if (m_gcSession != nullptr) {
+        m_gcSession->GcCleanAll();
+        m_gcSession->RemoveFromGcList(m_gcSession);
+        m_gcSession->~GcManager();
+        MemFree(m_gcSession, m_global);
+        m_gcSession = nullptr;
+    }
 }
 
 bool TxnManager::Init(uint64_t threadId, uint64_t connectionId, bool isRecoveryTxn, bool isLightTxn)
@@ -976,6 +1008,7 @@ bool TxnManager::Init(uint64_t threadId, uint64_t connectionId, bool isRecoveryT
 
     m_txnDdlAccess = new (std::nothrow) TxnDDLAccess(this);
     if (m_txnDdlAccess == nullptr) {
+        CleanupInited();
         MOT_REPORT_ERROR(MOT_ERROR_OOM, "Initialize Transaction", "Failed to allocate memory for DDL access data");
         return false;
     }
@@ -984,8 +1017,8 @@ bool TxnManager::Init(uint64_t threadId, uint64_t connectionId, bool isRecoveryT
     // make node-local allocations
     if (!isLightTxn) {
         m_accessMgr = MemAllocAlignedObject<TxnAccess>(L1_CACHE_LINE, m_global);
-
         if (!m_accessMgr->Init(this)) {
+            CleanupInited();
             return false;
         }
 
@@ -993,6 +1026,7 @@ bool TxnManager::Init(uint64_t threadId, uint64_t connectionId, bool isRecoveryT
     }
 
     if (!m_subTxnManager.Init(this)) {
+        CleanupInited();
         return false;
     }
     if (isRecoveryTxn) {
@@ -1001,10 +1035,12 @@ bool TxnManager::Init(uint64_t threadId, uint64_t connectionId, bool isRecoveryT
         m_gcSession = GcManager::Make(GcManager::GC_TYPE::GC_MAIN, threadId, m_global);
     }
     if (!m_gcSession) {
+        CleanupInited();
         return false;
     }
 
     if (!m_redoLog.Init()) {
+        CleanupInited();
         return false;
     }
 
