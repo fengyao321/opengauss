@@ -122,5 +122,6 @@ WHERE
     and i.schemaname !~ '^pg_toast'
     and i.tablename not like 'matviewmap\_%'
     and i.tablename not like 'mlog\_%'
+    and pg_catalog.pg_table_is_visible(i.indrelid)
 ORDER BY
     i.indrelid, i.indexrelid;
