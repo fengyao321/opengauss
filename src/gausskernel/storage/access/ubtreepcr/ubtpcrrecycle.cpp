@@ -40,24 +40,9 @@ void PruneFirstDataKey(Page page, UBTreeItemId itemid, OffsetNumber offNum,
     TransactionId globalRecycleXid = pg_atomic_read_u64(&g_instance.undo_cxt.globalRecycleXid);
     TransactionId xid = IsUBTreePCRTDReused(itemid) ? opaque->last_commit_xid :
                          GetXidFromTD(page, itemid, frozenTDMap);
-
     if (TransactionIdPrecedes(xid, globalRecycleXid)) {
         RecordDeadTuple(prstate, offNum, xid);
         return;
-    }
-    uint8 curTdId = itemid->lp_td_id;
-    UBTreeTD curTd = (UBTreeTD)UBTreePCRGetTD(page, curTdId);
-    IndexTuple itup = (IndexTuple)UBTreePCRGetIndexTuple(page, offNum);
-    /* not match situation above, msut fetch the accurate xid from undo */
-    UBTreeLatestChangeInfo uInfo;
-    UndoRecord *urec = New(CurrentMemoryContext)UndoRecord();
-    urec->SetUrp(curTd->undoRecPtr);
-    urec->SetMemoryContext(CurrentMemoryContext);
-    xid = UBTreeFetchLatestChangeFromUndo(itup, urec, &uInfo, upersistence) ?
-          uInfo.xid : FrozenTransactionId;
-    DELETE_EX(urec);
-    if (TransactionIdPrecedes(xid, globalRecycleXid)) {
-        RecordDeadTuple(prstate, offNum, xid);
     }
 }
 
@@ -1308,7 +1293,7 @@ bool UBTreePCRMarkPageHalfDead(Relation rel, Buffer leafbuf, BTStack stack)
             xlrec.topparent = InvalidBlockNumber;
         }
         XLogBeginInsert();
-        XLogRegisterBuffer(0, leafbuf, REGBUF_WILL_INIT);
+        XLogRegisterBuffer(0, leafbuf, REGBUF_STANDARD);
         XLogRegisterBuffer(1, topparent, REGBUF_STANDARD);
 
         page = BufferGetPage(leafbuf);

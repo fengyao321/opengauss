@@ -393,7 +393,7 @@ void SPI_rollback()
 /*
  * rollback and release current transaction.
  */
-void SPI_savepoint_rollbackAndRelease(const char *spName, SubTransactionId subXid)
+void SPI_savepoint_rollbackAndRelease(const char *spName, SubTransactionId subXid, bool stpRollback)
 {
     if (subXid == InvalidTransactionId) {
         RollbackAndReleaseCurrentSubTransaction(true);
@@ -405,7 +405,7 @@ void SPI_savepoint_rollbackAndRelease(const char *spName, SubTransactionId subXi
         }
     } else if (subXid != GetCurrentSubTransactionId()) {
         /* errors during starting a subtransaction */
-        AbortSubTransaction();
+        AbortSubTransaction(stpRollback);
         CleanupSubTransaction();
     }
 
@@ -466,7 +466,7 @@ void SPI_savepoint_create(const char* spName)
     }
     PG_CATCH();
     {
-        SPI_savepoint_rollbackAndRelease(spName, subXid);
+        SPI_savepoint_rollbackAndRelease(spName, subXid, true);
 
         PG_RE_THROW();
     }
@@ -632,6 +632,12 @@ void AtEOXact_SPI(bool isCommit, bool STP_rollback, bool STP_commit)
             errhint("Check for missing \"SPI_finish\" calls.")));
     }
 
+#ifndef ENABLE_MULTIPLE_NODES
+    if (!StreamThreadAmI()) {
+        StreamNodeGroup::ReleaseStreamGroup(false);
+    }
+#endif
+
     SPICleanup();
 }
 
@@ -711,6 +717,11 @@ void AtEOSubXact_SPI(bool isCommit, SubTransactionId mySubid, bool STP_rollback,
      * surrounding the subxact, clean up to prevent memory leakage.
      */
     if (u_sess->SPI_cxt._current && !isCommit) {
+#ifndef ENABLE_MULTIPLE_NODES
+        if (!StreamThreadAmI()) {
+            StreamNodeGroup::ReleaseStreamGroup(false);
+        }
+#endif
         /*
          * Throw away executor state if current executor operation was started
          * within current subxact (essentially, force a _SPI_end_call(true)).
