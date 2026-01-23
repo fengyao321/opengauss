@@ -1965,7 +1965,7 @@ void tuplesort_performsort(Tuplesortstate* state)
 static bool tuplesort_gettuple_common(Tuplesortstate* state, bool forward, SortTuple* stup)
 {
     unsigned int tuplen;
-
+    size_t n_moved;
     Assert(!WORKER(state));
 
     switch (state->status) {
@@ -2052,8 +2052,8 @@ static bool tuplesort_gettuple_common(Tuplesortstate* state, bool forward, SortT
                  * end of file; back up to fetch last tuple's ending length
                  * word.  If seek fails we must have a completely empty file.
                  */
-                if (!LogicalTapeBackspace(state->tapeset, state->resultTape,
-                                          sizeof(unsigned int) + sizeof(unsigned int))) {
+                if (LogicalTapeBackspace(state->tapeset, state->resultTape,
+                                          sizeof(unsigned int) + sizeof(unsigned int)) == 0) {
                     return false;
                 }
                 state->eof_reached = false;
@@ -2062,27 +2062,27 @@ static bool tuplesort_gettuple_common(Tuplesortstate* state, bool forward, SortT
                  * Back up and fetch previously-returned tuple's ending length
                  * word.  If seek fails, assume we are at start of file.
                  */
-                if (!LogicalTapeBackspace(state->tapeset, state->resultTape, sizeof(unsigned int))) {
+                if (LogicalTapeBackspace(state->tapeset, state->resultTape, sizeof(unsigned int)) == 0) {
                     return false;
                 }
                 tuplen = getlen(state->tapeset, state->resultTape, false);
                 /*
                  * Back up to get ending length word of tuple before it.
                  */
-                if (!LogicalTapeBackspace(state->tapeset, state->resultTape,
-                                          tuplen + sizeof(unsigned int) + sizeof(unsigned int))) {
+
+                n_moved = LogicalTapeBackspace(state->tapeset, state->resultTape,
+                                               tuplen + sizeof(unsigned int) + sizeof(unsigned int));
+                if (n_moved == (tuplen + sizeof(unsigned int))) {
                     /*
                      * If that fails, presumably the prev tuple is the first
                      * in the file.  Back up so that it becomes next to read
                      * in forward direction (not obviously right, but that is
                      * what in-memory case does).
                      */
-                    if (!LogicalTapeBackspace(state->tapeset, state->resultTape, tuplen + sizeof(unsigned int))) {
-                        ereport(ERROR,
-                            (errmodule(MOD_EXECUTOR),
-                                (errcode(ERRCODE_FILE_READ_FAILED), errmsg("bogus tuple length in backward scan"))));
-                    }
                     return false;
+                } else if (n_moved != (tuplen + 2 * sizeof(unsigned int))) {
+                    ereport(ERROR, (errmodule(MOD_EXECUTOR), (errcode(ERRCODE_FILE_READ_FAILED),
+                                                              errmsg("bogus tuple length in backward scan"))));
                 }
             }
 
@@ -2092,10 +2092,12 @@ static bool tuplesort_gettuple_common(Tuplesortstate* state, bool forward, SortT
              * Note: READTUP expects we are positioned after the initial
              * length word of the tuple, so back up to that point.
              */
-            if (!LogicalTapeBackspace(state->tapeset, state->resultTape, tuplen))
+            n_moved = LogicalTapeBackspace(state->tapeset, state->resultTape, tuplen);
+            if (n_moved != tuplen) {
                 ereport(ERROR,
                     (errmodule(MOD_EXECUTOR),
                         (errcode(ERRCODE_FILE_READ_FAILED), errmsg("bogus tuple length in backward scan"))));
+            }
             READTUP(state, stup, state->resultTape, tuplen);
             state->lastReturnedTuple = stup->tuple;
             return true;
