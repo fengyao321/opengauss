@@ -13,6 +13,8 @@ BEGIN
     END LOOP;
 END$$;
 
+set skip_new_column_for_ruledef = true;
+
 DROP VIEW IF EXISTS character_sets CASCADE;
 CREATE OR REPLACE VIEW character_sets AS
     SELECT CAST(null AS sql_identifier) AS character_set_catalog,
@@ -76,7 +78,16 @@ CREATE OR REPLACE VIEW collations AS
           AND collencoding IN (-1, (SELECT encoding FROM pg_catalog.pg_database WHERE datname = pg_catalog.current_database()));
 GRANT SELECT ON collations TO PUBLIC;
 
-
+DO $$
+DECLARE
+    function_exists BOOLEAN;
+BEGIN
+    SELECT EXISTS (
+        SELECT 1
+        FROM pg_proc
+        WHERE proname = 'pg_column_is_updatable'
+    ) INTO function_exists;
+    IF function_exists THEN
 DROP VIEW IF EXISTS information_schema.columns CASCADE;
 CREATE OR REPLACE VIEW columns AS
     SELECT CAST(pg_catalog.current_database() AS sql_identifier) AS table_catalog,
@@ -220,6 +231,8 @@ CREATE OR REPLACE VIEW columns AS
           AND (pg_catalog.pg_has_role(c.relowner, 'USAGE')
                OR pg_catalog.has_column_privilege(c.oid, a.attnum,
                                        'SELECT, INSERT, UPDATE, REFERENCES'));
+    END IF;
+END $$;
 GRANT SELECT ON columns TO PUBLIC;
 
 
@@ -508,6 +521,16 @@ CREATE OR REPLACE VIEW table_constraints AS
 
 GRANT SELECT ON table_constraints TO PUBLIC;
 
+DO $$
+DECLARE
+    function_exists BOOLEAN;
+BEGIN
+    SELECT EXISTS (
+        SELECT 1
+        FROM pg_proc
+        WHERE proname = 'pg_relation_is_updatable'
+    ) INTO function_exists;
+    IF function_exists THEN
 DROP VIEW IF EXISTS information_schema.tables CASCADE;
 CREATE OR REPLACE VIEW tables AS
     SELECT CAST(pg_catalog.current_database() AS sql_identifier) AS table_catalog,
@@ -550,6 +573,8 @@ CREATE OR REPLACE VIEW tables AS
           AND (pg_catalog.pg_has_role(c.relowner, 'USAGE')
                OR pg_catalog.has_table_privilege(c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
                OR pg_catalog.has_any_column_privilege(c.oid, 'SELECT, INSERT, UPDATE, REFERENCES') );
+    END IF;
+END $$;
 GRANT SELECT ON tables TO PUBLIC;
 
 
