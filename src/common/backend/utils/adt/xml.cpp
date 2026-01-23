@@ -1862,7 +1862,7 @@ char* map_sql_identifier_to_xml_name(char* ident, bool fully_escaped, bool escap
 
     initStringInfo(&buf);
 
-    for (p = ident; *p; p += pg_mblen(p)) {
+    for (p = ident; p && *p; p += pg_mblen(p)) {
         if (*p == ':' && (p == ident || fully_escaped))
             appendStringInfo(&buf, "_x003A_");
         else if (*p == '_' && *(p + 1) == 'x')
