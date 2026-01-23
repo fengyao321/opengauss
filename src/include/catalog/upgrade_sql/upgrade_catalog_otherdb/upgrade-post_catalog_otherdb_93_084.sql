@@ -25,7 +25,7 @@ overlap AS (
                 'index_name', b.indexname,
                 'amname', b.amname,
                 'columns', (
-                  SELECT array_agg(attname ORDER BY attnum) FROM pg_attribute WHERE attrelid = b.indexrelid
+                  SELECT array_agg(attname ORDER BY attnum) FROM pg_catalog.pg_attribute WHERE attrelid = b.indexrelid
                 )
             )
         ) AS overlap_info
@@ -49,7 +49,7 @@ SELECT
     i.indexname,
     i.amname,
     (
-        SELECT array_agg(attname ORDER BY attnum) FROM pg_attribute WHERE attrelid = i.indexrelid
+        SELECT array_agg(attname ORDER BY attnum) FROM pg_catalog.pg_attribute WHERE attrelid = i.indexrelid
     ) AS index_columns,
     s.idx_scan,
     s.idx_tup_read,

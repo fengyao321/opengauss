@@ -6,7 +6,7 @@ DROP OPERATOR CLASS IF EXISTS pg_catalog.halfvec_ops USING ubtree CASCADE;
 DECLARE
     cnt int;
 BEGIN
-    select count(*) into cnt from pg_am where amname = 'ivfflat';
+    select count(*) into cnt FROM pg_catalog.pg_am where amname = 'ivfflat';
     if cnt = 1 then
         DROP OPERATOR FAMILY IF EXISTS pg_catalog.halfvec_l2_ops USING ivfflat CASCADE;
         DROP OPERATOR CLASS IF EXISTS pg_catalog.halfvec_l2_ops USING ivfflat CASCADE;
@@ -20,7 +20,7 @@ END;
 DECLARE
     cnt int;
 BEGIN
-    select count(*) into cnt from pg_am where amname = 'hnsw';
+    select count(*) into cnt FROM pg_catalog.pg_am where amname = 'hnsw';
     if cnt = 1 then
         DROP OPERATOR FAMILY IF EXISTS pg_catalog.halfvec_l2_ops USING hnsw CASCADE;
         DROP OPERATOR CLASS IF EXISTS pg_catalog.halfvec_l2_ops USING hnsw CASCADE;
@@ -36,7 +36,7 @@ END;
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'halfvec' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'halfvec' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.l2_distance(halfvec, halfvec) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.inner_product(halfvec, halfvec) CASCADE;
@@ -91,7 +91,7 @@ DROP FUNCTION IF EXISTS pg_catalog.halfvec_recv(internal, oid, int4) CASCADE;
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'halfvec' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'halfvec' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.halfvec_out(pg_catalog.halfvec) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.halfvec_send(pg_catalog.halfvec) CASCADE;

@@ -214,13 +214,13 @@ CREATE VIEW information_schema.element_types AS
            CAST(null AS cardinal_number) AS maximum_cardinality,
            CAST('a' || CAST(x.objdtdid AS text) AS sql_identifier) AS dtd_identifier
 
-    FROM pg_namespace n, pg_type at, pg_namespace nbt, pg_type bt,
+    FROM pg_catalog.pg_namespace n, pg_type at, pg_namespace nbt, pg_type bt,
          (
            /* columns, attributes */
            SELECT c.relnamespace, CAST(c.relname AS sql_identifier),
                   CASE WHEN c.relkind = 'c' THEN 'USER-DEFINED TYPE'::text ELSE 'TABLE'::text END,
                   a.attnum, a.atttypid, a.attcollation
-           FROM pg_class c, pg_attribute a
+           FROM pg_catalog.pg_class c, pg_attribute a
            WHERE c.oid = a.attrelid
                  AND c.relkind IN ('r', 'm', 'v', 'f', 'c')
                  AND (c.relname not like 'mlog\_%' AND c.relname not like 'matviewmap\_%')
@@ -231,7 +231,7 @@ CREATE VIEW information_schema.element_types AS
            /* domains */
            SELECT t.typnamespace, CAST(t.typname AS sql_identifier),
                   'DOMAIN'::text, 1, t.typbasetype, t.typcollation
-           FROM pg_type t
+           FROM pg_catalog.pg_type t
            WHERE t.typtype = 'd'
 
            UNION ALL
@@ -241,14 +241,14 @@ CREATE VIEW information_schema.element_types AS
                   'ROUTINE'::text, (ss.x).n, (ss.x).x, 0
            FROM (SELECT p.pronamespace, p.proname, p.oid,
                         _pg_expandarray(coalesce(p.proallargtypes, p.proargtypes::oid[])) AS x
-                 FROM pg_proc p) AS ss
+                 FROM pg_catalog.pg_proc p) AS ss
 
            UNION ALL
 
            /* result types */
            SELECT p.pronamespace, CAST(p.proname || '_' || CAST(p.oid AS text) AS sql_identifier),
                   'ROUTINE'::text, 0, p.prorettype, 0
-           FROM pg_proc p
+           FROM pg_catalog.pg_proc p
 
          ) AS x (objschema, objname, objtype, objdtdid, objtypeid, objcollation)
          LEFT JOIN (pg_collation co JOIN pg_catalog.pg_namespace nco ON (co.collnamespace = nco.oid))

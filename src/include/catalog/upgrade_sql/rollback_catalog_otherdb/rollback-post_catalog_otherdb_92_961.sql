@@ -11,7 +11,7 @@ DROP TABLE IF EXISTS pg_catalog.gs_dependencies_obj;
 DECLARE
     cnt int;
 BEGIN
-    select count(*) into cnt from pg_type where oid = 4408;
+    select count(*) into cnt FROM pg_catalog.pg_type where oid = 4408;
     if cnt = 1 then
             DROP FUNCTION IF EXISTS pg_catalog.undefinedin() CASCADE;
             DROP FUNCTION IF EXISTS pg_catalog.undefinedout() CASCADE;

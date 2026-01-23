@@ -201,7 +201,7 @@ RETURNS TABLE (
 DECLARE
     node_role text;
 BEGIN
-    SELECT local_role INTO node_role FROM pg_stat_get_stream_replications() LIMIT 1;
+    SELECT local_role INTO node_role FROM pg_catalog.pg_stat_get_stream_replications() LIMIT 1;
     
     IF node_role = 'Primary' OR node_role = 'Normal' THEN
         RETURN QUERY SELECT sh.* FROM dbe_perf.statement_history sh where sh.start_time >= start_time_point and sh.is_slow_sql = 't'::boolean;

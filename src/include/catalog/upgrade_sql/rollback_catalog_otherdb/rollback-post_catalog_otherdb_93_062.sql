@@ -5,7 +5,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'simple_integer' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'simple_integer' limit 1) into ans;
     if ans = true then
         DROP OPERATOR IF EXISTS pg_catalog.+(simple_integer, simple_integer) CASCADE;
         DROP OPERATOR IF EXISTS pg_catalog.-(simple_integer, simple_integer) CASCADE;
@@ -25,12 +25,12 @@ ans_positive boolean;
 ans_naturaln boolean;
 ans_natural boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'simple_integer' limit 1) into ans_simple_integer;
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'signtype' limit 1) into ans_signtype;
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'positiven' limit 1) into ans_positiven;
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'positive' limit 1) into ans_positive;
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'naturaln' limit 1) into ans_naturaln;
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'natural' limit 1) into ans_natural;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'simple_integer' limit 1) into ans_simple_integer;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'signtype' limit 1) into ans_signtype;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'positiven' limit 1) into ans_positiven;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'positive' limit 1) into ans_positive;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'naturaln' limit 1) into ans_naturaln;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'natural' limit 1) into ans_natural;
     if ans_simple_integer = true then
         DROP CAST IF EXISTS (tinyint AS simple_integer) CASCADE;
         DROP CAST IF EXISTS (smallint AS simple_integer) CASCADE;
@@ -340,7 +340,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'simple_integer' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'simple_integer' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.simple_integer_sub(simple_integer, simple_integer);
         DROP FUNCTION IF EXISTS pg_catalog.simple_integer_plus(simple_integer, simple_integer);
@@ -447,7 +447,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'simple_integer' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'simple_integer' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.simple_integer_out(simple_integer) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.simple_integer_send(simple_integer) CASCADE;
@@ -462,7 +462,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'signtype' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'signtype' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.signtype_out(signtype) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.signtype_send(signtype) CASCADE;
@@ -477,7 +477,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'positiven' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'positiven' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.positiven_out(positiven) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.positiven_send(positiven) CASCADE;
@@ -492,7 +492,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'positive' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'positive' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.positive_out(positive) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.positive_send(positive) CASCADE;
@@ -507,7 +507,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'naturaln' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'naturaln' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.naturaln_out(naturaln) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.naturaln_send(naturaln) CASCADE;
@@ -522,7 +522,7 @@ DO $$
 DECLARE
 ans boolean;
 BEGIN
-    select case when count(*)=1 then true else false end as ans from (select * from pg_type where typname = 'natural' limit 1) into ans;
+    select case when count(*)=1 then true else false end as ans from (select * FROM pg_catalog.pg_type where typname = 'natural' limit 1) into ans;
     if ans = true then
         DROP FUNCTION IF EXISTS pg_catalog.natural_out(natural) CASCADE;
         DROP FUNCTION IF EXISTS pg_catalog.natural_send(natural) CASCADE;

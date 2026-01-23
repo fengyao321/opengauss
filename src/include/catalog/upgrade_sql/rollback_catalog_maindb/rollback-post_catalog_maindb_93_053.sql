@@ -2,7 +2,7 @@ DO $DO$
 DECLARE
 ans boolean;
 BEGIN
-select case when count(*) = 1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+select case when count(*) = 1 then true else false end as ans from (select nspname FROM pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
 IF ans = true then
 DROP FUNCTION IF EXISTS DBE_PERF.get_global_full_sql_by_timestamp() CASCADE;
 DROP FUNCTION IF EXISTS DBE_PERF.get_global_slow_sql_by_timestamp() CASCADE;
@@ -332,7 +332,7 @@ RETURNS TABLE (
 DECLARE
     node_role text;
 BEGIN
-    SELECT local_role INTO node_role FROM pg_stat_get_stream_replications() LIMIT 1;
+    SELECT local_role INTO node_role FROM pg_catalog.pg_stat_get_stream_replications() LIMIT 1;
     
     IF node_role = 'Primary' OR node_role = 'Normal' THEN
         RETURN QUERY SELECT sh.* FROM dbe_perf.statement_history sh where sh.start_time >= start_time_point and sh.is_slow_sql = 't'::boolean;
@@ -352,7 +352,7 @@ ans boolean;
     username text;
     querystr text;
 BEGIN
-select case when count(*) = 1 then true else false end as ans from (select nspname from pg_namespace where nspname='dbe_perf' limit 1) into ans;
+select case when count(*) = 1 then true else false end as ans from (select nspname FROM pg_catalog.pg_namespace where nspname='dbe_perf' limit 1) into ans;
 IF ans = true then
 CREATE VIEW DBE_PERF.statement_history AS
 select * from pg_catalog.statement_history;

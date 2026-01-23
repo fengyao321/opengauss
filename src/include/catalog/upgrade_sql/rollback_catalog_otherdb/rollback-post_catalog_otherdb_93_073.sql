@@ -4,7 +4,7 @@ do $$
 DECLARE
 ans boolean;
 BEGIN
-    for ans in select case when count(*)=1 then true else false end as ans  from (select extname from pg_extension where extname='shark')
+    for ans in select case when count(*)=1 then true else false end as ans  from (select extname FROM pg_catalog.pg_extension where extname='shark')
     LOOP
         if ans = true then
             ALTER EXTENSION shark UPDATE TO '2.0.1';
@@ -23,7 +23,7 @@ CREATE OR REPLACE VIEW character_sets AS
            CAST(pg_catalog.current_database() AS sql_identifier) AS default_collate_catalog,
            CAST(nc.nspname AS sql_identifier) AS default_collate_schema,
            CAST(c.collname AS sql_identifier) AS default_collate_name
-    FROM pg_database d
+    FROM pg_catalog.pg_database d
          LEFT JOIN (pg_catalog.pg_collation c JOIN pg_catalog.pg_namespace nc ON (c.collnamespace = nc.oid))
              ON (datcollate = collcollate AND datctype = collctype)
     WHERE d.datname = pg_catalog.current_database()
@@ -38,7 +38,7 @@ CREATE OR REPLACE VIEW check_constraints AS
            CAST(con.conname AS sql_identifier) AS constraint_name,
            CAST(substring(pg_catalog.pg_get_constraintdef(con.oid) from 7) AS character_data)
              AS check_clause
-    FROM pg_constraint con
+    FROM pg_catalog.pg_constraint con
            LEFT OUTER JOIN pg_catalog.pg_namespace rs ON (rs.oid = con.connamespace)
            LEFT OUTER JOIN pg_catalog.pg_class c ON (c.oid = con.conrelid)
            LEFT OUTER JOIN pg_catalog.pg_type t ON (t.oid = con.contypid)
@@ -53,7 +53,7 @@ CREATE OR REPLACE VIEW check_constraints AS
            CAST(CAST(n.oid AS text) || '_' || CAST(r.oid AS text) || '_' || CAST(a.attnum AS text) || '_not_null' AS sql_identifier) AS constraint_name, -- XXX
            CAST(a.attname || ' IS NOT NULL' AS character_data)
              AS check_clause
-    FROM pg_namespace n, pg_class r, pg_attribute a
+    FROM pg_catalog.pg_namespace n, pg_class r, pg_attribute a
     WHERE n.oid = r.relnamespace
       AND r.oid = a.attrelid
       AND a.attnum > 0
@@ -71,9 +71,9 @@ CREATE OR REPLACE VIEW collations AS
            CAST(nc.nspname AS sql_identifier) AS collation_schema,
            CAST(c.collname AS sql_identifier) AS collation_name,
            CAST('NO PAD' AS character_data) AS pad_attribute
-    FROM pg_collation c, pg_namespace nc
+    FROM pg_catalog.pg_collation c, pg_namespace nc
     WHERE c.collnamespace = nc.oid
-          AND collencoding IN (-1, (SELECT encoding FROM pg_database WHERE datname = pg_catalog.current_database()));
+          AND collencoding IN (-1, (SELECT encoding FROM pg_catalog.pg_database WHERE datname = pg_catalog.current_database()));
 GRANT SELECT ON collations TO PUBLIC;
 
 
@@ -238,13 +238,13 @@ CREATE OR REPLACE VIEW key_column_usage AS
                      ELSE NULL
                 END AS cardinal_number)
              AS position_in_unique_constraint
-    FROM pg_attribute a,
+    FROM pg_catalog.pg_attribute a,
          (SELECT r.oid AS roid, r.relname, r.relowner,
                  nc.nspname AS nc_nspname, nr.nspname AS nr_nspname,
                  c.oid AS coid, c.conname, c.contype, c.conindid,
                  c.confkey, c.confrelid,
                  _pg_expandarray(c.conkey) AS x
-          FROM pg_namespace nr, pg_class r, pg_namespace nc,
+          FROM pg_catalog.pg_namespace nr, pg_class r, pg_namespace nc,
                pg_constraint c
           WHERE nr.oid = r.relnamespace
                 AND r.oid = c.conrelid
@@ -306,11 +306,11 @@ CREATE OR REPLACE VIEW parameters AS
            CAST(null AS cardinal_number) AS maximum_cardinality,
            CAST((ss.x).n AS sql_identifier) AS dtd_identifier
 
-    FROM pg_type t, pg_namespace nt,
+    FROM pg_catalog.pg_type t, pg_namespace nt,
          (SELECT n.nspname AS n_nspname, p.proname, p.oid AS p_oid,
                  p.proargnames, p.proargmodes,
                  _pg_expandarray(coalesce(p.proallargtypes, p.proargtypes::oid[])) AS x
-          FROM pg_namespace n, pg_proc p
+          FROM pg_catalog.pg_namespace n, pg_proc p
           WHERE n.oid = p.pronamespace
                 AND (pg_catalog.pg_has_role(p.proowner, 'USAGE') OR
                      pg_catalog.has_function_privilege(p.oid, 'EXECUTE'))) AS ss
@@ -416,7 +416,7 @@ CREATE OR REPLACE VIEW routines AS
            CAST(null AS cardinal_number) AS result_cast_maximum_cardinality,
            CAST(null AS sql_identifier) AS result_cast_dtd_identifier
 
-    FROM pg_namespace n, pg_proc p, pg_language l,
+    FROM pg_catalog.pg_namespace n, pg_proc p, pg_language l,
          pg_type t, pg_namespace nt
 
     WHERE n.oid = p.pronamespace AND p.prolang = l.oid
@@ -436,7 +436,7 @@ CREATE OR REPLACE VIEW schemata AS
            CAST(null AS sql_identifier) AS default_character_set_schema,
            CAST(null AS sql_identifier) AS default_character_set_name,
            CAST(null AS character_data) AS sql_path
-    FROM pg_namespace n, pg_authid u
+    FROM pg_catalog.pg_namespace n, pg_authid u
     WHERE n.nspowner = u.oid AND pg_catalog.pg_has_role(n.nspowner, 'USAGE');
 
 GRANT SELECT ON schemata TO PUBLIC;
@@ -461,7 +461,7 @@ CREATE OR REPLACE VIEW table_constraints AS
            CAST(CASE WHEN c.condeferred THEN 'YES' ELSE 'NO' END AS yes_or_no)
              AS initially_deferred
 
-    FROM pg_namespace nc,
+    FROM pg_catalog.pg_namespace nc,
          pg_namespace nr,
          pg_constraint c,
          pg_class r
@@ -490,7 +490,7 @@ CREATE OR REPLACE VIEW table_constraints AS
            CAST('NO' AS yes_or_no) AS is_deferrable,
            CAST('NO' AS yes_or_no) AS initially_deferred
 
-    FROM pg_namespace nr,
+    FROM pg_catalog.pg_namespace nr,
          pg_class r,
          pg_attribute a
 
@@ -540,7 +540,7 @@ CREATE OR REPLACE VIEW tables AS
            CAST(null AS character_data) AS commit_action,
            CAST(d.description AS information_schema.character_data) AS TABLE_COMMENT
 
-    FROM pg_namespace nc JOIN pg_catalog.pg_class c ON (nc.oid = c.relnamespace)
+    FROM pg_catalog.pg_namespace nc JOIN pg_catalog.pg_class c ON (nc.oid = c.relnamespace)
            LEFT JOIN (pg_catalog.pg_type t JOIN pg_catalog.pg_namespace nt ON (t.typnamespace = nt.oid)) ON (c.reloftype = t.oid)
            LEFT JOIN pg_catalog.pg_description d on d.objoid = c.oid and objsubid = 0
 
@@ -560,7 +560,7 @@ DECLARE
 BEGIN
     SELECT EXISTS (
         SELECT 1
-        FROM pg_class c
+        FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
         WHERE c.relname = 'data_type_privileges'
           AND n.nspname = 'information_schema'
@@ -597,7 +597,7 @@ DECLARE
 BEGIN
     SELECT EXISTS (
         SELECT 1
-        FROM pg_class c
+        FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
         WHERE c.relname = 'element_types'
           AND n.nspname = 'information_schema'
@@ -642,13 +642,13 @@ BEGIN
            CAST(null AS cardinal_number) AS maximum_cardinality,
            CAST('a' || CAST(x.objdtdid AS text) AS sql_identifier) AS dtd_identifier
 
-    FROM pg_namespace n, pg_type at, pg_namespace nbt, pg_type bt,
+    FROM pg_catalog.pg_namespace n, pg_type at, pg_namespace nbt, pg_type bt,
          (
            /* columns, attributes */
            SELECT c.relnamespace, CAST(c.relname AS sql_identifier),
                   CASE WHEN c.relkind = 'c' THEN 'USER-DEFINED TYPE'::text ELSE 'TABLE'::text END,
                   a.attnum, a.atttypid, a.attcollation
-           FROM pg_class c, pg_attribute a
+           FROM pg_catalog.pg_class c, pg_attribute a
            WHERE c.oid = a.attrelid
                  AND c.relkind IN ('r', 'm', 'v', 'f', 'c')
                  AND (c.relname not like 'mlog\_%' AND c.relname not like 'matviewmap\_%')
@@ -659,7 +659,7 @@ BEGIN
            /* domains */
            SELECT t.typnamespace, CAST(t.typname AS sql_identifier),
                   'DOMAIN'::text, 1, t.typbasetype, t.typcollation
-           FROM pg_type t
+           FROM pg_catalog.pg_type t
            WHERE t.typtype = 'd'
 
            UNION ALL
@@ -669,14 +669,14 @@ BEGIN
                   'ROUTINE'::text, (ss.x).n, (ss.x).x, 0
            FROM (SELECT p.pronamespace, p.proname, p.oid,
                         _pg_expandarray(coalesce(p.proallargtypes, p.proargtypes::oid[])) AS x
-                 FROM pg_proc p) AS ss
+                 FROM pg_catalog.pg_proc p) AS ss
 
            UNION ALL
 
            /* result types */
            SELECT p.pronamespace, CAST(p.proname || '_' || CAST(p.oid AS text) AS sql_identifier),
                   'ROUTINE'::text, 0, p.prorettype, 0
-           FROM pg_proc p
+           FROM pg_catalog.pg_proc p
 
          ) AS x (objschema, objname, objtype, objdtdid, objtypeid, objcollation)
          LEFT JOIN (pg_catalog.pg_collation co JOIN pg_catalog.pg_namespace nco ON (co.collnamespace = nco.oid))
@@ -737,7 +737,7 @@ do $$
 DECLARE
 ans boolean;
 BEGIN
-    for ans in select case when count(*)=1 then true else false end as ans  from (select extname from pg_extension where extname='shark')
+    for ans in select case when count(*)=1 then true else false end as ans  from (select extname FROM pg_catalog.pg_extension where extname='shark')
     LOOP
         if ans = true then
             ALTER EXTENSION shark UPDATE TO '2.0';

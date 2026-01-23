@@ -27,7 +27,7 @@ CREATE OR REPLACE FUNCTION pg_catalog.pg_extract_collate_name(oid) RETURNS text
     NOT FENCED
     RETURNS NULL ON NULL INPUT
     AS
-$$select collname::text from pg_collation where oid = $1 $$;
+$$select collname::text FROM pg_catalog.pg_collation where oid = $1 $$;
 
 CREATE OR REPLACE FUNCTION pg_catalog.pg_get_expr(text, oid) RETURNS text LANGUAGE INTERNAL IMMUTABLE STRICT as 'pg_get_expr';
 
@@ -84,7 +84,7 @@ CREATE OR REPLACE VIEW character_sets AS
                WHEN lower(character_set_name) IN ('LATIN1', 'ASCII') THEN 1
                ELSE 1 END as int) AS maxlen,
            CAST(null AS varchar(2048)) AS description
-    FROM pg_database d
+    FROM pg_catalog.pg_database d
          LEFT JOIN (pg_collation c JOIN pg_catalog.pg_namespace nc ON (c.collnamespace = nc.oid))
              ON (datcollate = collcollate AND datctype = collctype)
     WHERE d.datname = pg_catalog.current_database()
@@ -99,7 +99,7 @@ CREATE OR REPLACE VIEW check_constraints AS
            CAST(substring(pg_catalog.pg_get_constraintdef(con.oid) from 7) AS character_data)
              AS check_clause,
            CAST(c.relname AS sql_identifier) AS table_name
-    FROM pg_constraint con
+    FROM pg_catalog.pg_constraint con
            LEFT OUTER JOIN pg_catalog.pg_namespace rs ON (rs.oid = con.connamespace)
            LEFT OUTER JOIN pg_catalog.pg_class c ON (c.oid = con.conrelid)
            LEFT OUTER JOIN pg_catalog.pg_type t ON (t.oid = con.contypid)
@@ -115,7 +115,7 @@ CREATE OR REPLACE VIEW check_constraints AS
            CAST(a.attname || ' IS NOT NULL' AS character_data)
              AS check_clause,
            CAST(r.relname AS sql_identifier) AS table_name
-    FROM pg_namespace n, pg_class r, pg_attribute a
+    FROM pg_catalog.pg_namespace n, pg_class r, pg_attribute a
     WHERE n.oid = r.relnamespace
       AND r.oid = a.attrelid
       AND a.attnum > 0
@@ -135,9 +135,9 @@ CREATE OR REPLACE VIEW collations AS
            CAST(CASE WHEN c.collisdef THEN 'YES' ELSE NULL END AS varchar(3)) AS is_default,
            CAST('YES' AS varchar(3)) AS is_compiled,
            NULL::INTEGER AS sortlen
-    FROM pg_collation c, pg_namespace nc
+    FROM pg_catalog.pg_collation c, pg_namespace nc
     WHERE c.collnamespace = nc.oid
-          AND collencoding IN (-1, (SELECT encoding FROM pg_database WHERE datname = pg_catalog.current_database()));
+          AND collencoding IN (-1, (SELECT encoding FROM pg_catalog.pg_database WHERE datname = pg_catalog.current_database()));
 
 
 
@@ -315,13 +315,13 @@ CREATE OR REPLACE VIEW key_column_usage AS
            CAST(CASE WHEN ss.contype = 'f' THEN ref_att.attname ELSE NULL END AS varchar(64))
             AS referenced_column_name
 			 
-    FROM pg_attribute a,
+    FROM pg_catalog.pg_attribute a,
          (SELECT r.oid AS roid, r.relname, r.relowner,
                  nc.nspname AS nc_nspname, nr.nspname AS nr_nspname,
                  c.oid AS coid, c.conname, c.contype, c.conindid,
                  c.confkey, c.confrelid,
                  _pg_expandarray(c.conkey) AS x
-          FROM pg_namespace nr, pg_class r, pg_namespace nc,
+          FROM pg_catalog.pg_namespace nr, pg_class r, pg_namespace nc,
                pg_constraint c
           WHERE nr.oid = r.relnamespace
                 AND r.oid = c.conrelid
@@ -390,12 +390,12 @@ CREATE OR REPLACE VIEW parameters AS
            CAST((ss.x).n AS sql_identifier) AS dtd_identifier,
            CAST(CASE WHEN ss.p_prokind = 'f' THEN 'FUNCTION' ELSE 'PROCEDURE' END AS varchar(64)) AS routine_type
 
-    FROM pg_type t, pg_namespace nt,
+    FROM pg_catalog.pg_type t, pg_namespace nt,
          (SELECT n.nspname AS n_nspname, p.proname, p.oid AS p_oid,
                  p.proargnames, p.proargmodes,
                  _pg_expandarray(coalesce(p.proallargtypes, p.proargtypes::oid[])) AS x,
                  p.prokind as p_prokind
-          FROM pg_namespace n, pg_proc p
+          FROM pg_catalog.pg_namespace n, pg_proc p
           WHERE n.oid = p.pronamespace
                 AND (pg_catalog.pg_has_role(p.proowner, 'USAGE') OR
                      pg_catalog.has_function_privilege(p.oid, 'EXECUTE'))) AS ss
@@ -563,7 +563,7 @@ CREATE OR REPLACE VIEW routines AS
            CAST(db.datcollate AS varchar(64)) AS collation_connection,
            CAST(db.datcollate AS varchar(64)) AS database_collation
           
-          FROM pg_namespace n
+          FROM pg_catalog.pg_namespace n
           INNER JOIN pg_catalog.pg_proc p ON n.oid = p.pronamespace  
           INNER JOIN pg_catalog.pg_language l ON p.prolang = l.oid 
           INNER JOIN pg_catalog.pg_type t ON p.prorettype = t.oid 
@@ -587,7 +587,7 @@ CREATE OR REPLACE VIEW schemata AS
            CAST(null AS character_data) AS sql_path,
            CAST(d.datcollate AS varchar(64)) AS default_collation_name,
            CAST('NO' AS varchar(3)) AS default_encryption
-    FROM pg_namespace n, pg_authid u, pg_catalog.pg_database d
+    FROM pg_catalog.pg_namespace n, pg_authid u, pg_catalog.pg_database d
     WHERE n.nspowner = u.oid AND pg_catalog.pg_has_role(n.nspowner, 'USAGE') AND d.datname = current_database();
 
 
@@ -610,7 +610,7 @@ CREATE OR REPLACE VIEW table_constraints AS
              AS initially_deferred,
            CAST('YES' AS varchar(3)) AS enforced
 
-    FROM pg_namespace nc,
+    FROM pg_catalog.pg_namespace nc,
          pg_namespace nr,
          pg_constraint c,
          pg_class r
@@ -640,7 +640,7 @@ CREATE OR REPLACE VIEW table_constraints AS
            CAST('NO' AS yes_or_no) AS initially_deferred,
            CAST('YES' AS yes_or_no) AS enforced
 
-    FROM pg_namespace nr,
+    FROM pg_catalog.pg_namespace nr,
          pg_class r,
          pg_attribute a
 
@@ -710,7 +710,7 @@ CREATE OR REPLACE VIEW tables AS
            CAST(null AS bigint) AS checksum,
            CAST(c.reloptions AS varchar(256)) AS create_options
 
-    FROM pg_namespace nc JOIN pg_catalog.pg_class c ON (nc.oid = c.relnamespace)
+    FROM pg_catalog.pg_namespace nc JOIN pg_catalog.pg_class c ON (nc.oid = c.relnamespace)
            LEFT JOIN (pg_type t JOIN pg_catalog.pg_namespace nt ON (t.typnamespace = nt.oid)) ON (c.reloftype = t.oid)
            LEFT JOIN pg_catalog.pg_description d on d.objoid = c.oid and objsubid = 0
       	   LEFT JOIN pg_catalog.pg_object po on c.oid = po.object_oid and c.relkind = po.object_type
@@ -733,7 +733,7 @@ CREATE OR REPLACE VIEW KEYWORDS AS
              WHEN t.catcode = 'R' THEN 1
              ELSE 0 END
         AS int) AS reserved
-	from pg_get_keywords() t;
+	FROM pg_catalog.pg_get_keywords() t;
 
 GRANT SELECT ON KEYWORDS TO PUBLIC; 
 
@@ -865,7 +865,7 @@ SELECT CAST(pg_catalog.current_database() AS varchar(64)) AS table_catalog,
        CAST(NULL AS varchar(256)) AS nodegroup,
        CAST(CASE
             WHEN sp.reltablespace = 0 THEN 'pg_default'::text
-            ELSE (SELECT spc.spcname FROM pg_tablespace spc WHERE sp.reltablespace = spc.oid)
+            ELSE (SELECT spc.spcname FROM pg_catalog.pg_tablespace spc WHERE sp.reltablespace = spc.oid)
             END AS varchar(268)) AS tablespace_name
 	FROM pg_catalog.pg_class c INNER JOIN pg_catalog.pg_partition p on p.parentid = c.oid
 	INNER JOIN pg_catalog.pg_partition sp on sp.parentid = p.oid
@@ -908,7 +908,7 @@ CREATE OR REPLACE VIEW events AS
     CAST(pg_catalog.get_param_values('client_encoding'::text) AS varchar(64)) AS character_set_client,
     CAST(db.datcollate AS varchar(64)) AS collation_connection,
     CAST(db.datcollate AS varchar(64)) AS database_collation
-    from pg_job job JOIN pg_catalog.pg_job_proc job_proc on job.job_id = job_proc.job_id
+    FROM pg_catalog.pg_job job JOIN pg_catalog.pg_job_proc job_proc on job.job_id = job_proc.job_id
       JOIN pg_catalog.pg_authid au on job.log_user = au.rolname
    JOIN pg_catalog.pg_database db ON db.datname = pg_catalog.current_database()
       where pg_catalog.pg_has_role(au.oid, 'USAGE') AND db.datname = pg_catalog.current_database();
