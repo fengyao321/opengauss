@@ -802,7 +802,7 @@ static HTAB *CBMPageHashInitialize(MemoryContext memoryContext)
     ctl.hash = CBMPageTagHash;
     ctl.match = CBMPageTagMatch;
     hTab = hash_create("CBM page hash by relfilenode and forknum", INITCBMPAGEHASHSIZE, &ctl,
-                       HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT | HASH_COMPARE);
+                       HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT | HASH_COMPARE | HASH_SHRCTX);
 
     return hTab;
 }
@@ -2706,6 +2706,7 @@ static void FlushCBMPagesToDiskByCBMWriter(XlogBitmap *xlogCbmSys, CBM_RECORD* C
     }
 
     Assert(CbmRecord->totalPageNum == 0);
+    hash_destroy(CbmRecord->hashPtr);
 
     if (pg_fsync(xlogCbmSys->out.fd) != 0)
         ereport(ERROR, (errcode_for_file_access(),
