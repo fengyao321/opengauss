@@ -1273,6 +1273,12 @@ static int _tarGetHeader(ArchiveHandle* AH, TAR_MEMBER* th)
             buf);
     }
 
+    /* Free old targetFile if it exists before allocating new one */
+    if (th->targetFile != NULL) {
+        free(th->targetFile);
+        th->targetFile = NULL;
+    }
+
     th->targetFile = gs_strdup(tag);
     (th->targetFile)[strlen(tag)] = '\0';
     th->fileLen = len;
