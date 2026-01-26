@@ -689,7 +689,11 @@ Oid createdb(const CreatedbStmt* stmt)
                 XLogBeginInsert();
                 XLogRegisterData((char*)&xlrec, sizeof(xl_dbase_create_rec));
 
-                (void)XLogInsert(RM_DBASE_ID, XLOG_DBASE_CREATE | XLR_SPECIAL_REL_UPDATE);
+                XLogRecPtr lsn = XLogInsert(RM_DBASE_ID, XLOG_DBASE_CREATE | XLR_SPECIAL_REL_UPDATE);
+#ifdef ENABLE_NEON
+                if (set_lwlsn_db_hook)
+					set_lwlsn_db_hook(lsn);
+#endif /* ENABLE_NEON */
             }
         }
 
