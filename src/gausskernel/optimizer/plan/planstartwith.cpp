@@ -545,7 +545,7 @@ static char *CheckAndFixSiblingsColName(PlannerInfo *root, Plan *basePlan,
 
     /* Pull the aggregates and var nodes from the quals */
     List *vars = pull_var_clause((Node *)te->expr,
-                                 PVC_INCLUDE_AGGREGATES,
+                                 PVC_RECURSE_AGGREGATES,
                                  PVC_RECURSE_PLACEHOLDERS);
 
     /*
@@ -558,16 +558,6 @@ static char *CheckAndFixSiblingsColName(PlannerInfo *root, Plan *basePlan,
                 errmsg("expression with none-var in order siblings is not supported")));
     }
 
-    foreach (lc, vars) {
-        Var* var = (Var *)lfirst(lc);
-        RangeTblEntry *rte = root->simple_rte_array[var->varno];
-        char *raw_cte_alias = (char *)strVal(list_nth(rte->eref->colnames, var->varattno - 1));
-        if (raw_cte_alias != NULL && IsPseudoReturnColumn(raw_cte_alias)) {
-            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                    errmsg("Not support refer startwith Pseudo column in order siblings by.")));
-        }
-    }
-
     /* do not support multi-column refs specified as order sibling's sort entry */
     if (list_length(vars) > 1) {
         ereport(WARNING, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -577,6 +567,39 @@ static char *CheckAndFixSiblingsColName(PlannerInfo *root, Plan *basePlan,
     Var *var = (Var *)linitial(vars);
     RangeTblEntry *rte = root->simple_rte_array[var->varno];
     char *raw_cte_alias = (char *)strVal(list_nth(rte->eref->colnames, var->varattno - 1));
+
+    /* start with pseudo columns should not be called in order siblings by, handle aliasname here */
+    Node *node = (Node *)te->expr;
+    char *clauseName = "ORDER SIBLINGS BY";
+
+    if (IsPseudoReturnColumn(raw_cte_alias)) {
+        ereport(ERROR, (errmodule(MOD_PARSER), errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("column %s should not be used in %s clause.", raw_cte_alias, clauseName),
+                errcause("Unsupported expression in %s clause.", clauseName),
+                erraction("Check and revise your query or contact Huawei engineers.")));
+    }
+
+    if (IsA(node, FuncExpr) && IsStartWithFunction((FuncExpr *)node)) {
+        ereport(ERROR,
+                (errmodule(MOD_PARSER), errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("%s should not be called in %s clause.",
+                       get_func_name(((FuncExpr *)node)->funcid), clauseName),
+                errcause("Unsupported expression in %s clause.", clauseName),
+                erraction("Check and revise your query or contact Huawei engineers.")));
+    } else if (IsA(node, Aggref)) {
+        ereport(ERROR,
+                (errmodule(MOD_PARSER), errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("Aggregate function should not be called in %s clause.", clauseName),
+                errcause("Unsupported expression in %s clause.", clauseName),
+                erraction("Check and revise your query or contact Huawei engineers.")));
+    } else if (IsA(node, WindowFunc)) {
+        ereport(ERROR,
+                (errmodule(MOD_PARSER), errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("Window function should not be called in %s clause.", clauseName),
+                errcause("Unsupported expression in %s clause.", clauseName),
+                erraction("Check and revise your query or contact Huawei engineers.")));
+    }
+
     resultColName = strrchr(raw_cte_alias, '@');
     if (resultColName != NULL) {
         resultColName += 1;   /* fix '@' offset */
@@ -595,6 +618,7 @@ static char *GetOrderSiblingsColName(PlannerInfo* root, SortBy *sb, Plan *basePl
 {
     char *colname = NULL;
     TargetEntry *te = NULL;
+    char *clauseName = "ORDER SIBLINGS BY";
 
     /* check whether connect_by_root and sys_connect_by_path exist in sortBy */
     raw_unsupported_func_walker(sb->node, NULL);
@@ -627,7 +651,23 @@ static char *GetOrderSiblingsColName(PlannerInfo* root, SortBy *sb, Plan *basePl
         }
 
         te = (TargetEntry *)list_nth(root->parse->targetList, siblingIdx - 1);
+        if (IsA(te->expr, FuncExpr) && IsStartWithFunction((FuncExpr *)te->expr)) {
+            ereport(ERROR,
+                    (errmodule(MOD_PARSER), errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("%s should not be called in %s clause.",
+                            get_func_name(((FuncExpr *)te->expr)->funcid), clauseName),
+                    errcause("Unsupported expression in %s clause.", clauseName),
+                    erraction("Check and revise your query or contact Huawei engineers.")));
+        }
 
+        if (te->resname != NULL && IsPseudoReturnColumn(te->resname)) {
+            ereport(ERROR,
+                    (errmodule(MOD_PARSER), errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("column %s should not be used in %s clause.", te->resname, clauseName),
+                    errcause("Unsupported expression in %s clause.", clauseName),
+                    erraction("Check and revise your query or contact Huawei engineers.")));
+        }
+        
         unsupported_func_walker((Node*)te->expr, NULL);
 
         if (te->resname != NULL && IsPseudoReturnColumn(te->resname)) {

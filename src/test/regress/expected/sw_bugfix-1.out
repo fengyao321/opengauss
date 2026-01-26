@@ -567,8 +567,7 @@ FROM (SELECT * FROM test_hcb_ptb)
 START WITH CHA IN ('afi','afg','afh')
 CONNECT BY PRIOR ID=PID
 ORDER SIBLINGS BY 1, LEVEL;
-ERROR:  Siblings sort entry not found
-DETAIL:  Column level not found or not allowed here
+ERROR:  column level should not be used in ORDER SIBLINGS BY clause.
 SELECT NAME,LEVEL,CONNECT_BY_ISLEAF,CONNECT_BY_ROOT(NAME),SYS_CONNECT_BY_PATH(NAME, '/')
 FROM (SELECT * FROM test_hcb_ptb)
 START WITH CHA IN ('afi','afg','afh')
