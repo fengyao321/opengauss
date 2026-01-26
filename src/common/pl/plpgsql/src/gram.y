@@ -14554,6 +14554,7 @@ read_cursor_args(PLpgSQL_var *cursor, int until, const char *expected)
                          errmsg("cursor \"%s\" has no argument named \"%s\"",
                                 cursor->refname, argname),
                          parser_errposition(yylloc)));
+                return NULL;
             }
 
             /*

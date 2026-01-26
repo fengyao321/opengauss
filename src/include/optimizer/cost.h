@@ -351,6 +351,7 @@ private:
     void set_up_attnum_order(es_candidate* es, int* attnum_order, bool left) const;
     bool try_equivalence_class(es_candidate* es);
     void setup_es(es_candidate* es, es_type type, RestrictInfo* clause);
+    bool value_is_conflict(es_candidate* es);
 
 /* AI optimizer
  */
