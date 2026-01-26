@@ -388,6 +388,9 @@ void UniqueSql::JumbleRangeTable(pgssJumbleState* jstate, List* rtable)
             case RTE_FUNCTION:
                 UniqueSql::JumbleExpr(jstate, rte->funcexpr);
                 break;
+            case RTE_TABLEFUNC:
+                UniqueSql::JumbleExpr(jstate, (Node*)rte->tablefunc);
+                break;
             case RTE_VALUES:
                 UniqueSql::JumbleExpr(jstate, (Node*)rte->values_lists);
                 break;
@@ -475,6 +478,15 @@ void UniqueSql::JumbleExpr(pgssJumbleState* jstate, Node* node)
 
             break;
         }
+        case T_TableFunc:
+            {
+                TableFunc    *tablefunc = (TableFunc *) node;
+
+                UniqueSql::JumbleExpr(jstate, tablefunc->docexpr);
+                UniqueSql::JumbleExpr(jstate, tablefunc->rowexpr);
+                UniqueSql::JumbleExpr(jstate, (Node *) tablefunc->colexprs);
+            }
+            break;
         case T_GroupingFunc: {
             GroupingFunc* grpnode = (GroupingFunc*)node;
             UniqueSql::JumbleExpr(jstate, (Node*)grpnode->refs);

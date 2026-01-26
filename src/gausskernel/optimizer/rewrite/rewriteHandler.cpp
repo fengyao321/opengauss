@@ -455,6 +455,9 @@ static Query* rewriteRuleAction(
                 case RTE_FUNCTION:
                     sub_action->hasSubLinks = checkExprHasSubLink(rte->funcexpr);
                     break;
+                case RTE_TABLEFUNC:
+                    sub_action->hasSubLinks = checkExprHasSubLink((Node *) rte->tablefunc);
+                    break;
                 case RTE_VALUES:
                     sub_action->hasSubLinks = checkExprHasSubLink((Node*)rte->values_lists);
                     break;

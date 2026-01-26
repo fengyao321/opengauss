@@ -93,6 +93,7 @@ static void set_subquery_path(PlannerInfo *root, RelOptInfo *rel,
                               Index rti, Query *subquery, int options);
 static void set_function_pathlist(PlannerInfo* root, RelOptInfo* rel, RangeTblEntry* rte);
 static void set_values_pathlist(PlannerInfo* root, RelOptInfo* rel, RangeTblEntry* rte);
+static void set_tablefunc_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte);
 static void set_cte_pathlist(PlannerInfo* root, RelOptInfo* rel, RangeTblEntry* rte);
 static void set_result_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte);
 static void set_worktable_pathlist(PlannerInfo* root, RelOptInfo* rel, RangeTblEntry* rte);
@@ -852,6 +853,9 @@ void set_rel_size(PlannerInfo* root, RelOptInfo* rel, Index rti, RangeTblEntry* 
             case RTE_FUNCTION:
                 set_function_size_estimates(root, rel);
                 break;
+            case RTE_TABLEFUNC:
+                set_tablefunc_size_estimates(root, rel);
+                break;
             case RTE_VALUES:
                 set_values_size_estimates(root, rel);
                 break;
@@ -965,6 +969,10 @@ static void set_rel_pathlist(PlannerInfo* root, RelOptInfo* rel, Index rti, Rang
             case RTE_FUNCTION:
                 /* RangeFunction */
                 set_function_pathlist(root, rel, rte);
+                break;
+            case RTE_TABLEFUNC:
+                /* Table Function */
+                set_tablefunc_pathlist(root, rel, rte);
                 break;
             case RTE_VALUES:
                 /* Values list */
@@ -1644,8 +1652,8 @@ static void set_append_rel_size(PlannerInfo* root, RelOptInfo* rel, Index rti, R
          * the child rel's targetlist.  We do have to cope with the case
          * while constructing attr_widths estimates below, though.
          * Normally, a rel's targetlist would only include Vars and
-		 * PlaceHolderVars.)  XXX we do not bother to update the cost or width
-		 * fields of childrel->reltarget; not clear if that would be useful.
+         * PlaceHolderVars.)  XXX we do not bother to update the cost or width
+         * fields of childrel->reltarget; not clear if that would be useful.
          */
         childrel->joininfo = (List*)adjust_appendrel_attrs(root, (Node*)rel->joininfo, appinfo);
         childrel->reltarget->exprs = (List*)adjust_appendrel_attrs(root, (Node*)rel->reltarget->exprs, appinfo);
@@ -3115,6 +3123,26 @@ static void set_values_pathlist(PlannerInfo* root, RelOptInfo* rel, RangeTblEntr
     add_path(root, rel, create_valuesscan_path(root, rel, required_outer));
 
     /* Select cheapest path (pretty easy in this case...) */
+    set_cheapest(rel);
+}
+
+/*
+ * set_tablefunc_pathlist
+ *        Build the (single) access path for a table func RTE
+ */
+static void set_tablefunc_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
+{
+    Relids required_outer = NULL;
+
+    /*
+     * We don't support pushing join clauses into the quals of a tablefunc
+     * scan, but it could still have required parameterization due to LATERAL
+     * refs in the function expression.
+     */
+    required_outer = rel->lateral_relids;
+
+    /* Generate appropriate path */
+    add_path(root, rel, create_tablefuncscan_path(root, rel, required_outer));
     set_cheapest(rel);
 }
 

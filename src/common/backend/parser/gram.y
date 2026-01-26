@@ -684,7 +684,7 @@ static bool is_temp_table(const char relpst);
 %type <defelt>	def_elem tsconf_def_elem reloption_elem tblspc_option_elem old_aggr_elem cfoption_elem
 %type <node>	def_arg columnElem where_clause where_or_current_clause start_with_expr connect_by_expr
                                 a_expr b_expr c_expr c_expr_noparen AexprConst indirection_el siblings_clause
-                                columnref in_expr start_with_clause having_clause func_table array_expr set_ident_expr set_expr set_expr_extension
+                                columnref in_expr start_with_clause having_clause func_table array_expr xmltable set_ident_expr set_expr set_expr_extension
 				ExclusionWhereClause func_table_with_table default_on_err_expr
 %type <list>	ExclusionConstraintList ExclusionConstraintElem
 %type <list>	func_arg_list
@@ -775,6 +775,11 @@ static bool is_temp_table(const char relpst);
 %type <node>	xmlexists_argument
 %type <ival>	document_or_content
 %type <boolean> xml_whitespace_option
+%type <list>	xmltable_column_list xmltable_column_option_list
+%type <node>	xmltable_column_el
+%type <defelt>	xmltable_column_option_el
+%type <list>	xml_namespace_list
+%type <target>	xml_namespace_el
 
 %type <node>	func_application func_with_separator func_expr_common_subexpr index_functional_expr_key func_application_special functime_app
 %type <node>	func_expr func_expr_windowless analytic_func_expr
@@ -994,7 +999,7 @@ static bool is_temp_table(const char relpst);
 	NOT NOTHING NOTIFY NOTNULL NOVALIDATE NOWAIT NTH_VALUE_P NULL_P NULLCOLS NULLIF NULLS_P NUMBER_P NUMERIC NUMSTR NVARCHAR NVARCHAR2 NVL
 
 	OBJECT_P OF OFF OFFSET OIDS ON ONLY OPERATOR OPTIMIZATION OPTION OPTIONALLY OPTIONS OR
-	ORDER OUT_P OUTER_P OVER OVERLAPS OVERLAY OWNED OWNER OUTFILE
+	ORDER ORDINALITY OUT_P OUTER_P OVER OVERLAPS OVERLAY OWNED OWNER OUTFILE
 
 	PACKAGE PACKAGES PARALLEL_ENABLE PARSER PARTIAL PARTITION PARTITIONS PASSING PASSWORD PCTFREE PER_P PERCENT PERFORMANCE PERM PLACING PLAN PLANS POLICY POSITION
 	PIPELINED
@@ -1032,8 +1037,8 @@ static bool is_temp_table(const char relpst);
 
 	WAIT WARNINGS WEAK WHEN WHERE WHILE_P WHITESPACE_P WINDOW WITH WITHIN WITHOUT WORK WORKLOAD WRAPPER WRITE
 
-	XML_P XMLATTRIBUTES XMLCONCAT XMLELEMENT XMLEXISTS XMLFOREST XMLPARSE
-	XMLPI XMLROOT XMLSERIALIZE
+	XML_P XMLATTRIBUTES XMLCONCAT XMLELEMENT XMLEXISTS XMLFOREST XMLNAMESPACES
+	XMLPARSE XMLPI XMLROOT XMLSERIALIZE XMLTABLE
 
 	YEAR_P YEAR_MONTH_P YES_P
 
@@ -1138,6 +1143,7 @@ static bool is_temp_table(const char relpst);
 /* Unary Operators */
 %left		AT				/* sets precedence for AT TIME ZONE */
 %left		COLLATE
+%right		COLUMNS
 %right		UMINUS BY NAME_P PASSING ROW RAW TYPE_P VALUE_P
 %left		'[' ']'
 %left		'(' ')'
@@ -26533,6 +26539,12 @@ table_ref_for_no_table_function:	relation_expr		%prec UMINUS
 					n->alias = $2;
 					$$ = (Node *) n;
 				}
+			| xmltable opt_alias_clause
+				{
+					RangeTableFunc *n = (RangeTableFunc *) $1;
+					n->alias = $2;
+					$$ = (Node *) n;
+				}
 			| LATERAL_P select_with_parens opt_alias_clause  %prec LATERAL_P
 				{
 					RangeSubselect *n = makeNode(RangeSubselect);
@@ -27522,6 +27534,167 @@ TableFuncElement:	ColId func_type opt_collate_clause
 					$$ = (Node *)n;
 				}
 		;
+
+/*
+ * XMLTABLE
+ */
+xmltable:
+			XMLTABLE '(' c_expr xmlexists_argument COLUMNS xmltable_column_list ')'		%prec COLUMNS
+				{
+					RangeTableFunc *n = makeNode(RangeTableFunc);
+					n->rowexpr = $3;
+					n->docexpr = $4;
+					n->columns = $6;
+					n->namespaces = NIL;
+					n->location = @1;
+					$$ = (Node *)n;
+				}
+			| XMLTABLE '(' XMLNAMESPACES '(' xml_namespace_list ')' ','
+				c_expr xmlexists_argument COLUMNS xmltable_column_list ')'		%prec COLUMNS
+				{
+					RangeTableFunc *n = makeNode(RangeTableFunc);
+					n->rowexpr = $8;
+					n->docexpr = $9;
+					n->columns = $11;
+					n->namespaces = $5;
+					n->location = @1;
+					$$ = (Node *)n;
+				}
+		;
+
+xmltable_column_list: xmltable_column_el					{ $$ = list_make1($1); }
+			| xmltable_column_list ',' xmltable_column_el	{ $$ = lappend($1, $3); }
+		;
+
+xmltable_column_el:
+			ColId Typename
+				{
+					RangeTableFuncCol	   *fc = makeNode(RangeTableFuncCol);
+
+					fc->colname = $1;
+					fc->for_ordinality = false;
+					fc->typeName = $2;
+					fc->is_not_null = false;
+					fc->colexpr = NULL;
+					fc->coldefexpr = NULL;
+					fc->location = @1;
+
+					$$ = (Node *) fc;
+				}
+			| ColId Typename xmltable_column_option_list
+				{
+					RangeTableFuncCol	   *fc = makeNode(RangeTableFuncCol);
+					ListCell		   *option;
+					bool				nullability_seen = false;
+
+					fc->colname = $1;
+					fc->typeName = $2;
+					fc->for_ordinality = false;
+					fc->is_not_null = false;
+					fc->colexpr = NULL;
+					fc->coldefexpr = NULL;
+					fc->location = @1;
+
+					foreach(option, $3)
+					{
+						DefElem   *defel = (DefElem *) lfirst(option);
+
+						if (strcmp(defel->defname, "default") == 0)
+						{
+							if (fc->coldefexpr != NULL)
+								ereport(ERROR,
+										(errcode(ERRCODE_SYNTAX_ERROR),
+										 errmsg("only one DEFAULT value is allowed"),
+										 parser_errposition(defel->location)));
+							fc->coldefexpr = defel->arg;
+						}
+						else if (strcmp(defel->defname, "path") == 0)
+						{
+							if (fc->colexpr != NULL)
+								ereport(ERROR,
+										(errcode(ERRCODE_SYNTAX_ERROR),
+										 errmsg("only one PATH value per column is allowed"),
+										 parser_errposition(defel->location)));
+							fc->colexpr = defel->arg;
+						}
+						else if (strcmp(defel->defname, "is_not_null") == 0)
+						{
+							if (nullability_seen)
+								ereport(ERROR,
+										(errcode(ERRCODE_SYNTAX_ERROR),
+										 errmsg("conflicting or redundant NULL / NOT NULL declarations for column \"%s\"", fc->colname),
+										 parser_errposition(defel->location)));
+							fc->is_not_null = intVal(defel->arg);
+							nullability_seen = true;
+						}
+						else
+						{
+							ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									 errmsg("unrecognized column option \"%s\"",
+											defel->defname),
+									 parser_errposition(defel->location)));
+						}
+					}
+					$$ = (Node *) fc;
+				}
+			| ColId FOR ORDINALITY
+				{
+					RangeTableFuncCol	   *fc = makeNode(RangeTableFuncCol);
+
+					fc->colname = $1;
+					fc->for_ordinality = true;
+					/* other fields are ignored, initialized by makeNode */
+					fc->location = @1;
+
+					$$ = (Node *) fc;
+				}
+		;
+
+xmltable_column_option_list:
+			xmltable_column_option_el
+				{ $$ = list_make1($1); }
+			| xmltable_column_option_list xmltable_column_option_el
+				{ $$ = lappend($1, $2); }
+		;
+
+xmltable_column_option_el:
+			IDENT b_expr
+				{ $$ = makeDefElem($1, $2); }
+			| DEFAULT b_expr
+				{ $$ = makeDefElem("default", $2); }
+			| NOT NULL_P
+				{ $$ = makeDefElem("is_not_null", (Node *) makeInteger(true)); }
+			| NULL_P
+				{ $$ = makeDefElem("is_not_null", (Node *) makeInteger(false)); }
+		;
+
+xml_namespace_list:
+			xml_namespace_el
+				{ $$ = list_make1($1); }
+			| xml_namespace_list ',' xml_namespace_el
+				{ $$ = lappend($1, $3); }
+		;
+
+xml_namespace_el:
+			b_expr AS ColLabel
+				{
+					$$ = makeNode(ResTarget);
+					$$->name = $3;
+					$$->indirection = NIL;
+					$$->val = $1;
+					$$->location = @1;
+				}
+			| DEFAULT b_expr
+				{
+					$$ = makeNode(ResTarget);
+					$$->name = NULL;
+					$$->indirection = NIL;
+					$$->val = $2;
+					$$->location = @1;
+				}
+		;
+
 
 /*****************************************************************************
  *
@@ -32452,6 +32625,7 @@ unreserved_keyword:
 			| OPTION
 			| OPTIONALLY
 			| OPTIONS
+			| ORDINALITY
 			| OVER
 			| OUTFILE
 			| OWNED
@@ -32753,10 +32927,12 @@ col_name_keyword:
 			| XMLELEMENT
 			| XMLEXISTS
 			| XMLFOREST
+			| XMLNAMESPACES
 			| XMLPARSE
 			| XMLPI
 			| XMLROOT
 			| XMLSERIALIZE
+			| XMLTABLE
 		;
 
 /* Column identifier --- keywords that can be column, table, etc names.

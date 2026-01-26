@@ -121,6 +121,7 @@ static TidRangeScan *create_tidrangescan_plan(PlannerInfo *root,
 static SubqueryScan* create_subqueryscan_plan(PlannerInfo* root, Path* best_path, List* tlist, List* scan_clauses);
 static FunctionScan* create_functionscan_plan(PlannerInfo* root, Path* best_path, List* tlist, List* scan_clauses);
 static ValuesScan* create_valuesscan_plan(PlannerInfo* root, Path* best_path, List* tlist, List* scan_clauses);
+static TableFuncScan *create_tablefuncscan_plan(PlannerInfo *root, Path *best_path, List *tlist, List *scan_clauses);
 static Plan* create_ctescan_plan(PlannerInfo* root, Path* best_path, List* tlist, List* scan_clauses);
 static WorkTableScan* create_worktablescan_plan(PlannerInfo* root, Path* best_path, List* tlist, List* scan_clauses);
 static BaseResult *create_resultscan_plan(PlannerInfo *root, Path *best_path, List *tlist, List *scan_clauses);
@@ -147,8 +148,8 @@ static CStoreScan* make_cstorescan(List* qptlist, List* qpqual, Index scanrelid)
 static IMCStoreScan* make_imcstorescan(List* qptlist, List* qpqual, Index scanrelid);
 #endif
 static Memoize* make_memoize(Plan *lefttree, Oid *hashoperators, Oid *collations,
-			                  List *param_exprs, bool singlerow, bool binary_mode,
-			                  uint32 est_entries, Bitmapset *keyparamids);
+                              List *param_exprs, bool singlerow, bool binary_mode,
+                              uint32 est_entries, Bitmapset *keyparamids);
 #ifdef ENABLE_MULTIPLE_NODES
 static TsStoreScan* make_tsstorescan(List* qptlist, List* qpqual, Index scanrelid);
 #endif   /* ENABLE_MULTIPLE_NODES */
@@ -187,6 +188,7 @@ static TidRangeScan *make_tidrangescan(List *qptlist, List *qpqual,
 static FunctionScan* make_functionscan(List* qptlist, List* qpqual, Index scanrelid, Node* funcexpr, List* funccolnames,
     List* funccoltypes, List* funccoltypmods, List* funccolcollations);
 static ValuesScan* make_valuesscan(List* qptlist, List* qpqual, Index scanrelid, List* values_lists);
+static TableFuncScan *make_tablefuncscan(List *qptlist, List *qpqual, Index scanrelid, TableFunc *tablefunc);
 static CteScan* make_ctescan(List* qptlist, List* qpqual, Index scanrelid, int ctePlanId, int cteParam);
 static WorkTableScan* make_worktablescan(List* qptlist, List* qpqual, Index scanrelid, int wtParam);
 static BitmapAnd* make_bitmap_and(List* bitmapplans);
@@ -621,6 +623,7 @@ static Plan* create_plan_recurse(PlannerInfo* root, Path* best_path)
         case T_TidRangeScan:
         case T_SubqueryScan:
         case T_FunctionScan:
+        case T_TableFuncScan:
         case T_ValuesScan:
         case T_CteScan:
         case T_WorkTableScan:
@@ -992,6 +995,10 @@ static Plan* create_scan_plan(PlannerInfo* root, Path* best_path)
             plan = (Plan*)create_functionscan_plan(root, best_path, tlist, scan_clauses);
             break;
 
+        case T_TableFuncScan:
+            plan = (Plan *) create_tablefuncscan_plan(root, best_path, tlist, scan_clauses);
+            break;
+
         case T_ValuesScan:
             plan = (Plan*)create_valuesscan_plan(root, best_path, tlist, scan_clauses);
             break;
@@ -1205,6 +1212,7 @@ static bool use_physical_tlist(PlannerInfo* root, RelOptInfo* rel)
      * values scans, and CTE scans (but not for, eg, joins).
      */
     if (rel->rtekind != RTE_RELATION && rel->rtekind != RTE_SUBQUERY && rel->rtekind != RTE_FUNCTION &&
+        rel->rtekind != RTE_TABLEFUNC &&
         rel->rtekind != RTE_VALUES && rel->rtekind != RTE_CTE)
         return false;
 
@@ -1848,53 +1856,52 @@ static BaseResult* create_result_plan(PlannerInfo* root, ResultPath* best_path)
 static Plan *
 create_projection_plan(PlannerInfo *root, ProjectionPath *best_path)
 {
-	Plan	   *plan;
-	Plan	   *subplan;
-	List	   *tlist;
+    Plan       *plan;
+    Plan       *subplan;
+    List       *tlist;
 
-	/* Since we intend to project, we don't need to constrain child tlist */
-	subplan = create_plan_recurse(root, best_path->subpath);
+    /* Since we intend to project, we don't need to constrain child tlist */
+    subplan = create_plan_recurse(root, best_path->subpath);
 
-	tlist = build_path_tlist(root, &best_path->path);
+    tlist = build_path_tlist(root, &best_path->path);
 
-	/*
-	 * We might not really need a Result node here, either because the subplan
-	 * can project or because it's returning the right list of expressions
-	 * anyway.  Usually create_projection_path will have detected that and set
-	 * dummypp if we don't need a Result; but its decision can't be final,
-	 * because some createplan.c routines change the tlists of their nodes.
-	 * (An example is that create_merge_append_plan might add resjunk sort
-	 * columns to a MergeAppend.)  So we have to recheck here.  If we do
-	 * arrive at a different answer than create_projection_path did, we'll
-	 * have made slightly wrong cost estimates; but label the plan with the
-	 * cost estimates we actually used, not "corrected" ones.  (XXX this could
-	 * be cleaned up if we moved more of the sortcolumn setup logic into Path
-	 * creation, but that would add expense to creating Paths we might end up
-	 * not using.)
-	 */
-	if (is_projection_capable_path(best_path->subpath) ||
-		tlist_same_exprs(tlist, subplan->targetlist))
-	{
-		/* Don't need a separate Result, just assign tlist to subplan */
-		plan = subplan;
-		plan->targetlist = tlist;
+    /*
+     * We might not really need a Result node here, either because the subplan
+     * can project or because it's returning the right list of expressions
+     * anyway.  Usually create_projection_path will have detected that and set
+     * dummypp if we don't need a Result; but its decision can't be final,
+     * because some createplan.c routines change the tlists of their nodes.
+     * (An example is that create_merge_append_plan might add resjunk sort
+     * columns to a MergeAppend.)  So we have to recheck here.  If we do
+     * arrive at a different answer than create_projection_path did, we'll
+     * have made slightly wrong cost estimates; but label the plan with the
+     * cost estimates we actually used, not "corrected" ones.  (XXX this could
+     * be cleaned up if we moved more of the sortcolumn setup logic into Path
+     * creation, but that would add expense to creating Paths we might end up
+     * not using.)
+     */
+    if (is_projection_capable_path(best_path->subpath) ||
+        tlist_same_exprs(tlist, subplan->targetlist))
+    {
+        /* Don't need a separate Result, just assign tlist to subplan */
+        plan = subplan;
+        plan->targetlist = tlist;
 
-		/* Label plan with the estimated costs we actually used */
-		plan->startup_cost = best_path->path.startup_cost;
-		plan->total_cost = best_path->path.total_cost;
-		plan->plan_rows = best_path->path.rows;
-		plan->plan_width = best_path->path.pathtarget->width;
-		/* ... but be careful not to munge subplan's parallel-aware flag */
-	}
-	else
-	{
-		/* We need a Result node */
-		plan = (Plan *) make_result(root, tlist, NULL, subplan, NULL);
+        /* Label plan with the estimated costs we actually used */
+        plan->startup_cost = best_path->path.startup_cost;
+        plan->total_cost = best_path->path.total_cost;
+        plan->plan_rows = best_path->path.rows;
+        plan->plan_width = best_path->path.pathtarget->width;
+        /* ... but be careful not to munge subplan's parallel-aware flag */
+    }
+    else {
+        /* We need a Result node */
+        plan = (Plan *) make_result(root, tlist, NULL, subplan, NULL);
 
-		copy_generic_path_info(plan, (Path *) best_path);
-	}
+        copy_generic_path_info(plan, (Path *) best_path);
+    }
 
-	return plan;
+    return plan;
 }
 
 /*
@@ -2901,7 +2908,7 @@ static Scan* create_indexscan_plan(
     List* fixed_indexquals = NIL;
     List* fixed_indexorderbys = NIL;
     List* opquals = NIL;
-	double indexselectivity = best_path->indexselectivity;
+    double indexselectivity = best_path->indexselectivity;
     ListCell* l = NULL;
     Bitmapset *prefixkeys = NULL;
     Oid* indexorderbyops = NULL;
@@ -3793,6 +3800,47 @@ static FunctionScan* create_functionscan_plan(PlannerInfo* root, Path* best_path
 #endif
 
     copy_path_costsize(&scan_plan->scan.plan, best_path);
+
+    return scan_plan;
+}
+
+/*
+ * create_tablefuncscan_plan
+ *     Returns a tablefuncscan plan for the base relation scanned by 'best_path'
+ *     with restriction clauses 'scan_clauses' and targetlist 'tlist'.
+ */
+static TableFuncScan *create_tablefuncscan_plan(PlannerInfo *root, Path *best_path,
+                          List *tlist, List *scan_clauses)
+{
+    TableFuncScan *scan_plan;
+    Index        scan_relid = best_path->parent->relid;
+    RangeTblEntry *rte;
+    TableFunc  *tablefunc;
+
+    /* it should be a function base rel... */
+    Assert(scan_relid > 0);
+    rte = planner_rt_fetch(scan_relid, root);
+    Assert(rte->rtekind == RTE_TABLEFUNC);
+    tablefunc = rte->tablefunc;
+
+    /* Sort clauses into best execution order */
+    scan_clauses = order_qual_clauses(root, scan_clauses);
+
+    /* Reduce RestrictInfo list to bare expressions; ignore pseudoconstants */
+    scan_clauses = extract_actual_clauses(scan_clauses, false);
+
+    /* Replace any outer-relation variables with nestloop params */
+    if (best_path->param_info) {
+        scan_clauses = (List *)
+            replace_nestloop_params(root, (Node *) scan_clauses);
+        /* The function expressions could contain nestloop params, too */
+        tablefunc = (TableFunc *) replace_nestloop_params(root, (Node *) tablefunc);
+    }
+
+    scan_plan = make_tablefuncscan(tlist, scan_clauses, scan_relid,
+                                   tablefunc);
+
+    copy_generic_path_info(&scan_plan->scan.plan, best_path);
 
     return scan_plan;
 }
@@ -5784,74 +5832,74 @@ static Node* replace_nestloop_params_mutator(Node* node, PlannerInfo* root)
 static void
 process_subquery_nestloop_params(PlannerInfo *root, List *subplan_params)
 {
-	ListCell *lc = NULL;
+    ListCell *lc = NULL;
 
-	foreach(lc, subplan_params) {
-		PlannerParamItem *pitem = castNode(PlannerParamItem, lfirst(lc));
+    foreach(lc, subplan_params) {
+        PlannerParamItem *pitem = castNode(PlannerParamItem, lfirst(lc));
 
-		if (IsA(pitem->item, Var)) {
-			Var		   *var = (Var *) pitem->item;
-			NestLoopParam *nlp = NULL;
-			ListCell   *lc = NULL;
+        if (IsA(pitem->item, Var)) {
+            Var           *var = (Var *) pitem->item;
+            NestLoopParam *nlp = NULL;
+            ListCell   *lc = NULL;
 
-			/* If not from a nestloop outer rel, complain */
-			if (!bms_is_member(var->varno, root->curOuterRels)) {
-				ereport(ERROR,
-						(errcode(ERRCODE_OPTIMIZER_INCONSISTENT_STATE),
-						errmsg("non-LATERAL parameter required by subquery")));
-			}
+            /* If not from a nestloop outer rel, complain */
+            if (!bms_is_member(var->varno, root->curOuterRels)) {
+                ereport(ERROR,
+                        (errcode(ERRCODE_OPTIMIZER_INCONSISTENT_STATE),
+                        errmsg("non-LATERAL parameter required by subquery")));
+            }
 
-			/* Is this param already listed in root->curOuterParams? */
-			foreach(lc, root->curOuterParams) {
-				nlp = (NestLoopParam *) lfirst(lc);
-				if (nlp->paramno == pitem->paramId) {
-					Assert(equal(var, nlp->paramval));
-					/* Present, so nothing to do */
-					break;
-				}
-			}
-			if (lc == NULL) {
-				/* No, so add it */
-				nlp = makeNode(NestLoopParam);
-				nlp->paramno = pitem->paramId;
-				nlp->paramval = (Var *)copyObject(var);
-				root->curOuterParams = lappend(root->curOuterParams, nlp);
-			}
-		}else if (IsA(pitem->item, PlaceHolderVar)) {
-			PlaceHolderVar *phv = (PlaceHolderVar *) pitem->item;
-			NestLoopParam *nlp = NULL;
-			ListCell *lc = NULL;
+            /* Is this param already listed in root->curOuterParams? */
+            foreach(lc, root->curOuterParams) {
+                nlp = (NestLoopParam *) lfirst(lc);
+                if (nlp->paramno == pitem->paramId) {
+                    Assert(equal(var, nlp->paramval));
+                    /* Present, so nothing to do */
+                    break;
+                }
+            }
+            if (lc == NULL) {
+                /* No, so add it */
+                nlp = makeNode(NestLoopParam);
+                nlp->paramno = pitem->paramId;
+                nlp->paramval = (Var *)copyObject(var);
+                root->curOuterParams = lappend(root->curOuterParams, nlp);
+            }
+        }else if (IsA(pitem->item, PlaceHolderVar)) {
+            PlaceHolderVar *phv = (PlaceHolderVar *) pitem->item;
+            NestLoopParam *nlp = NULL;
+            ListCell *lc = NULL;
 
-			/* If not from a nestloop outer rel, complain */
-			if (!bms_is_subset(find_placeholder_info(root, phv, false)->ph_eval_at,
-							   root->curOuterRels)) {
-				ereport(ERROR,
-						(errcode(ERRCODE_OPTIMIZER_INCONSISTENT_STATE),
-						errmsg("non-LATERAL parameter required by subquery")));
-			}
+            /* If not from a nestloop outer rel, complain */
+            if (!bms_is_subset(find_placeholder_info(root, phv, false)->ph_eval_at,
+                               root->curOuterRels)) {
+                ereport(ERROR,
+                        (errcode(ERRCODE_OPTIMIZER_INCONSISTENT_STATE),
+                        errmsg("non-LATERAL parameter required by subquery")));
+            }
 
-			/* Is this param already listed in root->curOuterParams? */
-			foreach(lc, root->curOuterParams) {
-				nlp = (NestLoopParam *) lfirst(lc);
-				if (nlp->paramno == pitem->paramId) {
-					Assert(equal(phv, nlp->paramval));
-					/* Present, so nothing to do */
-					break;
-				}
-			}
-			if (lc == NULL) {
-				/* No, so add it */
-				nlp = makeNode(NestLoopParam);
-				nlp->paramno = pitem->paramId;
-				nlp->paramval = (Var *) copyObject(phv);
-				root->curOuterParams = lappend(root->curOuterParams, nlp);
-			}
-		} else {
-			ereport(ERROR,
-					(errcode(ERRCODE_OPTIMIZER_INCONSISTENT_STATE),
-					errmsg("unexpected type of subquery parameter")));
-		}
-	}
+            /* Is this param already listed in root->curOuterParams? */
+            foreach(lc, root->curOuterParams) {
+                nlp = (NestLoopParam *) lfirst(lc);
+                if (nlp->paramno == pitem->paramId) {
+                    Assert(equal(phv, nlp->paramval));
+                    /* Present, so nothing to do */
+                    break;
+                }
+            }
+            if (lc == NULL) {
+                /* No, so add it */
+                nlp = makeNode(NestLoopParam);
+                nlp->paramno = pitem->paramId;
+                nlp->paramval = (Var *) copyObject(phv);
+                root->curOuterParams = lappend(root->curOuterParams, nlp);
+            }
+        } else {
+            ereport(ERROR,
+                    (errcode(ERRCODE_OPTIMIZER_INCONSISTENT_STATE),
+                    errmsg("unexpected type of subquery parameter")));
+        }
+    }
 }
 
 /*
@@ -7033,6 +7081,24 @@ static FunctionScan* make_functionscan(List* qptlist, List* qpqual, Index scanre
         u_sess->opt_cxt.is_stream = outer_is_stream;
         u_sess->opt_cxt.is_stream_support = outer_is_stream_support;
     }
+
+    return node;
+}
+
+static TableFuncScan *make_tablefuncscan(List *qptlist,
+                   List *qpqual,
+                   Index scanrelid,
+                   TableFunc *tablefunc)
+{
+    TableFuncScan *node = makeNode(TableFuncScan);
+    Plan       *plan = &node->scan.plan;
+
+    plan->targetlist = qptlist;
+    plan->qual = qpqual;
+    plan->lefttree = NULL;
+    plan->righttree = NULL;
+    node->scan.scanrelid = scanrelid;
+    node->tablefunc = tablefunc;
 
     return node;
 }

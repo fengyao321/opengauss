@@ -1357,6 +1357,7 @@ static Node* pull_up_simple_subquery(PlannerInfo* root, Node* jtnode, RangeTblEn
                 case RTE_SUBQUERY:
                 case RTE_FUNCTION:
                 case RTE_VALUES:
+                case RTE_TABLEFUNC:
                     child_rte->lateral = true;
                     break;
                 case RTE_RELATION:
@@ -1776,7 +1777,7 @@ static bool is_simple_subquery(Query* subquery, RangeTblEntry *rte, JoinExpr *lo
         return false;
     }
 #ifndef ENABLE_MULTIPLE_NODES
-	    if (ContainRownumQual(subquery)) {
+        if (ContainRownumQual(subquery)) {
             return false;
         }
 #endif
@@ -2042,6 +2043,11 @@ static void replace_vars_in_jointree(Node* jtnode, pullup_replace_vars_context* 
 #endif
                         rte->funcexpr =
                             pullup_replace_vars(rte->funcexpr,
+                                                context);
+                        break;
+                    case RTE_TABLEFUNC:
+                        rte->tablefunc = (TableFunc *)
+                            pullup_replace_vars((Node *) rte->tablefunc,
                                                 context);
                         break;
                     case RTE_VALUES:

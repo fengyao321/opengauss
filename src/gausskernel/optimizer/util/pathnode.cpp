@@ -3982,6 +3982,46 @@ Path* create_functionscan_path(PlannerInfo* root, RelOptInfo* rel, Relids requir
 }
 
 /*
+ * create_tablefuncscan_path
+ *      Creates a path corresponding to a sequential scan of a table function,
+ *      returning the pathnode.
+ */
+Path *create_tablefuncscan_path(PlannerInfo *root, RelOptInfo *rel,
+                          Relids required_outer)
+{
+    Path       *pathnode = makeNode(Path);
+
+    pathnode->pathtype = T_TableFuncScan;
+    pathnode->parent = rel;
+    pathnode->pathtarget = rel->reltarget;
+    pathnode->param_info = get_baserel_parampathinfo(root, rel, required_outer);
+    pathnode->exec_type = SetBasePathExectype(root, rel);
+    pathnode->pathkeys = NIL;    /* result is always unordered */
+
+#ifdef ENABLE_MULTIPLE_NODES
+    pathnode->distribute_keys = NIL;
+    pathnode->locator_type = LOCATOR_TYPE_REPLICATED;
+
+    /*
+     * For values scan path, it's node group will relate to wheather it's in a correlated sub-plan
+     * (1) In a correlated sub-plan, it's node group should as same as "correlated sub-plan node group"
+     * (2) In a normal sub-plan, it's node group should be in "compute permission node group"
+     */
+    Distribution* distribution = NULL;
+    if (root->is_correlated) {
+        distribution = ng_get_correlated_subplan_group_distribution();
+    } else {
+        /* We need an exec on everywhere group */
+        distribution = ng_get_max_computable_group_distribution();
+    }
+    ng_copy_distribution(&pathnode->distribution, distribution);
+#endif
+    cost_tablefuncscan(pathnode, root, rel, pathnode->param_info);
+
+    return pathnode;
+}
+
+/*
  * create_valuesscan_path
  *	  Creates a path corresponding to a scan of a VALUES list,
  *	  returning the pathnode.
@@ -4861,9 +4901,9 @@ create_projection_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath, PathTa
  */
 Path *
 apply_projection_to_path(PlannerInfo *root,
-						 RelOptInfo *rel,
-						 Path *path,
-						 PathTarget *target)
+                         RelOptInfo *rel,
+                         Path *path,
+                         PathTarget *target)
 {
     QualCost oldcost;
     /*

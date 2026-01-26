@@ -50,6 +50,7 @@
 #include "executor/node/nodeSort.h"
 #include "executor/node/nodeSubplan.h"
 #include "executor/node/nodeSubqueryscan.h"
+#include "executor/node/nodeTableFuncscan.h"
 #include "executor/node/nodeTidscan.h"
 #include "executor/node/nodeTidrangescan.h"
 #include "executor/node/nodeUnique.h"
@@ -207,6 +208,10 @@ void ExecReScanByType(PlanState* node)
 
         case T_FunctionScanState:
             ExecReScanFunctionScan((FunctionScanState*)node);
+            break;
+
+        case T_TableFuncScanState:
+            ExecReScanTableFuncScan((TableFuncScanState*) node);
             break;
 
         case T_ValuesScanState:
@@ -732,6 +737,7 @@ bool ExecMaterializesOutput(NodeTag plantype)
         case T_Material:
         case T_Memoize:
         case T_FunctionScan:
+        case T_TableFuncScan:
         case T_CteScan:
         case T_WorkTableScan:
         case T_Sort:

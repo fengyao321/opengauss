@@ -722,7 +722,7 @@ Node* colNameToVar(ParseState* pstate, char* colname, bool localonly, int locati
                         (errcode(ERRCODE_AMBIGUOUS_COLUMN),
                             errmsg("column reference \"%s\" is ambiguous", colname),
                             parser_errposition(orig_pstate, location)));
-				}
+                }
                 /* SQL:2008 demands this be an error, not an invisible item */
                 if (nsitem->p_lateral_only && !nsitem->p_lateral_ok)
                     ereport(ERROR,
@@ -2251,6 +2251,68 @@ RangeTblEntry* addRangeTableEntryForFunction(
 }
 
 /*
+ * Add an entry for a table function to the pstate's range table (p_rtable).
+ *
+ * This is much like addRangeTableEntry() except that it makes a tablefunc RTE.
+ */
+RangeTblEntry *addRangeTableEntryForTableFunc(ParseState *pstate,
+                               TableFunc *tf,
+                               Alias *alias,
+                               bool lateral,
+                               bool inFromCl)
+{
+    RangeTblEntry *rte = makeNode(RangeTblEntry);
+    char       *refname = alias ? alias->aliasname : pstrdup("xmltable");
+    Alias       *eref;
+    int            numaliases;
+
+    Assert(pstate != NULL);
+
+    rte->rtekind = RTE_TABLEFUNC;
+    rte->relid = InvalidOid;
+    rte->subquery = NULL;
+    rte->tablefunc = tf;
+    rte->ctecoltypes = tf->coltypes;
+    rte->ctecoltypmods = tf->coltypmods;
+    rte->ctecolcollations = tf->colcollations;
+    rte->alias = alias;
+
+    eref = alias ? (Alias*)copyObject(alias) : makeAlias(refname, NIL);
+    numaliases = list_length(eref->colnames);
+    /* fill in any unspecified alias columns */
+    if (numaliases < list_length(tf->colnames))
+        eref->colnames = list_concat(eref->colnames,
+                                   list_copy_tail(tf->colnames, numaliases));
+
+    rte->eref = eref;
+
+    /*
+     * Set flags and access permissions.
+     *
+     * Tablefuncs are never checked for access rights (at least, not by the
+     * RTE permissions mechanism).
+     */
+    rte->lateral = lateral;
+    rte->inh = false;            /* never true for tablefunc RTEs */
+    rte->inFromCl = inFromCl;
+
+    rte->requiredPerms = 0;
+    rte->checkAsUser = InvalidOid;
+    rte->selectedCols = NULL;
+    rte->insertedCols = NULL;
+    rte->updatedCols = NULL;
+
+    /*
+     * Add completed RTE to pstate's range table list, but not to join list
+     * nor namespace --- caller must do that if appropriate.
+     */
+    pstate->p_rtable = lappend(pstate->p_rtable, rte);
+
+    return rte;
+}
+
+
+/*
  * Add an entry for a VALUES list to the pstate's range table (p_rtable).
  *
  * This is much like addRangeTableEntry() except that it makes a values RTE.
@@ -2856,6 +2918,7 @@ void expandRTE(RangeTblEntry* rte, int rtindex, int sublevels_up, int location, 
                 }
             }
         } break;
+        case RTE_TABLEFUNC:
         case RTE_CTE: {
             ListCell* aliasp_item = list_head(rte->eref->colnames);
             ListCell* lct = NULL;
@@ -3343,6 +3406,7 @@ void get_rte_attribute_type(RangeTblEntry* rte, AttrNumber attnum, Oid* vartype,
             *vartypmod = exprTypmod(aliasvar);
             *varcollid = exprCollation(aliasvar);
         } break;
+        case RTE_TABLEFUNC:
         case RTE_CTE: {
             /* CTE RTE --- get type info from lists in the RTE */
             AssertEreport(attnum > 0 && attnum <= list_length(rte->ctecoltypes), MOD_OPT, "");
@@ -3391,6 +3455,7 @@ bool get_rte_attribute_is_dropped(RangeTblEntry* rte, AttrNumber attnum)
         } break;
         case RTE_SUBQUERY:
         case RTE_VALUES:
+        case RTE_TABLEFUNC:
         case RTE_CTE:
             /* Subselect, Values, CTE RTEs never have dropped columns */
             result = false;
@@ -3700,7 +3765,7 @@ void errorMissingRTE(ParseState* pstate, RangeVar* relation, bool hasplus)
             (errcode(ERRCODE_UNDEFINED_TABLE),
                 errmsg("missing FROM-clause entry for table \"%s\"", relation->relname),
                 parser_errposition(pstate, relation->location)));
-	}
+    }
 }
 
 /*

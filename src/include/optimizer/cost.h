@@ -106,7 +106,9 @@ extern void cost_tidscan(Path* path, PlannerInfo* root, RelOptInfo* baserel, Lis
 extern void cost_tidrangescan(Path* path, PlannerInfo* root, RelOptInfo* baserel, List* tidrangequals, ParamPathInfo* param_info);
 extern void cost_subqueryscan(Path* path, PlannerInfo* root, RelOptInfo* baserel, ParamPathInfo* param_info);
 extern void cost_functionscan(Path* path, PlannerInfo* root, RelOptInfo* baserel);
+extern void cost_tableexprscan(Path *path, PlannerInfo *root, RelOptInfo *baserel, ParamPathInfo *param_info);
 extern void cost_valuesscan(Path* path, PlannerInfo* root, RelOptInfo* baserels);
+extern void cost_tablefuncscan(Path *path, PlannerInfo *root, RelOptInfo *baserel, ParamPathInfo *param_info);
 #ifdef PGXC
 extern void cost_remotequery(RemoteQueryPath* rqpath, PlannerInfo* root, RelOptInfo* rel);
 #endif
@@ -165,6 +167,7 @@ extern void set_subquery_size_estimates(PlannerInfo* root, RelOptInfo* rel);
 extern void set_function_size_estimates(PlannerInfo* root, RelOptInfo* rel);
 extern void set_values_size_estimates(PlannerInfo* root, RelOptInfo* rel);
 extern void set_cte_size_estimates(PlannerInfo* root, RelOptInfo* rel, Plan* cteplan);
+extern void set_tablefunc_size_estimates(PlannerInfo *root, RelOptInfo *rel);
 extern void set_foreign_size_estimates(PlannerInfo* root, RelOptInfo* rel);
 extern void set_result_size_estimates(PlannerInfo *root, RelOptInfo *rel);
 extern double adjust_limit_row_count(double lefttree_rows);

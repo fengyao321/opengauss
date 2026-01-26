@@ -76,6 +76,7 @@ typedef enum NodeTag {
     T_SubqueryScan,
     T_FunctionScan,
     T_ValuesScan,
+    T_TableFuncScan,
     T_CteScan,
     T_WorkTableScan,
     T_ForeignScan,
@@ -165,7 +166,7 @@ typedef enum NodeTag {
      *
      * These should correspond one-to-one with Plan node types.
      */
-    T_PlanState = 201,
+    T_PlanState = 202,
     T_ResultState,
     T_ProjectSetState,
     T_VecToRowState,
@@ -196,6 +197,7 @@ typedef enum NodeTag {
     T_TidScanState,
     T_SubqueryScanState,
     T_FunctionScanState,
+    T_TableFuncScanState,
     T_ValuesScanState,
     T_CteScanState,
     T_WorkTableScanState,
@@ -229,6 +231,7 @@ typedef enum NodeTag {
      */
     T_Alias = 300,
     T_RangeVar,
+    T_TableFunc,
     T_Expr,
     T_Var,
     T_Const,
@@ -623,6 +626,8 @@ typedef enum NodeTag {
     T_RangeSubselect,
     T_RangeFunction,
     T_RangeTableSample,
+    T_RangeTableFunc,
+    T_RangeTableFuncCol,
     T_RangeTimeCapsule,
     T_TypeName,
     T_ColumnDef,
@@ -701,7 +706,7 @@ typedef enum NodeTag {
      * purposes (usually because they are involved in APIs where we want to
      * pass multiple object types through the same pointer).
      */
-    T_TriggerData = 980, /* in commands/trigger.h */
+    T_TriggerData = 982, /* in commands/trigger.h */
     T_EventTriggerData,         /* in commands/event_trigger.h */
     T_ReturnSetInfo,     /* in nodes/execnodes.h */
     T_WindowObjectData,  /* private in nodeWindowAgg.c */

@@ -93,8 +93,10 @@ extern MemoizePath *create_memoize_path(PlannerInfo *root,
 extern UniquePath* create_unique_path(PlannerInfo* root, RelOptInfo* rel, Path* subpath, SpecialJoinInfo* sjinfo);
 extern Path* create_subqueryscan_path(PlannerInfo* root, RelOptInfo* rel, List* pathkeys, Relids required_outer, List *subplan_params);
 extern Path* create_subqueryscan_path_reparam(PlannerInfo* root, RelOptInfo* rel, List* pathkeys, Relids required_outer, List *subplan_params);
+extern Path *create_tablexprscan_path(PlannerInfo *root, RelOptInfo *rel, List *pathkeys, Relids required_outer);
 extern Path* create_functionscan_path(PlannerInfo* root, RelOptInfo* rel, Relids required_outer);
 extern Path* create_valuesscan_path(PlannerInfo* root, RelOptInfo* rel, Relids required_outer);
+extern Path *create_tablefuncscan_path(PlannerInfo *root, RelOptInfo *rel, Relids required_outer);
 extern Path* create_ctescan_path(PlannerInfo* root, RelOptInfo* rel);
 extern Path* create_worktablescan_path(PlannerInfo* root, RelOptInfo* rel);
 extern ForeignPath* create_foreignscan_path(PlannerInfo* root, RelOptInfo* rel, Cost startup_cost, Cost total_cost,

@@ -106,7 +106,7 @@
 
 /* The default value of the column row width */
 #define COL_TUPLE_WIDTH 30
-
+#define TAB_FUN_SIZE 100
 /*
  * Maximum value for row estimates.  We cap row estimates to this to help
  * ensure that costs based on these estimates remain within the range of what
@@ -2239,6 +2239,61 @@ void cost_functionscan(Path* path, PlannerInfo* root, RelOptInfo* baserel)
     path->startup_cost = startup_cost;
     path->total_cost = startup_cost + run_cost;
     path->stream_cost = 0;
+}
+
+/*
+ * cost_tablefuncscan
+ *      Determines and returns the cost of scanning a table function.
+ *
+ * 'baserel' is the relation to be scanned
+ * 'param_info' is the ParamPathInfo if this is a parameterized path, else NULL
+ */
+void cost_tablefuncscan(Path *path, PlannerInfo *root,
+                   RelOptInfo *baserel, ParamPathInfo *param_info)
+{
+    Cost        startup_cost = 0;
+    Cost        run_cost = 0;
+    QualCost    qpqual_cost;
+    Cost        cpu_per_tuple;
+    RangeTblEntry *rte;
+    QualCost    exprcost;
+
+    /* Should only be applied to base relations that are functions */
+    Assert(baserel->relid > 0);
+    rte = planner_rt_fetch(baserel->relid, root);
+    Assert(rte->rtekind == RTE_TABLEFUNC);
+
+    /* Mark the path with the correct row estimate */
+    if (param_info)
+        path->rows = param_info->ppi_rows;
+    else
+        path->rows = baserel->rows;
+
+    /*
+     * Estimate costs of executing the table func expression(s).
+     *
+     * XXX in principle we ought to charge tuplestore spill costs if the
+     * number of rows is large.  However, given how phony our rowcount
+     * estimates for tablefuncs tend to be, there's not a lot of point in that
+     * refinement right now.
+     */
+    cost_qual_eval_node(&exprcost, (Node *) rte->tablefunc, root);
+
+    startup_cost += exprcost.startup + exprcost.per_tuple;
+
+    /* Add scanning CPU costs */
+    get_restriction_qual_cost(root, baserel, param_info, &qpqual_cost);
+
+    startup_cost += qpqual_cost.startup;
+    cpu_per_tuple = u_sess->attr.attr_sql.cpu_tuple_cost + qpqual_cost.per_tuple;
+    run_cost += cpu_per_tuple * baserel->tuples;
+
+    /* tlist eval costs are paid per output row, not per tuple scanned */
+    startup_cost += path->pathtarget->cost.startup;
+    run_cost += path->pathtarget->cost.per_tuple * path->rows;
+
+    path->startup_cost = startup_cost;
+    path->total_cost = startup_cost + run_cost;
 }
 
 /*
@@ -6598,6 +6653,30 @@ void set_function_size_estimates(PlannerInfo* root, RelOptInfo* rel)
     /* Estimate number of rows the function itself will return */
     rel->tuples = expression_returns_set_rows(rte->funcexpr);
     set_local_rel_size(root, rel);
+
+    /* Now estimate number of output rows, etc */
+    set_baserel_size_estimates(root, rel);
+}
+
+/*
+ * set_function_size_estimates
+ *        Set the size estimates for a base relation that is a function call.
+ *
+ * The rel's targetlist and restrictinfo list must have been constructed
+ * already.
+ *
+ * We set the same fields as set_tablefunc_size_estimates.
+ */
+void set_tablefunc_size_estimates(PlannerInfo *root, RelOptInfo *rel)
+{
+    RangeTblEntry *rte;
+
+    /* Should only be applied to base relations that are functions */
+    Assert(rel->relid > 0);
+    rte = planner_rt_fetch(rel->relid, root);
+    Assert(rte->rtekind == RTE_TABLEFUNC);
+
+    rel->tuples = TAB_FUN_SIZE;
 
     /* Now estimate number of output rows, etc */
     set_baserel_size_estimates(root, rel);

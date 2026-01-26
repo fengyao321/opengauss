@@ -77,13 +77,14 @@ bool will_shutdown = false;
  *
  ********************************************/
 
-const uint32 GRAND_VERSION_NUM = 93088;
+const uint32 GRAND_VERSION_NUM = 93089;
 
 /********************************************
  * 2.VERSION NUM FOR EACH FEATURE
  *   Please write indescending order.
  ********************************************/
 const uint32 OGAI_VERSION_NUM = 93088;
+const uint32 TABLE_FUNC_VERSION_NUM = 93089;
 const uint32 SEQUENCE_PARAM_FUNC_VERSION_NUM = 93080;
 const uint32 LSG_VERSION_NUM = 93079;
 const uint32 RABITQ_VERSION_NUM = 93077;

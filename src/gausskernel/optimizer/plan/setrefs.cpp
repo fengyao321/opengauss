@@ -239,6 +239,7 @@ Plan* set_plan_references(PlannerInfo* root, Plan* plan)
         newrte->funccoltypes = NIL;
         newrte->funccoltypmods = NIL;
         newrte->funccolcollations = NIL;
+        newrte->tablefunc = NULL;
         newrte->values_lists = NIL;
         newrte->values_collations = NIL;
         newrte->ctecoltypes = NIL;
@@ -517,6 +518,17 @@ static Plan* set_plan_refs(PlannerInfo* root, Plan* plan, int rtoffset)
             splan->scan.plan.qual = fix_scan_list(root, splan->scan.plan.qual, rtoffset);
             splan->funcexpr = fix_scan_expr(root, splan->funcexpr, rtoffset);
         } break;
+        case T_TableFuncScan: {
+                TableFuncScan *splan = (TableFuncScan *) plan;
+
+                splan->scan.scanrelid += rtoffset;
+                splan->scan.plan.targetlist =
+                    fix_scan_list(root, splan->scan.plan.targetlist, rtoffset);
+                splan->scan.plan.qual =
+                    fix_scan_list(root, splan->scan.plan.qual, rtoffset);
+                splan->tablefunc = (TableFunc *)
+                    fix_scan_expr(root, (Node *) splan->tablefunc, rtoffset);
+            } break;
         case T_ValuesScan: {
             ValuesScan* splan = (ValuesScan*)plan;
 
