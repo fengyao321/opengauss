@@ -1311,7 +1311,7 @@ void DropAllPreparedStatements(void)
          */
         ResourceOwner parent = t_thrd.utils_cxt.TopTransactionResourceOwner;
         if (unlikely(parent == NULL)) {
-            parent = t_thrd.utils_cxt.ThreadRootResourceOwner;
+            parent = t_thrd.utils_cxt.TopResourceOwner;
         }
         t_thrd.utils_cxt.CurrentResourceOwner = ResourceOwnerCreate(parent, "DropAllPreparedStatements",
             THREAD_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_OPTIMIZER));
