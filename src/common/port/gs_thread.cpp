@@ -500,6 +500,11 @@ void gs_thread_exit(int code)
     /* release compression ctx */
     crps_destory_ctxs();
 
+    /* reset slow query directory */
+    if (t_thrd.role == SYSLOGGE) {
+        g_instance.attr.attr_common.query_log_dir = NULL;
+    }
+
     if (t_thrd.bn != NULL) {
         t_thrd.bn->dead_end = true;
     } else if (!t_thrd.is_inited) {
