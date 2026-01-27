@@ -420,6 +420,7 @@ void vacuum(
     }
     PG_CATCH();
     {
+        ReleaseResownerOutOfTransaction();
         t_thrd.vacuum_cxt.vacuumAnalyzeTime = 0;
         t_thrd.vacuum_cxt.in_vacuum = false;
         /* Make sure cost accounting is turned off after error */

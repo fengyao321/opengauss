@@ -360,7 +360,7 @@ void SPI_commit()
      */
     if (unlikely(u_sess->SPI_cxt._current == NULL)) {
         /* Normally it's not possible to get here */
-        ereport(ERROR, (errcode(ERRCODE_TRANSACTION_ROLLBACK), 
+        ereport(ERROR, (errcode(ERRCODE_TRANSACTION_ROLLBACK),
                 errmsg("unexpected error happended when execute plsql commit/rollback")));
     }
      u_sess->SPI_cxt._current->internal_xact = true;
@@ -374,7 +374,7 @@ void SPI_commit()
 
     if (unlikely(u_sess->SPI_cxt._current == NULL)) {
         /* Normally it's not possible to get here */
-        ereport(ERROR, (errcode(ERRCODE_TRANSACTION_ROLLBACK), 
+        ereport(ERROR, (errcode(ERRCODE_TRANSACTION_ROLLBACK),
                 errmsg("unexpected error happended when execute plsql commit/rollback")));
     }
     u_sess->SPI_cxt._current->internal_xact = false;
@@ -392,7 +392,7 @@ void SPI_rollback()
     /* see under SPI_commit() */
     if (unlikely(u_sess->SPI_cxt._current == NULL)) {
         /* Normally it's not possible to get here */
-        ereport(ERROR, (errcode(ERRCODE_TRANSACTION_ROLLBACK), 
+        ereport(ERROR, (errcode(ERRCODE_TRANSACTION_ROLLBACK),
                 errmsg("unexpected error happended when execute plsql commit/rollback")));
     }
     u_sess->SPI_cxt._current->internal_xact = true;
@@ -402,7 +402,7 @@ void SPI_rollback()
 
     if (unlikely(u_sess->SPI_cxt._current == NULL)) {
         /* Normally it's not possible to get here */
-        ereport(ERROR, (errcode(ERRCODE_TRANSACTION_ROLLBACK), 
+        ereport(ERROR, (errcode(ERRCODE_TRANSACTION_ROLLBACK),
                 errmsg("unexpected error happended when execute plsql commit/rollback")));
     }
     u_sess->SPI_cxt._current->internal_xact = false;

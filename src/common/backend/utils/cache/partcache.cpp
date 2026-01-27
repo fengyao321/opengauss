@@ -151,7 +151,7 @@ StorageType PartitionGetStorageType(Partition partition, Oid parentOid)
     pg_class_tuple = ScanPgRelation(parentOid, true, false);
     if (!HeapTupleIsValid(pg_class_tuple)) {
         ereport(ERROR,
-            (errcode(ERRCODE_INVALID_PARAMETER_VALUE), 
+            (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
             errmsg("could not find pg_class entry for %u", parentOid),
             errcause("Invalid parameter value."), erraction("Check the pg_class entry.")));
     }

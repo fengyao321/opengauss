@@ -1655,7 +1655,7 @@ void DropErrorByOid(int objtype, Oid objoid)
         bool isnull = false;
         tuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(objoid));
         if (!HeapTupleIsValid(tuple)) {
-            ereport(ERROR, 
+            ereport(ERROR,
                 (errcode(ERRCODE_UNDEFINED_FUNCTION), errmsg("cache lookup failed for function %u", objoid)));
         }
         Form_pg_proc procStruct = (Form_pg_proc)GETSTRUCT(tuple);

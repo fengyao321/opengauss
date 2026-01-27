@@ -2797,7 +2797,7 @@ ObjectAddress AlterFunction(AlterFunctionStmt* stmt)
         tup = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcOid));
         if (!HeapTupleIsValid(tup)) {
             ereport(ERROR, (errcode(ERRCODE_UNDEFINED_FUNCTION),
-            errmsg("cache lookup failed for function %u", func_oid)));
+            errmsg("cache lookup failed for function %u", funcOid)));
         }
         procForm = (Form_pg_proc)GETSTRUCT(tup);
         schemaName = get_namespace_name(procForm->pronamespace);

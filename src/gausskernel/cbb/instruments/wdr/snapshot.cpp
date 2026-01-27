@@ -212,7 +212,7 @@ static void check_snapshot_thd_exit()
 {
     bool need_exit = false;
 
-    xact_start_command();
+    start_xact_command();
     PushActiveSnapshot(GetTransactionSnapshot());
     char* redis_group = PgxcGroupGetInRedistributionGroup();
     if (redis_group != NULL || !CheckNodeGroup()) {
@@ -220,7 +220,7 @@ static void check_snapshot_thd_exit()
         u_sess->attr.attr_common.ExitOnAnyError = true;
     }
     PopActiveSnapshot();
-    xact_commit_command();
+    finish_xact_command();
 
     if (need_exit || u_sess->attr.attr_common.upgrade_mode != 0) {
         /* to avoid postmaster to start snapshot thread again immediately,
