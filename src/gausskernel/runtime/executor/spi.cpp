@@ -358,6 +358,11 @@ void SPI_commit()
      * this restriction would have to be refined or the check possibly be
      * moved out of SPI into the PLs.
      */
+    if (unlikely(u_sess->SPI_cxt._current == NULL)) {
+        /* Normally it's not possible to get here */
+        ereport(ERROR, (errcode(ERRCODE_TRANSACTION_ROLLBACK), 
+                errmsg("unexpected error happended when execute plsql commit/rollback")));
+    }
      u_sess->SPI_cxt._current->internal_xact = true;
 
      while (ActiveSnapshotSet()) {
@@ -367,6 +372,11 @@ void SPI_commit()
     CommitTransactionCommand(true);
     MemoryContextSwitchTo(oldcontext);
 
+    if (unlikely(u_sess->SPI_cxt._current == NULL)) {
+        /* Normally it's not possible to get here */
+        ereport(ERROR, (errcode(ERRCODE_TRANSACTION_ROLLBACK), 
+                errmsg("unexpected error happended when execute plsql commit/rollback")));
+    }
     u_sess->SPI_cxt._current->internal_xact = false;
   
     return;
@@ -380,11 +390,21 @@ void SPI_rollback()
     MemoryContext oldcontext = CurrentMemoryContext;
 
     /* see under SPI_commit() */
+    if (unlikely(u_sess->SPI_cxt._current == NULL)) {
+        /* Normally it's not possible to get here */
+        ereport(ERROR, (errcode(ERRCODE_TRANSACTION_ROLLBACK), 
+                errmsg("unexpected error happended when execute plsql commit/rollback")));
+    }
     u_sess->SPI_cxt._current->internal_xact = true;
 
     AbortCurrentTransaction(true);
     MemoryContextSwitchTo(oldcontext);
 
+    if (unlikely(u_sess->SPI_cxt._current == NULL)) {
+        /* Normally it's not possible to get here */
+        ereport(ERROR, (errcode(ERRCODE_TRANSACTION_ROLLBACK), 
+                errmsg("unexpected error happended when execute plsql commit/rollback")));
+    }
     u_sess->SPI_cxt._current->internal_xact = false;
 
     return;

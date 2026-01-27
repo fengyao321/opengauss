@@ -13550,7 +13550,7 @@ static void dumpCompositeType(Archive* fout, TypeInfo* tyinfo)
         Oid typrelid = atooid(PQgetvalue(res, 0, i_typrelid));
 
         binary_upgrade_set_type_oids_by_type_oid(fout, q, tyinfo->dobj.catId.oid, false);
-        binary_upgrade_set_pg_class_oids(fout, q, typrelid, false, false);
+        binary_upgrade_set_pg_class_oids(fout, q, tyinfo->typrelid, false, false);
     }
 
     qtypname = gs_strdup(fmtId(tyinfo->dobj.name));

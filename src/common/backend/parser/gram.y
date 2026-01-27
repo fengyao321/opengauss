@@ -6361,11 +6361,19 @@ OptCopyRejectLimit:
 copy_generic_opt_list:
 			copy_generic_opt_elem
 				{
-					$$ = list_make1($1);
+					if ($1 == NULL) {
+						$$ = NULL;
+					} else {
+						$$ = list_make1($1);
+					}
 				}
 			| copy_generic_opt_list ',' copy_generic_opt_elem
 				{
-					$$ = lappend($1, $3);
+					if ($3 == NULL) {
+						$$ = $1;
+					} else {
+						$$ = lappend($1, $3);
+					}
 				}
 		;
 
@@ -6373,9 +6381,17 @@ copy_generic_opt_elem:
 			ColLabel copy_generic_opt_arg
 				{
 					/* Character "when_expr" may be injected as "COPY ... WHEN ... "*/
-					if (pg_strcasecmp($1, "when_expr") == 0)
+					if (pg_strcasecmp($1, "when_expr") == 0) {
 						ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR), errmsg("option \"%s\" not recognized", $1)));
-					$$ = makeDefElem($1, $2);
+					} else if (pg_strcasecmp($1, "formatter") == 0 ||
+					           pg_strcasecmp($1, "transform") == 0 ||
+							   pg_strcasecmp($1, "sequence") == 0 ||
+							   pg_strcasecmp($1, "filler") == 0 ||
+							   pg_strcasecmp($1, "constant") == 0) {
+						$$ = NULL;
+					} else {
+						$$ = makeDefElem($1, $2);
+					}
 				}
 		;
 
