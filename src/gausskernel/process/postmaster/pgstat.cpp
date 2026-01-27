@@ -3531,6 +3531,7 @@ void pgstat_report_activity(BackendState state, const char* cmd_str)
     volatile PgBackendStatus* beentry = t_thrd.shemem_ptr_cxt.MyBEEntry;
     TimestampTz start_timestamp;
     TimestampTz current_timestamp;
+    char *mask_string = NULL;
     int len = 0;
     errno_t rc = EOK;
 
@@ -3571,6 +3572,11 @@ void pgstat_report_activity(BackendState state, const char* cmd_str)
 
     if (cmd_str != NULL) {
         len = pg_mbcliplen(cmd_str, strlen(cmd_str), g_instance.attr.attr_common.pgstat_track_activity_query_size - 1);
+        if (len == g_instance.attr.attr_common.pgstat_track_activity_query_size - 1 &&
+            t_thrd.mem_cxt.mask_password_mem_cxt != NULL) {
+            /* mask the cmd_str when the cmd_str is truncated. */
+            mask_string = maskPassword(cmd_str);
+        }
     }
 
     /*
@@ -3582,13 +3588,6 @@ void pgstat_report_activity(BackendState state, const char* cmd_str)
     beentry->st_state_start_timestamp = current_timestamp;
 
     if (cmd_str != NULL) {
-        char *mask_string = NULL;
-        if (len == g_instance.attr.attr_common.pgstat_track_activity_query_size - 1 &&
-            t_thrd.mem_cxt.mask_password_mem_cxt != NULL) {
-            /* mask the cmd_str when the cmd_str is truncated. */
-            mask_string = maskPassword(cmd_str);
-        }
-
         /* If mask successfully, store the mask_string. Otherwise, the cmd_str is recorded. */
         if (mask_string == NULL) {
             rc = memcpy_s((char*)beentry->st_activity, g_instance.attr.attr_common.pgstat_track_activity_query_size,
