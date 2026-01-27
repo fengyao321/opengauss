@@ -554,6 +554,8 @@ static void knl_t_interrupt_init(knl_t_interrupt_context* int_cxt)
     int_cxt->StreamConnectionLost = false;
     int_cxt->ImmediateInterruptOK = false;
     int_cxt->InterruptHoldoffCount = 0;
+    int_cxt->BacktraceBlock = 0;
+    int_cxt->BacktraceSignalBlock = 0;
     int_cxt->QueryCancelHoldoffCount = 0;
     int_cxt->CritSectionCount = 0;
     int_cxt->InterruptByCN = false;

@@ -1367,7 +1367,9 @@ static void transform_ip_to_addr(char* host_name, unsigned short port_number)
     hint.ai_flags = AI_PASSIVE;
     hint.ai_socktype = SOCK_STREAM;
 
+    PUSH_BLOCK_BACKTRACE();
     int ret = pg_getaddrinfo_all(host_name, service, &hint, &addrs);
+    POP_BLOCK_BACKTRACE();
     if (ret || addrs == NULL) {
         if (host_name != NULL) {
             ereport(LOG,

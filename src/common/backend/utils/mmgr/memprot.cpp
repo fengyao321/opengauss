@@ -831,7 +831,9 @@ void* MemoryProtectFunctions::gs_memprot_malloc(Size sz, bool needProtect)
     bool status = memTracker_ReserveMem<mem_type>(sz, needProtect);
 
     if (status == true) {
+        PUSH_BLOCK_BACKTRACE();
         ptr = malloc(sz);
+        POP_BLOCK_BACKTRACE();
         if (ptr == NULL) {
             memTracker_ReleaseMem<mem_type>(sz);
             gs_memprot_failed<false>(sz, mem_type);

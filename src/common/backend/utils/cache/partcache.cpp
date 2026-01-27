@@ -149,7 +149,12 @@ StorageType PartitionGetStorageType(Partition partition, Oid parentOid)
     Datum datum;
 
     pg_class_tuple = ScanPgRelation(parentOid, true, false);
-    Assert(HeapTupleIsValid(pg_class_tuple));
+    if (!HeapTupleIsValid(pg_class_tuple)) {
+        ereport(ERROR,
+            (errcode(ERRCODE_INVALID_PARAMETER_VALUE), 
+            errmsg("could not find pg_class entry for %u", parentOid),
+            errcause("Invalid parameter value."), erraction("Check the pg_class entry.")));
+    }
 
     /* fetch relbucketoid from pg_class tuple */
     datum = heap_getattr(pg_class_tuple,

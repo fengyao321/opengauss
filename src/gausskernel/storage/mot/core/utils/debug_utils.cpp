@@ -188,10 +188,13 @@ extern int MOTGetCallStack(CallStackFrame* resolvedFrames, uint32_t frameCount, 
 {
     uint32_t actualFrameCount = std::min(MOT_CALL_STACK_MAX_FRAMES, frameCount);
     void* rawFrames[MOT_CALL_STACK_MAX_FRAMES];
+    char** frameStrArray;
 
     // get back-trace with symbols
     int validFrameCount = backtrace(rawFrames, actualFrameCount);
-    char** frameStrArray = backtrace_symbols(rawFrames, validFrameCount);
+    if (validFrameCount != -1) {
+        frameStrArray = backtrace_symbols(rawFrames, validFrameCount);
+    }
 
     // parse frames
     for (int i = 0; i < validFrameCount; ++i) {
@@ -206,7 +209,9 @@ extern void MOTDumpCallStack()
 {
     void* buffer[100];
     int frames = backtrace(buffer, 100);
-    backtrace_symbols_fd(buffer, frames, STDERR_FILENO);
+    if (frames != -1) {
+        backtrace_symbols_fd(buffer, frames, STDERR_FILENO);
+    }
 }
 
 extern void MOTPrintCallStackImpl(LogLevel logLevel, const char* logger, int opts, const char* format, ...)

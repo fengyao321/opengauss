@@ -234,6 +234,10 @@ static void print_call_stack(int fd, uintptr_t pc)
     void *buf[STACK_PRINT_LIMIT];
 
     output(fd, "======= Call stack ====== \n");
+    if (IS_BLOCK_SIGNAL_BACKTRACE()) {
+        output(fd, "block signal call stack output, because is in subprocess \n");
+        return;
+    }
     nptrs = backtrace(buf, STACK_PRINT_LIMIT);
 
     int i = 0;

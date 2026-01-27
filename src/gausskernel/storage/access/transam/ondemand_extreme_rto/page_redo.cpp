@@ -571,7 +571,9 @@ void AddRefRecord(void *rec)
     char output[max_out_put_buf];
     char **strings;
     nptrs = backtrace(buffer, stack_size);
-    strings = backtrace_symbols(buffer, nptrs);
+    if (nptrs != -1) {
+        strings = backtrace_symbols(buffer, nptrs);
+    }
 
     int ret = sprintf_s(output, sizeof(output), "before add relcount %u lsn %X/%X call back trace: \n", relCount,
                         (uint32)(((XLogReaderState *)rec)->EndRecPtr >> 32),
@@ -603,7 +605,9 @@ void SubRefRecord(void *rec)
     char output[max_out_put_buf];
     char **strings;
     nptrs = backtrace(buffer, stack_size);
-    strings = backtrace_symbols(buffer, nptrs);
+    if (nptrs != -1) {
+        strings = backtrace_symbols(buffer, nptrs);
+    }
 
     int ret = sprintf_s(output, sizeof(output), "after sub relcount %u lsn %X/%X call back trace:\n", relCount,
                         (uint32)(((XLogReaderState *)rec)->EndRecPtr >> 32),

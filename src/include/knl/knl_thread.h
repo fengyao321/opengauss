@@ -1467,6 +1467,10 @@ typedef struct knl_t_interrupt_context {
 
     volatile uint32 QueryCancelHoldoffCount;
 
+    volatile uint32 BacktraceBlock;
+
+    volatile uint32 BacktraceSignalBlock;
+
     volatile bool InterruptByCN;
 
     volatile bool InterruptCountResetFlag;
