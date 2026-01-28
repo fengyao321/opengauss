@@ -1571,6 +1571,11 @@ void XLogBlockDdlDoSmgrAction(XLogBlockHead *blockhead, void *blockrecbody, Redo
             rel_node.bucketNode = blockhead->bucketNode;
             rel_node.opt = blockhead->opt;
             XLogTruncateRelation(rel_node, blockhead->forknum, blockhead->blkno);
+
+            RelFileNodeBackend rbnode;
+            rbnode.node = rel_node;
+            rbnode.backend = InvalidBackendId;
+            smgrclosenode(rbnode);
             break;
         }
         case BLOCK_DDL_DROP_RELNODE: {

@@ -360,7 +360,7 @@ Datum gms_lob_og_freetemporary(PG_FUNCTION_ARGS)
 Datum gms_lob_og_read_blob(PG_FUNCTION_ARGS)
 {
     if (PG_ARGISNULL(0))
-        ereport(ERROR,(errcode(ERRCODE_INVALID_PARAMETER_VALUE),errmsg("invalid LOB object specified")));
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("invalid LOB object specified")));
 
     if (PG_ARGISNULL(1) || PG_ARGISNULL(2)) {
         ereport(ERROR,
@@ -427,7 +427,7 @@ Datum gms_lob_og_read_blob(PG_FUNCTION_ARGS)
 Datum gms_lob_og_read_clob(PG_FUNCTION_ARGS)
 {
     if (PG_ARGISNULL(0))
-        ereport(ERROR,(errcode(ERRCODE_INVALID_PARAMETER_VALUE),errmsg("invalid LOB object specified")));
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("invalid LOB object specified")));
 
     if (PG_ARGISNULL(1) || PG_ARGISNULL(2)) {
         ereport(ERROR,

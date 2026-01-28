@@ -1525,6 +1525,11 @@ void XLogForgetDDLRedo(XLogRecParseState *redoblockstate)
         relNode.opt = redoblockstate->blockparse.blockhead.opt;
         XLogTruncateRelation(relNode, redoblockstate->blockparse.blockhead.forknum,
                              redoblockstate->blockparse.blockhead.blkno);
+        
+        RelFileNodeBackend rbnode;
+        rbnode.node = relNode;
+        rbnode.backend = InvalidBackendId;
+        smgrclosenode(rbnode);
     }
 }
 
