@@ -68,6 +68,8 @@ select CASE WHEN input = 'r' THEN 'RANGE'
 	ELSE NULL END
 $$ LANGUAGE sql STABLE; 
 
+set skip_new_column_for_ruledef = true;
+
 CREATE OR REPLACE VIEW character_sets AS
     SELECT CAST(null AS sql_identifier) AS character_set_catalog,
            CAST(null AS sql_identifier) AS character_set_schema,

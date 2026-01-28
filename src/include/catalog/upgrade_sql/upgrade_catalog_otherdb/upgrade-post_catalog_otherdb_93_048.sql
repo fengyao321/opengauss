@@ -2,6 +2,8 @@ SET LOCAL inplace_upgrade_next_system_object_oids = IUO_CATALOG, false, true, 0,
 
 SET search_path TO information_schema;
 
+set skip_new_column_for_ruledef = true;
+
 DROP VIEW IF EXISTS information_schema.tables CASCADE;
 DROP VIEW IF EXISTS information_schema.columns CASCADE;
 
