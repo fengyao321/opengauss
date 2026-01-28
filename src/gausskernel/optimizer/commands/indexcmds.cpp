@@ -461,7 +461,7 @@ static bool CheckIndexIncludingParams(IndexStmt* stmt)
     if (stmt->isGlobal) {
         foreach (cell, stmt->indexIncludingParams) {
             IndexElem* param = (IndexElem*)lfirst(cell);
-            if (strcmp(param->name, "tableoid") == 0) {
+            if (param->name && strcmp(param->name, "tableoid") == 0) {
                 nparams--;
                 break;
             }
@@ -471,7 +471,7 @@ static bool CheckIndexIncludingParams(IndexStmt* stmt)
     if (stmt->crossbucket) {
         foreach (cell, stmt->indexIncludingParams) {
             IndexElem* param = (IndexElem*)lfirst(cell);
-            if (strcmp(param->name, "tablebucketid") == 0) {
+            if (param->name && strcmp(param->name, "tablebucketid") == 0) {
                 nparams--;
                 break;
             }
@@ -5536,7 +5536,7 @@ static void AddIndexColumnForGpi(IndexStmt* stmt)
     ListCell* cell = NULL;
     foreach (cell, stmt->indexIncludingParams) {
         IndexElem* param = (IndexElem*)lfirst(cell);
-        if (strcmp(param->name, "tableoid") == 0) {
+        if (param->name && strcmp(param->name, "tableoid") == 0) {
             return;
         }
     }
@@ -5555,7 +5555,7 @@ static void AddIndexColumnForCbi(IndexStmt* stmt)
     ListCell* cell = NULL;
     foreach (cell, stmt->indexIncludingParams) {
         IndexElem* param = (IndexElem*)lfirst(cell);
-        if (strcmp(param->name, "tablebucketid") == 0) {
+        if (param->name && strcmp(param->name, "tablebucketid") == 0) {
             return;
         }
     }

@@ -456,7 +456,8 @@ Buffer UBTreeGetAvailablePage(Relation rel, UBTRecycleForkNumber forkNumber, UBT
         metaChanged = true;
     }
     for (BlockNumber curBlkno = metaData->nblocksUpper; curBlkno < nblocks; curBlkno++) {
-        if (t_thrd.int_cxt.QueryCancelPending || t_thrd.int_cxt.ProcDiePending) {
+        if ((t_thrd.int_cxt.QueryCancelPending || t_thrd.int_cxt.ProcDiePending)
+            && t_thrd.int_cxt.CritSectionCount == 0) {
             ereport(ERROR, (errmsg("Received cancel interrupt while getting available page.")));
         }
         if (metaData->nblocksUpper > curBlkno) {

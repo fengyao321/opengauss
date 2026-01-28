@@ -289,17 +289,46 @@ static void ExecuteRollback(Relation rel, BlockNumber blkno, Page page, OffsetNu
 
 static void PruneCRPage(Relation rel, Page page)
 {
-    Offset pdLower = ((PageHeader)page)->pd_lower;
-    Offset pdUpper = ((PageHeader)page)->pd_upper;
-    Offset pdSpecial = ((PageHeader)page)->pd_special;
+    PageHeader header = (PageHeader)page;
+    Offset pdLower = header->pd_lower;
+    Offset pdUpper = header->pd_upper;
+    Offset pdSpecial = header->pd_special;
 
     if ((unsigned int)(pdLower) < SizeOfPageHeaderData || pdLower > pdUpper || pdUpper > pdSpecial ||
         pdSpecial > BLCKSZ || (unsigned int)(pdSpecial) != MAXALIGN(pdSpecial))
         ereport(ERROR, (errcode(ERRCODE_DATA_CORRUPTED),
             errmsg("corrupted page pointers: lower = %d, upper = %d, special = %d",
             pdLower, pdUpper, pdSpecial)));
-
+    
+    int tdCount = UBTreePageGetTDSlotCount(page);
     int maxOff = UBTreePCRPageGetMaxOffsetNumber(page);
+    int activeTDCount = tdCount;
+
+    /* calculate how many tds can be pruned */
+    for (int slot = tdCount; slot >= 0; slot--) {
+        UBTreeTD td = UBTreePCRGetTD(page, slot);
+        if (UBTreePCRTDIsFrozen(td)) {
+            activeTDCount--;
+        } else {
+            break;
+        }
+    }
+
+    if (activeTDCount < tdCount) {
+        // update tdcount first
+        UBTPCRPageOpaque opaque = (UBTPCRPageOpaque)PageGetSpecialPointer(page);
+        opaque->td_count = activeTDCount;
+
+        // move itemid
+        char *oldItemidStart = ((char*)page) + SizeOfPageHeaderData + tdCount * sizeof(UBTreeTDData);
+        char *newItemidStart = ((char*)page) + UBTreePCRGetRowPtrOffset(page);
+        Size itemIdsLen = maxOff * sizeof(UBTreeItemIdData);
+        errno_t rc = memmove_s(newItemidStart, itemIdsLen, oldItemidStart, itemIdsLen);
+        securec_check(rc, "\0", "\0");
+
+        header->pd_lower = GetPageHeaderSize(page) + SizeOfUBTreeTDData(page) + itemIdsLen;
+    }
+
     int num = 0;
     Size totallen = 0;
 
@@ -350,9 +379,9 @@ static void PruneCRPage(Relation rel, Page page)
         itemidptr++;
     }
 
-    ((PageHeader)page)->pd_lower = GetPageHeaderSize(page) + UBTreePCRTdSlotSize(UBTreePageGetTDSlotCount(page)) +
+    header->pd_lower = GetPageHeaderSize(page) + UBTreePCRTdSlotSize(UBTreePageGetTDSlotCount(page)) +
         num * sizeof(UBTreeItemIdData);
-    ((PageHeader)page)->pd_upper = upper;
+    header->pd_upper = upper;
 }
 
 static OffsetNumber RestorePrunedTuple(Relation rel, Page page, IndexTuple itup, uint8 tdid)

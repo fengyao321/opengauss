@@ -438,10 +438,11 @@ DELETE_RETRY:
     UndoPersistence persistence = UndoPersistenceForRelation(rel);
     Oid relOid = RelationIsPartition(rel) ? rel->parentId : RelationGetRelid(rel);
     Oid partitionOid = RelationIsPartition(rel) ? RelationGetRelid(rel) : InvalidOid;
+    IndexTuple pageItup = UBTreePCRGetIndexTuple(page, offset);
 
     urecPtr = UBTreePCRPrepareUndoDelete(relOid, partitionOid, RelationGetRelFileNode(rel),
         RelationGetRnodeSpace(rel), persistence, InvalidBuffer, GetTopTransactionId(), GetCurrentCommandId(false),
-        INVALID_UNDO_REC_PTR, itup, InvalidBlockNumber, NULL, &xlum, &undoInfo);
+        INVALID_UNDO_REC_PTR, pageItup, InvalidBlockNumber, NULL, &xlum, &undoInfo);
 
     /* STEP3: mark xmax for the target tuple */
     UBTreePCRDeleteOnPage(rel, buf, offset, isRollbackIndex, tdslot, urecPtr, &xlum);
@@ -2489,7 +2490,7 @@ uint8 PreparePCRDelete(Relation rel, Buffer buf, OffsetNumber offnum, UBTreeUndo
     }
 
     if (IsUBTreePCRItemDeleted(iid)) {
-        ereport(PANIC, (errmodule(MOD_UBTREE),
+        ereport(ERROR, (errmodule(MOD_UBTREE),
                 errmsg("failed to delete index tuple, index \"%s\", blkno %u",
                        RelationGetRelationName(rel), BufferGetBlockNumber(buf)),
                 errcause("UBTree PCR page is corrupted"),
