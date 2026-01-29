@@ -27,6 +27,7 @@
 #include "parser/parsetree.h"
 #include "utils/extended_statistics.h"
 
+#define EQUALOPNAME "="
 const int TOW_MEMBERS = 2;
 
 ES_SELECTIVITY::ES_SELECTIVITY()
@@ -1887,6 +1888,93 @@ Selectivity ES_SELECTIVITY::cal_eqjoinsel(es_candidate* es, JoinType jointype)
     return result;
 }
 
+/* Check for non const values in clause */
+bool can_apply_mcv(List* clause_group)
+{
+    bool exist_no_const = false;
+    ListCell* lc = NULL;
+    foreach(lc, clause_group) {
+        RestrictInfo* clause = (RestrictInfo*)lfirst(lc);
+        if (IsA(clause->clause, OpExpr)) {
+            OpExpr* opclause = (OpExpr*)clause->clause;
+            Node* left = (Node*)linitial(opclause->args);
+            Node* right = (Node*)lsecond(opclause->args);
+            if (!IsA(left, Const) && !IsA(right, Const)) {
+                exist_no_const = true;
+                break;
+            }
+        }
+    }
+    return !exist_no_const;
+}
+
+/* If there are two filtered values on a certain column and they are not equal, there is a conflict. */
+bool ES_SELECTIVITY::value_is_conflict(es_candidate *es)
+{
+    bool exist_conflict = false;
+    ListCell *lc_clause_map = NULL;
+    ListCell *lc_clause_group = NULL;
+    int preattnum = 0;
+    Const *pre_constValue = NULL;
+    List *oprname = list_make1(makeString(EQUALOPNAME));
+
+    forboth(lc_clause_map, es->clause_map, lc_clause_group, es->clause_group)
+    {
+        es_clause_map *clause_map = (es_clause_map *)lfirst(lc_clause_map);
+        RestrictInfo *clause = (RestrictInfo *)lfirst(lc_clause_group);
+        if (IsA(clause->clause, OpExpr)) {
+            OpExpr *opclause = (OpExpr *)clause->clause;
+            int left_attnum = clause_map->left_attnum;
+            int right_attnum = clause_map->right_attnum;
+            int attnum = 0;
+            FmgrInfo eqproc;
+            Const *constvalue = NULL;
+            bool non_const = false;
+            if (left_attnum > 0) {
+                attnum = left_attnum;
+                Node *right = (Node *) lsecond(opclause->args);
+                if (IsA(right, Const)) {
+                    constvalue = ((Const *)right);
+                } else {
+                    non_const = true;
+                }
+            } else if (right_attnum > 0) {
+                attnum = right_attnum;
+                Node *left = (Node *)linitial(opclause->args);
+                if (IsA(left, Const)) {
+                    constvalue = ((Const *)left);
+                } else {
+                    non_const = true;
+                }
+            }
+            if (non_const) {
+                continue;
+            }
+            if (attnum == preattnum) {
+                Oid opno = InvalidOid;
+                if (pre_constValue != NULL && constvalue != NULL) {
+                    opno = OpernameGetOprid(oprname, pre_constValue->consttype, constvalue->consttype);
+                }
+                if (!OidIsValid(opno)) {
+                    exist_conflict = true;
+                    break;
+                }
+                fmgr_info(get_opcode(opno), &eqproc);
+                if (pre_constValue != NULL && constvalue != NULL && !DatumGetBool(FunctionCall2Coll(
+                    &eqproc, DEFAULT_COLLATION_OID, pre_constValue->constvalue, constvalue->constvalue
+                ))) {
+                    exist_conflict = true;
+                    break;
+                }
+            }
+            preattnum = attnum;
+            pre_constValue = constvalue;
+        }
+    }
+    list_free_ext(oprname);
+    return exist_conflict;
+}
+
 /*
  * @brief       calculate selectivity for eqsel using multi-column statistics
  */
@@ -1898,6 +1986,8 @@ Selectivity ES_SELECTIVITY::cal_eqsel(es_candidate* es)
     int j = 0;
     int column_count = 0;
     bool match = false;
+    bool clause_eq_attnums = false;
+    bool can_use_mcv = false;
 
     Assert(es->left_extended_stats);
 
@@ -1916,8 +2006,13 @@ Selectivity ES_SELECTIVITY::cal_eqsel(es_candidate* es)
         }
     }
 
-    /* if there is no MCV, just use distinct */
-    if (!es->left_extended_stats->mcv_values) {
+    clause_eq_attnums = (es->clause_group->length == bms_num_members(es->left_attnums));
+    can_use_mcv = can_apply_mcv(es->clause_group);
+    /* if there is no MCV or there is a non const value in clause_group, just use distinct */
+    if (!es->left_extended_stats->mcv_values || !can_use_mcv || !clause_eq_attnums) {
+        if (!clause_eq_attnums && value_is_conflict(es)) {
+            return (Selectivity)0.0;
+        }
         result = (result - es->left_extended_stats->nullfrac) / es->left_stadistinct;
         CLAMP_PROBABILITY(result);
         save_selectivity(es, result, 0.0);
@@ -1970,13 +2065,20 @@ Selectivity ES_SELECTIVITY::cal_eqsel(es_candidate* es)
                 }
 
                 Datum mcv_value = es->left_extended_stats->mcv_values[mcv_position];
-                if (var_on_left)
+                if (es->left_extended_stats->mcv_nulls != NULL && es->left_extended_stats->mcv_nulls[mcv_position]) {
+                    match = false;
+                } else if (var_on_left) {
                     match = DatumGetBool(FunctionCall2Coll(&eqproc, DEFAULT_COLLATION_OID, mcv_value, const_value));
-                else
+                } else {
                     match = DatumGetBool(FunctionCall2Coll(&eqproc, DEFAULT_COLLATION_OID, const_value, mcv_value));
+                }
             } else {
                 Assert(IsA(clause->clause, NullTest));
-                match = es->left_extended_stats->mcv_nulls[mcv_position];
+                if (es->left_extended_stats->mcv_nulls != NULL) {
+                    match = es->left_extended_stats->mcv_nulls[mcv_position];
+                } else {
+                    match = false;
+                }
             }
 
             if (!match)

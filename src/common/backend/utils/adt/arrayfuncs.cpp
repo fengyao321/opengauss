@@ -6155,7 +6155,8 @@ static int numDatumInArray(FunctionCallInfoData locfcinfo, Datum elt1, bool isnu
     int numresult = 0;
     for (j = 0; j < nelems2; j++) {
         Datum elt2 = values2[j];
-        bool isnull2 = nulls2[j];
+        /* if there is not NULL element in expand array object, nulls2 will be NULL */
+        bool isnull2 = nulls2 != NULL ? nulls2[j] : false;
         if (isnull1 && isnull2) {
             numresult += 1;
             if (isEarlyReturn) {
@@ -6201,7 +6202,7 @@ static int numDatumInArratByIndex(FunctionCallInfoData locfcinfo, Datum elt1, bo
     int j;
     for (j = startIndex + 1; j < nelems2; j++) {
         Datum elt2 = values2[j];
-        bool isnull2 = nulls2[j];
+        bool isnull2 = nulls2 != NULL ? nulls2[j] : false;
         if (isnull1 && isnull2) {
             num += 1;
         }
@@ -6494,7 +6495,8 @@ static ArrayType* array_intersect_internal(ArrayType* v1, ArrayType* v2, TypeCac
     int index = 1;
     for (i = 0; i < nelems1; i++) {
         Datum elt1 = values1[i];
-        bool isnull1 = nulls1[i];
+        /* if there is not NULL element in expand array object, nulls1 will be NULL */
+        bool isnull1 = nulls1 != NULL ? nulls1[i] : false;
         /* if this element is already in result, continue */
         if (numDatumInArray(locfcinfo, elt1, isnull1, result, typentry, true) > 0) {
             continue;
@@ -6595,7 +6597,8 @@ static ArrayType* array_except_internal(ArrayType* v1, ArrayType* v2, TypeCacheE
     int i;
     for (i = 0; i < nelems1; i++) {
         Datum elt1 = values1[i];
-        bool isnull1 = nulls1[i];
+        /* if there is not NULL element in expand array object, nulls1 will be NULL */
+        bool isnull1 = nulls1 != NULL ? nulls1[i] : false;
         /* if this element is already in result, continue */
         if (numDatumInArray(locfcinfo, elt1, isnull1, result, typentry, true) > 0) {
             continue;
