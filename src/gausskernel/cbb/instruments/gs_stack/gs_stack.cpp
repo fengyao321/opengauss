@@ -117,6 +117,10 @@ uint get_backtrace_refresh_flag(void)
 
 void get_backtrace(void)
 {
+    if (IS_BLOCK_SIGNAL_BACKTRACE()) {
+        g_instance.stat_cxt.backtrace_info.refresh_flag = FINISH_STACK;
+        return;
+    }
     g_instance.stat_cxt.backtrace_info.number_pc =
         backtrace(g_instance.stat_cxt.backtrace_info.backtrace_buff, STACK_PRINT_LIMIT);
     g_instance.stat_cxt.backtrace_info.refresh_flag = FINISH_STACK;

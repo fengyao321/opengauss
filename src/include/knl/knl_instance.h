@@ -1741,6 +1741,18 @@ extern knl_instance_context g_instance;
 
 extern void add_numa_alloc_info(void* numaAddr, size_t length);
 
+#define PUSH_BLOCK_BACKTRACE() (t_thrd.int_cxt.BacktraceBlock += 1)
+
+#define POP_BLOCK_BACKTRACE() (t_thrd.int_cxt.BacktraceBlock -= 1)
+
+#define IS_BLOCK_BACKTRACE() (t_thrd.int_cxt.BacktraceBlock > 0)
+
+#define PUSH_BLOCK_SIGNAL_BACKTRACE() (t_thrd.int_cxt.BacktraceSignalBlock += 1)
+
+#define POP_BLOCK_SIGNAL_BACKTRACE() (t_thrd.int_cxt.BacktraceSignalBlock -= 1)
+
+#define IS_BLOCK_SIGNAL_BACKTRACE() (t_thrd.int_cxt.BacktraceSignalBlock > 0)
+
 #define GTM_FREE_MODE (g_instance.attr.attr_storage.enable_gtm_free || \
                         g_instance.attr.attr_storage.gtm_option == GTMOPTION_GTMFREE)
 #define GTM_MODE (false)

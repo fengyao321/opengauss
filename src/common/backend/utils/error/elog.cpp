@@ -3437,7 +3437,9 @@ int output_backtrace_to_log(StringInfoData* pOutBuf)
     }
 
     int len_symbols = backtrace(buffer, max_buffer_size);
-    t_thrd.log_cxt.thd_bt_symbol = backtrace_symbols(buffer, len_symbols);
+    if (len_symbols != -1) {
+        t_thrd.log_cxt.thd_bt_symbol = backtrace_symbols(buffer, len_symbols);
+    }
 
     int ret = snprintf_s(title, sizeof(title), sizeof(title) - 1, "tid[%d]'s backtrace:\n", gettid());
     securec_check_ss_c(ret, "\0", "\0");
