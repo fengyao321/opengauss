@@ -61,6 +61,13 @@ public:
         }
     }
 
+    void Cleanup()
+    {
+        if (m_slab != nullptr) {
+            m_slab->ClearFreeCache();
+        }
+    }
+
     /**
      * @brief Initialize the slab allocator for sizes ranging from 64B to size of 32K
      */

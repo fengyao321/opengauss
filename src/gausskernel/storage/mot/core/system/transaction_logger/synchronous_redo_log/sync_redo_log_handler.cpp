@@ -43,7 +43,9 @@ RedoLogBuffer* SyncRedoLogHandler::CreateBuffer()
     }
 
     if (!buffer->Initialize()) {
-        delete buffer;
+        RedoLogBuffer* temp = buffer;
+        buffer = nullptr;
+        delete temp;
         return nullptr;
     }
 

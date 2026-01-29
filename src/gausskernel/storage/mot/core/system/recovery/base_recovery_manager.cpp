@@ -192,6 +192,12 @@ void BaseRecoveryManager::ApplySurrogate()
 {
     // merge and apply all SurrogateState maps
     SurrogateState::Merge(m_surrogateList, m_surrogateState);
+    for (uint64_t* array : m_surrogateList) {
+        if (array != nullptr) {
+            free(array);
+            array = nullptr;
+        }
+    }
     m_surrogateList.clear();
 
     if (m_surrogateState.IsEmpty()) {
