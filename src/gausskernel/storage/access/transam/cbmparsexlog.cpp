@@ -85,7 +85,7 @@ static void SetCBMFileName(char *cbmFileNameBuf, uint64 seqNum, XLogRecPtr start
 static void SetNewCBMFileName(XLogRecPtr startLSN);
 static void StartNextCBMFile(XLogRecPtr startLSN);
 static void StartExistCBMFile(uint64 lastfileSize);
-static HTAB *CBMPageHashInitialize(MemoryContext memoryContext);
+static HTAB *CBMPageHashInitialize(MemoryContext memoryContext, bool isShared = false);
 static bool ParseXlogIntoCBMPages(TimeLineID timeLine, bool isRecEnd);
 static bool ParseXlogIntoCBMPagesByCBMReader(CBM_RECORD* cbmRecord, bool isLastCBMRecord);
 static int CBMXLogPageRead(XLogReaderState *xlogreader, XLogRecPtr targetPagePtr, int reqLen, XLogRecPtr targetRecPtr,
@@ -786,7 +786,7 @@ static void StartExistCBMFile(uint64 lastfileSize)
     t_thrd.cbm_cxt.XlogCbmSys->out.offset = (off_t)lastfileSize;
 }
 
-static HTAB *CBMPageHashInitialize(MemoryContext memoryContext)
+static HTAB *CBMPageHashInitialize(MemoryContext memoryContext, bool isShared)
 {
     HASHCTL ctl;
     HTAB *hTab = NULL;
@@ -801,9 +801,13 @@ static HTAB *CBMPageHashInitialize(MemoryContext memoryContext)
     ctl.entrysize = sizeof(CbmHashEntry);
     ctl.hash = CBMPageTagHash;
     ctl.match = CBMPageTagMatch;
-    hTab = hash_create("CBM page hash by relfilenode and forknum", INITCBMPAGEHASHSIZE, &ctl,
-                       HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT | HASH_COMPARE | HASH_SHRCTX);
-
+    if (isShared == true) {
+        hTab = hash_create("CBM page hash by relfilenode and forknum", INITCBMPAGEHASHSIZE, &ctl,
+            HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT | HASH_COMPARE | HASH_SHRCTX);
+    } else {
+        hTab = hash_create("CBM page hash by relfilenode and forknum", INITCBMPAGEHASHSIZE, &ctl,
+            HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT | HASH_COMPARE);
+    }
     return hTab;
 }
 
@@ -861,9 +865,11 @@ extern void CBMReadAndParseXLog(void)
         }
         (void)LWLockRelease(CBMFreeListLock);
 
-        if (t_thrd.cbm_cxt.cbmPageHash == NULL)
-            t_thrd.cbm_cxt.cbmPageHash = CBMPageHashInitialize(t_thrd.cbm_cxt.CBMReaderStatus->cbmReaderNormalContext);
-        
+        if (t_thrd.cbm_cxt.cbmPageHash == NULL) {
+            t_thrd.cbm_cxt.cbmPageHash =
+                CBMPageHashInitialize(t_thrd.cbm_cxt.CBMReaderStatus->cbmReaderNormalContext, true);
+        }
+
         if (ParseXlogIntoCBMPagesByCBMReader((CBM_RECORD*)&queueNodePtr->CBMRecord, queueNodePtr->CBMRecord.isLastOne)) {
             /* If something wrong in xlog parse. */
             pg_atomic_write_u32(&g_instance.comm_cxt.cbm_cxt.skipIncomingRequest, CBM_REJECT_TASK);
