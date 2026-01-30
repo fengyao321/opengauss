@@ -1153,7 +1153,7 @@ recheck_xmax:
     if (tuple->t_infomask & HEAP_XMAX_IS_MULTI) {
         TransactionId xmax = HeapTupleHeaderMultiXactGetUpdateXid(page, tuple);
         /* not LOCKED_ONLY, so it has to have an xmax */
-        Assert(TransactionIdIsValid(xmax));
+        Assert(TransactionIdIsValid(xmax) || RecoveryInProgress());
         if (TransactionIdIsCurrentTransactionId(xmax)) {
             if (HeapTupleHeaderGetCmax(tuple, page) >= snapshot->curcid)
                 return true; /* deleted after scan started */

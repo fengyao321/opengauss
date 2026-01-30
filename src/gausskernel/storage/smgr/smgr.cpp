@@ -461,6 +461,7 @@ void smgrclose(SMgrRelation reln, BlockNumber blockNum)
 
     if (IsBucketFileNode(reln->smgr_rnode.node)) {
         dlist_delete(&reln->bucket_smgr_node);
+        DListNodeInit(&reln->bucket_smgr_node);
     }
 
     if (smgrhaschildern(reln)) {

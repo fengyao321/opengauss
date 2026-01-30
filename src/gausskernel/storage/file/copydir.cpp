@@ -417,6 +417,7 @@ static int fsync_fname_ext(const char* fname, bool isdir, bool ignore_perm, int 
     int fd;
     int flags;
     int returncode;
+    int save_errno;
 
     if (is_dss_file(fname)) {
         return 0;
@@ -436,6 +437,7 @@ static int fsync_fname_ext(const char* fname, bool isdir, bool ignore_perm, int 
 
     errno = 0;
     fd = BasicOpenFile((char*)fname, flags, 0);
+    save_errno = errno;
     /*
      * Some OSs don't allow us to open directories at all (Windows returns
      * EACCES), just ignore the error in that case.  If desired also silently
@@ -446,7 +448,8 @@ static int fsync_fname_ext(const char* fname, bool isdir, bool ignore_perm, int 
     } else if (fd < 0 && ignore_perm && errno == EACCES) {
         return 0;
     } else if (fd < 0) {
-        ereport(elevel, (errcode_for_file_access(), errmsg("could not open file \"%s\": %m", fname)));
+        ereport(elevel, (errcode_for_file_access(),
+            errmsg("could not open file \"%s\": %s", fname), gs_strerror(save_errno)));
         return -1;
     }
 
@@ -456,8 +459,6 @@ static int fsync_fname_ext(const char* fname, bool isdir, bool ignore_perm, int 
      * those errors. Anything else needs to be logged.
      */
     if (returncode != 0 && !(isdir && errno == EBADF)) {
-        int save_errno;
-
         /* close file upon error, might not be in transaction context */
         save_errno = errno;
         (void)close(fd);

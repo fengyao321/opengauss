@@ -494,7 +494,7 @@ Snapshot GetTransactionSnapshot(bool force_local_snapshot)
          * predicate.c needs to wrap the snapshot fetch in its own processing.
          */
         Assert(!(u_sess->utils_cxt.CurrentSnapshot != NULL && u_sess->utils_cxt.CurrentSnapshot->user_data != NULL));
-        if (IsolationUsesXactSnapshot()) {
+        if (IsolationUsesXactSnapshot() && !IS_EXRTO_RECOVERY_IN_PROGRESS) {
             /* First, create the snapshot in CurrentSnapshotData */
             if (IsolationIsSerializable()) {
                 u_sess->utils_cxt.CurrentSnapshot =
@@ -521,7 +521,7 @@ Snapshot GetTransactionSnapshot(bool force_local_snapshot)
         return u_sess->utils_cxt.CurrentSnapshot;
     }
 
-    if (IsolationUsesXactSnapshot()|| IS_EXRTO_STANDBY_READ) {
+    if (IsolationUsesXactSnapshot()|| IS_EXRTO_RECOVERY_IN_PROGRESS) {
 #ifdef PGXC
         /*
          * Consider this test case taken from portals.sql
@@ -546,7 +546,7 @@ Snapshot GetTransactionSnapshot(bool force_local_snapshot)
         if (IsConnFromCoord())
             SnapshotSetCommandId(GetCurrentCommandId(false));
 #endif
-        if (IS_EXRTO_STANDBY_READ) {
+        if (IS_EXRTO_RECOVERY_IN_PROGRESS) {
             if (u_sess->utils_cxt.CurrentSnapshot == NULL) {
                 elog(ERROR, "invalid u_sess->utils_cxt.CurrentSnapshot.");
             }

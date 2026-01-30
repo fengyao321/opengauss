@@ -2288,6 +2288,7 @@ void instr_stmt_report_returned_rows(uint64 returned_rows)
 void instr_stmt_report_unique_sql_info(const PgStat_TableCounts *agg_table_stat,
     const int64 timeInfo[], const uint64 *netInfo)
 {
+    CHECK_STMT_HANDLE();
     if (u_sess->unique_sql_cxt.unique_sql_id == 0 || CURRENT_STMT_METRIC_HANDLE == NULL) {
         return;
     }

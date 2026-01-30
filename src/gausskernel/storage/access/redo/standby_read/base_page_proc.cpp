@@ -69,9 +69,9 @@ void generate_base_page(const Page src_page, BasePagePosition base_page_pos)
 #else
     Page dest_page = BufferGetPage(dest_buf);
 #endif
+    MarkBufferDirty(dest_buf);
     errno_t rc = memcpy_s(dest_page, BLCKSZ, src_page, BLCKSZ);
     securec_check(rc, "\0", "\0");
-    MarkBufferDirty(dest_buf);
     UnlockReleaseBuffer(dest_buf);
 }
 
