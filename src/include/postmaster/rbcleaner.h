@@ -300,13 +300,13 @@ static inline void RbMsgSetStatistics(uint64 id, PurgeMsgRes *localRes)
     errno_t rc = EOK;
 
     if (rbMsg->id != id) {
-        ereport(LOG, (errmodule(MOD_TIMECAPSULE),
+        ereport(WARNING, (errmodule(MOD_TIMECAPSULE),
             errmsg("before mutex rbMsg id is %lu, workerinfo id is %lu", rbMsg->id, id)));
     }
  
     SpinLockAcquire(&rbMsg->mutex);
     if (rbMsg->id != id) {
-        ereport(LOG, (errmodule(MOD_TIMECAPSULE),
+        ereport(WARNING, (errmodule(MOD_TIMECAPSULE),
             errmsg("after mutex rbMsg id is %lu, workerinfo id is %lu", rbMsg->id, id)));
     }
     Assert(id == rbMsg->id);

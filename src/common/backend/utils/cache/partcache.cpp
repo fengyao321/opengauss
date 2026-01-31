@@ -2042,14 +2042,16 @@ static PartStatus PartitionStatusForVacuum(Oid partOid)
     HeapTuple partTuple = NULL;
     TransactionId oldestXmin;
     PartStatus partStatus = PART_METADATA_NOEXIST;
-
+    Buffer buf = InvalidBuffer;
+    
     pgPartition = heap_open(PartitionRelationId, RowExclusiveLock);
     oldestXmin = u_sess->utils_cxt.RecentGlobalXmin;
     ScanKeyInit(&key[0], ObjectIdAttributeNumber, BTEqualStrategyNumber, F_OIDEQ, ObjectIdGetDatum(partOid));
 
     scan = systable_beginscan(pgPartition, InvalidOid, false, SnapshotAny, 1, key);
     while (HeapTupleIsValid(partTuple = systable_getnext(scan))) {
-        partStatus = PartTupleStatusForVacuum(partTuple, scan->scan->rs_base.rs_cbuf, oldestXmin);
+        buf = scan->iscan ? scan->iscan->xs_cbuf : scan->scan->rs_base.rs_cbuf;
+        partStatus = PartTupleStatusForVacuum(partTuple, buf, oldestXmin);
         /* The status of a partition is creating or live, the partition status is the latest */
         if (partStatus == PART_METADATA_CREATING || partStatus == PART_METADATA_LIVE) {
             break;

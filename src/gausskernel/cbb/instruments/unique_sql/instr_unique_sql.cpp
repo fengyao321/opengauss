@@ -548,7 +548,8 @@ bool isUniqueSQLContextInvalid()
 {
     if (u_sess->unique_sql_cxt.unique_sql_id == 0 ||
         g_instance.stat_cxt.UniqueSQLHashtbl == NULL ||
-        !OidIsValid(u_sess->unique_sql_cxt.unique_sql_user_id)) {
+        !OidIsValid(u_sess->unique_sql_cxt.unique_sql_user_id) ||
+        t_thrd.proc == NULL) {
         return true;
     }
 

@@ -392,12 +392,16 @@ static void InitGlobals()
 
 void ApplyProcHead(RedoItem *head)
 {
+    uint32 count = 0;
     while (head != NULL) {
         RedoItem *cur = head;
         g_redoWorker->current_item = &cur->record;
         pg_atomic_write_u64((volatile uint64*)&g_redoWorker->curReplayingReadRecPtr, cur->record.ReadRecPtr);
         head = head->nextByWorker[g_redoWorker->id + 1];
         ApplyAndFreeRedoItem(cur);
+        if ((count++ & 0xFF) == 0xFF) {
+            RedoInterruptCallBack();
+        }
     }
 }
 

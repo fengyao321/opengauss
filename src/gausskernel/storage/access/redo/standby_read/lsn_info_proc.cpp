@@ -407,8 +407,8 @@ void get_lsn_info_for_read(const BufferTag& buf_tag, LsnInfoPosition latest_lsn_
         if (XLByteLE(page_lsn, read_lsn)) {
             break;
         }
-        UnlockReleaseBuffer(buffer);
         latest_lsn_base_page_pos = base_page_info->base_page_list.prev;
+        UnlockReleaseBuffer(buffer);
     } while (true);
  
     LsnInfo lsn_info = &base_page_info->lsn_info_node;

@@ -1356,6 +1356,12 @@ bool CheckFullSyncCheckpoint(RedoItem *item)
         return true;
     }
 
+    if (XLogRecPtrIsInvalid(t_thrd.shemem_ptr_cxt.ControlFile->backupEndPoint) &&
+        XLogRecPtrIsInvalid(t_thrd.shemem_ptr_cxt.ControlFile->backupStartPoint) &&
+        XLByteLE(GetXLogReplayRecPtr(NULL), t_thrd.shemem_ptr_cxt.ControlFile->backupEndPoint)) {
+        return true;
+    }
+
     return false;
 }
 

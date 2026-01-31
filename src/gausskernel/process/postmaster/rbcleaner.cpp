@@ -1049,7 +1049,11 @@ NON_EXEC_STATIC void RbWorkerMain()
 {
     sigjmp_buf localSigjmpBuf;
     RbWorkerInfo *workInfo = RbGetWorkerInfo();
-    pg_atomic_write_u64(&workInfo->rbworkerPid, t_thrd.proc_cxt.MyProcPid);
+    uint64 expected = 0;
+    if (!pg_atomic_compare_exchange_u64(&workInfo->rbworkerPid, &expected, t_thrd.proc_cxt.MyProcPid)) {
+        ereport(ERROR, (errmsg("start rbworker failed: rbworker already exists!")));
+        proc_exit(0);
+    }
 
     /* we are a postmaster subprocess now */
     IsUnderPostmaster = true;
