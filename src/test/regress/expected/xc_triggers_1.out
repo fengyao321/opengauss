@@ -652,7 +652,7 @@ Syntax:
 ALTER TABLE [ IF EXISTS ] { table_name  [*] | ONLY table_name | ONLY ( table_name  )}
     action [, ... ];
 ALTER TABLE [ IF EXISTS ] table_name
-    ADD ( { column_name data_type [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ]} [, ...] );
+    ADD ( [IF NOT EXISTS] { column_name data_type [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ]} [, ...] );
 ALTER TABLE [ IF EXISTS ] table_name
     MODIFY ( { column_name data_type | column_name [ CONSTRAINT constraint_name ] NOT NULL [ ENABLE ] | column_name [ CONSTRAINT constraint_name ] NULL } [, ...] );
 ALTER TABLE [ IF EXISTS ] table_name
@@ -689,7 +689,7 @@ column_clause
     | FORCE ROW LEVEL SECURITY
     | NO FORCE ROW LEVEL SECURITY
 where column_clause can be:
-ADD [ COLUMN ] column_name data_type [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ]
+ADD [ COLUMN ] [IF NOT EXISTS] column_name data_type [ compress_mode ] [ COLLATE collation ] [ column_constraint [ ... ] ]
     | MODIFY column_name data_type
     | MODIFY column_name [ CONSTRAINT constraint_name ] NOT NULL [ ENABLE ]
     | MODIFY column_name [ CONSTRAINT constraint_name ] NULL

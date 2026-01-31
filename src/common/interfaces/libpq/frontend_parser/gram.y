@@ -250,7 +250,7 @@ extern THR_LOCAL bool stmt_contains_operator_plus;
 
 %type <objtype> drop_type
 %type <node>	alter_table_cmd alter_partition_cmd opt_collate_clause exchange_partition_cmd move_partition_cmd
-				replica_identity DropStmt
+				replica_identity DropStmt add_column_cmd
 %type <list>    alter_table_cmds alter_partition_cmds alter_table_or_partition add_column_cmds modify_column_cmds
                 opt_reloptions opt_check_option
 
@@ -1881,20 +1881,32 @@ modify_column_cmds:
                     def->clientLogicColumnRef=NULL;
 					$$ = lappend($1, n);
 				}
+			;
 add_column_cmds:
+			add_column_cmd
+				{
+					$$ = list_make1($1);
+				}
+			| add_column_cmds ',' add_column_cmd
+				{
+					$$ = lappend($1, $3);
+				}
+			;
+add_column_cmd:
 			columnDef
 				{
 					AlterTableCmd *n = makeNode(AlterTableCmd);
 					n->subtype = AT_AddColumn;
 					n->def = $1;
-					$$ = list_make1(n);
+					$$ = (Node *)n;
 				}
-			| add_column_cmds ',' columnDef
+			| IF_P NOT EXISTS columnDef
 				{
-				 	AlterTableCmd *n = makeNode(AlterTableCmd);
+					AlterTableCmd *n = makeNode(AlterTableCmd);
 					n->subtype = AT_AddColumn;
-					n->def = $3;
-					$$ = lappend($1, n);
+					n->missing_ok = true;
+					n->def = $4;
+					$$ = (Node *)n;
 				}
 			;
 
@@ -2347,12 +2359,30 @@ alter_table_cmd:
 					n->def = $2;
 					$$ = (Node *)n;
 				}
+			/* ALTER TABLE <name> ADD IF_P NOT EXISTS <coldef> */
+			| ADD_P IF_P NOT EXISTS columnDef
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_AddColumn;
+					n->missing_ok = true;
+					n->def = $5;
+					$$ = (Node *)n;
+				}
 			/* ALTER TABLE <name> ADD COLUMN <coldef> */
 			| ADD_P COLUMN columnDef
 				{
 					AlterTableCmd *n = makeNode(AlterTableCmd);
 					n->subtype = AT_AddColumn;
 					n->def = $3;
+					$$ = (Node *)n;
+				}
+			/* ALTER TABLE <name> ADD COLUMN IF_P NOT EXISTS <coldef> */
+			| ADD_P COLUMN IF_P NOT EXISTS columnDef
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_AddColumn;
+					n->missing_ok = true;
+					n->def = $6;
 					$$ = (Node *)n;
 				}
 			/* ALTER TABLE <name> ALTER [COLUMN] <colname> {SET DEFAULT <expr>|DROP DEFAULT} */
