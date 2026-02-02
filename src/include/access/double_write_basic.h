@@ -42,6 +42,7 @@ static const uint32 HALF_K = 512;
 #define DW_BATCH_UPGRADE_BATCH_FILE_NAME (g_instance.datadir_cxt.dw_subdir_cxt.dwBatchUpgradeFilePath)
 #define DW_META_FILE (g_instance.datadir_cxt.dw_subdir_cxt.dwMetaPath)
 #define DW_EXT_DIRECTORY (g_instance.datadir_cxt.dw_subdir_cxt.dwExtChunkPath)
+#define DW_TMP_CHECK_FILE (g_instance.datadir_cxt.dw_subdir_cxt.dwTmpCheckFilePath)
 #define DW_STORAGE_TYPE ((device_type_t)g_instance.datadir_cxt.dw_subdir_cxt.dwStorageType)
 
 static const uint32 DW_TRY_WRITE_TIMES = 8;
@@ -75,6 +76,7 @@ static const uint16 DW_BATCH_FILE_START = 1;
 
 #define REDUCE_CKS2UINT16(cks) (((cks) >> 16) ^ ((cks)&0xFFFF))
 #define DW_FULL_CKPT 0x1
+#define MAX_DW_FILE_NUM 16
 
 static const uint32 DW_META_FILE_ALIGN_BYTES = 512 - sizeof(uint32) - sizeof(uint32) - sizeof(uint16) - sizeof(uint16) - sizeof(uint16);
 

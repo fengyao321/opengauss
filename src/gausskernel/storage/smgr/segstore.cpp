@@ -37,6 +37,7 @@
 #include "storage/smgr/segment.h"
 #include "storage/smgr/smgr.h"
 #include "storage/freespace.h"
+#include "storage/lmgr.h"
 #include "utils/resowner.h"
 #include "vectorsonic/vsonichash.h"
 #include "storage/procarray.h"
@@ -1223,6 +1224,7 @@ SegPageLocation seg_get_physical_location(RelFileNode rnode, ForkNumber forknum,
 BlockNumber seg_alloc_segment(Oid tablespace_id, Oid database_id, bool isbucket, BlockNumber preassigned_block)
 {
     BlockNumber result;
+    LockTableSpace(tablespace_id, database_id, ShareLock);
     (void)GetCurrentTransactionId();
     if (isbucket) {
         /*
@@ -1237,6 +1239,7 @@ BlockNumber seg_alloc_segment(Oid tablespace_id, Oid database_id, bool isbucket,
             "transation uncommit can drop segment!\n", g_instance.attr.attr_common.PGXCNodeName)));
         XLogAtomicOpCommit();
     }
+    UnlockTableSpace(tablespace_id, database_id, ShareLock);
     return result;
 }
 

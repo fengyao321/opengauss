@@ -8034,6 +8034,7 @@ static bool CheckSIGHUPFlag()
 void reload_configfile(void)
 {
     if (CheckSIGHUPFlag()) {
+        t_thrd.syncrep_cxt.syncrep_reload_config = true;
         ResourceOwner currentOwner = t_thrd.utils_cxt.CurrentResourceOwner;
         if (currentOwner == NULL) {
             /* we use t_thrd.mem_cxt.msg_mem_cxt to remember config info in this cluster. */
@@ -8054,6 +8055,7 @@ void reload_configfile(void)
             t_thrd.utils_cxt.CurrentResourceOwner = NULL;
             ResourceOwnerDelete(newOwner);
         }
+        t_thrd.syncrep_cxt.syncrep_reload_config = false;
     }
 }
 
@@ -9113,6 +9115,7 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
         t_thrd.log_cxt.call_stack = NULL;
         /* reset buffer strategy flag */
         t_thrd.storage_cxt.is_btree_split = false;
+        t_thrd.syncrep_cxt.syncrep_reload_config = false;
 
         SetForceXidFromGTM(false);
         /* reset timestamp_from_cn if error happen between 't' message and start transaction */

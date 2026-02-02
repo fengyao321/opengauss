@@ -130,4 +130,6 @@ extern void UnlockProcedureIdForXact(Oid procId, Oid dbId, LOCKMODE lockmode);
 extern void LockPackageIdForXact(Oid packageId, Oid dbId, LOCKMODE lockmode);
 extern void UnlockPackageIdForXact(Oid packageId, Oid dbId, LOCKMODE lockmode);
 
+void LockTableSpace(Oid spcId, Oid dbId, LOCKMODE lockmode);
+void UnlockTableSpace(Oid spcId, Oid dbId, LOCKMODE lockmode);
 #endif /* LMGR_H */

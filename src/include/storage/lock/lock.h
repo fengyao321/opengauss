@@ -180,6 +180,7 @@ typedef enum LockTagType {
     LOCKTAG_SUBTRANSACTION, /* subtransaction (for waiting for subxact done) */
     /* ID info for a transaction is its TransactionId + SubTransactionId */
     LOCKTAG_UID,
+    LOCKTAG_TABLESPACE,
     LOCKTAG_PLPY_GIL,
     LOCK_EVENT_NUM
 } LockTagType;
@@ -365,6 +366,14 @@ typedef struct LOCKTAG {
         (locktag).locktag_type = LOCKTAG_OBJECT,           \
         (locktag).locktag_lockmethodid = USER_LOCKMETHOD)
 
+#define SET_LOCKTAG_TABLESPACE(locktag, spcoid, dboid)    \
+    ((locktag).locktag_field1 = (spcoid),                 \
+        (locktag).locktag_field2 = (dboid),               \
+        (locktag).locktag_field3 = 0,                     \
+        (locktag).locktag_field4 = 0,                     \
+        (locktag).locktag_field5 = 0,                     \
+        (locktag).locktag_type = LOCKTAG_TABLESPACE,      \
+        (locktag).locktag_lockmethodid = DEFAULT_LOCKMETHOD)
 /*
  * Per-locked-object lock information:
  *

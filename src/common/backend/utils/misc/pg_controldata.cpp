@@ -313,6 +313,7 @@ Datum pg_control_checkpoint(PG_FUNCTION_ARGS)
 
     values[i] = BoolGetDatum(controlFile->checkPointCopy.fullPageWrites);
     nulls[i] = false;
+    i++;
 
     values[i] = ObjectIdGetDatum(controlFile->checkPointCopy.nextOid);
     nulls[i] = false;

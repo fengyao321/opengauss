@@ -939,6 +939,9 @@ static void knl_g_dwsubdir_init(knl_g_dwsubdatadir_context* dw_subdir_cxt)
     errorno = strcpy_s(dw_subdir_cxt->dwExtChunkPath, MAXPGPATH, "global/pg_dw_ext_chunk");
     securec_check_c(errorno, "\0", "\0");
 
+    errorno = strcpy_s(dw_subdir_cxt->dwTmpCheckFilePath, MAXPGPATH, "global/pg_dw_check");
+    securec_check_c(errorno, "\0", "\0");
+
     dw_subdir_cxt->dwStorageType = 0;
 }
 

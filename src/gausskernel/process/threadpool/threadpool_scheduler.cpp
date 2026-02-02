@@ -87,10 +87,12 @@ void TpoolSchedulerMain(ThreadPoolScheduler *scheduler)
     }
 
     pgstat_report_appname("ThreadPoolScheduler");
+    ereport(LOG, (errmsg("Thread pool scheduler thread started.")));
     pgstat_report_activity(STATE_IDLE, NULL);
     while (true) {
         if (unlikely(scheduler->m_getKilled)) {
             scheduler->m_getKilled = false;
+            ereport(LOG, (errmsg("Thread pool scheduler thread exited.")));
             proc_exit(0);
         }
         pg_usleep(SCHEDULER_TIME_UNIT);
@@ -103,6 +105,7 @@ void TpoolSchedulerMain(ThreadPoolScheduler *scheduler)
         g_threadPoolControler->GetSessionCtrl()->CheckIdleInTransactionSessionTimeout();
 #endif
     }
+    ereport(LOG, (errmsg("Thread pool scheduler thread exited.")));
     proc_exit(0);
 }
 

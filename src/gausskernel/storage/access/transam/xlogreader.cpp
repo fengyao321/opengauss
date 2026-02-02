@@ -661,6 +661,16 @@ bool ValidXLogRecordHeader(XLogReaderState *state, XLogRecPtr RecPtr, XLogRecPtr
  */
 bool ValidXLogRecord(XLogReaderState *state, XLogRecord *record, XLogRecPtr recptr)
 {
+    if (record->xl_tot_len == 0 || record->xl_tot_len >= XLogRecordMaxSize) {
+        report_invalid_record(state,
+                              "incorrect record length in record at %X/%X, "
+                              "record info: xl_info=%d, xl_prev=%X/%X, xl_rmid=%d, xl_tot_len=%u, xl_xid= %lu",
+                              (uint32)(recptr >> 32), (uint32)recptr, record->xl_info,
+                              (uint32)(record->xl_prev >> 32), (uint32)(record->xl_prev), record->xl_rmid,
+                              record->xl_tot_len, record->xl_xid);
+        return false;
+    }
+
     pg_crc32c crc; /* pg_crc32c is same as pg_crc32 */
 
     /* using CRC32C since V1R8C10 */

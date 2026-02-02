@@ -1253,6 +1253,10 @@ Buffer XLogReadBufferExtendedForHeapDisk(const RelFileNode &rnode, ForkNumber fo
 
         if (PageIsNew(page)) {
             Assert(!PageIsLogical(page));
+            if (IsSegmentFileNode(rnode)) {
+                SegmentCheck(pblk != NULL);
+            }
+
             if (ENABLE_DMS) {
                 if (buffer_is_locked) {
                     LockBuffer(buffer, BUFFER_LOCK_UNLOCK);

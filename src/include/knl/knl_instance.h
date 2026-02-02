@@ -1427,6 +1427,7 @@ typedef struct knl_g_dwsubdatadir_context {
     char dwBatchUpgradeFilePath[MAXPGPATH];
     char dwMetaPath[MAXPGPATH];
     char dwExtChunkPath[MAXPGPATH];
+    char dwTmpCheckFilePath[MAXPGPATH];
     uint8 dwStorageType;
 } knl_g_dwsubdatadir_context;
 

@@ -50,7 +50,7 @@ extern BuildErrorCode increment_return_code;
 extern char divergeXlogFileName[MAXFNAMELEN];
 
 /* in parsexlog.c */
-extern void extractPageMap(const char* datadir, XLogRecPtr startpoint, TimeLineID tli);
+extern bool extractPageMap(const char* datadir, XLogRecPtr startpoint, TimeLineID tli);
 extern XLogRecPtr readOneRecord(const char* datadir, XLogRecPtr ptr, TimeLineID tli);
 extern XLogRecPtr FindMaxLSN(char* workingpath, char* returnmsg, pg_crc32 *maxLsnCrc, uint32 *maxLsnLen = NULL, 
     TimeLineID *returnTli = NULL);

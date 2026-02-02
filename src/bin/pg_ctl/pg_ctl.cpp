@@ -240,6 +240,7 @@ BuildFailReason g_inc_fail_reason = DEFAULT_REASON;
 VerifyCommitStatus verifyCommitStatus = VERIFY_COMMIT_DISABLE;
 
 bool g_is_obsmode = false;
+bool g_inc_build_need_retry = true;
 
 /* dss parameter */
 static char* vgname = NULL;
@@ -4281,6 +4282,10 @@ static bool DoIncBuild(uint32 term)
 {
     bool buildSuccess = false;
     for (int i = 0; i < INC_BUILD_RETRY_TIMES; ++i) {
+        if (!g_inc_build_need_retry) {
+            break;
+        }
+
         if (conn_str == NULL) {
             buildSuccess = do_incremental_build(term);
         } else {

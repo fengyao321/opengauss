@@ -3457,6 +3457,7 @@ void standard_ProcessUtility(processutility_context* processutility_cxt,
             }
             PG_CATCH();
             {
+                LockErrorCleanup();
                 if (u_sess->plsql_cxt.debug_query_string) {
                     pfree_ext(u_sess->plsql_cxt.debug_query_string);
                 }
@@ -5855,6 +5856,7 @@ ProcessUtilitySlow(Node *parse_tree,
                 }
                 PG_CATCH();
                 {
+                    LockErrorCleanup();
                     set_create_plsql_type_end();
                     set_function_style_none();
     #ifndef ENABLE_MULTIPLE_NODES

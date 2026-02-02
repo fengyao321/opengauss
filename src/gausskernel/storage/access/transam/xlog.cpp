@@ -13119,6 +13119,7 @@ void CreateCheckPoint(int flags)
 #endif
     }
 
+    (void)LWLockAcquire(RedoTruncateLock, LW_EXCLUSIVE);
     /*
      * Now insert the checkpoint record into XLOG.
      */
@@ -13231,6 +13232,7 @@ void CreateCheckPoint(int flags)
     ereport(LOG, (errmsg("will update control file (create checkpoint), shutdown:%d", shutdown)));
     UpdateControlFile();
     LWLockRelease(ControlFileLock);
+    LWLockRelease(RedoTruncateLock);
 
     /* Update shared-memory copy of checkpoint XID/epoch */
     {
@@ -13757,8 +13759,7 @@ bool CreateRestartPoint(int flags)
             return false;
         }
     }
-    (void)LWLockAcquire(RedoTruncateLock, LW_SHARED);
-    LWLockRelease(RedoTruncateLock);
+    (void)LWLockAcquire(RedoTruncateLock, LW_EXCLUSIVE);
     /*
      * Update pg_control, using current time.  Check that it still shows
      * IN_ARCHIVE_RECOVERY state and an older checkpoint, else do nothing;
@@ -13779,6 +13780,7 @@ bool CreateRestartPoint(int flags)
         UpdateControlFile();
     }
     LWLockRelease(ControlFileLock);
+    LWLockRelease(RedoTruncateLock);
 
     /* wake up the cbmwriter */
     if (g_instance.proc_base->cbmwriterLatch) {

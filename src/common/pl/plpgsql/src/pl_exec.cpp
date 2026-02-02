@@ -3941,6 +3941,7 @@ static int exec_stmt_block(PLpgSQL_execstate* estate, PLpgSQL_stmt_block* block,
             }
             PG_CATCH();
             {
+                LockErrorCleanup();
                 ExceptionContext excptContext;
                 exec_exception_begin(estate, &excptContext);
 
@@ -4018,6 +4019,7 @@ static int exec_stmt_block(PLpgSQL_execstate* estate, PLpgSQL_stmt_block* block,
             }
             PG_CATCH();
             {
+                LockErrorCleanup();
                 if (estate->func->debug) {
                     PlDebuggerComm* debug_comm = &g_instance.pldebug_cxt.debug_comm[estate->func->debug->comm->comm_idx];
                     /* client has error and debug on inner funciton, throw current error */
@@ -4264,6 +4266,7 @@ static int expand_stmts(PLpgSQL_execstate* estate, List* stmts, bool& exception_
                 }
                 PG_CATCH();
                 {
+                    LockErrorCleanup();
                     exception_flag = true;
                     if (estate->func->debug) {
                         PlDebuggerComm* debug_comm = &g_instance.pldebug_cxt.debug_comm[estate->func->debug->comm->comm_idx];
@@ -6180,6 +6183,7 @@ static int exec_stmt_fori(PLpgSQL_execstate* estate, PLpgSQL_stmt_fori* stmt, bo
             }
             PG_CATCH();
             {
+                LockErrorCleanup();
                 ErrorData* edata = &t_thrd.log_cxt.errordata[t_thrd.log_cxt.errordata_stack_depth];
                 int errcode = edata->sqlerrcode;
                 char* errmsg = edata->message;
@@ -8699,6 +8703,7 @@ static int exec_stmt_dynexecute(PLpgSQL_execstate* estate, PLpgSQL_stmt_dynexecu
         }
         PG_CATCH();
         {
+            LockErrorCleanup();
             /* package may use this ptr for check, need reset it */
             ereport(DEBUG3, (errmodule(MOD_NEST_COMPILE), errcode(ERRCODE_LOG),
                 errmsg("%s clear curr_compile_context because of error.", __func__)));
@@ -8743,6 +8748,7 @@ static int exec_stmt_dynexecute(PLpgSQL_execstate* estate, PLpgSQL_stmt_dynexecu
         }
         PG_CATCH();
         {
+            LockErrorCleanup();
             t_thrd.log_cxt.call_stack = saveplcallstack;
 #ifdef ENABLE_MULTIPLE_NODES
             SetSendCommandId(saveSetSendCommandId);
@@ -16369,6 +16375,7 @@ void pl_validate_stmt_block_in_subtransaction(PLpgSQL_stmt_block *block, PLpgSQL
     }
     PG_CATCH();
     {
+        LockErrorCleanup();
         stp_retore_old_xact_stmt_state(savedisAllowCommitRollback);
         OverrideStackEntry *entry = NULL;
         Assert(u_sess->catalog_cxt.overrideStack != NULL);
@@ -16410,6 +16417,7 @@ void pl_validate_stmt_block_in_subtransaction(PLpgSQL_stmt_block *block, PLpgSQL
     }
     PG_CATCH();
     {
+        LockErrorCleanup();
         stp_retore_old_xact_stmt_state(savedisAllowCommitRollback);
         u_sess->SPI_cxt.is_stp = savedIsSTP;
         u_sess->SPI_cxt.is_proconfig_set = savedProConfigIsSet;

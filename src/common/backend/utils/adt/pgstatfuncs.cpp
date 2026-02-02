@@ -3481,6 +3481,9 @@ static char* GetLocktagDecode(const char* locktag)
             appendStringInfo(&tag, "virtualxid:%u/%lu", locktagField1,
                 (TransactionId)locktagField2 | ((TransactionId)locktagField3 << DISPLACEMENTS_VALUE));
             break;
+        case LOCKTAG_TABLESPACE:
+            appendStringInfo(&tag, "tablespace:%u, database:%u", locktagField1, locktagField2);
+            break;
         case LOCKTAG_OBJECT:
         case LOCKTAG_USERLOCK:
         case LOCKTAG_ADVISORY:

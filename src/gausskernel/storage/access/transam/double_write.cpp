@@ -992,6 +992,10 @@ static void dw_check_batch_parameter_change(knl_g_dw_context *batch_cxt)
         /* free batch cxt resources, close file and reset state. */
         dw_exit(false);
 
+        /* Create a temp file which indicates the beginning of this process. */
+        int fd = dw_create_file(DW_TMP_CHECK_FILE);
+        (void)close(fd);
+
         /* remove all meta and batch files. */
         dw_remove_batch_file(dw_file_num);
         dw_remove_batch_meta_file();
@@ -1002,7 +1006,40 @@ static void dw_check_batch_parameter_change(knl_g_dw_context *batch_cxt)
 
         /* init batch cxt */
         dw_cxt_init_batch();
+
+        /* Remove the temp file as the change finished. */
+        if (unlink(DW_TMP_CHECK_FILE) != 0) {
+            ereport(PANIC, (errmodule(MOD_DW), errmsg("Could not remove the DW tmp check file: %m.")));
+        }
+
+        ereport(LOG, (errmodule(MOD_DW), errmsg("Finished change dw batch parameter")));
     }
+}
+
+static void dw_recheck_batch_parameter_change()
+{
+    if (!file_exists(DW_TMP_CHECK_FILE)) {
+        return;
+    }
+
+    dw_batch_meta_file batch_meta_file;
+    int g_dw_file_num = g_instance.attr.attr_storage.dw_file_num;
+    int g_dw_file_size = g_instance.attr.attr_storage.dw_file_size;
+    ereport(LOG, (errmodule(MOD_DW), errmsg("Incomplete change of meta and batch files. Redo the change, \
+        new batch parameter: dw_file_num %d, dw_file_size %d MB", g_dw_file_num, g_dw_file_size)));
+
+    /* remove all meta and batch files. */
+    dw_remove_batch_file(MAX_DW_FILE_NUM);
+    dw_remove_batch_meta_file();
+    dw_generate_meta_file(&batch_meta_file);
+    dw_generate_batch_files(g_dw_file_num, DW_FILE_SIZE_UNIT * g_dw_file_size);
+
+    /* Remove the temp file as the change finished. */
+    if (unlink(DW_TMP_CHECK_FILE) != 0) {
+        ereport(PANIC, (errmodule(MOD_DW), errmsg("Could not remove the DW tmp check file: %m.")));
+    }
+
+    ereport(LOG, (errmodule(MOD_DW), errmsg("Finished change dw batch parameter")));
 }
 
 void dw_recover_all_partial_write_batch(knl_g_dw_context *batch_cxt)
@@ -2020,6 +2057,7 @@ void dw_init()
     old_mem_cxt = MemoryContextSwitchTo(mem_cxt);
     ereport(LOG, (errmodule(MOD_DW), errmsg("Double Write init")));
 
+    dw_recheck_batch_parameter_change();
     /* when double write is enabled, increamental checkpoint must be enabled too */
     if (dw_allow_enabled()) {
         dw_enable_init();

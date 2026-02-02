@@ -693,7 +693,10 @@ void RelationTruncate(Relation rel, BlockNumber nblocks, TransactionId latest_re
      * failure to truncate, that might spell trouble at WAL replay, into a
      * certain PANIC.
      */
+    bool lockTruncate = false;
     if (RelationNeedsWAL(rel)) {
+        lockTruncate = true;
+        (void)LWLockAcquire(RedoTruncateLock, LW_SHARED);
         /*
          * Make an XLOG entry reporting the file truncation.
          */
@@ -736,6 +739,9 @@ void RelationTruncate(Relation rel, BlockNumber nblocks, TransactionId latest_re
 
     /* Do the real work */
     smgrtruncate(rel->rd_smgr, MAIN_FORKNUM, nblocks);
+    if (lockTruncate) {
+        LWLockRelease(RedoTruncateLock);
+    }
     BatchClearBadBlock(rel->rd_node, MAIN_FORKNUM, nblocks);
 }
 
@@ -781,10 +787,14 @@ void PartitionTruncate(Relation parent, Partition part, BlockNumber nblocks, Tra
         visibilitymap_truncate(rel, nblocks);
 
     bcm = smgrexists(rel->rd_smgr, BCM_FORKNUM);
-    if (bcm)
+    if (bcm) {
         BCM_truncate(rel);
+    }
 
+    bool lockTruncate = false;
     if (RelationNeedsWAL(parent)) {
+        lockTruncate = true;
+        (void)LWLockAcquire(RedoTruncateLock, LW_SHARED);
         XLogRecPtr lsn;
         xl_smgr_truncate_compress xlrec;
         uint8 info = XLOG_SMGR_TRUNCATE | XLR_SPECIAL_REL_UPDATE;
@@ -823,6 +833,9 @@ void PartitionTruncate(Relation parent, Partition part, BlockNumber nblocks, Tra
 
     /* Do the real work */
     smgrtruncate(rel->rd_smgr, MAIN_FORKNUM, nblocks);
+    if (lockTruncate) {
+        LWLockRelease(RedoTruncateLock);
+    }
     BatchClearBadBlock(rel->rd_node, MAIN_FORKNUM, nblocks);
 
     /* release fake relation */
@@ -1302,7 +1315,7 @@ void xlog_block_smgr_redo_truncate(RelFileNode rnode, BlockNumber blkno, XLogRec
     smgrcreate(reln, MAIN_FORKNUM, true);
     UpdateMinRecoveryPoint(lsn, false);
     LockRelFileNode(rnode, AccessExclusiveLock);
-    (void)LWLockAcquire(RedoTruncateLock, LW_EXCLUSIVE);
+    (void)LWLockAcquire(RedoTruncateLock, LW_SHARED);
     smgrtruncate(reln, MAIN_FORKNUM, blkno);
     LWLockRelease(RedoTruncateLock);
     XLogTruncateRelation(rnode, MAIN_FORKNUM, blkno);

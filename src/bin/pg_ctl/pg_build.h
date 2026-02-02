@@ -48,6 +48,7 @@ extern char conninfo_global[MAX_REPLNODE_NUM][MAX_VALUE_LEN];
 extern int standby_recv_timeout;
 extern int standby_connect_timeout; /* 120 sec = default */
 extern char gaussdb_state_file[MAXPGPATH];
+extern bool g_inc_build_need_retry;
 
 void delete_datadir(const char* dirname);
 

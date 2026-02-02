@@ -719,6 +719,11 @@ Page PageGetTempPageCopySpecial(Page page)
  */
 OffsetNumber PageAddItem(Page page, Item item, Size size, OffsetNumber offsetNumber, bool overwrite, bool is_heap)
 {
+    if (page == NULL || item == NULL) {
+        ereport(PANIC, (errcode(ERRCODE_DATA_CORRUPTED),
+                        errmsg("corrupted page pointers: lower = %u, upper = %u, special = %u", 0, 0, 0)));
+    }
+
     PageHeader phdr = (PageHeader)page;
     Size alignedSize;
     int lower;
