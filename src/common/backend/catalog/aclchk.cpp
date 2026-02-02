@@ -6762,27 +6762,18 @@ bool pg_proc_ownercheck(Oid proc_oid, Oid roleid)
     HeapTuple tuple = NULL;
     Oid ownerId;
 
-    Datum proc_secdef_datum;
-    bool procSecdef = false;
-    bool isnull = false;
-
     tuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(proc_oid));
     if (!HeapTupleIsValid(tuple))
         ereport(ERROR, (errmodule(MOD_SEC), errcode(ERRCODE_UNDEFINED_FUNCTION),
             errmsg("function with OID %u does not exist", proc_oid), errdetail("N/A"),
                 errcause("System error."), erraction("Contact engineer to support.")));
-    proc_secdef_datum = SysCacheGetAttr(PROCOID, tuple, Anum_pg_proc_prosecdef, &isnull);
-    if (!isnull) {
-        procSecdef = DatumGetBool(proc_secdef_datum);
-    }
     ownerId = ((Form_pg_proc)GETSTRUCT(tuple))->proowner;
-    if (procSecdef && ownerId != roleid) {
-        ereport(ERROR, (errmodule(MOD_SEC), errcode(ERRCODE_UNDEFINED_PACKAGE),
-            errmsg("security definer function not support replace with different owner"), errdetail("N/A"),
-                errcause("System error."), erraction("delete and rebuild function.")));
+    ReleaseSysCache(tuple);
+
+    if (ownerId == BOOTSTRAP_SUPERUSERID && !IsInitdb && !u_sess->attr.attr_common.IsInplaceUpgrade && !initialuser()) {
+        return false;
     }
 
-    ReleaseSysCache(tuple);
     /* Superusers bypass all permission checking. */
     /* Database Security:  Support separation of privilege. */
     if (superuser_arg(roleid) || systemDBA_arg(roleid)) {
