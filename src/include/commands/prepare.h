@@ -16,6 +16,7 @@
 #include "commands/explain.h"
 #include "utils/globalplancache.h"
 #include "utils/plancache.h"
+#include "utils/plpgsql.h"
 
 #ifdef PGXC
 typedef struct DatanodeStatement {
@@ -74,6 +75,7 @@ extern void GetThreadPreparedStatements(Tuplestorestate* tupStore, TupleDesc tup
 extern bool quickPlanner(List* querytree_list, Node* parsetree, const char*queryString, CommandDest dest, char* completionTag);
 typedef Datum (*bpcharLaunchFunc)(bool can_ignore, BpChar* source, int32 &maxlen, bool isExplicit);
 typedef Datum (*varcharLaunchFunc)(bool can_ignore, VarChar* source, int32 &typmod, bool isExplicit);
+extern void exec_prepare_plan_interface(PLpgSQL_execstate *estate, PLpgSQL_expr *expr, int cursorOptions);
 #ifdef ENABLE_MOT
 extern void TryMotJitCodegenQuery(const char* queryString, CachedPlanSource* psrc, Query* query);
 #endif

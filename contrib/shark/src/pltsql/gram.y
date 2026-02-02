@@ -403,7 +403,7 @@ static bool retrieve_from_sbr(char** type_name);
 %type <repeat_condition>  repeat_condition
 %type <stmt>	proc_stmt pl_block
 %type <stmt>	stmt_assign stmt_if stmt_loop stmt_while stmt_exit stmt_goto label_stmts label_stmt
-%type <stmt>	stmt_return stmt_raise stmt_execsql
+%type <stmt>	stmt_return stmt_raise stmt_execsql stmt_exec
 %type <stmt>	stmt_dynexecute stmt_for stmt_perform stmt_getdiag
 %type <stmt>	stmt_open stmt_fetch stmt_move stmt_close stmt_null
 %type <stmt>	stmt_commit stmt_rollback stmt_savepoint
@@ -538,6 +538,7 @@ static bool retrieve_from_sbr(char** type_name);
 %token <keyword>    K_EXCEPT
 %token <keyword>	K_EXCEPTION
 %token <keyword>	K_EXCEPTIONS
+%token <keyword>	K_EXEC
 %token <keyword>	K_EXECUTE
 %token <keyword>	K_EXIT
 %token <keyword>	K_FALSE
@@ -3099,6 +3100,8 @@ label_stmt		: stmt_assign
                         { $$ = $1; }
                 | stmt_raise
                         { $$ = $1; }
+                | stmt_exec
+                        { $$ = $1; }
                 | stmt_execsql
                         { $$ = $1; }
                 | stmt_dynexecute
@@ -3143,6 +3146,49 @@ stmt_perform	: K_PERFORM {u_sess->parser_cxt.isPerform = true;} expr_until_semi
                         $$ = stmt;
                     }
                 ;
+
+stmt_exec       : K_EXEC
+                    {
+                        /* 
+                         * Use the first token after EXEC to tell between
+                         * different EXEC functionalities.
+                         */
+                        int tok1 = yylex();
+                        int returnCodeDno = -1;
+                        if (tok1 == T_DATUM) {
+                            YYSTYPE lval = plpgsql_yylval;
+                            int tok2;
+
+                            returnCodeDno = ((PLpgSQL_var *) lval.wdatum.datum)->dno;
+                            if ((tok2 = yylex()) != '=') {
+                                pltsql_push_back_token(tok2);
+                                pltsql_push_back_token(tok1);
+                            }
+                        } else {
+                            pltsql_push_back_token(tok1);
+                        }
+
+                        PLpgSQL_stmt_exec *newp;
+
+                        newp = (PLpgSQL_stmt_exec *) palloc0(sizeof(PLpgSQL_stmt_exec));
+                        newp->cmd_type = PLPGSQL_STMT_EXEC;
+                        newp->lineno = plpgsql_location_to_lineno(@1);
+                        newp->expr = read_sql_stmt("EXEC ");
+                        newp->is_call = true;
+                        newp->returnCodeDno = returnCodeDno;
+
+                        /* we will evaluate this later. */
+                        newp->isScalarFunc = false;
+                        $$ = (PLpgSQL_stmt *) newp;
+
+                        /* consume the optional semicolon at the end of the
+                         * execute statement */
+                        plpgsql_peek(&tok1);
+                        if (tok1 == ';') {
+                            yylex();
+                        }
+                    }
+            ;
 
 stmt_assign		: assign_var assign_operator expr_until_semi
                     {
@@ -7031,6 +7077,7 @@ unreserved_keyword	:
                 | K_DUMP
                 | K_ERRCODE
                 | K_ERROR
+                | K_EXEC
                 | K_EXCEPT
                 | K_EXCEPTIONS
                 | K_FIRST

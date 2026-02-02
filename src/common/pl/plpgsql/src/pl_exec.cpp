@@ -148,6 +148,11 @@ static int exec_stmt_dynexecute(PLpgSQL_execstate* estate, PLpgSQL_stmt_dynexecu
 static int exec_stmt_transaction(PLpgSQL_execstate *estate, PLpgSQL_stmt* stmt);
 static void exec_savepoint_rollback(PLpgSQL_execstate *estate, const char *spName);
 static int exec_stmt_savepoint(PLpgSQL_execstate *estate, PLpgSQL_stmt* stmt);
+
+static int exec_stmt_exec(PLpgSQL_execstate *estate, PLpgSQL_stmt_exec *stmt);
+/* return a underlying node if n is implicit casting and underlying node is a certain type of node */
+static Node *get_underlying_node_from_implicit_casting(Node *n, NodeTag underlying_nodetype);
+
 #ifndef ENABLE_MULTIPLE_NODES
 static int exec_stmts_savecursor(PLpgSQL_execstate* estate, List* stmts, int* coverage = NULL);
 #endif
@@ -289,6 +294,9 @@ extern Const* makeConst(Oid consttype, int32 consttypmod, Oid constcollid, int c
     bool constbyval, Cursor_Data* cur);
 
 extern void check_variable_value_info(const char* var_name, const Expr* var_expr);
+
+extern SPIPlanPtr prepare_stmt_exec(PLpgSQL_execstate *estate, PLpgSQL_function *func,
+							  PLpgSQL_stmt_exec *stmt, bool keepplan = false);
 
 /* ----------
  * plpgsql_check_line_validity	Called by the debugger plugin for
@@ -5156,6 +5164,9 @@ static int exec_stmt(PLpgSQL_execstate* estate, PLpgSQL_stmt* stmt, bool resigna
             }
             rc = exec_stmt_resignal(estate, (PLpgSQL_stmt_signal *)stmt);
             break;
+        case PLPGSQL_STMT_EXEC:
+            rc = exec_stmt_exec(estate, (PLpgSQL_stmt_exec *) stmt);
+            break;
         default:
             estate->err_stmt = save_estmt;
             ereport(ERROR,
@@ -8035,6 +8046,11 @@ static void exec_prepare_plan(PLpgSQL_execstate* estate, PLpgSQL_expr* expr, int
 
     /* Check to see if it's a simple expression */
     exec_simple_check_plan(estate, expr);
+}
+
+void exec_prepare_plan_interface(PLpgSQL_execstate* estate, PLpgSQL_expr* expr, int cursorOptions)
+{
+    exec_prepare_plan(estate, expr, cursorOptions);
 }
 
 /* ----------
@@ -16975,3 +16991,317 @@ static bool is_has_update_in_query(PLpgSQL_expr* expr)
 }
 
 #endif
+
+/*
+ * Execute an EXEC statement (equivalent to CALL)
+ */
+static int exec_stmt_exec(PLpgSQL_execstate *estate, PLpgSQL_stmt_exec *stmt)
+{
+    volatile int rc = 0;
+    PLpgSQL_expr *expr = stmt->expr;
+    TransactionId oldTransactionId = SPI_get_top_transaction_id();
+
+    SPIPlanPtr      plan = expr->plan;
+    ParamListInfo   paramLI;
+    PLpgSQL_var     *return_code;
+    Query           *query;
+    TargetEntry     *target;        /* used for scalar function */
+    Oid             rettype;        /* used for scalar function */
+    int32           rettypmod;      /* used for scalar function */
+    bool            isScalarFunc;
+
+    if (plan == NULL) {
+        plan = prepare_stmt_exec(estate, estate->func, stmt);
+    }
+
+    /*
+     * If we will deal with scalar function, we need to know the correct
+     * return-type.
+     */
+    query = linitial_node(Query, ((CachedPlanSource *) linitial(plan->plancache_list))->query_list);
+
+    if (query->commandType == CMD_SELECT) {
+        Node        *node;
+        FuncExpr    *funcexpr;
+        HeapTuple   func_tuple;
+
+        if (query->targetList == NULL || list_length(query->targetList) != 1)
+            elog(ERROR, "scalar function on EXEC statement does not have exactly 1 target");
+
+        node = (Node *)linitial(query->targetList);
+        if (node == NULL || !IsA(node, TargetEntry))
+            elog(ERROR, "scalar function on EXEC statement does not have target entry");
+
+        target = (TargetEntry *) node;
+        if (target->expr == NULL || !IsA(target->expr, FuncExpr))
+            elog(ERROR, "scalar function on EXEC statement does not have scalar function target");
+
+        funcexpr = (FuncExpr *) target->expr;
+
+        func_tuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcexpr->funcid));
+        if (!HeapTupleIsValid(func_tuple))
+            elog(ERROR, "cache lookup failed for function %u", funcexpr->funcid);
+
+        rettype = exprType((Node *) funcexpr);
+        rettypmod = exprTypmod((Node *) funcexpr);
+
+        ReleaseSysCache(func_tuple);
+
+        isScalarFunc = true;
+    } else {
+        isScalarFunc = false;
+    }
+
+    stmt->isScalarFunc = isScalarFunc;
+
+    /* T-SQL doesn't allow procedure calls in a function */
+    if (estate->func && estate->func->fn_oid != InvalidOid
+        && estate->func->fn_oid != OID_MAX
+        && get_func_prokind(estate->func->fn_oid) == PROKIND_FUNCTION
+        && estate->func->fn_is_trigger == PLPGSQL_NOT_TRIGGER /* check EXEC is running function */
+        && !isScalarFunc) /* in case of EXEC on scalar function, it is allowed in T-SQL. do not throw an error */
+    {
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+                 errmsg("Only functions can be executed within a function")));
+    }
+
+    /*
+     * We construct a DTYPE_ROW datum representing the pltsql variables
+     * associated with the procedure's output arguments.  Then we can use
+     * exec_move_row() to do the assignments.
+     */
+    if (stmt->is_call && stmt->target == NULL) {
+        Node        *node;
+        FuncExpr    *funcexpr;
+        HeapTuple   func_tuple;
+        List        *funcargs;
+        Oid         *argtypes;
+        char        **argnames;
+        char        *argmodes;
+        PLpgSQL_row *row;
+        int         nfields;
+        int         i;
+        ListCell    *lc;
+        MemoryContext oldcontext;
+
+        if (isScalarFunc) {
+            funcexpr = (FuncExpr *) target->expr;
+            funcargs = funcexpr->args;
+        } else {
+            /*
+             * Get the parsed CallStmt, and look up the called procedure
+             */
+            node = query->utilityStmt;
+            if (node == NULL || !IsA(node, DolphinCallStmt))
+                elog(ERROR, "query for CALL statement is not a CallStmt");
+
+            funcexpr = ((DolphinCallStmt *) node)->funcexpr;
+            funcargs = ((DolphinCallStmt *) node)->outargs;
+        }
+
+        func_tuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcexpr->funcid));
+        if (!HeapTupleIsValid(func_tuple))
+            elog(ERROR, "cache lookup failed for function %u", funcexpr->funcid);
+
+        /*
+         * Extract function arguments, and expand any named-arg notation
+         */
+        funcargs = expand_function_arguments_interface(funcargs,
+                                                       funcexpr->funcresulttype,
+                                                       func_tuple);
+
+        /*
+         * Get the argument names and modes, too
+         */
+        get_func_arg_info(func_tuple, &argtypes, &argnames, &argmodes);
+        ReleaseSysCache(func_tuple);
+
+        /*
+         * Begin constructing row Datum
+         */
+        oldcontext = MemoryContextSwitchTo(estate->func->fn_cxt);
+
+        row = (PLpgSQL_row *) palloc0(sizeof(PLpgSQL_row));
+        row->dtype = PLPGSQL_DTYPE_ROW;
+        row->refname = "(unnamed row)";
+        row->lineno = -1;
+        row->varnos = (int *) palloc0(sizeof(int) * list_length(funcargs));
+
+        MemoryContextSwitchTo(oldcontext);
+
+        /*
+         * Examine procedure's argument list.  Each output arg position
+         * should be an unadorned pltsql variable (Datum), which we can
+         * insert into the row Datum.
+         */
+        nfields = 0;
+        i = 0;
+        foreach(lc, funcargs) {
+            Node *n = (Node *)lfirst(lc);
+            while(argmodes && argmodes[i] == PROARGMODE_IN)
+                i++;
+            if (argmodes &&
+                (argmodes[i] == PROARGMODE_INOUT ||
+                 argmodes[i] == PROARGMODE_OUT)) {
+                ListCell *paramcell;
+                Param *param;
+
+                if (IsA(n, Param)) {
+                    param = (Param *) n;
+
+                    /* paramid is offset by 1 (see make_datum_param()) */
+                    row->varnos[nfields++] = param->paramid - 1;
+                } else if (param = (Param *)get_underlying_node_from_implicit_casting(n, T_Param), param != NULL) {
+                    /* paramid is offset by 1 (see make_datum_param()) */
+                    row->varnos[nfields++] = param->paramid - 1;
+                } else if (argmodes[i] == PROARGMODE_INOUT && IsA(n, Const)) {
+                    /*
+                     * T-SQL allows to pass constant value as an output
+                     * parameter. Put -1 to param id. We can skip
+                     * assigning actual value.
+                     */
+                    row->varnos[nfields++] = -1;
+                } else if (argmodes[i] == PROARGMODE_INOUT && get_underlying_node_from_implicit_casting(n, T_Const) != NULL) {
+                    /*
+                     * mixture case of implicit casting + CONST. We can
+                     * skip assigning actual value.
+                     */
+                    row->varnos[nfields++] = -1;
+                } else {
+                    /* report error using parameter name, if available */
+                    if (argnames && argnames[i] && argnames[i][0])
+                        ereport(ERROR,
+                                (errcode(ERRCODE_SYNTAX_ERROR),
+                                 errmsg("procedure parameter \"%s\" is an output parameter but corresponding argument is not writable",
+                                        argnames[i])));
+                    else
+                        ereport(ERROR,
+                                (errcode(ERRCODE_SYNTAX_ERROR),
+                                 errmsg("procedure parameter %d is an output parameter but corresponding argument is not writable",
+                                        i + 1)));
+                }
+            }
+            i++;
+        }
+
+        row->nfields = nfields;
+        stmt->target = (PLpgSQL_variable *) row;
+    }
+
+    paramLI = setup_param_list(estate, expr);
+
+    rc = SPI_execute_plan_with_paramlist(expr->plan, paramLI, estate->readonly_func, 0);
+
+    stp_check_transaction_and_create_econtext(estate, oldTransactionId);
+    /*
+     * Copy the procedure's return code into the specified variable
+     *
+     * Note that the procedure stores its return code in the global
+     * variable named pltsql_proc_return_code.
+     */
+    if (stmt->returnCodeDno >= 0) {
+        Datum   retval;
+        bool    isnull = false;
+        return_code = (PLpgSQL_var *) estate->datums[stmt->returnCodeDno];
+
+        if (isScalarFunc) {
+            /*
+             * In case of scalar function, we should have 1-row/1-column
+             * result. Get the result data and assign into return_code. We
+             * should use exec_assign_value() to handle implicit casting
+             * correctly.
+             */
+
+            if (SPI_processed != 1)
+                elog(ERROR, "scalar function result does not return exactly one row");
+
+            retval = SPI_getbinval(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 1, &isnull);
+            exec_assign_value(estate, (PLpgSQL_datum *) return_code, retval, rettype, &isnull);
+        } else {
+            exec_assign_value(estate, (PLpgSQL_datum *) return_code, (Datum)0, INT4OID, &isnull);
+        }
+    }
+    
+    if (rc < 0)
+        elog(ERROR, "SPI_execute_plan_with_paramlist failed executing query \"%s\": %s",
+                expr->query, SPI_result_code_string(rc));
+
+    /*
+     * Check result rowcount; if there's one row, assign procedure's output
+     * values back to the appropriate variables.
+     */
+    if (SPI_processed == 1) {
+        SPITupleTable *tuptab = SPI_tuptable;
+
+        if (!stmt->target) {
+            elog(ERROR, "DO statement returned a row");
+        }
+        if (tuptab != NULL) {
+            exec_move_row(estate, NULL, (PLpgSQL_row *)stmt->target, tuptab->vals[0], tuptab->tupdesc);
+        }
+    } else if (SPI_processed > 1) {
+        elog(ERROR, "procedure call returned more than one row");
+    }
+
+    exec_eval_cleanup(estate);
+    SPI_freetuptable(SPI_tuptable);
+
+    return PLPGSQL_RC_OK;
+}
+
+static Node *get_underlying_node_from_implicit_casting(Node *n, NodeTag underlying_nodetype)
+{
+    FuncExpr *funcexpr = NULL;
+
+    if (nodeTag(n) == underlying_nodetype)
+        return n;
+
+    if (IsA(n, FuncExpr)) {
+        funcexpr = (FuncExpr *) n;
+    } else if (IsA(n, CoerceToDomain)) {
+        /*
+         * coerce-to-domain can be added before actual casting. It is already
+         * handled and we don't need this to handle output param. ignoring it.
+         */
+        CoerceToDomain *c = (CoerceToDomain *) n;
+
+        if (c->coercionformat == COERCE_IMPLICIT_CAST)
+            return get_underlying_node_from_implicit_casting((Node *) c->arg, underlying_nodetype);
+        else
+            return NULL;        /* not an implicit-casting. stop */
+    } else if (IsA(n, CoerceViaIO)) {
+        /* no casting function. cocerce-via-io used instead */
+        CoerceViaIO *c = (CoerceViaIO *) n;
+
+        if (c->coerceformat == COERCE_IMPLICIT_CAST)
+            return get_underlying_node_from_implicit_casting((Node *) c->arg, underlying_nodetype);
+        else
+            return NULL;        /* not an implicit-casting. stop */
+    } else if (IsA(n, RelabelType)) {
+        /* no casting function. RelabelType used instead */
+        RelabelType *r = (RelabelType *) n;
+
+        if (r->relabelformat == COERCE_IMPLICIT_CAST)
+            return get_underlying_node_from_implicit_casting((Node *) r->arg, underlying_nodetype);
+        else
+            return NULL;        /* not an implicit-casting. stop */
+    }
+
+    if (!funcexpr)
+        return NULL;
+    if (funcexpr->funcformat != COERCE_IMPLICIT_CAST)
+        return NULL;
+    if (funcexpr->args == NULL)
+        return NULL;
+    /* implicit casting can have 1~3 arguments */
+    if (list_length(funcexpr->args) < 1)
+        return NULL;
+    if (list_length(funcexpr->args) > 3)
+        return NULL;
+
+    if (nodeTag(linitial(funcexpr->args)) == underlying_nodetype)
+        return (Node *)linitial(funcexpr->args);
+
+    return NULL;
+}

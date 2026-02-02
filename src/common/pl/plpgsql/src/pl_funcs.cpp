@@ -800,6 +800,9 @@ static void free_stmt(PLpgSQL_stmt* stmt)
         case PLPGSQL_STMT_PIPE_ROW:
             free_pipe_row((PLpgSQL_stmt_pipe_row*)stmt);
             break;
+        case PLPGSQL_STMT_EXEC:
+            free_expr(((PLpgSQL_stmt_exec*)stmt)->expr);
+            break;
         default:
             ereport(ERROR,
                 (errmodule(MOD_PLSQL),
