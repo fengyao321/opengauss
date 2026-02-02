@@ -5382,12 +5382,10 @@ void exec_bind_message(BindMessage* pqBindMessage, PreparedStatement *pstmt, Cac
     }
 
     get_param_func(pqBindMessage, psrc, &params, CurrentMemoryContext, CurrentMemoryContext);
-#ifdef ENABLE_MULTIPLE_NODES
     /* u_sess->parser_cxt.param_info is for ddl pbe. If the logic is not ddl pbe, It will not be used*/
     if (t_thrd.proc->workingVersionNum >= DDL_PBE_VERSION_NUM) {
         u_sess->parser_cxt.param_info = (void*)params;
     }
-#endif
     /* Done storing stuff in portal's context */
     MemoryContextSwitchTo(oldContext);
 
