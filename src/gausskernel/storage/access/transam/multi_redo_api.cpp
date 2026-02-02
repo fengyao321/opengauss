@@ -549,6 +549,30 @@ void ApplyRedoRecord(XLogReaderState* record)
         DiagLogRedoRecord(record, "ApplyRedoRecord");
     }
     RmgrTable[XLogRecGetRmid(record)].rm_redo(record);
+
+    /*
+     * If xtime is still 0 and this is a transaction record, extract the
+     * transaction timestamp. This ensures pg_last_xact_replay_timestamp()
+     * returns a value even when recovery_min_apply_delay is not configured.
+     */
+    if (xtime == 0 && XLogRecGetRmid(record) == RM_XACT_ID) {
+        uint8 info = XLogRecGetInfo(record) & (~XLR_INFO_MASK);
+        char* recordData = XLogRecGetData(record);
+
+        if (recordData != NULL) {
+            if (info == XLOG_XACT_COMMIT_COMPACT) {
+                xl_xact_commit_compact* xlrec = (xl_xact_commit_compact*)recordData;
+                xtime = xlrec->xact_time;
+            } else if (info == XLOG_XACT_COMMIT) {
+                xl_xact_commit* xlrec = (xl_xact_commit*)recordData;
+                xtime = xlrec->xact_time;
+            } else if (info == XLOG_XACT_ABORT || info == XLOG_XACT_ABORT_WITH_XID) {
+                xl_xact_abort* xlrec = (xl_xact_abort*)recordData;
+                xtime = xlrec->xact_time;
+            }
+        }
+    }
+
     if (xtime != 0) {
         SetLatestXTime(xtime);
     }
