@@ -209,6 +209,10 @@ PartKeyExprResult ComputePartKeyExprTuple(Relation rel, EState *estate, TupleTab
     Datum newval = 0;
     Node* partkeyexpr = NULL;
     Relation tmpRel = NULL;
+    MemoryContext exprContext = AllocSetContextCreate(CurrentMemoryContext, "Compute PartKey Context",
+        ALLOCSET_DEFAULT_MINSIZE, ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE);
+
+    MemoryContext oldcontext = MemoryContextSwitchTo(exprContext);
     ExprState* exprstate = NULL;
     bool needFreeEstate = false;
     if (partExprKeyStr && pg_strcasecmp(partExprKeyStr, "") != 0) {
@@ -223,7 +227,7 @@ PartKeyExprResult ComputePartKeyExprTuple(Relation rel, EState *estate, TupleTab
         estate = CreateExecutorState();
         exprstate = ExecInitExpr(expression_planner((Expr*)partkeyexpr), NULL);
     } else {
-        exprstate = ExecPrepareExpr((Expr *)partkeyexpr, estate);
+        exprstate = ExecPrepareExpr((Expr *)partkeyexpr, estate, false, exprContext);
     }
     ExprContext *econtext;
     econtext = GetPerTupleExprContext(estate);
@@ -243,14 +247,22 @@ PartKeyExprResult ComputePartKeyExprTuple(Relation rel, EState *estate, TupleTab
     else if (tmpRel->partMap->type == PART_TYPE_HASH)
         boundary = ((HashPartitionMap*)(tmpRel->partMap))->hashElements[0].boundary;
     else
-        ereport(ERROR, (errcode(ERRCODE_PARTITION_ERROR), errmsg("Unsupported partition type : %d", tmpRel->partMap->type)));
+        ereport(ERROR, (errcode(ERRCODE_PARTITION_ERROR),
+                        errmsg("Unsupported partition type : %d", tmpRel->partMap->type)));
 
-    if (!isnull)
+    /*
+     * newval is produced in exprContext; copy it into oldcontext so that
+     * it remains valid after exprContext is deleted.
+     */
+    MemoryContextSwitchTo(oldcontext);
+    if (!isnull) {
         newval = datumCopy(newval, boundary[0]->constbyval, boundary[0]->constlen);
-    
+    }
+
     if (needFreeEstate) {
         FreeExecutorState(estate);
     }
+    MemoryContextDelete(exprContext);
     return {newval, isnull};
 }
 
