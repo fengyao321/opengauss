@@ -3398,15 +3398,16 @@ static int _SPI_pquery(QueryDesc *queryDesc, bool fire_triggers, long tcount, bo
      * If there are commit/rollback within stored procedure. Snapshot has already free during commit/rollback process
      * Therefore, need to set queryDesc snapshots to NULL. Otherwise the reference will be stale pointers.
      */
-    if (oldTransactionId != SPI_get_top_transaction_id()) {
+    ResourceOwner tmp = t_thrd.utils_cxt.CurrentResourceOwner;
+    if (oldTransactionId != SPI_get_top_transaction_id() || !ResourceOwnerIsValid(oldOwner)) {
         queryDesc->snapshot = NULL;
         queryDesc->crosscheck_snapshot = NULL;
         queryDesc->estate->es_snapshot = NULL;
         queryDesc->estate->es_crosscheck_snapshot = NULL;
+    } else {
+        t_thrd.utils_cxt.CurrentResourceOwner = oldOwner;
     }
 
-    ResourceOwner tmp  = t_thrd.utils_cxt.CurrentResourceOwner;
-    t_thrd.utils_cxt.CurrentResourceOwner = oldOwner;
     ExecutorEnd(queryDesc);
     t_thrd.utils_cxt.CurrentResourceOwner = tmp;
 

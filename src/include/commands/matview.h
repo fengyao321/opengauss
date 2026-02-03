@@ -43,6 +43,15 @@
 #define MATMAPNAME  "matviewmap_"
 #define MLOGNAME    "mlog_"
 
+typedef struct matview_shmem_t {
+    struct LWLock* matview_lck;
+    TransactionId matview_xmin;
+    int64 seqno;
+    bool seqno_invalid;
+} matview_shmem_t;
+
+extern matview_shmem_t* matview_shmem;
+
 #define ISMATMAP(relname) (strncmp(relname, MATMAPNAME, MATMAPLEN) == 0)
 #define ISMLOG(relname) (strncmp(relname, MLOGNAME, MLOGLEN) == 0)
 

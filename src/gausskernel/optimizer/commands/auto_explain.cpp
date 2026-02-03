@@ -124,6 +124,15 @@ static void explain_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, l
     }
     PG_CATCH();
     {
+        /* abort async io, must before LWLock release */
+        AbortAsyncListIO();
+        LWLockReleaseAll();
+        AbortBufferIO();
+        LockErrorCleanup();
+        UnlockBuffers();
+        /* release resource held by lsc */
+        ReleaseResownerOutOfTransaction();
+
         u_sess->exec_cxt.nesting_level--;
         instr_stmt_exec_report_query_plan(queryDesc);
         PG_RE_THROW();

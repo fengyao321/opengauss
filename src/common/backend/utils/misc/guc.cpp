@@ -6742,6 +6742,12 @@ void AtEOXact_GUC(bool isCommit, int nestLevel)
     Assert(nestLevel > 0 && (nestLevel <= u_sess->utils_cxt.GUCNestLevel ||
                                 (nestLevel == u_sess->utils_cxt.GUCNestLevel + 1 && !isCommit)));
 
+    /* Ensure that core does not appear in the release version when exception */
+    if (nestLevel < 0 || (nestLevel > u_sess->utils_cxt.GUCNestLevel &&
+        (nestLevel != u_sess->utils_cxt.GUCNestLevel + 1 || isCommit))) {
+        return;
+     }
+
     /* Quick exit if nothing's changed in this transaction */
     if (!u_sess->utils_cxt.guc_dirty) {
         u_sess->utils_cxt.GUCNestLevel = nestLevel - 1;

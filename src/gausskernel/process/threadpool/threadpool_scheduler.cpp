@@ -61,6 +61,16 @@ void ThreadPoolScheduler::SigHupHandler()
 
 static void reloadConfigFileIfNecessary()
 {
+    if (unlikely(t_thrd.proc->pid != gs_thread_self() || t_thrd.proc_cxt.MyProcPid != gs_thread_self())) {
+        ereport(FATAL,
+                (errmodule(MOD_THREAD_POOL),
+                 errmsg("Inconsistent proc pid %lu, my proc pid %lu, tid %lu",
+                        t_thrd.proc->pid,
+                        t_thrd.proc_cxt.MyProcPid,
+                        gs_thread_self()),
+                 errcause("Proc pid or my proc pid error."),
+                 erraction("Please retry or contact technical support.")));
+    }
     if (unlikely(t_thrd.threadpool_cxt.scheduler->m_getSIGHUP)) {
         t_thrd.threadpool_cxt.scheduler->m_getSIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
