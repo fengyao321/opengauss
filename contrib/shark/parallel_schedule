@@ -31,6 +31,7 @@ test: use_database
 test: procedure
 test: test_ddl_and_function
 test: test_ddl
+test: test_exec
 test: gs_dump_d_nvarchar2_max
 test: temp_table_special_prefix
 test: sharksysfunction

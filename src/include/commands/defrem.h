@@ -224,6 +224,8 @@ extern void DropEventCommand(DropEventStmt* stmt);
 extern char* parseIntervalExprString(Node *intervalNode);
 extern char* parseTimeExprString(Node* timeExpr);
 
+extern void ExecuteCallStmt(DolphinCallStmt *stmt, ParamListInfo params, bool atomic, DestReceiver *dest = NULL);
+
 #endif /* !FRONTEND_PARSER */
 extern DefElem* defWithOids(bool value);
 #endif /* DEFREM_H */

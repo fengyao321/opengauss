@@ -64,3 +64,8 @@
  * lead to a shift/reduce conflict.
  */
 %token WITH_paren TSQL_HINT_START_BRACKET
+
+%token <keyword> TSQL_EXEC TSQL_OUTPUT
+%type <node> tsql_ExecStmt tsql_actual_arg
+%type <boolean> tsql_opt_output
+%type <list> tsql_actual_args tsql_qualified_func_name tsql_func_name

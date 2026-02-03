@@ -31368,7 +31368,7 @@ case_arg:	a_expr									{ $$ = $1; }
 			| /*EMPTY*/								{ $$ = NULL; }
 		;
 
-columnref:	ColId
+columnref:	ColId %prec '='
 				{
 					$$ = makeColumnRef($1, NIL, @1, yyscanner);
 				}

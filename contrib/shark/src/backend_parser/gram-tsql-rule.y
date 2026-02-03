@@ -826,6 +826,7 @@ unreserved_keyword:
 			| RESEED
 			| TSQL_COLUMNSTORE
 			| TSQL_CLUSTERED
+			| TSQL_EXEC
 			| TSQL_NONCLUSTERED
 			| TSQL_PERSISTED
 			| TSQL_NOLOCK
@@ -858,6 +859,7 @@ unreserved_keyword:
 			| TSQL_MS
 			| TSQL_N
 			| TSQL_NS
+			| TSQL_OUTPUT
 			| TSQL_Q
 			| TSQL_QQ
 			| TSQL_QUARTER
@@ -1441,6 +1443,7 @@ tsql_stmt :
 			| UnlistenStmt
 			| UpdateStmt
 			| tsql_UseStmt
+			| tsql_ExecStmt
 			| VacuumStmt
 			| VariableResetStmt
 			| VariableSetStmt
@@ -2356,6 +2359,8 @@ direct_label_keyword: ABORT_P
 			| TSQL_MCS
 			| TSQL_NANOSECOND
 			| TSQL_NS
+			| TSQL_EXEC
+			| TSQL_OUTPUT
             | TRAILING
 			| TRAN
             | TRANSACTION
@@ -3091,6 +3096,127 @@ RemoveFuncStmt:
 					n->isProcedure = true;
 					$$ = (Node *)n;
 				}
+		;
+
+tsql_ExecStmt:
+			TSQL_EXEC tsql_opt_return tsql_func_name tsql_actual_args
+				{
+					List *name = $3;
+					List *args = $4;
+					DolphinCallStmt *n;
+					ListCell *lc;
+
+					foreach(lc, args)
+					{
+						Node *node = (Node *)lfirst(lc);
+						if (node->type == T_RowExpr)
+						{
+							RowExpr *row_expr = (RowExpr *) node;
+							ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									 errmsg("Row Expression argument not supported"),
+									 parser_errposition(row_expr->location)));
+						}
+					}
+
+					n = makeNode(DolphinCallStmt);
+					n->funccall = makeFuncCall(name, args, @1);
+
+					$$ = (Node *) n;
+				}
+			| TSQL_EXEC '(' Sconst ')'
+				{
+					DoStmt *n = makeNode(DoStmt);
+					StringInfoData str_body;
+					initStringInfo(&str_body);
+					appendStringInfo(&str_body, "BEGIN %s END;", $3);
+					n->args = list_make1(makeDefElem("as", (Node *)makeString(str_body.data)));
+					$$ = (Node *) n;
+				}
+		;
+
+tsql_opt_return:
+			PARAM '='
+			| /* EMPTY */
+		;
+
+tsql_func_name:
+			type_func_name_keyword
+				{
+					$$ = list_make1(makeString(pstrdup($1)));
+				}
+			| ColId
+				{
+					$$ = list_make1(makeString($1));
+				}
+			| ColId indirection
+				{
+					$$ = check_func_name(lcons(makeString($1), $2), yyscanner);
+				}
+			| tsql_qualified_func_name
+				{
+					$$ = check_func_name($1, yyscanner);
+				}
+		;
+
+tsql_actual_args: 
+			tsql_actual_arg
+				{
+					$$ = list_make1($1);
+				}
+			| tsql_actual_args ',' tsql_actual_arg
+				{
+					$$ = lappend($1, $3);
+				}
+			| /* EMPTY */
+				{
+					$$ = NIL;
+				}
+		;
+
+tsql_actual_arg: 
+			ColId '=' a_expr tsql_opt_output
+				{
+					NamedArgExpr *na = makeNode(NamedArgExpr);
+					na->name = $1;   /* FIXME: record $4 somewhere - probably need a new Node type */
+					na->arg = (Expr *) $3;
+					na->argnumber = -1;		/* until determined */
+					na->location = @1;
+					$$ = (Node *) na;
+				}
+			| a_expr tsql_opt_output
+				{
+					$$ = $1; /* FIXME: record $2 somewhere - probably need a new Node type */
+				}
+		;
+
+tsql_qualified_func_name:
+			ColId DOT_DOT attr_name
+				{
+				$$ = list_make3(makeString($1), makeString("dbo"), (Node *)makeString($3));
+				}
+			| DOT_DOT attr_name
+				{
+					// We should assemble a list of all procedures that should default to sys schema if more are needed
+					if (strcmp($2, "sp_tablecollations_100") == 0)
+					{
+						$$ = list_make2(makeString("sys"), (Node *)makeString($2));
+					}
+					else
+					{
+						$$ = list_make3(makeString("master"), makeString("dbo"), (Node *)makeString($2));
+					}
+				}
+			| '.' attr_name '.' attr_name
+				{
+					$$ = list_make3(makeString("master"), makeString($2), (Node *)makeString($4));
+				}
+		;
+
+tsql_opt_output:
+			TSQL_OUTPUT		{ $$ = true; }
+			| OUT_P			{ $$ = true; }
+			| /* EMPTY */	{ $$ = false; }
 		;
 
 AlterExtensionContentsStmt:
