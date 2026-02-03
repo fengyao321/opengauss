@@ -2446,6 +2446,36 @@ void AlterFunctionOwnerByPkg(Oid packageOid, Oid newOwnerId)
     heap_close(pg_proc_rel, NoLock);
 }
 
+static void CheckAlterFunctionPrivileges(Oid newOwnerId, Oid procOid, bool isSecdef)
+{
+    bool enablePrivilegesSeparate = g_instance.attr.attr_security.enablePrivilegesSeparate;
+
+    if (IsSystemObjOid(procOid) && u_sess->attr.attr_common.IsInplaceUpgrade == false) {
+        ereport(ERROR,
+            (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+                errmsg("ownerId change failed for function %u, because it is a builtin function.", procOid)));
+    }
+
+    if (!(superuser_arg(GetUserId())) && isSecdef && !enablePrivilegesSeparate ||
+        (enablePrivilegesSeparate && isSecdef)) {
+        ereport(ERROR,
+            (errmodule(MOD_PLSQL), errcode(ERRCODE_SYNTAX_ERROR),
+                errmsg("security definer function not allow alter owner"),
+                errdetail("please delete function and rebuild function"),
+                errcause("for security, not allow alter security definer function owner"),
+                erraction("delete and rebuild function")));
+    }
+
+    if (superuser_arg(GetUserId()) && isOperatoradmin(newOwnerId) && isSecdef) {
+        ereport(ERROR,
+            (errmodule(MOD_PLSQL), errcode(ERRCODE_SYNTAX_ERROR),
+                errmsg("sysadmin can not alter security definer function owner to opradmin"),
+                errdetail("please delete function and rebuild function"),
+                errcause("for security, not allow alter security definer function owner to opradmin"),
+                erraction("delete and rebuild function")));
+    }
+}
+
 /*
  * @Description: Alter function owner.
  * @in rel: pg_proc relation.
@@ -2464,12 +2494,7 @@ static void AlterFunctionOwner_internal(Relation rel, HeapTuple tup, Oid newOwne
 
     procForm = (Form_pg_proc)GETSTRUCT(tup);
     procOid = HeapTupleGetOid(tup);
-
-    if (IsSystemObjOid(procOid) && u_sess->attr.attr_common.IsInplaceUpgrade == false) {
-        ereport(ERROR,
-            (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-                errmsg("ownerId change failed for function %u, because it is a builtin function.", procOid)));
-    }
+    CheckAlterFunctionPrivileges(newOwnerId, procOid, procForm->prosecdef);
 
     /*
      * If the new owner is the same as the existing owner, consider the
@@ -3970,16 +3995,6 @@ static void checkAllowAlter(HeapTuple tup) {
                 errdetail("please rebuild package"),
                 errcause("package is one object,not allow alter function in package"),
                 erraction("rebuild package")));
-    }
-    prosecdef_datum = SysCacheGetAttr(PROCOID, tup, Anum_pg_proc_prosecdef, &isnull);
-    prosecdef = DatumGetBool(prosecdef_datum);
-    if (prosecdef) {
-        ereport(ERROR,
-            (errmodule(MOD_PLSQL), errcode(ERRCODE_SYNTAX_ERROR),
-                errmsg("security definer function not allow alter owner"),
-                errdetail("please delete function and rebuild function"),
-                errcause("for security, not allow alter security definer function owner"),
-                erraction("delete and rebuild function")));
     }
 }
 
