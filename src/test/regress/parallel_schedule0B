@@ -431,7 +431,7 @@ test: advisory_lock
 # Another group of parallel tests
 # ----------
 test: cluster dependency bitmapops tsdicts functional_deps
-test: json_and_jsonb json jsonb jsonb2 jsonpath jsonb_typecast
+test: json_and_jsonb json jsonb jsonb2 jsonpath jsonb_typecast jsonb_jsonpath
 #test: guc
 
 # test for vec sonic hash

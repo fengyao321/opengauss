@@ -1,0 +1,2201 @@
+CREATE DATABASE test_jsonb_jsonpath_pg dbcompatibility='PG';
+\c test_jsonb_jsonpath_pg
+select jsonb_path_exists('{"a": 12}', '$');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('{"a": 12}', '1');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('{"a": 12}', '$.a.b');
+ jsonb_path_exists 
+-------------------
+ f
+(1 row)
+
+select jsonb_path_exists('{"a": 12}', '$.b');
+ jsonb_path_exists 
+-------------------
+ f
+(1 row)
+
+select jsonb_path_exists('{"a": {"a": 12}}', '$.a.a');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('{"a": {"a": 12}}', '$.*.a');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('{"b": {"a": 12}}', '$.*.a');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('{"b": {"a": 12}}', '$.*.b');
+ jsonb_path_exists 
+-------------------
+ f
+(1 row)
+
+select jsonb_path_exists('{}', '$.*');
+ jsonb_path_exists 
+-------------------
+ f
+(1 row)
+
+select jsonb_path_exists('{"a": 1}', '$.*');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('[]', '$[*]');
+ jsonb_path_exists 
+-------------------
+ f
+(1 row)
+
+select jsonb_path_exists('[1]', '$[*]');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('[1]', '$[1]');
+ jsonb_path_exists 
+-------------------
+ f
+(1 row)
+
+select jsonb_path_exists('[1]', '$[0]');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('[1]', '$[0.3]');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('[1]', '$[0.5]');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('[1]', '$[0.9]');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('[1]', '$[1.2]');
+ jsonb_path_exists 
+-------------------
+ f
+(1 row)
+
+select jsonb_path_exists('{"a": [1,2,3], "b": [3,4,5]}', '$.*');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('{}', '$');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('[{"a": 1}, {"a": 2}, 3]', NULL);
+ jsonb_path_exists 
+-------------------
+ 
+(1 row)
+
+select jsonb_path_exists(NULL, '$[1]');
+ jsonb_path_exists 
+-------------------
+ 
+(1 row)
+
+select jsonb_path_exists('[{"a": 1}, {"a": 2}, 3]', '$[*]', NULL);
+ jsonb_path_exists 
+-------------------
+ 
+(1 row)
+
+select jsonb_path_exists('[0,1,2,3,4,5]', '$[$index]', vars => '{"index": 3}');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('[0,1,2,3,4,5]', '$[$index]', vars => '{"index": -1}');
+ jsonb_path_exists 
+-------------------
+ f
+(1 row)
+
+select jsonb_path_exists('[0,1,2,3,4,5]', '$[$index]', vars => '{"index": 99}');
+ jsonb_path_exists 
+-------------------
+ f
+(1 row)
+
+select jsonb_path_exists('[0,1,2,3,4,5]', '$[$index]', vars => '{"index": "char"}');
+ERROR:  jsonpath array subscript is not a single numeric value
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_exists('[0,1,2,3,4,5]', '$[$index]', vars => '{"index": "char"}', silent => true);
+ jsonb_path_exists 
+-------------------
+ f
+(1 row)
+
+select jsonb_path_exists('[0,1,2,3,4,5]', '$[$index]', vars => '{"key": 3}');
+ERROR:  could not find jsonpath variable "index"
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_exists('[0,1,2,3,4,5]', '$[$index]', vars => '"invalid vars"');
+ERROR:  "vars" argument is not an object
+DETAIL:  Jsonpath parameters should be encoded as key-value pairs of "vars" object.
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_query_first('[{"a": 1}, {"a": 2}, 3]', NULL);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first(NULL, '$[1]');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[{"a": 1}, {"a": 2}, 3]', '$[*]', NULL);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{"a": 10}', '$');
+ jsonb_path_query_first 
+------------------------
+ {"a": 10}
+(1 row)
+
+select jsonb_path_query_first('{"a": 12, "b": {"a": 13}}', '$.a');
+ jsonb_path_query_first 
+------------------------
+ 12
+(1 row)
+
+select jsonb_path_query_first('{"a": 12, "b": {"a": 13}}', '$.b');
+ jsonb_path_query_first 
+------------------------
+ {"a": 13}
+(1 row)
+
+select jsonb_path_query_first('{"a": 12, "b": {"a": 13}}', '$.*');
+ jsonb_path_query_first 
+------------------------
+ 12
+(1 row)
+
+select jsonb_path_query_first('[0,1,2,3,4,5]', '$[$index]', vars => '{"index": 3}');
+ jsonb_path_query_first 
+------------------------
+ 3
+(1 row)
+
+select jsonb_path_query_first('[0,1,2,3,4,5]', '$[$index]', vars => '{"index": -1}');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[0,1,2,3,4,5]', '$[$index]', vars => '{"index": 99}');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[0,1,2,3,4,5]', '$[$index_from to $index_to]', vars => '{"index_from": 1, "index_to": 4}');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('[0,1,2,3,4,5]', '$[$index]', vars => '{"index": "char"}');
+ERROR:  jsonpath array subscript is not a single numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[0,1,2,3,4,5]', '$[$index]', vars => '{"index": "char"}', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[0,1,2,3,4,5]', '$[$index]', vars => '{"key": 3}');
+ERROR:  could not find jsonpath variable "index"
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[0,1,2,3,4,5]', '$[$index]', vars => '"invalid vars"');
+ERROR:  "vars" argument is not an object
+DETAIL:  Jsonpath parameters should be encoded as key-value pairs of "vars" object.
+CONTEXT:  referenced column: jsonb_path_query_first
+-- strict/lax
+select jsonb_path_exists('[{"a": 1}, {"a": 2}, 3]', 'lax $[*].a', silent => false);
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('[{"a": 1}, {"a": 2}, 3]', 'lax $[*].a', silent => true);
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('[{"a": 1}, {"a": 2}, 3]', 'strict $[*].a', silent => false);
+ERROR:  jsonpath member accessor can only be applied to an object
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_exists('[{"a": 1}, {"a": 2}, 3]', 'strict $[*].a', silent => true);
+ jsonb_path_exists 
+-------------------
+ 
+(1 row)
+
+select jsonb_path_exists('{"b": {"a": 12}}', 'strict $.*.b');
+ERROR:  JSON object does not contain key "b"
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_exists('[1]', 'strict $[1]');
+ERROR:  jsonpath array subscript is out of bounds
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_exists('[1]', 'lax $[10000000000000000]');
+ERROR:  jsonpath array subscript is out of integer range
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_exists('[1]', 'strict $[10000000000000000]');
+ERROR:  jsonpath array subscript is out of integer range
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_query_first('[1]', 'strict $[1]');
+ERROR:  jsonpath array subscript is out of bounds
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[1]', 'strict $[1]', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[1]', 'lax $[10000000000000000]');
+ERROR:  jsonpath array subscript is out of integer range
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[1]', 'strict $[10000000000000000]');
+ERROR:  jsonpath array subscript is out of integer range
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1', 'lax $.a');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('1', 'strict $.a');
+ERROR:  jsonpath member accessor can only be applied to an object
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1', 'strict $.*');
+ERROR:  jsonpath wildcard member accessor can only be applied to an object
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1', 'strict $.a', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('1', 'strict $.*', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('1', 'strict $[1]');
+ERROR:  jsonpath array accessor can only be applied to an array
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1', 'strict $[*]');
+ERROR:  jsonpath wildcard array accessor can only be applied to an array
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1', 'strict $[1]', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('1', 'strict $[*]', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', 'lax $.a');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', 'strict $.a');
+ERROR:  jsonpath member accessor can only be applied to an object
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[]', 'strict $.a', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', 'strict $[1]');
+ERROR:  jsonpath array subscript is out of bounds
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[]', 'strict $["a"]');
+ERROR:  jsonpath array subscript is not a single numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[]', 'strict $[1]', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', 'strict $["a"]', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{}', 'lax $.a');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{}', 'strict $.a');
+ERROR:  JSON object does not contain key "a"
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('{}', 'strict $.a', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[1,2,3]', 'strict $[*].a');
+ERROR:  jsonpath member accessor can only be applied to an object
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[1,2,3]', 'strict $[*].a', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[1,2,3,{"b": [3,4,5]}]', 'strict $.*');
+ERROR:  jsonpath wildcard member accessor can only be applied to an object
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[1,2,3,{"b": [3,4,5]}]', 'strict $.*', NULL, true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[{"a": 1}, {"a": 2}, {}]', 'strict $[*].a');
+ERROR:  JSON object does not contain key "a"
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[{"a": 1}, {"a": 2}, {}]', 'strict $[*].a', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+-- .**
+select jsonb_path_exists('{"a": {"b": 1}}', 'lax $.**{1}');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('{"a": {"b": 1}}', 'lax $.**{2}');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('{"a": {"b": 1}}', 'lax $.**{3}');
+ jsonb_path_exists 
+-------------------
+ f
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**');
+ jsonb_path_query_first 
+------------------------
+ {"a": {"b": 1}}
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**{0}');
+ jsonb_path_query_first 
+------------------------
+ {"a": {"b": 1}}
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**{0 to last}');
+ jsonb_path_query_first 
+------------------------
+ {"a": {"b": 1}}
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**{1}');
+ jsonb_path_query_first 
+------------------------
+ {"b": 1}
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**{1 to last}');
+ jsonb_path_query_first 
+------------------------
+ {"b": 1}
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**{2}');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**{2 to last}');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**{3 to last}');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**{last}');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+-- last as array index
+select jsonb_path_query_first('[]', '$[last]');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', 'strict $[last]');
+ERROR:  jsonpath array subscript is out of bounds
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[]', 'strict $[last]', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[1]', '$[last]');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('[1,2,3]', '$[last]');
+ jsonb_path_query_first 
+------------------------
+ 3
+(1 row)
+
+-- arithmetic operators
+select jsonb_path_exists('["1",2,0,3]', '-$[*]');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('[1,"2",0,3]', '-$[*]');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('["1",2,0,3]', 'strict -$[*]');
+ERROR:  operand of unary jsonpath operator - is not a numeric value
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_exists('[1,"2",0,3]', 'strict -$[*]');
+ERROR:  operand of unary jsonpath operator - is not a numeric value
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_exists('[1,"2",0,3]', 'strict -$[*]', silent => true);
+ jsonb_path_exists 
+-------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{"a": 12}', '$.a + 2');
+ jsonb_path_query_first 
+------------------------
+ 14
+(1 row)
+
+select jsonb_path_query_first('{"a": 12}', '$.b + 2');
+ERROR:  left operand of jsonpath operator + is not a single numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('0', '1 / $');
+ERROR:  division by zero
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('0', '1 / $ + 2');
+ERROR:  division by zero
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('0', '-(3 + 1 % $)');
+ERROR:  division by zero
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1', '$ + "2"');
+ERROR:  right operand of jsonpath operator + is not a single numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[1, 2]', '3 * $');
+ERROR:  right operand of jsonpath operator * is not a single numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"a"', '-$');
+ERROR:  operand of unary jsonpath operator - is not a numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[1,"2",3]', '+$');
+ERROR:  operand of unary jsonpath operator + is not a numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1', '$ + "2"', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[1, 2]', '3 * $', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('"a"', '-$', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[1,"2",3]', '+$', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('[12, {"a": 13}, {"b": 14}]', 'lax $[0 to 10 / 0].a');
+ERROR:  division by zero
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('{"a": [2]}', 'lax $.a * 3');
+ jsonb_path_query_first 
+------------------------
+ 6
+(1 row)
+
+select jsonb_path_query_first('{"a": [2]}', 'lax $.a + 3');
+ jsonb_path_query_first 
+------------------------
+ 5
+(1 row)
+
+select jsonb_path_query_first('{"a": [7]}', 'lax $.a / 3');
+ jsonb_path_query_first 
+------------------------
+ 2.3333333333333333
+(1 row)
+
+select jsonb_path_query_first('{"a": [7]}', 'lax $.a % 3');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('{"a": [2, 3, 4]}', 'lax -$.a');
+ jsonb_path_query_first 
+------------------------
+ -2
+(1 row)
+
+select jsonb_path_query_first('{"a": [1, 2]}', 'lax $.a * 3');
+ERROR:  left operand of jsonpath operator * is not a single numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('{"a": [1, 2]}', 'lax $.a * 3', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+-- filter
+select * from jsonb_path_query_first('{"a": 10}', '$ ? (@.a < $value)', '{"value" : 13}');
+ jsonb_path_query_first 
+------------------------
+ {"a": 10}
+(1 row)
+
+select * from jsonb_path_query_first('{"a": 10}', '$ ? (@.a < $value)', '{"value" : 8}');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select * from jsonb_path_query_first('[10,11,12,13,14,15]', '$[*] ? (@ < $value)', '{"value" : 13}');
+ jsonb_path_query_first 
+------------------------
+ 10
+(1 row)
+
+select * from jsonb_path_query_first('[10,11,12,13,14,15]', '$[0,1] ? (@ < $x.value)', '{"x": {"value" : 13}}');
+ jsonb_path_query_first 
+------------------------
+ 10
+(1 row)
+
+select * from jsonb_path_query_first('[1,"1",2,"2",null]', '$[*] ? (@ == "1")');
+ jsonb_path_query_first 
+------------------------
+ "1"
+(1 row)
+
+select * from jsonb_path_query_first('[1,"1",2,"2",null]', '$[*] ? (@ == $value)', '{"value" : "1"}');
+ jsonb_path_query_first 
+------------------------
+ "1"
+(1 row)
+
+select * from jsonb_path_query_first('[1,"1",2,"2",null]', '$[*] ? (@ == $value)', '{"value" : null}');
+ jsonb_path_query_first 
+------------------------
+ null
+(1 row)
+
+select * from jsonb_path_query_first('[1, "2", null]', '$[*] ? (@ != null)');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select * from jsonb_path_query_first('[1, "2", null]', '$[*] ? (@ == null)');
+ jsonb_path_query_first 
+------------------------
+ null
+(1 row)
+
+select * from jsonb_path_query_first('{}', '$ ? (@ == @)');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select * from jsonb_path_query_first('[]', 'strict $ ? (@ == @)');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**.b ? (@ > 0)');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**{0}.b ? (@ > 0)');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**{1}.b ? (@ > 0)');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**{0 to last}.b ? (@ > 0)');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**{1 to last}.b ? (@ > 0)');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('{"a": {"b": 1}}', 'lax $.**{1 to 2}.b ? (@ > 0)');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('{"a": {"c": {"b": 1}}}', 'lax $.**.b ? (@ > 0)');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('{"a": {"c": {"b": 1}}}', 'lax $.**{0}.b ? (@ > 0)');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{"a": {"c": {"b": 1}}}', 'lax $.**{1}.b ? (@ > 0)');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{"a": {"c": {"b": 1}}}', 'lax $.**{0 to last}.b ? (@ > 0)');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('{"a": {"c": {"b": 1}}}', 'lax $.**{1 to last}.b ? (@ > 0)');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('{"a": {"c": {"b": 1}}}', 'lax $.**{1 to 2}.b ? (@ > 0)');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('{"a": {"c": {"b": 1}}}', 'lax $.**{2 to 3}.b ? (@ > 0)');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('[]', '$[last ? (exists(last))]');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{"g": {"x": 2}}', '$.g ? (exists (@.x))');
+ jsonb_path_query_first 
+------------------------
+ {"x": 2}
+(1 row)
+
+select jsonb_path_query_first('{"g": {"x": 2}}', '$.g ? (exists (@.y))');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{"g": {"x": 2}}', '$.g ? (exists (@.x ? (@ >= 2) ))');
+ jsonb_path_query_first 
+------------------------
+ {"x": 2}
+(1 row)
+
+select jsonb_path_query_first('{"g": [{"x": 2}, {"y": 3}]}', 'lax $.g ? (exists (@.x))');
+ jsonb_path_query_first 
+------------------------
+ {"x": 2}
+(1 row)
+
+select jsonb_path_query_first('{"g": [{"x": 2}, {"y": 3}]}', 'lax $.g ? (exists (@.x + "3"))');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{"g": [{"x": 2}, {"y": 3}]}', 'lax $.g ? ((exists (@.x + "3")) is unknown)');
+ jsonb_path_query_first 
+------------------------
+ {"x": 2}
+(1 row)
+
+select jsonb_path_query_first('{"g": [{"x": 2}, {"y": 3}]}', 'strict $.g[*] ? (exists (@.x))');
+ jsonb_path_query_first 
+------------------------
+ {"x": 2}
+(1 row)
+
+select jsonb_path_query_first('{"g": [{"x": 2}, {"y": 3}]}', 'strict $.g[*] ? ((exists (@.x)) is unknown)');
+ jsonb_path_query_first 
+------------------------
+ {"y": 3}
+(1 row)
+
+select jsonb_path_query_first('{"g": [{"x": 2}, {"y": 3}]}', 'strict $.g ? (exists (@[*].x))');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{"g": [{"x": 2}, {"y": 3}]}', 'strict $.g ? ((exists (@[*].x)) is unknown)');
+ jsonb_path_query_first 
+------------------------
+ [{"x": 2}, {"y": 3}]
+(1 row)
+
+select jsonb_path_query_first('["", "a", "abc", "abcabc"]', '$[*] ? (@ starts with "abc")');
+ jsonb_path_query_first 
+------------------------
+ "abc"
+(1 row)
+
+select jsonb_path_query_first('["", "a", "abc", "abcabc"]', 'strict $ ? (@[*] starts with "abc")');
+   jsonb_path_query_first   
+----------------------------
+ ["", "a", "abc", "abcabc"]
+(1 row)
+
+select jsonb_path_query_first('["", "a", "abd", "abdabc"]', 'strict $ ? (@[*] starts with "abc")');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('["abc", "abcabc", null, 1]', 'strict $ ? (@[*] starts with "abc")');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('["abc", "abcabc", null, 1]', 'strict $ ? ((@[*] starts with "abc") is unknown)');
+   jsonb_path_query_first   
+----------------------------
+ ["abc", "abcabc", null, 1]
+(1 row)
+
+select jsonb_path_query_first('[[null, 1, "abc", "abcabc"]]', 'lax $ ? (@[*] starts with "abc")');
+   jsonb_path_query_first   
+----------------------------
+ [null, 1, "abc", "abcabc"]
+(1 row)
+
+select jsonb_path_query_first('[[null, 1, "abd", "abdabc"]]', 'lax $ ? ((@[*] starts with "abc") is unknown)');
+   jsonb_path_query_first   
+----------------------------
+ [null, 1, "abd", "abdabc"]
+(1 row)
+
+select jsonb_path_query_first('[null, 1, "abd", "abdabc"]', 'lax $[*] ? ((@ starts with "abc") is unknown)');
+ jsonb_path_query_first 
+------------------------
+ null
+(1 row)
+
+select jsonb_path_query_first('[null, 1, "abc", "abd", "aBdC", "abdacb", "babc", "adc\nabc", "ab\nadc"]', 'lax $[*] ? (@ like_regex "^ab.*c")');
+ jsonb_path_query_first 
+------------------------
+ "abc"
+(1 row)
+
+select jsonb_path_query_first('[null, 1, "abc", "abd", "aBdC", "abdacb", "babc", "adc\nabc", "ab\nadc"]', 'lax $[*] ? (@ like_regex "^ab.*c" flag "i")');
+ jsonb_path_query_first 
+------------------------
+ "abc"
+(1 row)
+
+select jsonb_path_query_first('[null, 1, "abc", "abd", "aBdC", "abdacb", "babc", "adc\nabc", "ab\nadc"]', 'lax $[*] ? (@ like_regex "^ab.*c" flag "m")');
+ jsonb_path_query_first 
+------------------------
+ "abc"
+(1 row)
+
+select jsonb_path_query_first('[null, 1, "abc", "abd", "aBdC", "abdacb", "babc", "adc\nabc", "ab\nadc"]', 'lax $[*] ? (@ like_regex "^ab.*c" flag "s")');
+ jsonb_path_query_first 
+------------------------
+ "abc"
+(1 row)
+
+select jsonb_path_query_first('[null, 1, "a\b", "a\\b", "^a\\b$"]', 'lax $[*] ? (@ like_regex "a\\b" flag "q")');
+ jsonb_path_query_first 
+------------------------
+ "a\\b"
+(1 row)
+
+select jsonb_path_query_first('[null, 1, "a\b", "a\\b", "^a\\b$"]', 'lax $[*] ? (@ like_regex "a\\b" flag "")');
+ jsonb_path_query_first 
+------------------------
+ "a\b"
+(1 row)
+
+select jsonb_path_query_first('[null, 1, "a\b", "a\\b", "^a\\b$"]', 'lax $[*] ? (@ like_regex "^a\\b$" flag "q")');
+ jsonb_path_query_first 
+------------------------
+ "^a\\b$"
+(1 row)
+
+select jsonb_path_query_first('[null, 1, "a\b", "a\\b", "^a\\b$"]', 'lax $[*] ? (@ like_regex "^a\\B$" flag "q")');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[null, 1, "a\b", "a\\b", "^a\\b$"]', 'lax $[*] ? (@ like_regex "^a\\B$" flag "iq")');
+ jsonb_path_query_first 
+------------------------
+ "^a\\b$"
+(1 row)
+
+select jsonb_path_query_first('[null, 1, "a\b", "a\\b", "^a\\b$"]', 'lax $[*] ? (@ like_regex "^a\\b$" flag "")');
+ jsonb_path_query_first 
+------------------------
+ "a\b"
+(1 row)
+
+select jsonb_path_query_first('{"c": {"a": 2, "b":1}}', '$.** ? (@.a == 1 + 1)');
+ jsonb_path_query_first 
+------------------------
+ {"a": 2, "b": 1}
+(1 row)
+
+select jsonb_path_query_first('{"c": {"a": 2, "b":1}}', '$.** ? (@.a == (1 + 1))');
+ jsonb_path_query_first 
+------------------------
+ {"a": 2, "b": 1}
+(1 row)
+
+select jsonb_path_query_first('{"c": {"a": 2, "b":1}}', '$.** ? (@.a == @.b + 1)');
+ jsonb_path_query_first 
+------------------------
+ {"a": 2, "b": 1}
+(1 row)
+
+select jsonb_path_query_first('{"c": {"a": 2, "b":1}}', '$.** ? (@.a == (@.b + 1))');
+ jsonb_path_query_first 
+------------------------
+ {"a": 2, "b": 1}
+(1 row)
+
+select jsonb_path_query_first('[1, 2, 3]', '($[*] > 2) ? (@ == true)');
+ jsonb_path_query_first 
+------------------------
+ true
+(1 row)
+
+SELECT jsonb_path_query_first('[{"a": 1}, {"a": 2}, {"a": 3}, {"a": 5}]', '$[*].a ? (@ > $min && @ < $max)', vars => '{"min": 1, "max": 4}');
+ jsonb_path_query_first 
+------------------------
+ 2
+(1 row)
+
+SELECT jsonb_path_query_first('[{"a": 1}, {"a": 2}, {"a": 3}, {"a": 5}]', '$[*].a ? (@ > $min && @ < $max)', vars => '{"min": 3, "max": 4}');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+-- methods
+select jsonb_path_query_first('{"a": 2}', '($.a - 5).abs() + 10');
+ jsonb_path_query_first 
+------------------------
+ 13
+(1 row)
+
+select jsonb_path_query_first('{"a": 2.5}', '-($.a * $.a).floor() % 4.3');
+ jsonb_path_query_first 
+------------------------
+ -1.7
+(1 row)
+
+select jsonb_path_query_first('[1, 2, 3]', '($[*] > 3).type()');
+ jsonb_path_query_first 
+------------------------
+ "boolean"
+(1 row)
+
+select jsonb_path_query_first('[1, 2, 3]', '($[*].a > 3).type()');
+ jsonb_path_query_first 
+------------------------
+ "boolean"
+(1 row)
+
+select jsonb_path_query_first('[1, 2, 3]', 'strict ($[*].a > 3).type()');
+ jsonb_path_query_first 
+------------------------
+ "null"
+(1 row)
+
+select jsonb_path_query_first('[0, 1, -2, -3.4, 5.6]', '$[*].abs()');
+ jsonb_path_query_first 
+------------------------
+ 0
+(1 row)
+
+select jsonb_path_query_first('[0, 1, -2, -3.4, 5.6]', '$[*].floor()');
+ jsonb_path_query_first 
+------------------------
+ 0
+(1 row)
+
+select jsonb_path_query_first('[0, 1, -2, -3.4, 5.6]', '$[*].ceiling()');
+ jsonb_path_query_first 
+------------------------
+ 0
+(1 row)
+
+select jsonb_path_query_first('[0, 1, -2, -3.4, 5.6]', '$[*].ceiling().abs()');
+ jsonb_path_query_first 
+------------------------
+ 0
+(1 row)
+
+select jsonb_path_query_first('[0, 1, -2, -3.4, 5.6]', '$[*].ceiling().abs().type()');
+ jsonb_path_query_first 
+------------------------
+ "number"
+(1 row)
+
+select jsonb_path_query_first('{}', '$.abs()');
+ERROR:  jsonpath item method .abs() can only be applied to a numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('true', '$.floor()');
+ERROR:  jsonpath item method .floor() can only be applied to a numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"1.2"', '$.ceiling()');
+ERROR:  jsonpath item method .ceiling() can only be applied to a numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('{}', '$.abs()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('true', '$.floor()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('"1.2"', '$.ceiling()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[12, {"a": 13}, {"b": 14}, "ccc", true]', '$[2.5 - 1 to $.size() - 2]');
+ jsonb_path_query_first 
+------------------------
+ {"a": 13}
+(1 row)
+
+select jsonb_path_query_first('[1,null,true,"11",[],[1],[1,2,3],{},{"a":1,"b":2}]', 'strict $[*].size()');
+ERROR:  jsonpath item method .size() can only be applied to an array
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[1,null,true,"11",[],[1],[1,2,3],{},{"a":1,"b":2}]', 'strict $[*].size()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[1,null,true,"11",[],[1],[1,2,3],{},{"a":1,"b":2}]', 'lax $[*].size()');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('[1,2,3]', '$[last ? (@.type() == "number")]');
+ jsonb_path_query_first 
+------------------------
+ 3
+(1 row)
+
+select jsonb_path_query_first('[1,2,3]', '$[last ? (@.type() == "string")]');
+ERROR:  jsonpath array subscript is not a single numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[1,2,3]', '$[last ? (@.type() == "string")]', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[null,1,true,"a",[],{}]', '$.type()');
+ jsonb_path_query_first 
+------------------------
+ "array"
+(1 row)
+
+select jsonb_path_query_first('[null,1,true,"a",[],{}]', 'lax $.type()');
+ jsonb_path_query_first 
+------------------------
+ "array"
+(1 row)
+
+select jsonb_path_query_first('[null,1,true,"a",[],{}]', '$[*].type()');
+ jsonb_path_query_first 
+------------------------
+ "null"
+(1 row)
+
+select jsonb_path_query_first('null', 'null.type()');
+ jsonb_path_query_first 
+------------------------
+ "null"
+(1 row)
+
+select jsonb_path_query_first('null', 'true.type()');
+ jsonb_path_query_first 
+------------------------
+ "boolean"
+(1 row)
+
+select jsonb_path_query_first('null', '(123).type()');
+ jsonb_path_query_first 
+------------------------
+ "number"
+(1 row)
+
+select jsonb_path_query_first('null', '"123".type()');
+ jsonb_path_query_first 
+------------------------
+ "string"
+(1 row)
+
+select jsonb_path_query_first('[{},1]', '$[*].keyvalue()');
+ERROR:  jsonpath item method .keyvalue() can only be applied to an object
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[{},1]', '$[*].keyvalue()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{}', '$.keyvalue()');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{"a": 1, "b": [1, 2], "c": {"a": "bbb"}}', '$.keyvalue()');
+      jsonb_path_query_first       
+-----------------------------------
+ {"id": 0, "key": "a", "value": 1}
+(1 row)
+
+select jsonb_path_query_first('[{"a": 1, "b": [1, 2]}, {"c": {"a": "bbb"}}]', '$[*].keyvalue()');
+       jsonb_path_query_first       
+------------------------------------
+ {"id": 12, "key": "a", "value": 1}
+(1 row)
+
+select jsonb_path_query_first('[{"a": 1, "b": [1, 2]}, {"c": {"a": "bbb"}}]', 'strict $.keyvalue()');
+ERROR:  jsonpath item method .keyvalue() can only be applied to an object
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[{"a": 1, "b": [1, 2]}, {"c": {"a": "bbb"}}]', 'lax $.keyvalue()');
+       jsonb_path_query_first       
+------------------------------------
+ {"id": 12, "key": "a", "value": 1}
+(1 row)
+
+select jsonb_path_query_first('[{"a": 1, "b": [1, 2]}, {"c": {"a": "bbb"}}]', 'strict $.keyvalue().a');
+ERROR:  jsonpath item method .keyvalue() can only be applied to an object
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_exists('{"a": 1, "b": [1, 2]}', 'lax $.keyvalue()');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+select jsonb_path_exists('{"a": 1, "b": [1, 2]}', 'lax $.keyvalue().key');
+ jsonb_path_exists 
+-------------------
+ t
+(1 row)
+
+-- .string()
+select jsonb_path_query_first('null', '$.string()');
+ERROR:  jsonpath item method .string() can only be applied to a boolean, string, numeric, or datetime value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('null', '$.string()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', '$.string()');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', 'strict $.string()');
+ERROR:  jsonpath item method .string() can only be applied to a boolean, string, numeric, or datetime value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('{}', '$.string()');
+ERROR:  jsonpath item method .string() can only be applied to a boolean, string, numeric, or datetime value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[]', 'strict $.string()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{}', '$.string()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('"1.23"', '$.string()');
+ jsonb_path_query_first 
+------------------------
+ "1.23"
+(1 row)
+
+select jsonb_path_query_first('"1.23aaa"', '$.string()');
+ jsonb_path_query_first 
+------------------------
+ "1.23aaa"
+(1 row)
+
+select jsonb_path_query_first('true', '$.string()');
+ jsonb_path_query_first 
+------------------------
+ "true"
+(1 row)
+
+select jsonb_path_query_first('1234', '$.string().type()');
+ jsonb_path_query_first 
+------------------------
+ "string"
+(1 row)
+
+select jsonb_path_query_first('[2, true]', '$.string()');
+ jsonb_path_query_first 
+------------------------
+ "2"
+(1 row)
+
+select jsonb_path_query_first('[1.23, "yes", false]', '$[*].string().type()');
+ jsonb_path_query_first 
+------------------------
+ "string"
+(1 row)
+
+-- time type, not supported
+select jsonb_path_exists('"10-03-2017"', '$.datetime("dd-mm-yyyy")');
+ERROR:  jsonpath item method .datetime() is not supported.
+LINE 1: select jsonb_path_exists('"10-03-2017"', '$.datetime("dd-mm-...
+                                                 ^
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_exists('"2023-08-15"', '$.date()');
+ERROR:  jsonpath item method .date() is not supported.
+LINE 1: select jsonb_path_exists('"2023-08-15"', '$.date()');
+                                                 ^
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_exists('"12:34:56"', '$.time()');
+ERROR:  jsonpath item method .time() is not supported.
+LINE 1: select jsonb_path_exists('"12:34:56"', '$.time()');
+                                               ^
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_exists('"12:34:56 +05:30"', '$.time_tz()');
+ERROR:  jsonpath item method .time_tz() is not supported.
+LINE 1: select jsonb_path_exists('"12:34:56 +05:30"', '$.time_tz()')...
+                                                      ^
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_exists('"2023-08-15 12:34:56"', '$.timestamp()');
+ERROR:  jsonpath item method .timestamp() is not supported.
+LINE 1: select jsonb_path_exists('"2023-08-15 12:34:56"', '$.timesta...
+                                                          ^
+CONTEXT:  referenced column: jsonb_path_exists
+select jsonb_path_exists('"2023-08-15 12:34:56 +05:30"', '$.timestamp_tz()');
+ERROR:  jsonpath item method .timestamp_tz() is not supported.
+LINE 1: ...jsonb_path_exists('"2023-08-15 12:34:56 +05:30"', '$.timesta...
+                                                             ^
+CONTEXT:  referenced column: jsonb_path_exists
+-- Test .number()
+select jsonb_path_query_first('null', '$.number()');
+ERROR:  jsonpath item method .number() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('true', '$.number()');
+ERROR:  jsonpath item method .number() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('true', '$.number()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', '$.number()');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', 'strict $.number()');
+ERROR:  jsonpath item method .number() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('{}', '$.number()');
+ERROR:  jsonpath item method .number() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[]', 'strict $.number()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{}', '$.number()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('1.23', '$.number()');
+ jsonb_path_query_first 
+------------------------
+ 1.23
+(1 row)
+
+select jsonb_path_query_first('"1.23"', '$.number()');
+ jsonb_path_query_first 
+------------------------
+ 1.23
+(1 row)
+
+select jsonb_path_query_first('"1.23aaa"', '$.number()');
+ERROR:  argument "1.23aaa" of jsonpath item method .number() is invalid for type numeric
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1e1000', '$.number()');
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          jsonb_path_query_first                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+(1 row)
+
+select jsonb_path_query_first('"nan"', '$.number()');
+ERROR:  NaN or Infinity is not allowed for jsonpath item method .number()
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"NaN"', '$.number()');
+ERROR:  NaN or Infinity is not allowed for jsonpath item method .number()
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"inf"', '$.number()');
+ERROR:  argument "inf" of jsonpath item method .number() is invalid for type numeric
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"-inf"', '$.number()');
+ERROR:  argument "-inf" of jsonpath item method .number() is invalid for type numeric
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"inf"', '$.number()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('"-inf"', '$.number()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('123', '$.number()');
+ jsonb_path_query_first 
+------------------------
+ 123
+(1 row)
+
+select jsonb_path_query_first('"123"', '$.number()');
+ jsonb_path_query_first 
+------------------------
+ 123
+(1 row)
+
+select jsonb_path_query_first('12345678901234567890', '$.number()');
+ jsonb_path_query_first 
+------------------------
+ 12345678901234567890
+(1 row)
+
+select jsonb_path_query_first('"12345678901234567890"', '$.number()');
+ jsonb_path_query_first 
+------------------------
+ 12345678901234567890
+(1 row)
+
+select jsonb_path_query_first('"+12.3"', '$.number()');
+ jsonb_path_query_first 
+------------------------
+ 12.3
+(1 row)
+
+select jsonb_path_query_first('-12.3', '$.number()');
+ jsonb_path_query_first 
+------------------------
+ -12.3
+(1 row)
+
+select jsonb_path_query_first('"-12.3"', '$.number()');
+ jsonb_path_query_first 
+------------------------
+ -12.3
+(1 row)
+
+select jsonb_path_query_first('12.3', '$.number() * 2');
+ jsonb_path_query_first 
+------------------------
+ 24.6
+(1 row)
+
+-- Test .decimal()
+select jsonb_path_query_first('null', '$.decimal()');
+ERROR:  jsonpath item method .decimal() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('true', '$.decimal()');
+ERROR:  jsonpath item method .decimal() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('null', '$.decimal()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('true', '$.decimal()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', '$.decimal()');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', 'strict $.decimal()');
+ERROR:  jsonpath item method .decimal() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('{}', '$.decimal()');
+ERROR:  jsonpath item method .decimal() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[]', 'strict $.decimal()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{}', '$.decimal()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('1.23', '$.decimal()');
+ jsonb_path_query_first 
+------------------------
+ 1.23
+(1 row)
+
+select jsonb_path_query_first('"1.23"', '$.decimal()');
+ jsonb_path_query_first 
+------------------------
+ 1.23
+(1 row)
+
+select jsonb_path_query_first('"1.23aaa"', '$.decimal()');
+ERROR:  argument "1.23aaa" of jsonpath item method .decimal() is invalid for type numeric
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1e1000', '$.decimal()');
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          jsonb_path_query_first                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+(1 row)
+
+select jsonb_path_query_first('"nan"', '$.decimal()');
+ERROR:  NaN or Infinity is not allowed for jsonpath item method .decimal()
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"NaN"', '$.decimal()');
+ERROR:  NaN or Infinity is not allowed for jsonpath item method .decimal()
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"inf"', '$.decimal()');
+ERROR:  argument "inf" of jsonpath item method .decimal() is invalid for type numeric
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"-inf"', '$.decimal()');
+ERROR:  argument "-inf" of jsonpath item method .decimal() is invalid for type numeric
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"inf"', '$.decimal()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('"-inf"', '$.decimal()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('123', '$.decimal()');
+ jsonb_path_query_first 
+------------------------
+ 123
+(1 row)
+
+select jsonb_path_query_first('"123"', '$.decimal()');
+ jsonb_path_query_first 
+------------------------
+ 123
+(1 row)
+
+select jsonb_path_query_first('12345678901234567890', '$.decimal()');
+ jsonb_path_query_first 
+------------------------
+ 12345678901234567890
+(1 row)
+
+select jsonb_path_query_first('"12345678901234567890"', '$.decimal()');
+ jsonb_path_query_first 
+------------------------
+ 12345678901234567890
+(1 row)
+
+select jsonb_path_query_first('"+12.3"', '$.decimal()');
+ jsonb_path_query_first 
+------------------------
+ 12.3
+(1 row)
+
+select jsonb_path_query_first('-12.3', '$.decimal()');
+ jsonb_path_query_first 
+------------------------
+ -12.3
+(1 row)
+
+select jsonb_path_query_first('"-12.3"', '$.decimal()');
+ jsonb_path_query_first 
+------------------------
+ -12.3
+(1 row)
+
+select jsonb_path_query_first('12.3', '$.decimal() * 2');
+ jsonb_path_query_first 
+------------------------
+ 24.6
+(1 row)
+
+select jsonb_path_query_first('12345.678', '$.decimal(6, 1)');
+ jsonb_path_query_first 
+------------------------
+ 12345.7
+(1 row)
+
+select jsonb_path_query_first('12345.678', '$.decimal(6, 2)');
+ERROR:  argument "12345.678" of jsonpath item method .decimal() is invalid for type numeric
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1234.5678', '$.decimal(6, 2)');
+ jsonb_path_query_first 
+------------------------
+ 1234.57
+(1 row)
+
+select jsonb_path_query_first('12345.678', '$.decimal(7, 6)');
+ERROR:  argument "12345.678" of jsonpath item method .decimal() is invalid for type numeric
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('12345.678', '$.decimal(0, 6)');
+ERROR:  NUMERIC precision 0 must be between 1 and 1000
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('12345.678', '$.decimal(1001, 6)');
+ERROR:  NUMERIC precision 1001 must be between 1 and 1000
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1234.5678', '$.decimal(-6, +2)');
+ERROR:  NUMERIC precision -6 must be between 1 and 1000
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1234.5678', '$.decimal(6, -1001)');
+ERROR:  NUMERIC scale must be between -84 and 1000
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('0.0123456', '$.decimal(3,2)');
+ jsonb_path_query_first 
+------------------------
+ 0.01
+(1 row)
+
+select jsonb_path_query_first('0.0012345', '$.decimal(6,4)');
+ jsonb_path_query_first 
+------------------------
+ 0.0012
+(1 row)
+
+select jsonb_path_query_first('12.3', '$.decimal(12345678901,1)');
+ERROR:  precision of jsonpath item method .decimal() is out of range for type integer
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('12.3', '$.decimal(1,12345678901)');
+ERROR:  scale of jsonpath item method .decimal() is out of range for type integer
+CONTEXT:  referenced column: jsonb_path_query_first
+-- double
+select jsonb_path_query_first('null', '$.double()');
+ERROR:  jsonpath item method .double() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('true', '$.double()');
+ERROR:  jsonpath item method .double() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('null', '$.double()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('true', '$.double()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', '$.double()');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', 'strict $.double()');
+ERROR:  jsonpath item method .double() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('{}', '$.double()');
+ERROR:  jsonpath item method .double() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[]', 'strict $.double()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{}', '$.double()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('1.23', '$.double()');
+ jsonb_path_query_first 
+------------------------
+ 1.23
+(1 row)
+
+select jsonb_path_query_first('"1.23"', '$.double()');
+ jsonb_path_query_first 
+------------------------
+ 1.23
+(1 row)
+
+select jsonb_path_query_first('"1.23aaa"', '$.double()');
+ERROR:  argument "1.23aaa" of jsonpath item method .double() is invalid for type double precision
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1e1000', '$.double()');
+ERROR:  argument "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000" of jsonpath item method .double() is invalid for type double precision
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"nan"', '$.double()');
+ERROR:  NaN or Infinity is not allowed for jsonpath item method .double()
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"NaN"', '$.double()');
+ERROR:  NaN or Infinity is not allowed for jsonpath item method .double()
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"inf"', '$.double()');
+ERROR:  NaN or Infinity is not allowed for jsonpath item method .double()
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"-inf"', '$.double()');
+ERROR:  NaN or Infinity is not allowed for jsonpath item method .double()
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"inf"', '$.double()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('"-inf"', '$.double()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+-- .boolean()
+select jsonb_path_query_first('null', '$.boolean()');
+ERROR:  jsonpath item method .boolean() can only be applied to a boolean, string, or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('null', '$.boolean()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', 'strict $.boolean()');
+ERROR:  jsonpath item method .boolean() can only be applied to a boolean, string, or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('{}', '$.boolean()');
+ERROR:  jsonpath item method .boolean() can only be applied to a boolean, string, or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[]', 'strict $.boolean()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{}', '$.boolean()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('1.23', '$.boolean()');
+ERROR:  argument "1.23" of jsonpath item method .boolean() is invalid for type boolean
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"1.23"', '$.boolean()');
+ERROR:  argument "1.23" of jsonpath item method .boolean() is invalid for type boolean
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"1.23aaa"', '$.boolean()');
+ERROR:  argument "1.23aaa" of jsonpath item method .boolean() is invalid for type boolean
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1e1000', '$.boolean()');
+ERROR:  argument "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000" of jsonpath item method .boolean() is invalid for type boolean
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"nan"', '$.boolean()');
+ERROR:  argument "nan" of jsonpath item method .boolean() is invalid for type boolean
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"NaN"', '$.boolean()');
+ERROR:  argument "NaN" of jsonpath item method .boolean() is invalid for type boolean
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"inf"', '$.boolean()');
+ERROR:  argument "inf" of jsonpath item method .boolean() is invalid for type boolean
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"-inf"', '$.boolean()');
+ERROR:  argument "-inf" of jsonpath item method .boolean() is invalid for type boolean
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"inf"', '$.boolean()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('"-inf"', '$.boolean()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('"100"', '$.boolean()');
+ERROR:  argument "100" of jsonpath item method .boolean() is invalid for type boolean
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('true', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ true
+(1 row)
+
+select jsonb_path_query_first('false', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ false
+(1 row)
+
+select jsonb_path_query_first('1', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ true
+(1 row)
+
+select jsonb_path_query_first('0', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ false
+(1 row)
+
+select jsonb_path_query_first('-1', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ true
+(1 row)
+
+select jsonb_path_query_first('100', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ true
+(1 row)
+
+select jsonb_path_query_first('"1"', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ true
+(1 row)
+
+select jsonb_path_query_first('"0"', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ false
+(1 row)
+
+select jsonb_path_query_first('"true"', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ true
+(1 row)
+
+select jsonb_path_query_first('"false"', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ false
+(1 row)
+
+select jsonb_path_query_first('"TRUE"', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ true
+(1 row)
+
+select jsonb_path_query_first('"FALSE"', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ false
+(1 row)
+
+select jsonb_path_query_first('"yes"', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ true
+(1 row)
+
+select jsonb_path_query_first('"NO"', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ false
+(1 row)
+
+select jsonb_path_query_first('"T"', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ true
+(1 row)
+
+select jsonb_path_query_first('"f"', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ false
+(1 row)
+
+select jsonb_path_query_first('"y"', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ true
+(1 row)
+
+select jsonb_path_query_first('"N"', '$.boolean()');
+ jsonb_path_query_first 
+------------------------
+ false
+(1 row)
+
+select jsonb_path_query_first('true', '$.boolean().type()');
+ jsonb_path_query_first 
+------------------------
+ "boolean"
+(1 row)
+
+select jsonb_path_query_first('123', '$.boolean().type()');
+ jsonb_path_query_first 
+------------------------
+ "boolean"
+(1 row)
+
+select jsonb_path_query_first('"Yes"', '$.boolean().type()');
+ jsonb_path_query_first 
+------------------------
+ "boolean"
+(1 row)
+
+select jsonb_path_query_first('[1, "yes", false]', '$[*].boolean()');
+ jsonb_path_query_first 
+------------------------
+ true
+(1 row)
+
+-- Test .integer()
+select jsonb_path_query_first('null', '$.integer()');
+ERROR:  jsonpath item method .integer() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('true', '$.integer()');
+ERROR:  jsonpath item method .integer() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('null', '$.integer()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('true', '$.integer()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', '$.integer()');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', 'strict $.integer()');
+ERROR:  jsonpath item method .integer() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('{}', '$.integer()');
+ERROR:  jsonpath item method .integer() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[]', 'strict $.integer()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{}', '$.integer()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('"1.23"', '$.integer()');
+ERROR:  argument "1.23" of jsonpath item method .integer() is invalid for type integer
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"1.23aaa"', '$.integer()');
+ERROR:  argument "1.23aaa" of jsonpath item method .integer() is invalid for type integer
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1e1000', '$.integer()');
+ERROR:  argument "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000" of jsonpath item method .integer() is invalid for type integer
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"nan"', '$.integer()');
+ERROR:  argument "nan" of jsonpath item method .integer() is invalid for type integer
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"NaN"', '$.integer()');
+ERROR:  argument "NaN" of jsonpath item method .integer() is invalid for type integer
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"inf"', '$.integer()');
+ERROR:  argument "inf" of jsonpath item method .integer() is invalid for type integer
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"-inf"', '$.integer()');
+ERROR:  argument "-inf" of jsonpath item method .integer() is invalid for type integer
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"inf"', '$.integer()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('"-inf"', '$.integer()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('123', '$.integer()');
+ jsonb_path_query_first 
+------------------------
+ 123
+(1 row)
+
+select jsonb_path_query_first('"123"', '$.integer()');
+ jsonb_path_query_first 
+------------------------
+ 123
+(1 row)
+
+select jsonb_path_query_first('1.23', '$.integer()');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('1.83', '$.integer()');
+ jsonb_path_query_first 
+------------------------
+ 2
+(1 row)
+
+select jsonb_path_query_first('12345678901', '$.integer()');
+ERROR:  argument "12345678901" of jsonpath item method .integer() is invalid for type integer
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"12345678901"', '$.integer()');
+ERROR:  argument "12345678901" of jsonpath item method .integer() is invalid for type integer
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"+123"', '$.integer()');
+ jsonb_path_query_first 
+------------------------
+ 123
+(1 row)
+
+select jsonb_path_query_first('-123', '$.integer()');
+ jsonb_path_query_first 
+------------------------
+ -123
+(1 row)
+
+select jsonb_path_query_first('"-123"', '$.integer()');
+ jsonb_path_query_first 
+------------------------
+ -123
+(1 row)
+
+select jsonb_path_query_first('123', '$.integer() * 2');
+ jsonb_path_query_first 
+------------------------
+ 246
+(1 row)
+
+-- Test .bigint()
+select jsonb_path_query_first('null', '$.bigint()');
+ERROR:  jsonpath item method .bigint() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('true', '$.bigint()');
+ERROR:  jsonpath item method .bigint() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('null', '$.bigint()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('true', '$.bigint()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', '$.bigint()');
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('[]', 'strict $.bigint()');
+ERROR:  jsonpath item method .bigint() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('{}', '$.bigint()');
+ERROR:  jsonpath item method .bigint() can only be applied to a string or numeric value
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('[]', 'strict $.bigint()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('{}', '$.bigint()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('"1.23"', '$.bigint()');
+ERROR:  argument "1.23" of jsonpath item method .bigint() is invalid for type bigint
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"1.23aaa"', '$.bigint()');
+ERROR:  argument "1.23aaa" of jsonpath item method .bigint() is invalid for type bigint
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('1e1000', '$.bigint()');
+ERROR:  argument "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000" of jsonpath item method .bigint() is invalid for type bigint
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"nan"', '$.bigint()');
+ERROR:  argument "nan" of jsonpath item method .bigint() is invalid for type bigint
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"NaN"', '$.bigint()');
+ERROR:  argument "NaN" of jsonpath item method .bigint() is invalid for type bigint
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"inf"', '$.bigint()');
+ERROR:  argument "inf" of jsonpath item method .bigint() is invalid for type bigint
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"-inf"', '$.bigint()');
+ERROR:  argument "-inf" of jsonpath item method .bigint() is invalid for type bigint
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"inf"', '$.bigint()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('"-inf"', '$.bigint()', silent => true);
+ jsonb_path_query_first 
+------------------------
+ 
+(1 row)
+
+select jsonb_path_query_first('123', '$.bigint()');
+ jsonb_path_query_first 
+------------------------
+ 123
+(1 row)
+
+select jsonb_path_query_first('"123"', '$.bigint()');
+ jsonb_path_query_first 
+------------------------
+ 123
+(1 row)
+
+select jsonb_path_query_first('1.23', '$.bigint()');
+ jsonb_path_query_first 
+------------------------
+ 1
+(1 row)
+
+select jsonb_path_query_first('1.83', '$.bigint()');
+ jsonb_path_query_first 
+------------------------
+ 2
+(1 row)
+
+select jsonb_path_query_first('1234567890123', '$.bigint()');
+ jsonb_path_query_first 
+------------------------
+ 1234567890123
+(1 row)
+
+select jsonb_path_query_first('"1234567890123"', '$.bigint()');
+ jsonb_path_query_first 
+------------------------
+ 1234567890123
+(1 row)
+
+select jsonb_path_query_first('12345678901234567890', '$.bigint()');
+ERROR:  argument "12345678901234567890" of jsonpath item method .bigint() is invalid for type bigint
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"12345678901234567890"', '$.bigint()');
+ERROR:  argument "12345678901234567890" of jsonpath item method .bigint() is invalid for type bigint
+CONTEXT:  referenced column: jsonb_path_query_first
+select jsonb_path_query_first('"+123"', '$.bigint()');
+ jsonb_path_query_first 
+------------------------
+ 123
+(1 row)
+
+select jsonb_path_query_first('-123', '$.bigint()');
+ jsonb_path_query_first 
+------------------------
+ -123
+(1 row)
+
+select jsonb_path_query_first('"-123"', '$.bigint()');
+ jsonb_path_query_first 
+------------------------
+ -123
+(1 row)
+
+select jsonb_path_query_first('123', '$.bigint() * 2');
+ jsonb_path_query_first 
+------------------------
+ 246
+(1 row)
+
+\c regression
+DROP DATABASE test_jsonb_jsonpath_pg;

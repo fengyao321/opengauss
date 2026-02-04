@@ -235,6 +235,7 @@ extern ArrayType* construct_array(Datum* elems, int nelems, Oid elmtype, int elm
 ArrayType* construct_array(Datum* elems, bool * nulls, int nelems, Oid elmtype, int elmlen, bool elmbyval, char elmalign);
 extern ArrayType* construct_md_array(Datum* elems, bool* nulls, int ndims, int* dims, const int* lbs, Oid elmtype,
     int elmlen, bool elmbyval, char elmalign);
+extern ArrayType *construct_array_builtin(Datum *elems, int nelems, Oid elmtype);
 extern ArrayType* construct_empty_array(Oid elmtype);
 extern void deconstruct_array(ArrayType* array, Oid elmtype, int elmlen, bool elmbyval, char elmalign, Datum** elemsp,
     bool** nullsp, int* nelemsp);

@@ -285,6 +285,16 @@ extern pg_enc pg_enc_coll_map_b[];
     (pg_enc_coll_map_b[(coll_oid - B_FORMAT_COLLATION_OID_MIN) / B_FORMAT_COLLATION_INTERVAL])
 
 /*
+ * Maximum byte length of the string equivalent to any one Unicode code point,
+ * in any backend encoding.  The current value assumes that a 4-byte UTF-8
+ * character might expand by MAX_CONVERSION_GROWTH, which is a huge
+ * overestimate.  But in current usage we don't allocate large multiples of
+ * this, so there's little point in being stingy.
+ */
+#define MAX_UNICODE_EQUIVALENT_STRING	16
+
+
+/*
  * Careful:
  *
  * if (PG_VALID_ENCODING(encoding))

@@ -205,6 +205,14 @@ extern int128 numeric_int16_internal(Numeric num);
 extern char* output_numeric_out(Numeric num);
 extern Datum numeric_scale(PG_FUNCTION_ARGS);
 
+extern Numeric numeric_add_opt_error(Numeric num1, Numeric num2, bool *haveError);
+extern Numeric numeric_sub_opt_error(Numeric num1, Numeric num2, bool *haveError);
+extern Numeric numeric_mul_opt_error(Numeric num1, Numeric num2, bool *haveError);
+extern Numeric numeric_div_opt_error(Numeric num1, Numeric num2, bool *haveError);
+extern Numeric numeric_mod_opt_error(Numeric num1, Numeric num2, bool *haveError);
+extern int32 numeric_int4_opt_error(Numeric num, bool can_ignore, bool *haveError);
+extern int64 numeric_int8_opt_error(Numeric num, bool can_ignore, bool *haveError);
+
 //
 // Numeric Compression Codes Area
 //
