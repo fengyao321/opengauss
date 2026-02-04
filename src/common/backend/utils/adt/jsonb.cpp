@@ -469,3 +469,138 @@ char *JsonbToCString(StringInfo out, JsonbSuperHeader in, int estimated_len)
     
     return out->data;
 }
+
+static char* jsonb_unquote_internal(Jsonb* jb)
+{
+    if (jb == nullptr) {
+        return NULL;
+    }
+
+    StringInfo jtext = makeStringInfo();
+    char* str = JsonbToCString(jtext, VARDATA(jb), VARSIZE(jb));
+    int len;
+    char* result = nullptr;
+    errno_t rc;
+
+    if (str[0] == '"' && str[jtext->len - 1] == '"') {
+        len = jtext->len - 2;
+        result = (char*)palloc0(len + 1);
+        rc = strncpy_s(result, len + 1, str + 1, len);
+    } else {
+        len = jtext->len;
+        result = (char*)palloc0(len + 1);
+        rc = strncpy_s(result, len + 1, str, len);
+    }
+    DestroyStringInfo(jtext);
+    securec_check(rc, "\0", "\0");
+    return result;
+}
+
+static Datum jsonbToAny(Oid typid, Jsonb* jb)
+{
+    Datum result = Datum(0);
+    Datum unquoteStr = CStringGetDatum(jsonb_unquote_internal(jb));
+    if (unquoteStr == Datum(0)) {
+        return result;
+    }
+    switch (typid) {
+        case BOOLOID:
+            result = DirectFunctionCall1(boolin, unquoteStr);
+            break;
+        case INT1OID:
+            result = DirectFunctionCall1(int1in, unquoteStr);
+            break;
+        case INT2OID:
+            result = DirectFunctionCall1(int2in, unquoteStr);
+            break;
+        case INT4OID:
+            result = DirectFunctionCall1(int4in, unquoteStr);
+            break;
+        case INT8OID:
+            result = DirectFunctionCall1(int8in, unquoteStr);
+            break;
+        case NUMERICOID:
+            result = DirectFunctionCall3(numeric_in, unquoteStr,
+                                        ObjectIdGetDatum(0), Int32GetDatum(-1));
+            break;
+        case FLOAT4OID:
+            result = DirectFunctionCall1(float4in, unquoteStr);
+            break;
+        case FLOAT8OID:
+            result = DirectFunctionCall1(float8in, unquoteStr);
+            break;
+        case DATEOID:
+            result = DirectFunctionCall1(date_in, unquoteStr);
+            break;
+        case TIMEOID:
+            result = DirectFunctionCall3(time_in, unquoteStr,
+                                        ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
+            break;
+        case TIMESTAMPOID:
+            result = DirectFunctionCall3(timestamp_in, unquoteStr,
+                                        ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
+            break;
+        default:
+            pfree(DatumGetCString(unquoteStr));
+            ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                    errmsg("Unsupported typeoid: %u", typid)));
+    }
+    pfree(DatumGetCString(unquoteStr));
+    return result;
+}
+
+Datum jsonb_bool(PG_FUNCTION_ARGS)
+{
+    return jsonbToAny(BOOLOID, PG_GETARG_JSONB(0));
+}
+
+Datum jsonb_int1(PG_FUNCTION_ARGS)
+{
+    return jsonbToAny(INT1OID, PG_GETARG_JSONB(0));
+}
+
+Datum jsonb_int2(PG_FUNCTION_ARGS)
+{
+    return jsonbToAny(INT2OID, PG_GETARG_JSONB(0));
+}
+
+Datum jsonb_int4(PG_FUNCTION_ARGS)
+{
+    return jsonbToAny(INT4OID, PG_GETARG_JSONB(0));
+}
+
+Datum jsonb_int8(PG_FUNCTION_ARGS)
+{
+    return jsonbToAny(INT8OID, PG_GETARG_JSONB(0));
+}
+
+Datum jsonb_numeric(PG_FUNCTION_ARGS)
+{
+    return jsonbToAny(NUMERICOID, PG_GETARG_JSONB(0));
+}
+
+Datum jsonb_float4(PG_FUNCTION_ARGS)
+{
+    return jsonbToAny(FLOAT4OID, PG_GETARG_JSONB(0));
+}
+
+Datum jsonb_float8(PG_FUNCTION_ARGS)
+{
+    return jsonbToAny(FLOAT8OID, PG_GETARG_JSONB(0));
+}
+
+Datum jsonb_date(PG_FUNCTION_ARGS)
+{
+    return jsonbToAny(DATEOID, PG_GETARG_JSONB(0));
+}
+
+Datum jsonb_time(PG_FUNCTION_ARGS)
+{
+    return jsonbToAny(TIMEOID, PG_GETARG_JSONB(0));
+}
+
+Datum jsonb_timestamp(PG_FUNCTION_ARGS)
+{
+    return jsonbToAny(TIMESTAMPOID, PG_GETARG_JSONB(0));
+}

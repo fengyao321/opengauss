@@ -2040,6 +2040,15 @@ extern Datum gs_delete_sql_limit(PG_FUNCTION_ARGS);
 extern Datum gs_select_sql_limit(PG_FUNCTION_ARGS);
 extern Datum gs_select_sql_limit_all(PG_FUNCTION_ARGS);
 
+/* int8.cpp */
+extern Datum int8in(PG_FUNCTION_ARGS);
+/* date.cpp */
+extern Datum date_in(PG_FUNCTION_ARGS);
+/* time.cpp */
+extern Datum time_in(PG_FUNCTION_ARGS);
+/* timestamp.cpp */
+extern Datum timestamp_in(PG_FUNCTION_ARGS);
+
 #else
 #endif
 extern char *printTypmod(const char *typname, int32 typmod, Oid typmodout);

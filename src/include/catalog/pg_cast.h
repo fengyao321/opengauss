@@ -814,6 +814,21 @@ DATA(insert (4402 4301 0 e b _null_));
 /* json to/from jsonb */
 DATA(insert ( 114 3802 0 e i _null_));
 DATA(insert ( 3802 114 0 e i _null_));
+/* jsonb to bool */
+DATA(insert ( 3802 16 3365 a f _null_));
+/* jsonb to int1/int2/int4/int8 */
+DATA(insert ( 3802 5545 3366 a f _null_));
+DATA(insert ( 3802 21 3367 a f _null_));
+DATA(insert ( 3802 23 3368 a f _null_));
+DATA(insert ( 3802 20 3369 a f _null_));
+/* jsonb to numeric/float4/float8 */
+DATA(insert ( 3802 1700 3370 a f _null_));
+DATA(insert ( 3802 700 3371 a f _null_));
+DATA(insert ( 3802 701 3372 a f _null_));
+/* jsonb to date/time/timestamp */
+DATA(insert ( 3802 1082 3373 a f _null_));
+DATA(insert ( 3802 1083 3374 a f _null_));
+DATA(insert ( 3802 1114 3375 a f _null_));
 
 /* set <-> int2 */
 DATA(insert ( 3272 21 3300 i f _null_));
