@@ -307,6 +307,14 @@ extern Jsonb *JsonbValueToJsonb(JsonbValue *val);
 extern bool JsonbDeepContains(JsonbIterator **val, JsonbIterator **mContained);
 extern JsonbValue *arrayToJsonbSortedArray(ArrayType *a);
 extern void JsonbHashScalarValue(const JsonbValue *scalarVal, uint32 *hash);
+extern bool JsonbExtractScalar(Jsonb* json, JsonbValue *res);
+extern JsonbValue* FindJsonbValueFromUnsortedObjects(JsonbSuperHeader sheader, JsonbValue* key);
+/* convenience macros for accessing a JsonbSuperHeader struct */
+extern bool JsonbSuperHeaderIsScalar(JsonbSuperHeader sheader);
+extern bool JsonbSuperHeaderIsObject(JsonbSuperHeader sheader);
+extern bool JsonbSuperHeaderIsArray(JsonbSuperHeader sheader);
+extern int JsonbSuperHeaderSize(JsonbSuperHeader sheader);
+extern const char *JsonbTypeName(JsonbValue *val);
 
 /* jsonb.c support function */
 extern char *JsonbToCString(StringInfo out, JsonbSuperHeader in, int estimated_len);

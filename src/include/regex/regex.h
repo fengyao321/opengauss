@@ -203,5 +203,8 @@ extern regexp_matches_ctx* setup_regexp_matches(text* orig_str, text* pattern,
                                                 bool use_subpatterns,
                                                 bool ignore_degenerate,
                                                 int start_search);
+extern bool RE_compile_and_execute_ext(text *text_re, const char *dat, int dat_len,
+                                   int cflags, Oid collation,
+                                   int nmatch, regmatch_t *pmatch);
 
 #endif /* _REGEX_H_ */

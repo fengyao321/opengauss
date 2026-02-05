@@ -3922,6 +3922,27 @@ ArrayType* construct_array(Datum* elems, int nelems, Oid elmtype, int elmlen, bo
 }
 
 /*
+ * Like construct_array(), where elmtype must be a built-in type, and
+ * elmlen/elmbyval/elmalign is looked up from hardcoded data.  This is often
+ * useful when manipulating arrays from/for system catalogs.
+ */
+ArrayType* construct_array_builtin(Datum *elems, int nelems, Oid elmtype)
+{
+    int elmlen = -2;
+    bool elmbyval = false;
+    char elmalign = 0;
+    switch (elmtype) {
+        case CSTRINGOID:
+            elmalign = TYPALIGN_CHAR;
+            break;
+        default:
+            elog(ERROR, "type %u not supported by construct_array_builtin()", elmtype);
+            /* keep compiler quiet */
+    }
+    return construct_array(elems, nelems, elmtype, elmlen, elmbyval, elmalign);
+}
+
+/*
  * construct_md_array	--- simple method for constructing an array object
  *							with arbitrary dimensions and possible NULLs
  *

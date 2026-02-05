@@ -1,6 +1,6 @@
-DROP SCHEMA IF EXISTS test_jsonpath CASCADE;
-CREATE SCHEMA test_jsonpath;
-SET CURRENT_SCHEMA TO test_jsonpath ;
+DROP DATABASE IF EXISTS test_jsonpath_a;
+CREATE DATABASE test_jsonpath_a;
+\c test_jsonpath_a;
 
 CREATE TABLE t (name VARCHAR2(100));
 INSERT INTO t VALUES ('[{"first":"John"}, {"middle":"Mark"}, {"last":"Smith"}, 1]');
@@ -25,15 +25,26 @@ VALUES ('{"family" : {"id":12, "ages":[25,23], "address" : {"street" : "300 Oak 
 INSERT INTO families VALUES ('This is not well-formed JSON data');
 
 -- JsonPath grammar
+SELECT '$[$index]'::jsonpath;
 SELECT name FROM t WHERE JSON_EXISTS(name, '$');
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[0]');
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[*]');
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[$index]');
+SELECT name FROM t WHERE JSON_EXISTS(name, 'strict $[*]');
+SELECT name FROM t WHERE JSON_EXISTS(name, 'lax $[*]');
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[99]');
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[last]');
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[last] + 1');
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[last - 2]');
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[last * 2]');
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[2 - last]');
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[0,2]');
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[2,0,1]'); 
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[0 to 2]');
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[3 to 3]');
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[2 to 0]');
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[false to true]');
+SELECT name FROM t WHERE JSON_EXISTS(name, '2');
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[2].*.*');
 SELECT family_doc FROM families WHERE JSON_EXISTS(family_doc, '$.family');
 SELECT family_doc FROM families WHERE JSON_EXISTS(family_doc, '$.*');
@@ -47,7 +58,7 @@ SELECT name FROM t WHERE JSON_EXISTS(name, '$[-1]');
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[0b10]');
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[1');
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[1+2]');
-SELECT name FROM t WHERE JSON_EXISTS(name, '$[0.1]');
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[1.1]');
 SELECT name FROM t WHERE JSON_EXISTS(name, 'NULL');
 SELECT name FROM t WHERE JSON_EXISTS(name, NULL);
 
@@ -93,6 +104,8 @@ select json_exists('{"name":"胡小威" , "age":20 , "male":true}','$.name[0][0,
 select json_exists('{"name":"胡小威" , "age":20 , "male":true}','$.name[0][0,1][1 to 3][0]'); -- f
 SELECT JSON_EXISTS('[{"first":"John"}, {"middle":"Mark"}, {"last":"Smith"}]', '$.first'); -- t
 SELECT JSON_EXISTS('[{"first":"John"}, {"middle":"Mark"}, {"last":"Smith"}]', '$.first[0][0][0][0]'); -- t
+SELECT JSON_EXISTS('[1, "aBdC", "ab\nadc", "111\nabc", "^ab.*c$"]', '$[*] ? (@ like_regex "^ab.*c")');
+SELECT JSON_EXISTS('[1, "aBdC", "ab\nadc", "111\nabc", "^ab.*c$"]', '$[*] ? (@ like_regex "^ab.*c" flag "i")');
 
 PREPARE stmt1 AS SELECT JSON_EXISTS($1,$2);
 EXECUTE stmt1('[{"first":"John"}, {"middle":"Mark"}, {"last":"Smith"}]','$[0].first');
@@ -114,6 +127,7 @@ SELECT family_doc FROM families WHERE JSON_TEXTCONTAINS(family_doc, '$.family', 
 SELECT family_doc FROM families WHERE JSON_TEXTCONTAINS(family_doc, '$.family', '25, 5');
 SELECT family_doc FROM families WHERE JSON_TEXTCONTAINS(family_doc, '$.family', 'West');
 SELECT family_doc FROM families WHERE JSON_TEXTCONTAINS(family_doc, '$.family', 'Oak Street');
+SELECT family_doc FROM families WHERE JSON_TEXTCONTAINS(family_doc, '$.family', 'Oak Street'::cstring);
 SELECT family_doc FROM families WHERE JSON_TEXTCONTAINS(family_doc, '$.family', 'oak street');
 SELECT family_doc FROM families WHERE JSON_TEXTCONTAINS(family_doc, '$.family', '25 23, Oak Street');
 SELECT family_doc FROM families WHERE JSON_TEXTCONTAINS(family_doc, '$.family', 'Oak Street 10');
@@ -184,9 +198,32 @@ select json_textcontains('{
     "sites": [
         { "name":"Google", "info":[[ {"name":"Android"}, {"name":"Google Search"}, {"name":"Googlee"} ]] },
         { "name":"Runoob", "info":[[ {"name":"book"}, {"name":"tool"}, "wechat" ]] },
-        { "name":"Taobao", "info":[[ {"name":"taobao"}, "shop" ]] }
+        { "name":"Taobao", "info":[[ {"name":"taobao"}, "shop" ]] },
+        { "name":null, "info":[[ {"name":true}, {"name":false} ]] }
     ]
 }', '$.sites.info.name','Androidd,Search,Googlee');
+select json_textcontains('{
+    "name":"web",
+    "num":3,
+    "sites": [
+        { "name":"Google", "info":[[ {"name":"Android"}, {"name":"Google Search"}, {"name":"Googlee"} ]] },
+        { "name":"Runoob", "info":[[ {"name":"book"}, {"name":"tool"}, "wechat" ]] },
+        { "name":"Taobao", "info":[[ {"name":"taobao"}, "shop" ]] }
+    ]
+}', '$.*.*.*[*][*][*]','Androidd,Search,Googlee');
+select json_textcontains('{
+    "name":"web",
+    "num":3,
+    "sites": [
+        { "name":"Google", "info":[[ {"name":"Android"}, {"name":"Google Search"}, {"name":"Googlee"} ]] },
+        { "name":"Runoob", "info":[[ {"name":"book"}, {"name":"tool"}, "wechat" ]] },
+        { "name":"Taobao", "info":[[ {"name":"taobao"}, "shop" ]] }
+    ]
+}', '$.**.name','Androidd,Search,Googlee');
+SELECT json_textcontains('[-0.2, 1.1, 2.7]', '$[*].abs().floor().ceiling()', '0 1 2');
+SELECT json_textcontains('[-0.2, 1.1, 2.7]', '$[*].size().type()', 'number');
+SELECT json_textcontains('{"family" : {"id":12, "ages":[25,23], "address" : {"street" : "300 Oak Street", "apt" : 10}}}', '$.family.keyvalue()', 'address');
+
 create or replace procedure p_JsonTextcontains_Case0011(col1 text,col2 text,col3 text)
 as
 val1 bool;
@@ -211,4 +248,99 @@ INSERT INTO t_JsonExists_Case0006
 SELECT po.po_document FROM t_JsonExists_Case0006 po WHERE json_exists(po.po_document,'$[0][0]');
 drop table t_JsonExists_Case0006;
 
-DROP SCHEMA test_jsonpath CASCADE;
+\c regression
+DROP DATABASE test_jsonpath_a;
+
+-- jsonpath gram test
+CREATE DATABASE test_jsonpath_pg dbcompatibility='PG';
+\c test_jsonpath_pg
+set behavior_compat_options='display_leading_zero';
+select '1.type()'::jsonpath;
+select '0755'::jsonpath;
+select '00'::jsonpath;
+select '"\b\f\r\n\t\v\"\''\\"'::jsonpath;
+select '"\x50\u0067\u{53}\u{051}\u{00004C}"'::jsonpath;
+select '$.foo\x50\u0067\u{53}\u{051}\u{00004C}\t\"bar'::jsonpath;
+select '"\z"'::jsonpath;  -- unrecognized escape is just the literal char
+select 'true'::jsonpath;
+select 'false'::jsonpath;
+select 'null'::jsonpath;
+select '$a'::jsonpath;
+select '$[true]'::jsonpath;
+select 'strict $'::jsonpath;
+select 'lax $'::jsonpath;
+select '$.a.**.b'::jsonpath;
+select '$.a.**{2}.b'::jsonpath;
+select '$.a.**{2 to 2}.b'::jsonpath;
+select '$.a.**{2 to 5}.b'::jsonpath;
+select '$.a.**{0 to 5}.b'::jsonpath;
+select '$.a.**{5 to last}.b'::jsonpath;
+select '$.a.**{last}.b'::jsonpath;
+select '$.a.**{last to 5}.b'::jsonpath;
+select jsonpath_out('$.a.**{last to 5}.b');
+select 'last'::jsonpath;
+select '"last"'::jsonpath;
+select '$.last'::jsonpath;
+select '$[last]'::jsonpath;
+select '$+1'::jsonpath;
+select '$-1'::jsonpath;
+select '$--+1'::jsonpath;
+select '$.a/+-1'::jsonpath;
+select jsonpath_out('$.a/+-1');
+select '$.a[$a + 1, ($b[*]) to -($[0] * 2)]'::jsonpath;
+select jsonpath_out('$.a[$a + 1, ($b[*]) to -($[0] * 2)]');
+select '1 + ($.a.b + 2).c.d'::jsonpath;
+select '($.a.b + -$.x.y).c.d'::jsonpath;
+select '(-+$.a.b).c.d'::jsonpath;
+
+select '$.g ? ($.a == 1)'::jsonpath;
+select '$.g ? (@ == 1)'::jsonpath;
+select '$.g ? (@.a == 1)'::jsonpath;
+select '$.g ? (@.a == 1 || @.a == 4)'::jsonpath;
+select '$.g ? (@.a == 1 && @.a == 4)'::jsonpath;
+select '$.g ? (@.a == 1 || @.a == 4 && @.b == 7)'::jsonpath;
+select '$.g ? (@.a == 1 || !(@.a == 4) && @.b == 7)'::jsonpath;
+select '$.g ? (@.a == 1 || !(@.x >= 123 || @.a == 4) && @.b == 7)'::jsonpath;
+select '$.g ? (@.x >= @[*]?(@.a > "abc"))'::jsonpath;
+select jsonpath_out('$.g ? ((@.x >= 123 || @.a == 4) is unknown)');
+select '$.g ? (exists (@.x))'::jsonpath;
+select '$.g ? (exists (@.x ? (@ == 14)))'::jsonpath;
+select '$.g ? ((@.x >= 123 || @.a == 4) && exists (@.x ? (@ == 14)))'::jsonpath;
+select '$.g ? (+@.x >= +-(+@.a + 2))'::jsonpath;
+select jsonpath_out('$.g ? (@.a <= 1 || !(@.x >= 123 || @.a < 4) && @.b == 7 && @.c > 7)');
+select jsonpath_out('$ ? (@ starts with "abc")');
+select jsonpath_out('$ ? (@ starts with $var)');
+select '$ ? (@ like_regex "(invalid pattern")'::jsonpath;
+select '$ ? (@ like_regex "pattern")'::jsonpath;
+select '$ ? (@ like_regex "pattern" flag "")'::jsonpath;
+select '$ ? (@ like_regex "pattern" flag "i")'::jsonpath;
+select '$ ? (@ like_regex "pattern" flag "is")'::jsonpath;
+select jsonpath_out('$ ? (@ like_regex "pattern" flag "isim")');
+select '$ ? (@ like_regex "pattern" flag "xsms")'::jsonpath;
+select '$ ? (@ like_regex "pattern" flag "q")'::jsonpath;
+select '$ ? (@ like_regex "pattern" flag "iq")'::jsonpath;
+select '$ ? (@ like_regex "pattern" flag "smixq")'::jsonpath;
+select '$ ? (@ like_regex "pattern" flag "a")'::jsonpath;
+select '((($ + 1)).a + ((2)).b ? ((((@ > 1)) || (exists(@.c)))))'::jsonpath;
+select '1.1.floor().ceiling().abs()'::jsonpath;
+select '$.a[$.a.size() - 3]'::jsonpath;
+select 'null.type()'::jsonpath;
+select '1.type()'::jsonpath;
+select '(1).type()'::jsonpath;
+select '1.2.type()'::jsonpath;
+select '"aaa".type()'::jsonpath;
+select 'true.type()'::jsonpath;
+select jsonpath_out('$.keyvalue().key');
+select jsonpath_out('$.decimal(4,2)');
+select '$.string()'::jsonpath;
+select '$.double().floor().ceiling().abs()'::jsonpath;
+select '$.boolean()'::jsonpath;
+select '$.bigint().integer().number().decimal()'::jsonpath;
+select jsonpath_out('$.date()');
+select '$.datetime("datetime template")'::jsonpath;
+select '$.time()'::jsonpath;
+select '$.time_tz(4)'::jsonpath;
+select '$.timestamp(2)'::jsonpath;
+select '$.timestamp_tz(0)'::jsonpath;
+\c regression
+DROP DATABASE test_jsonpath_pg;

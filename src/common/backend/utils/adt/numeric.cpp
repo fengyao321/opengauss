@@ -219,7 +219,8 @@ static char* get_str_from_var_sci(NumericVar* var, int rscale);
 static void apply_typmod(NumericVar* var, int32 typmod);
 static void round_float_var(NumericVar* var, int precision);
 
-static int32 numericvar_to_int32(const NumericVar* var, bool can_ignore = false);
+static int32 numericvar_to_int32(
+    const NumericVar* var, bool can_ignore = false, bool *have_error = NULL);
 static double numericvar_to_double_no_overflow(NumericVar* var);
 
 static Datum numeric_abbrev_convert(Datum original_datum, SortSupport ssup);
@@ -234,13 +235,15 @@ static int cmp_var_common(const NumericDigit* var1digits, int var1ndigits, int v
     const NumericDigit* var2digits, int var2ndigits, int var2weight, int var2sign);
 static void sub_var(NumericVar* var1, NumericVar* var2, NumericVar* result);
 static void mul_var(NumericVar* var1, NumericVar* var2, NumericVar* result, int rscale);
-static void div_var(NumericVar* var1, NumericVar* var2, NumericVar* result, int rscale, bool round);
+static void div_var(NumericVar* var1, NumericVar* var2, NumericVar* result,
+    int rscale, bool round, bool* haveError = NULL);
 static void div_var_fast(NumericVar* var1, NumericVar* var2, NumericVar* result, int rscale, bool round);
 static void div_var_int(const NumericVar *var, int ival, int ival_weight, NumericVar *result, int rscale, bool round);
 static int select_div_scale(NumericVar* var1, NumericVar* var2);
-static void mod_var(NumericVar* var1, NumericVar* var2, NumericVar* result);
+static void mod_var(NumericVar* var1, NumericVar* var2, NumericVar* result, bool* haveError = NULL);
 static void ceil_var(NumericVar* var, NumericVar* result);
 static void floor_var(NumericVar* var, NumericVar* result);
+static Numeric make_result_opt_error(NumericVar *var, bool *haveError);
 
 static void sqrt_var(NumericVar* arg, NumericVar* result, int rscale);
 static void exp_var(NumericVar* arg, NumericVar* result, int rscale);
@@ -2301,6 +2304,15 @@ Datum numeric_add(PG_FUNCTION_ARGS)
 {
     Numeric num1 = PG_GETARG_NUMERIC(0);
     Numeric num2 = PG_GETARG_NUMERIC(1);
+    Numeric res;
+
+    res = numeric_add_opt_error(num1, num2, NULL);
+
+    PG_RETURN_NUMERIC(res);
+}
+
+Numeric numeric_add_opt_error(Numeric num1, Numeric num2, bool *haveError)
+{
     NumericVar arg1;
     NumericVar arg2;
     NumericVar result;
@@ -2312,10 +2324,10 @@ Datum numeric_add(PG_FUNCTION_ARGS)
     if (NUMERIC_FLAG_IS_NANORBI(num1Flags) || NUMERIC_FLAG_IS_NANORBI(num2Flags)) {
         if (NUMERIC_FLAG_IS_BI(num1Flags) && NUMERIC_FLAG_IS_BI(num2Flags)) {
             // call biginteger function
-            return bipickfun<BIADD>(num1, num2);
+            return DatumGetNumeric(bipickfun<BIADD>(num1, num2));
         } else if (NUMERIC_FLAG_IS_NAN(num1Flags) || NUMERIC_FLAG_IS_NAN(num2Flags)) {
             // handle NAN
-            PG_RETURN_NUMERIC(make_result(&const_nan));
+            return make_result(&const_nan);
         } else if (NUMERIC_FLAG_IS_BI(num1Flags)) {
             // num1 is int64/128, num2 is numeric, turn num1 to numeric
             num1 = makeNumericNormal(num1);
@@ -2334,11 +2346,11 @@ Datum numeric_add(PG_FUNCTION_ARGS)
     quick_init_var(&result);
     add_var(&arg1, &arg2, &result);
 
-    res = make_result(&result);
+    res = make_result_opt_error(&result, haveError);
 
     free_var(&result);
 
-    PG_RETURN_NUMERIC(res);
+    return res;
 }
 
 /*
@@ -2350,6 +2362,15 @@ Datum numeric_sub(PG_FUNCTION_ARGS)
 {
     Numeric num1 = PG_GETARG_NUMERIC(0);
     Numeric num2 = PG_GETARG_NUMERIC(1);
+    Numeric res;
+
+    res = numeric_sub_opt_error(num1, num2, NULL);
+
+    PG_RETURN_NUMERIC(res);
+}
+
+Numeric numeric_sub_opt_error(Numeric num1, Numeric num2, bool *haveError)
+{
     NumericVar arg1;
     NumericVar arg2;
     NumericVar result;
@@ -2361,10 +2382,10 @@ Datum numeric_sub(PG_FUNCTION_ARGS)
     if (NUMERIC_FLAG_IS_NANORBI(num1Flags) || NUMERIC_FLAG_IS_NANORBI(num2Flags)) {
         if (NUMERIC_FLAG_IS_BI(num1Flags) && NUMERIC_FLAG_IS_BI(num2Flags)) {
             // call biginteger function
-            return bipickfun<BISUB>(num1, num2);
+            return DatumGetNumeric(bipickfun<BISUB>(num1, num2));
         } else if (NUMERIC_FLAG_IS_NAN(num1Flags) || NUMERIC_FLAG_IS_NAN(num2Flags)) {
             // handle NAN
-            PG_RETURN_NUMERIC(make_result(&const_nan));
+            return make_result(&const_nan);
         } else if (NUMERIC_FLAG_IS_BI(num1Flags)) {
             // num1 is int64/128, num2 is numeric, turn num1 to numeric
             num1 = makeNumericNormal(num1);
@@ -2383,11 +2404,11 @@ Datum numeric_sub(PG_FUNCTION_ARGS)
     quick_init_var(&result);
     sub_var(&arg1, &arg2, &result);
 
-    res = make_result(&result);
+    res = make_result_opt_error(&result, haveError);
 
     free_var(&result);
 
-    PG_RETURN_NUMERIC(res);
+    return res;
 }
 
 /*
@@ -2399,6 +2420,15 @@ Datum numeric_mul(PG_FUNCTION_ARGS)
 {
     Numeric num1 = PG_GETARG_NUMERIC(0);
     Numeric num2 = PG_GETARG_NUMERIC(1);
+    Numeric res;
+
+    res = numeric_mul_opt_error(num1, num2, NULL);
+
+    PG_RETURN_NUMERIC(res);
+}
+
+Numeric numeric_mul_opt_error(Numeric num1, Numeric num2, bool *haveError)
+{
     NumericVar arg1;
     NumericVar arg2;
     NumericVar result;
@@ -2410,10 +2440,10 @@ Datum numeric_mul(PG_FUNCTION_ARGS)
     if (NUMERIC_FLAG_IS_NANORBI(num1Flags) || NUMERIC_FLAG_IS_NANORBI(num2Flags)) {
         if (NUMERIC_FLAG_IS_BI(num1Flags) && NUMERIC_FLAG_IS_BI(num2Flags)) {
             // call biginteger function
-            return bipickfun<BIMUL>(num1, num2);
+            return DatumGetNumeric(bipickfun<BIMUL>(num1, num2));
         } else if (NUMERIC_FLAG_IS_NAN(num1Flags) || NUMERIC_FLAG_IS_NAN(num2Flags)) {
             // handle NAN
-            PG_RETURN_NUMERIC(make_result(&const_nan));
+            return make_result(&const_nan);
         } else if (NUMERIC_FLAG_IS_BI(num1Flags)) {
             // num1 is int64/128, num2 is numeric, turn num1 to numeric
             num1 = makeNumericNormal(num1);
@@ -2436,11 +2466,11 @@ Datum numeric_mul(PG_FUNCTION_ARGS)
     init_var(&result);
     mul_var(&arg1, &arg2, &result, arg1.dscale + arg2.dscale);
 
-    res = make_result(&result);
+    res = make_result_opt_error(&result, haveError);
 
     free_var(&result);
 
-    PG_RETURN_NUMERIC(res);
+    return res;
 }
 
 /*
@@ -2452,6 +2482,15 @@ Datum numeric_div(PG_FUNCTION_ARGS)
 {
     Numeric num1 = PG_GETARG_NUMERIC(0);
     Numeric num2 = PG_GETARG_NUMERIC(1);
+    Numeric res;
+
+    res = numeric_div_opt_error(num1, num2, NULL);
+
+    PG_RETURN_NUMERIC(res);
+}
+
+Numeric numeric_div_opt_error(Numeric num1, Numeric num2, bool *haveError)
+{
     NumericVar arg1;
     NumericVar arg2;
     NumericVar result;
@@ -2464,10 +2503,10 @@ Datum numeric_div(PG_FUNCTION_ARGS)
     if (NUMERIC_FLAG_IS_NANORBI(num1Flags) || NUMERIC_FLAG_IS_NANORBI(num2Flags)) {
         if (NUMERIC_FLAG_IS_BI(num1Flags) && NUMERIC_FLAG_IS_BI(num2Flags)) {
             // call biginteger function
-            return bipickfun<BIDIV>(num1, num2);
+            return DatumGetNumeric(bipickfun<BIDIV>(num1, num2));
         } else if (NUMERIC_FLAG_IS_NAN(num1Flags) || NUMERIC_FLAG_IS_NAN(num2Flags)) {
             // handle NAN
-            PG_RETURN_NUMERIC(make_result(&const_nan));
+            return make_result(&const_nan);
         } else if (NUMERIC_FLAG_IS_BI(num1Flags)) {
             // num1 is int64/128, num2 is numeric, turn num1 to numeric
             num1 = makeNumericNormal(num1);
@@ -2493,13 +2532,13 @@ Datum numeric_div(PG_FUNCTION_ARGS)
     /*
      * Do the divide and return the result
      */
-    div_var(&arg1, &arg2, &result, rscale, true);
+    div_var(&arg1, &arg2, &result, rscale, true, haveError);
 
-    res = make_result(&result);
+    res = make_result_opt_error(&result, haveError);
 
     free_var(&result);
 
-    PG_RETURN_NUMERIC(res);
+    return res;
 }
 
 /*
@@ -2566,6 +2605,18 @@ Datum numeric_mod(PG_FUNCTION_ARGS)
     Numeric num1 = PG_GETARG_NUMERIC(0);
     Numeric num2 = PG_GETARG_NUMERIC(1);
     Numeric res;
+
+    res = numeric_mod_opt_error(num1, num2, NULL);
+
+    if (res == NULL) {
+        PG_RETURN_NULL();
+    }
+    PG_RETURN_NUMERIC(res);
+}
+
+Numeric numeric_mod_opt_error(Numeric num1, Numeric num2, bool *haveError)
+{
+    Numeric res;
     NumericVar arg1;
     NumericVar arg2;
     NumericVar result;
@@ -2577,7 +2628,7 @@ Datum numeric_mod(PG_FUNCTION_ARGS)
          * Handle NaN
          */
         if (NUMERIC_FLAG_IS_NAN(num1Flags) || NUMERIC_FLAG_IS_NAN(num2Flags)) {
-            PG_RETURN_NUMERIC(make_result(&const_nan));
+            return make_result(&const_nan);
         }
 
         /*
@@ -2607,17 +2658,17 @@ Datum numeric_mod(PG_FUNCTION_ARGS)
             ereport(ERROR, (errcode(ERRCODE_DIVISION_BY_ZERO), errmsg("division by zero")));
 
             /* ensure compiler realizes we mustn't reach the division (gcc bug) */
-            PG_RETURN_NULL();
+            return NULL;
         }
-        PG_RETURN_NUMERIC(num1);
+        return num1;
     }
-    mod_var(&arg1, &arg2, &result);
+    mod_var(&arg1, &arg2, &result, haveError);
 
-    res = make_result(&result);
+    res = make_result_opt_error(&result, haveError);
 
     free_var(&result);
 
-    PG_RETURN_NUMERIC(res);
+    return res;
 }
 
 /*
@@ -3097,23 +3148,34 @@ Datum int4_numeric(PG_FUNCTION_ARGS)
 Datum numeric_int4(PG_FUNCTION_ARGS)
 {
     Numeric num = PG_GETARG_NUMERIC(0);
+    PG_RETURN_INT32(numeric_int4_opt_error(num, fcinfo->can_ignore, NULL));
+}
+int32 numeric_int4_opt_error(Numeric num, bool can_ignore, bool *have_error)
+{
     NumericVar x;
     int32 result;
     uint16 numFlags = NUMERIC_NB_FLAGBITS(num);
 
+    if (have_error) {
+        *have_error = false;
+    }
+
     if (NUMERIC_FLAG_IS_NANORBI(numFlags)) {
         /* Handle Big Integer */
-        if (NUMERIC_FLAG_IS_BI(numFlags))
+        if (NUMERIC_FLAG_IS_BI(numFlags)) {
             num = makeNumericNormal(num);
         /* XXX would it be better to return NULL? */
-        else
+        } else if (have_error) {
+            *have_error = true;
+        } else {
             ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("cannot convert NaN to integer")));
+        }
     }
 
     /* Convert to variable format, then convert to int4 */
     init_var_from_num(num, &x);
-    result = numericvar_to_int32(&x, fcinfo->can_ignore);
-    PG_RETURN_INT32(result);
+    result = numericvar_to_int32(&x, can_ignore, have_error);
+    return result;
 }
 
 /*
@@ -3121,13 +3183,18 @@ Datum numeric_int4(PG_FUNCTION_ARGS)
  * exceeds the range of an int32, raise the appropriate error via
  * ereport(). The input NumericVar is *not* free'd.
  */
-static int32 numericvar_to_int32(const NumericVar* var, bool can_ignore)
+static int32 numericvar_to_int32(const NumericVar* var, bool can_ignore, bool* have_error)
 {
     int32 result;
     int64 val;
 
-    if (!numericvar_to_int64(var, &val, can_ignore))
+    if (!numericvar_to_int64(var, &val, can_ignore)) {
+        if (have_error) {
+            *have_error = true;
+            return 0;
+        }
         ereport(ERROR, (errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE), errmsg("integer out of range")));
+    }
 
     /* return INT32_MAX/INT32_MIN if SQL can ignore overflowing */
     if (can_ignore && (val > INT_MAX || val < INT_MIN)) {
@@ -3139,8 +3206,13 @@ static int32 numericvar_to_int32(const NumericVar* var, bool can_ignore)
     result = (int32)val;
 
     /* Test for overflow by reverse-conversion. */
-    if ((int64)result != val)
+    if ((int64)result != val) {
+        if (have_error) {
+            *have_error = true;
+            return 0;
+        }
         ereport(ERROR, (errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE), errmsg("integer out of range")));
+    }
 
     return result;
 }
@@ -3165,26 +3237,44 @@ Datum int8_numeric(PG_FUNCTION_ARGS)
 Datum numeric_int8(PG_FUNCTION_ARGS)
 {
     Numeric num = PG_GETARG_NUMERIC(0);
+    PG_RETURN_INT64(numeric_int8_opt_error(num, fcinfo->can_ignore, NULL));
+}
+
+int64 numeric_int8_opt_error(Numeric num, bool can_ignore, bool *haveError)
+{
     NumericVar x;
     int64 result;
     uint16 numFlags = NUMERIC_NB_FLAGBITS(num);
 
+    if (haveError) {
+        *haveError = false;
+    }
+
     if (NUMERIC_FLAG_IS_NANORBI(numFlags)) {
         /* Handle Big Integer */
-        if (NUMERIC_FLAG_IS_BI(numFlags))
+        if (NUMERIC_FLAG_IS_BI(numFlags)) {
             num = makeNumericNormal(num);
         /* XXX would it be better to return NULL? */
-        else
+        } else if (haveError) {
+            *haveError = true;
+            return 0;
+        } else {
             ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("cannot convert NaN to bigint")));
+        }
     }
 
     /* Convert to variable format and thence to int8 */
     init_var_from_num(num, &x);
 
-    if (!numericvar_to_int64(&x, &result, fcinfo->can_ignore))
+    if (!numericvar_to_int64(&x, &result, can_ignore)) {
+        if (haveError) {
+            *haveError = true;
+            return 0;
+        }
         ereport(ERROR, (errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE), errmsg("bigint out of range")));
+    }
 
-    PG_RETURN_INT64(result);
+    return result;
 }
 
 Datum int2_numeric(PG_FUNCTION_ARGS)
@@ -5395,6 +5485,11 @@ static char* get_str_from_var_sci(NumericVar* var, int rscale)
  */
 Numeric make_result(NumericVar* var)
 {
+    return make_result_opt_error(var, NULL);
+}
+
+static Numeric make_result_opt_error(NumericVar *var, bool *haveError)
+{
     Numeric result;
     NumericDigit* digits = var->digits;
     int weight = var->weight;
@@ -5454,8 +5549,13 @@ Numeric make_result(NumericVar* var)
     Assert(NUMERIC_NDIGITS(result) == (unsigned int)(n));
 
     /* Check for overflow of int16 fields */
-    if (NUMERIC_WEIGHT(result) != weight || NUMERIC_DSCALE(result) != var->dscale)
+    if (NUMERIC_WEIGHT(result) != weight || NUMERIC_DSCALE(result) != var->dscale) {
+        if (haveError) {
+            *haveError = true;
+            return NULL;
+        }
         ereport(ERROR, (errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE), errmsg("value overflows numeric format")));
+    }
 
     dump_numeric("make_result()", result);
     return result;
@@ -6235,7 +6335,8 @@ static void mul_var(NumericVar* var1, NumericVar* var2, NumericVar* result, int 
  *	If round is true, it is rounded at the rscale'th digit; if false, it
  *	is truncated (towards zero) at that digit.
  */
-static void div_var(NumericVar* var1, NumericVar* var2, NumericVar* result, int rscale, bool round)
+static void div_var(NumericVar* var1, NumericVar* var2, NumericVar* result,
+    int rscale, bool round, bool* haveError)
 {
     int div_ndigits;
     int res_ndigits;
@@ -6259,8 +6360,13 @@ static void div_var(NumericVar* var1, NumericVar* var2, NumericVar* result, int 
      * First of all division by zero check; we must not be handed an
      * unnormalized divisor.
      */
-    if (var2ndigits == 0 || var2->digits[0] == 0)
+    if (var2ndigits == 0 || var2->digits[0] == 0) {
+        if (haveError) {
+            *haveError = true;
+            return;
+        }
         ereport(ERROR, (errcode(ERRCODE_DIVISION_BY_ZERO), errmsg("division by zero")));
+    }
     /*
      * If the divisor has just one or two digits, delegate to div_var_int(),
      * which uses fast short division.
@@ -6925,7 +7031,7 @@ static int select_div_scale(NumericVar* var1, NumericVar* var2)
  *
  *	Calculate the modulo of two numerics at variable level
  */
-static void mod_var(NumericVar* var1, NumericVar* var2, NumericVar* result)
+static void mod_var(NumericVar* var1, NumericVar* var2, NumericVar* result, bool* haveError)
 {
     NumericVar tmp;
 
@@ -6937,7 +7043,7 @@ static void mod_var(NumericVar* var1, NumericVar* var2, NumericVar* result)
      * div_var can be persuaded to give us trunc(x/y) directly.
      * ----------
      */
-    div_var(var1, var2, &tmp, 0, false);
+    div_var(var1, var2, &tmp, 0, false, haveError);
 
     mul_var(var2, &tmp, &tmp, var2->dscale);
 

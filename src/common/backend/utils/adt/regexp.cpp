@@ -282,6 +282,12 @@ static bool RE_compile_and_execute(
     return RE_execute(re, dat, dat_len, nmatch, pmatch);
 }
 
+bool RE_compile_and_execute_ext(
+    text* text_re, const char* dat, int datLen, int cflags, Oid collation, int nmatch, regmatch_t* pmatch)
+{
+    return RE_compile_and_execute(text_re, dat, datLen, cflags, collation, nmatch, pmatch);
+}
+
 static void parse_re_set_n_flag(pg_re_flags* flags)
 {
     if (REGEX_COMPAT_MODE) {

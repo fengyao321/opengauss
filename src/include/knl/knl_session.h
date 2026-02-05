@@ -475,6 +475,8 @@ typedef struct knl_u_parser_context {
 
     char* fmt_str;
     char* nls_fmt_str;
+
+    bool disable_jsonb_auto_sort;
 } knl_u_parser_context;
 
 typedef struct knl_u_trigger_context {

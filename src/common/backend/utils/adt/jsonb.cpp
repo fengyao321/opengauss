@@ -129,6 +129,48 @@ Datum jsonb_send(PG_FUNCTION_ARGS)
     PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
 }
 
+static const char* JsonbSuperHeaderTypeName(JsonbValue* jbv)
+{
+    JsonbValue scalar;
+
+    if (JsonbExtractScalar(JsonbValueToJsonb(jbv), &scalar)) {
+        return JsonbTypeName(&scalar);
+    } else if (JsonbSuperHeaderIsArray(jbv->binary.data)) {
+        return "array";
+    } else if (JsonbSuperHeaderIsObject(jbv->binary.data)) {
+        return "object";
+    } else {
+        elog(ERROR, "invalid jsonb container type: 0x%08x", jbv->binary.data);
+        return "unknown";
+    }
+}
+
+/*
+ * Get the type name of a jsonb value.
+ */
+const char* JsonbTypeName(JsonbValue *val)
+{
+    switch (val->type) {
+        case jbvBinary:
+            return JsonbSuperHeaderTypeName(val);
+        case jbvObject:
+            return "object";
+        case jbvArray:
+            return "array";
+        case jbvNumeric:
+            return "number";
+        case jbvString:
+            return "string";
+        case jbvBool:
+            return "boolean";
+        case jbvNull:
+            return "null";
+        default:
+            elog(ERROR, "unrecognized jsonb value type: %d", val->type);
+            return "unknown";
+    }
+}
+
 /*
  * SQL function jsonb_typeof(jsonb) -> text
  *

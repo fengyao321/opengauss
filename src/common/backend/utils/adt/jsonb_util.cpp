@@ -1696,7 +1696,7 @@ static void uniqueifyJsonbObject(JsonbValue * object)
 
     Assert(object->type == jbvObject);
 
-    if (object->object.nPairs > 1) {
+    if (object->object.nPairs > 1 && !u_sess->parser_cxt.disable_jsonb_auto_sort) {
         qsort_arg(object->object.pairs, object->object.nPairs, sizeof(JsonbPair), lengthCompareJsonbPair, &hasNonUniq);
     }
 
@@ -1759,4 +1759,126 @@ static void uniqueifyJsonbArray(JsonbValue *array)
 
         array->array.nElems = res + 1 - array->array.elems;
     }
+}
+
+/*
+ * Extract scalar value from raw-scalar pseudo-array jsonb.
+ */
+bool JsonbExtractScalar(Jsonb* jb, JsonbValue *res)
+{
+    JsonbIterator *it;
+    int tok;
+    JsonbValue tmp;
+
+    if (!JB_ROOT_IS_ARRAY(jb) || !JB_ROOT_IS_SCALAR(jb)) {
+        /* inform caller about actual type of container */
+        res->type = (JB_ROOT_IS_ARRAY(jb)) ? jbvArray : jbvObject;
+        return false;
+    }
+
+    /*
+     * A root scalar is stored as an array of one element, so we get the array
+     * and then its first (and only) member.
+     */
+    it = JsonbIteratorInit((JsonbSuperHeader)(&jb->superheader));
+
+    tok = JsonbIteratorNext(&it, &tmp, true);
+    Assert(tok == WJB_BEGIN_ARRAY);
+    Assert(tmp.array.nElems == 1 && tmp.array.rawScalar);
+
+    tok = JsonbIteratorNext(&it, res, true);
+    Assert(tok == WJB_ELEM);
+    Assert(IsAJsonbScalar(res));
+
+    tok = JsonbIteratorNext(&it, &tmp, true);
+    Assert(tok == WJB_END_ARRAY);
+
+    tok = JsonbIteratorNext(&it, &tmp, true);
+    Assert(tok == WJB_DONE);
+
+    return true;
+}
+
+JsonbValue* FindJsonbValueFromUnsortedObjects(
+    JsonbSuperHeader sheader, JsonbValue* key)
+{
+    JsonbValue *result = (JsonbValue*)palloc(sizeof(JsonbValue));
+    uint32 superheader = *(uint32 *)sheader;
+    JEntry *array = (JEntry *)(sheader + sizeof(uint32));
+    uint count = JsonbSuperHeaderSize(sheader);
+    char *data = (char *) (array + count * 2);
+    /* Object key past by caller must be a string */
+    Assert(key->type == jbvString);
+
+    uint32 stopLow = 0;
+    /* Binary search on object/pair keys *only* */
+    while (stopLow < count) {
+        JEntry *entry = array + stopLow * 2;
+        int difference;
+        JsonbValue candidate;
+        candidate.type = jbvString;
+        candidate.string.val = data + JBE_OFF(*entry);
+        candidate.string.len = JBE_LEN(*entry);
+        candidate.estSize = sizeof(JEntry) + candidate.string.len;
+        difference = lengthCompareJsonbStringValue(&candidate, key, NULL);
+        if (difference == 0) {
+            /* Found our value (from key/value pair) */
+            JEntry *v = entry + 1;
+            int32 scale = 2;
+            if (JBE_ISNULL(*v)) {
+                result->type = jbvNull;
+                result->estSize = sizeof(JEntry);
+            } else if (JBE_ISSTRING(*v)) {
+                result->type = jbvString;
+                result->string.val = data + JBE_OFF(*v);
+                result->string.len = JBE_LEN(*v);
+                result->estSize = sizeof(JEntry) + result->string.len;
+            } else if (JBE_ISNUMERIC(*v)) {
+                result->type = jbvNumeric;
+                result->numeric = (Numeric) (data + INTALIGN(JBE_OFF(*v)));
+                result->estSize = scale * sizeof(JEntry) +
+                    VARSIZE_ANY(result->numeric);
+            } else if (JBE_ISBOOL(*v)) {
+                result->type = jbvBool;
+                result->boolean = JBE_ISBOOL_TRUE(*v) != 0;
+                result->estSize = sizeof(JEntry);
+            } else {
+                /*
+                    * See header comments to understand why this never happens
+                    * with arrays
+                    */
+                result->type = jbvBinary;
+                result->binary.data = data + INTALIGN(JBE_OFF(*v));
+                result->binary.len = JBE_LEN(*v) -
+                    (INTALIGN(JBE_OFF(*v)) - JBE_OFF(*v));
+                result->estSize = scale * sizeof(JEntry) + result->binary.len;
+            }
+            return result;
+        } else {
+            stopLow++;
+        }
+    }
+    pfree(result);
+    return NULL;
+}
+
+/* convenience macros for accessing a JsonbSuperHeader struct */
+bool JsonbSuperHeaderIsScalar(JsonbSuperHeader sheader)
+{
+    return (((*(uint32 *)sheader) & JB_FSCALAR) != 0);
+}
+
+bool JsonbSuperHeaderIsObject(JsonbSuperHeader sheader)
+{
+    return (((*(uint32 *)sheader) & JB_FOBJECT) != 0);
+}
+
+bool JsonbSuperHeaderIsArray(JsonbSuperHeader sheader)
+{
+    return (((*(uint32 *)sheader) & JB_FARRAY) != 0);
+}
+
+extern int JsonbSuperHeaderSize(JsonbSuperHeader sheader)
+{
+    return ((*(uint32 *)sheader) & JB_CMASK);
 }

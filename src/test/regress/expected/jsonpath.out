@@ -1,7 +1,7 @@
-DROP SCHEMA IF EXISTS test_jsonpath CASCADE;
-NOTICE:  schema "test_jsonpath" does not exist, skipping
-CREATE SCHEMA test_jsonpath;
-SET CURRENT_SCHEMA TO test_jsonpath ;
+DROP DATABASE IF EXISTS test_jsonpath_a;
+NOTICE:  database "test_jsonpath_a" does not exist, skipping
+CREATE DATABASE test_jsonpath_a;
+\c test_jsonpath_a;
 CREATE TABLE t (name VARCHAR2(100));
 INSERT INTO t VALUES ('[{"first":"John"}, {"middle":"Mark"}, {"last":"Smith"}, 1]');
 INSERT INTO t VALUES ('[{"first":"John"}, {"middle":"Mark"}, {"last":"Smith"}, [1, 2, 3]]');
@@ -21,6 +21,12 @@ INSERT INTO families
 VALUES ('{"family" : {"id":12, "ages":[25,23], "address" : {"street" : "300 Oak Street", "apt" : 10}}}');
 INSERT INTO families VALUES ('This is not well-formed JSON data');
 -- JsonPath grammar
+SELECT '$[$index]'::jsonpath;
+  jsonpath   
+-------------
+ $[$"index"]
+(1 row)
+
 SELECT name FROM t WHERE JSON_EXISTS(name, '$');
                                     name                                     
 -----------------------------------------------------------------------------
@@ -57,11 +63,43 @@ SELECT name FROM t WHERE JSON_EXISTS(name, '$[*]');
  [{"first":1}, {"middle":2}, {"last":3}]
 (7 rows)
 
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[$index]');
+ERROR:  could not find jsonpath variable "index"
+SELECT name FROM t WHERE JSON_EXISTS(name, 'strict $[*]');
+ERROR:  invalid input syntax for type jsonpath
+DETAIL:  specifying strict/lax mode is not supported in A_FORMAT database
+SELECT name FROM t WHERE JSON_EXISTS(name, 'lax $[*]');
+ERROR:  invalid input syntax for type jsonpath
+DETAIL:  specifying strict/lax mode is not supported in A_FORMAT database
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[99]');
  name 
 ------
 (0 rows)
 
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[last]');
+                                    name                                     
+-----------------------------------------------------------------------------
+ [{"first":"John"}, {"middle":"Mark"}, {"last":"Smith"}, 1]
+ [{"first":"John"}, {"middle":"Mark"}, {"last":"Smith"}, [1, 2, 3]]
+ [{"first":"Mary"}, {"last":"Jones"}]
+ [{"first":"Jeff"}, {"last":"Williams"}]
+ [{"first":"Jean"}, {"middle":"Anne"}, {"last":"Brown"}]
+ [{"first":"Jean"}, {"middle":"Anne"}, {"middle":"Alice"}, {"last":"Brown"}]
+ [{"first":1}, {"middle":2}, {"last":3}]
+(7 rows)
+
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[last] + 1');
+ERROR:  invalid input syntax for type jsonpath: "$[last] + 1"
+DETAIL:  A_FORMAT jsonpath must start with a dollar sign ($) character
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[last - 2]');
+ERROR:  invalid jsonpath array index: -1
+DETAIL:  A_FORMAT database only supports non-negative integer(s) as jsonpath array index
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[last * 2]');
+ERROR:  invalid input syntax for type jsonpath
+DETAIL:  A_FORMAT jsonpath array index can only be a non-negative integer, or an add/substraction expression of "LAST", with "LAST" as the left operand, and a non-negative integer as the right operand.
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[2 - last]');
+ERROR:  invalid input syntax for type jsonpath
+DETAIL:  A_FORMAT jsonpath array index can only be a non-negative integer, or an add/substraction expression of "LAST", with "LAST" as the left operand, and a non-negative integer as the right operand.
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[0,2]');
                                     name                                     
 -----------------------------------------------------------------------------
@@ -118,6 +156,12 @@ SELECT name FROM t WHERE JSON_EXISTS(name, '$[2 to 0]');
  [{"first":1}, {"middle":2}, {"last":3}]
 (7 rows)
 
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[false to true]');
+ERROR:  invalid input syntax for type jsonpath
+DETAIL:  A_FORMAT jsonpath array index can only be a non-negative integer, or an add/substraction expression of "LAST", with "LAST" as the left operand, and a non-negative integer as the right operand.
+SELECT name FROM t WHERE JSON_EXISTS(name, '2');
+ERROR:  invalid input syntax for type jsonpath: "2"
+DETAIL:  A_FORMAT jsonpath must start with a dollar sign ($) character
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[2].*.*');
  name 
 ------
@@ -168,15 +212,18 @@ SELECT family_doc FROM families WHERE JSON_EXISTS(family_doc, '$.family.ages[2]'
 
 -- syntax error in jsonpath
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[-1]');
-ERROR:  syntax error in json path expression
+ERROR:  invalid jsonpath array index: -1
+DETAIL:  A_FORMAT database only supports non-negative integer(s) as jsonpath array index
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[0b10]');
 ERROR:  syntax error in json path expression
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[1');
 ERROR:  syntax error in json path expression
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[1+2]');
-ERROR:  syntax error in json path expression
-SELECT name FROM t WHERE JSON_EXISTS(name, '$[0.1]');
-ERROR:  syntax error in json path expression
+ERROR:  invalid input syntax for type jsonpath
+DETAIL:  A_FORMAT jsonpath array index can only be a non-negative integer, or an add/substraction expression of "LAST", with "LAST" as the left operand, and a non-negative integer as the right operand.
+SELECT name FROM t WHERE JSON_EXISTS(name, '$[1.1]');
+ERROR:  invalid jsonpath array index: 1.1
+DETAIL:  A_FORMAT database only supports non-negative integer(s) as jsonpath array index
 SELECT name FROM t WHERE JSON_EXISTS(name, 'NULL');
 ERROR:  syntax error in json path expression
 SELECT name FROM t WHERE JSON_EXISTS(name, NULL);
@@ -186,13 +233,13 @@ NOTICE:  table "t_jsonexists_case0009" does not exist, skipping
 CREATE TABLE t_JsonExists_Case0009( col1 VARCHAR2 (2000));
 INSERT INTO t_JsonExists_Case0009 VALUES (null);
 select col1 from t_JsonExists_Case0009 where json_exists(col1,' ');
-ERROR:  syntax error in json path expression
+ERROR:  invalid input syntax for type jsonpath: " "
 select col1 from t_JsonExists_Case0009 where json_exists(col1,' ' FALSE on ERROR);
-ERROR:  syntax error in json path expression
+ERROR:  invalid input syntax for type jsonpath: " "
 select col1 from t_JsonExists_Case0009 where json_exists(col1,' ' TRUE on ERROR);
-ERROR:  syntax error in json path expression
+ERROR:  invalid input syntax for type jsonpath: " "
 select col1 from t_JsonExists_Case0009 where json_exists(col1,' ' ERROR on ERROR);
-ERROR:  syntax error in json path expression
+ERROR:  invalid input syntax for type jsonpath: " "
 drop table t_JsonExists_Case0009;
 -- json_exists
 SELECT name FROM t WHERE JSON_EXISTS(name, '$[0].first');
@@ -353,6 +400,16 @@ SELECT JSON_EXISTS('[{"first":"John"}, {"middle":"Mark"}, {"last":"Smith"}]', '$
  t
 (1 row)
 
+SELECT JSON_EXISTS('[1, "aBdC", "ab\nadc", "111\nabc", "^ab.*c$"]', '$[*] ? (@ like_regex "^ab.*c")');
+ json_exists 
+-------------
+ f
+(1 row)
+
+SELECT JSON_EXISTS('[1, "aBdC", "ab\nadc", "111\nabc", "^ab.*c$"]', '$[*] ? (@ like_regex "^ab.*c" flag "i")');
+ERROR:  invalid input syntax for type jsonpath
+DETAIL:  specifying like_regex flags is not supportted for A_FORMAT jsonpath
+CONTEXT:  referenced column: json_exists
 PREPARE stmt1 AS SELECT JSON_EXISTS($1,$2);
 EXECUTE stmt1('[{"first":"John"}, {"middle":"Mark"}, {"last":"Smith"}]','$[0].first');
  json_exists 
@@ -416,6 +473,12 @@ SELECT family_doc FROM families WHERE JSON_TEXTCONTAINS(family_doc, '$.family', 
 (0 rows)
 
 SELECT family_doc FROM families WHERE JSON_TEXTCONTAINS(family_doc, '$.family', 'Oak Street');
+                                          family_doc                                           
+-----------------------------------------------------------------------------------------------
+ {"family" : {"id":12, "ages":[25,23], "address" : {"street" : "300 Oak Street", "apt" : 10}}}
+(1 row)
+
+SELECT family_doc FROM families WHERE JSON_TEXTCONTAINS(family_doc, '$.family', 'Oak Street'::cstring);
                                           family_doc                                           
 -----------------------------------------------------------------------------------------------
  {"family" : {"id":12, "ages":[25,23], "address" : {"street" : "300 Oak Street", "apt" : 10}}}
@@ -614,9 +677,54 @@ select json_textcontains('{
     "sites": [
         { "name":"Google", "info":[[ {"name":"Android"}, {"name":"Google Search"}, {"name":"Googlee"} ]] },
         { "name":"Runoob", "info":[[ {"name":"book"}, {"name":"tool"}, "wechat" ]] },
-        { "name":"Taobao", "info":[[ {"name":"taobao"}, "shop" ]] }
+        { "name":"Taobao", "info":[[ {"name":"taobao"}, "shop" ]] },
+        { "name":null, "info":[[ {"name":true}, {"name":false} ]] }
     ]
 }', '$.sites.info.name','Androidd,Search,Googlee');
+ json_textcontains 
+-------------------
+ t
+(1 row)
+
+select json_textcontains('{
+    "name":"web",
+    "num":3,
+    "sites": [
+        { "name":"Google", "info":[[ {"name":"Android"}, {"name":"Google Search"}, {"name":"Googlee"} ]] },
+        { "name":"Runoob", "info":[[ {"name":"book"}, {"name":"tool"}, "wechat" ]] },
+        { "name":"Taobao", "info":[[ {"name":"taobao"}, "shop" ]] }
+    ]
+}', '$.*.*.*[*][*][*]','Androidd,Search,Googlee');
+ json_textcontains 
+-------------------
+ t
+(1 row)
+
+select json_textcontains('{
+    "name":"web",
+    "num":3,
+    "sites": [
+        { "name":"Google", "info":[[ {"name":"Android"}, {"name":"Google Search"}, {"name":"Googlee"} ]] },
+        { "name":"Runoob", "info":[[ {"name":"book"}, {"name":"tool"}, "wechat" ]] },
+        { "name":"Taobao", "info":[[ {"name":"taobao"}, "shop" ]] }
+    ]
+}', '$.**.name','Androidd,Search,Googlee');
+ERROR:  invalid input syntax for type jsonpath
+DETAIL:  ".**" accessor is not supported in A_FORMAT database
+CONTEXT:  referenced column: json_textcontains
+SELECT json_textcontains('[-0.2, 1.1, 2.7]', '$[*].abs().floor().ceiling()', '0 1 2');
+ json_textcontains 
+-------------------
+ t
+(1 row)
+
+SELECT json_textcontains('[-0.2, 1.1, 2.7]', '$[*].size().type()', 'number');
+ json_textcontains 
+-------------------
+ t
+(1 row)
+
+SELECT json_textcontains('{"family" : {"id":12, "ages":[25,23], "address" : {"street" : "300 Oak Street", "apt" : 10}}}', '$.family.keyvalue()', 'address');
  json_textcontains 
 -------------------
  t
@@ -659,8 +767,514 @@ SELECT po.po_document FROM t_JsonExists_Case0006 po WHERE json_exists(po.po_docu
 (2 rows)
 
 drop table t_JsonExists_Case0006;
-DROP SCHEMA test_jsonpath CASCADE;
-NOTICE:  drop cascades to 3 other objects
-DETAIL:  drop cascades to table t
-drop cascades to table families
-drop cascades to function p_jsontextcontains_case0011(text,text,text)
+\c regression
+DROP DATABASE test_jsonpath_a;
+-- jsonpath gram test
+CREATE DATABASE test_jsonpath_pg dbcompatibility='PG';
+\c test_jsonpath_pg
+set behavior_compat_options='display_leading_zero';
+select '1.type()'::jsonpath;
+ERROR:  trailing junk after numeric literal in json path expression
+LINE 1: select '1.type()'::jsonpath;
+               ^
+CONTEXT:  referenced column: jsonpath
+select '0755'::jsonpath;
+ERROR:  syntax error in json path expression
+LINE 1: select '0755'::jsonpath;
+               ^
+CONTEXT:  referenced column: jsonpath
+select '00'::jsonpath;
+ERROR:  trailing junk after numeric literal in json path expression
+LINE 1: select '00'::jsonpath;
+               ^
+CONTEXT:  referenced column: jsonpath
+select '"\b\f\r\n\t\v\"\''\\"'::jsonpath;
+        jsonpath         
+-------------------------
+ "\b\f\r\n\t\u000b\"'\\"
+(1 row)
+
+select '"\x50\u0067\u{53}\u{051}\u{00004C}"'::jsonpath;
+ jsonpath 
+----------
+ "PgSQL"
+(1 row)
+
+select '$.foo\x50\u0067\u{53}\u{051}\u{00004C}\t\"bar'::jsonpath;
+      jsonpath       
+---------------------
+ $."fooPgSQL\t\"bar"
+(1 row)
+
+select '"\z"'::jsonpath;  -- unrecognized escape is just the literal char
+ jsonpath 
+----------
+ "z"
+(1 row)
+
+select 'true'::jsonpath;
+ jsonpath 
+----------
+ true
+(1 row)
+
+select 'false'::jsonpath;
+ jsonpath 
+----------
+ false
+(1 row)
+
+select 'null'::jsonpath;
+ jsonpath 
+----------
+ null
+(1 row)
+
+select '$a'::jsonpath;
+ jsonpath 
+----------
+ $"a"
+(1 row)
+
+select '$[true]'::jsonpath;
+ jsonpath 
+----------
+ $[true]
+(1 row)
+
+select 'strict $'::jsonpath;
+ jsonpath 
+----------
+ strict $
+(1 row)
+
+select 'lax $'::jsonpath;
+ jsonpath 
+----------
+ $
+(1 row)
+
+select '$.a.**.b'::jsonpath;
+   jsonpath   
+--------------
+ $."a".**."b"
+(1 row)
+
+select '$.a.**{2}.b'::jsonpath;
+    jsonpath     
+-----------------
+ $."a".**{2}."b"
+(1 row)
+
+select '$.a.**{2 to 2}.b'::jsonpath;
+    jsonpath     
+-----------------
+ $."a".**{2}."b"
+(1 row)
+
+select '$.a.**{2 to 5}.b'::jsonpath;
+       jsonpath       
+----------------------
+ $."a".**{2 to 5}."b"
+(1 row)
+
+select '$.a.**{0 to 5}.b'::jsonpath;
+       jsonpath       
+----------------------
+ $."a".**{0 to 5}."b"
+(1 row)
+
+select '$.a.**{5 to last}.b'::jsonpath;
+        jsonpath         
+-------------------------
+ $."a".**{5 to last}."b"
+(1 row)
+
+select '$.a.**{last}.b'::jsonpath;
+      jsonpath      
+--------------------
+ $."a".**{last}."b"
+(1 row)
+
+select '$.a.**{last to 5}.b'::jsonpath;
+        jsonpath         
+-------------------------
+ $."a".**{last to 5}."b"
+(1 row)
+
+select jsonpath_out('$.a.**{last to 5}.b');
+      jsonpath_out       
+-------------------------
+ $."a".**{last to 5}."b"
+(1 row)
+
+select 'last'::jsonpath;
+ERROR:  LAST is allowed only in array subscripts
+LINE 1: select 'last'::jsonpath;
+               ^
+CONTEXT:  referenced column: jsonpath
+select '"last"'::jsonpath;
+ jsonpath 
+----------
+ "last"
+(1 row)
+
+select '$.last'::jsonpath;
+ jsonpath 
+----------
+ $."last"
+(1 row)
+
+select '$[last]'::jsonpath;
+ jsonpath 
+----------
+ $[last]
+(1 row)
+
+select '$+1'::jsonpath;
+ jsonpath 
+----------
+ ($ + 1)
+(1 row)
+
+select '$-1'::jsonpath;
+ jsonpath 
+----------
+ ($ - 1)
+(1 row)
+
+select '$--+1'::jsonpath;
+ jsonpath 
+----------
+ ($ - -1)
+(1 row)
+
+select '$.a/+-1'::jsonpath;
+   jsonpath   
+--------------
+ ($."a" / -1)
+(1 row)
+
+select jsonpath_out('$.a/+-1');
+ jsonpath_out 
+--------------
+ ($."a" / -1)
+(1 row)
+
+select '$.a[$a + 1, ($b[*]) to -($[0] * 2)]'::jsonpath;
+                jsonpath                
+----------------------------------------
+ $."a"[$"a" + 1,$"b"[*] to -($[0] * 2)]
+(1 row)
+
+select jsonpath_out('$.a[$a + 1, ($b[*]) to -($[0] * 2)]');
+              jsonpath_out              
+----------------------------------------
+ $."a"[$"a" + 1,$"b"[*] to -($[0] * 2)]
+(1 row)
+
+select '1 + ($.a.b + 2).c.d'::jsonpath;
+           jsonpath            
+-------------------------------
+ (1 + ($."a"."b" + 2)."c"."d")
+(1 row)
+
+select '($.a.b + -$.x.y).c.d'::jsonpath;
+             jsonpath             
+----------------------------------
+ ($."a"."b" + -$."x"."y")."c"."d"
+(1 row)
+
+select '(-+$.a.b).c.d'::jsonpath;
+        jsonpath         
+-------------------------
+ (-(+$."a"."b"))."c"."d"
+(1 row)
+
+select '$.g ? ($.a == 1)'::jsonpath;
+      jsonpath      
+--------------------
+ $."g"?($."a" == 1)
+(1 row)
+
+select '$.g ? (@ == 1)'::jsonpath;
+    jsonpath    
+----------------
+ $."g"?(@ == 1)
+(1 row)
+
+select '$.g ? (@.a == 1)'::jsonpath;
+      jsonpath      
+--------------------
+ $."g"?(@."a" == 1)
+(1 row)
+
+select '$.g ? (@.a == 1 || @.a == 4)'::jsonpath;
+             jsonpath             
+----------------------------------
+ $."g"?(@."a" == 1 || @."a" == 4)
+(1 row)
+
+select '$.g ? (@.a == 1 && @.a == 4)'::jsonpath;
+             jsonpath             
+----------------------------------
+ $."g"?(@."a" == 1 && @."a" == 4)
+(1 row)
+
+select '$.g ? (@.a == 1 || @.a == 4 && @.b == 7)'::jsonpath;
+                    jsonpath                    
+------------------------------------------------
+ $."g"?(@."a" == 1 || @."a" == 4 && @."b" == 7)
+(1 row)
+
+select '$.g ? (@.a == 1 || !(@.a == 4) && @.b == 7)'::jsonpath;
+                     jsonpath                      
+---------------------------------------------------
+ $."g"?(@."a" == 1 || !(@."a" == 4) && @."b" == 7)
+(1 row)
+
+select '$.g ? (@.a == 1 || !(@.x >= 123 || @.a == 4) && @.b == 7)'::jsonpath;
+                             jsonpath                              
+-------------------------------------------------------------------
+ $."g"?(@."a" == 1 || !(@."x" >= 123 || @."a" == 4) && @."b" == 7)
+(1 row)
+
+select '$.g ? (@.x >= @[*]?(@.a > "abc"))'::jsonpath;
+               jsonpath                
+---------------------------------------
+ $."g"?(@."x" >= @[*]?(@."a" > "abc"))
+(1 row)
+
+select jsonpath_out('$.g ? ((@.x >= 123 || @.a == 4) is unknown)');
+                  jsonpath_out                   
+-------------------------------------------------
+ $."g"?((@."x" >= 123 || @."a" == 4) is unknown)
+(1 row)
+
+select '$.g ? (exists (@.x))'::jsonpath;
+        jsonpath        
+------------------------
+ $."g"?(exists (@."x"))
+(1 row)
+
+select '$.g ? (exists (@.x ? (@ == 14)))'::jsonpath;
+             jsonpath             
+----------------------------------
+ $."g"?(exists (@."x"?(@ == 14)))
+(1 row)
+
+select '$.g ? ((@.x >= 123 || @.a == 4) && exists (@.x ? (@ == 14)))'::jsonpath;
+                             jsonpath                             
+------------------------------------------------------------------
+ $."g"?((@."x" >= 123 || @."a" == 4) && exists (@."x"?(@ == 14)))
+(1 row)
+
+select '$.g ? (+@.x >= +-(+@.a + 2))'::jsonpath;
+              jsonpath              
+------------------------------------
+ $."g"?(+@."x" >= +(-(+@."a" + 2)))
+(1 row)
+
+select jsonpath_out('$.g ? (@.a <= 1 || !(@.x >= 123 || @.a < 4) && @.b == 7 && @.c > 7)');
+                                  jsonpath_out                                   
+---------------------------------------------------------------------------------
+ $."g"?(@."a" <= 1 || (!(@."x" >= 123 || @."a" < 4) && @."b" == 7) && @."c" > 7)
+(1 row)
+
+select jsonpath_out('$ ? (@ starts with "abc")');
+      jsonpath_out       
+-------------------------
+ $?(@ starts with "abc")
+(1 row)
+
+select jsonpath_out('$ ? (@ starts with $var)');
+       jsonpath_out       
+--------------------------
+ $?(@ starts with $"var")
+(1 row)
+
+select '$ ? (@ like_regex "(invalid pattern")'::jsonpath;
+ERROR:  invalid regular expression: parentheses () not balanced
+LINE 1: select '$ ? (@ like_regex "(invalid pattern")'::jsonpath;
+               ^
+CONTEXT:  referenced column: jsonpath
+select '$ ? (@ like_regex "pattern")'::jsonpath;
+          jsonpath          
+----------------------------
+ $?(@ like_regex "pattern")
+(1 row)
+
+select '$ ? (@ like_regex "pattern" flag "")'::jsonpath;
+          jsonpath          
+----------------------------
+ $?(@ like_regex "pattern")
+(1 row)
+
+select '$ ? (@ like_regex "pattern" flag "i")'::jsonpath;
+              jsonpath               
+-------------------------------------
+ $?(@ like_regex "pattern" flag "i")
+(1 row)
+
+select '$ ? (@ like_regex "pattern" flag "is")'::jsonpath;
+               jsonpath               
+--------------------------------------
+ $?(@ like_regex "pattern" flag "is")
+(1 row)
+
+select jsonpath_out('$ ? (@ like_regex "pattern" flag "isim")');
+             jsonpath_out              
+---------------------------------------
+ $?(@ like_regex "pattern" flag "ism")
+(1 row)
+
+select '$ ? (@ like_regex "pattern" flag "xsms")'::jsonpath;
+ERROR:  XQuery "x" flag (expanded regular expressions) is not implemented
+LINE 1: select '$ ? (@ like_regex "pattern" flag "xsms")'::jsonpath;
+               ^
+CONTEXT:  referenced column: jsonpath
+select '$ ? (@ like_regex "pattern" flag "q")'::jsonpath;
+              jsonpath               
+-------------------------------------
+ $?(@ like_regex "pattern" flag "q")
+(1 row)
+
+select '$ ? (@ like_regex "pattern" flag "iq")'::jsonpath;
+               jsonpath               
+--------------------------------------
+ $?(@ like_regex "pattern" flag "iq")
+(1 row)
+
+select '$ ? (@ like_regex "pattern" flag "smixq")'::jsonpath;
+                jsonpath                 
+-----------------------------------------
+ $?(@ like_regex "pattern" flag "ismxq")
+(1 row)
+
+select '$ ? (@ like_regex "pattern" flag "a")'::jsonpath;
+ERROR:  invalid input syntax for type jsonpath
+LINE 1: select '$ ? (@ like_regex "pattern" flag "a")'::jsonpath;
+               ^
+DETAIL:  Unrecognized flag character "a" in LIKE_REGEX predicate.
+CONTEXT:  referenced column: jsonpath
+select '((($ + 1)).a + ((2)).b ? ((((@ > 1)) || (exists(@.c)))))'::jsonpath;
+                     jsonpath                      
+---------------------------------------------------
+ (($ + 1)."a" + (2)."b"?(@ > 1 || exists (@."c")))
+(1 row)
+
+select '1.1.floor().ceiling().abs()'::jsonpath;
+           jsonpath            
+-------------------------------
+ (1.1).floor().ceiling().abs()
+(1 row)
+
+select '$.a[$.a.size() - 3]'::jsonpath;
+        jsonpath         
+-------------------------
+ $."a"[$."a".size() - 3]
+(1 row)
+
+select 'null.type()'::jsonpath;
+  jsonpath   
+-------------
+ null.type()
+(1 row)
+
+select '1.type()'::jsonpath;
+ERROR:  trailing junk after numeric literal in json path expression
+LINE 1: select '1.type()'::jsonpath;
+               ^
+CONTEXT:  referenced column: jsonpath
+select '(1).type()'::jsonpath;
+  jsonpath  
+------------
+ (1).type()
+(1 row)
+
+select '1.2.type()'::jsonpath;
+   jsonpath   
+--------------
+ (1.2).type()
+(1 row)
+
+select '"aaa".type()'::jsonpath;
+   jsonpath   
+--------------
+ "aaa".type()
+(1 row)
+
+select 'true.type()'::jsonpath;
+  jsonpath   
+-------------
+ true.type()
+(1 row)
+
+select jsonpath_out('$.keyvalue().key');
+    jsonpath_out    
+--------------------
+ $.keyvalue()."key"
+(1 row)
+
+select jsonpath_out('$.decimal(4,2)');
+  jsonpath_out  
+----------------
+ $.decimal(4,2)
+(1 row)
+
+select '$.string()'::jsonpath;
+  jsonpath  
+------------
+ $.string()
+(1 row)
+
+select '$.double().floor().ceiling().abs()'::jsonpath;
+              jsonpath              
+------------------------------------
+ $.double().floor().ceiling().abs()
+(1 row)
+
+select '$.boolean()'::jsonpath;
+  jsonpath   
+-------------
+ $.boolean()
+(1 row)
+
+select '$.bigint().integer().number().decimal()'::jsonpath;
+                jsonpath                 
+-----------------------------------------
+ $.bigint().integer().number().decimal()
+(1 row)
+
+select jsonpath_out('$.date()');
+ERROR:  jsonpath item method .date() is not supported.
+LINE 1: select jsonpath_out('$.date()');
+                            ^
+CONTEXT:  referenced column: jsonpath_out
+select '$.datetime("datetime template")'::jsonpath;
+ERROR:  jsonpath item method .datetime() is not supported.
+LINE 1: select '$.datetime("datetime template")'::jsonpath;
+               ^
+CONTEXT:  referenced column: jsonpath
+select '$.time()'::jsonpath;
+ERROR:  jsonpath item method .time() is not supported.
+LINE 1: select '$.time()'::jsonpath;
+               ^
+CONTEXT:  referenced column: jsonpath
+select '$.time_tz(4)'::jsonpath;
+ERROR:  jsonpath item method .time_tz() is not supported.
+LINE 1: select '$.time_tz(4)'::jsonpath;
+               ^
+CONTEXT:  referenced column: jsonpath
+select '$.timestamp(2)'::jsonpath;
+ERROR:  jsonpath item method .timestamp() is not supported.
+LINE 1: select '$.timestamp(2)'::jsonpath;
+               ^
+CONTEXT:  referenced column: jsonpath
+select '$.timestamp_tz(0)'::jsonpath;
+ERROR:  jsonpath item method .timestamp_tz() is not supported.
+LINE 1: select '$.timestamp_tz(0)'::jsonpath;
+               ^
+CONTEXT:  referenced column: jsonpath
+\c regression
+DROP DATABASE test_jsonpath_pg;

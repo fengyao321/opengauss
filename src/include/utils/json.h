@@ -44,6 +44,8 @@ extern Datum json_object(PG_FUNCTION_ARGS);
 extern Datum json_object_two_arg(PG_FUNCTION_ARGS);
 
 extern void escape_json(StringInfo buf, const char *str);
+extern void escape_json_with_len(StringInfo buf, const char *str, int len);
+extern bool IsJsonText(text* t);
 
 extern Datum json_typeof(PG_FUNCTION_ARGS);
 
@@ -88,6 +90,8 @@ extern Datum jsonb_delete_array(PG_FUNCTION_ARGS);
 extern Datum json_path_exists(PG_FUNCTION_ARGS);
 extern Datum json_textcontains(PG_FUNCTION_ARGS);
 extern Datum json_textcontains_text(PG_FUNCTION_ARGS);
+extern Datum jsonb_path_exists(PG_FUNCTION_ARGS);
+extern Datum jsonb_path_query_first(PG_FUNCTION_ARGS);
 
 extern int json_typeof_internal(text* json);
 

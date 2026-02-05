@@ -881,6 +881,13 @@ DATA(insert OID = 5860 (simple_integer PGNSP PGUID 4 t b N f t \054 0 0 5861 sim
 DATA(insert OID = 5861 (_simple_integer PGNSP PGUID -1 f b A f t \054 0 5860 0 array_in array_out array_recv array_send - - array_typanalyze i x f 0 -1 0 0 _null_ _null_ _null_));
 #define SIMPLE_INTEGER_ARRAYOID 5861
 
+DATA(insert OID = 4072 (jsonpath		PGNSP PGUID -1 f b C f t \054 0 0 4073 jsonpath_in jsonpath_out jsonpath_recv jsonpath_send - - - i x f 0 -1 0 0 _null_ _null_ _null_));
+DESCR("JSON path");
+#define JSONPATHOID			4072
+
+DATA(insert OID = 4073 (_jsonpath		PGNSP PGUID -1 f b A f t \054 0 4072 0 array_in array_out array_recv array_send - - array_typanalyze i x f 0 -1 0 0 _null_ _null_ _null_));
+#define ARRAYJSONPATHOID	4073
+
 /*
  * macros
  */
