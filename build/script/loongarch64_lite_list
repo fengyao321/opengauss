@@ -55,6 +55,8 @@
 ./share/postgresql/extension/hstore--1.0--1.1.sql
 ./share/postgresql/extension/log_fdw--1.0.sql
 ./share/postgresql/extension/log_fdw.control
+./share/postgresql/extension/ogai--1.0.sql
+./share/postgresql/extension/ogai.control
 ./share/postgresql/extension/gms_output--1.0.sql
 ./share/postgresql/extension/gms_output.control
 ./share/postgresql/extension/gms_inaddr--1.0.sql
