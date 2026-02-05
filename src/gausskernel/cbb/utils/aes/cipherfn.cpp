@@ -816,6 +816,8 @@ static inline const char* GetCipherPrefix(int mode)
             return "subscription";
         case HADR_MODE:
             return "hadr";
+        case OGAI_MODE:
+            return "ogai";
         default:
             ereport(ERROR, (errmsg("unknown key mode: %d", mode)));
             return NULL;
@@ -831,7 +833,8 @@ static inline const char* GetCipherPrefix(int mode)
  */
 static GS_UCHAR* getECKeyString(KeyMode mode)
 {
-    Assert(mode == SOURCE_MODE || mode == USER_MAPPING_MODE || mode == SUBSCRIPTION_MODE || mode == HADR_MODE);
+    Assert(mode == SOURCE_MODE || mode == USER_MAPPING_MODE || mode == SUBSCRIPTION_MODE ||
+		mode == HADR_MODE || mode == OGAI_MODE);
     GS_UCHAR* plainkey = NULL;
     char* gshome = NULL;
     char cipherdir[MAXPGPATH] = {0};
