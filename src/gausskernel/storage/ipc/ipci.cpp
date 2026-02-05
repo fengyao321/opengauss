@@ -40,6 +40,7 @@
 #include "job/job_scheduler.h"
 #include "miscadmin.h"
 #include "pgstat.h"
+#include "pgstat_shmem.h"
 #ifdef PGXC
     #include "pgxc/nodemgr.h"
 #endif
@@ -153,6 +154,7 @@ Size ComputeTotalSizeOfShmem()
         size = add_size(size, ProcArrayShmemSize());
         size = add_size(size, RingBufferShmemSize());
         size = add_size(size, BackendStatusShmemSize());
+        size = add_size(size, PgStatShmemSize());
         size = add_size(size, sessionTimeShmemSize());
         size = add_size(size, sessionStatShmemSize());
         size = add_size(size, sessionMemoryShmemSize());
@@ -361,6 +363,7 @@ void CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 
     CreateSharedRingBuffer();
     CreateSharedBackendStatus();
+    PgStatShmemInit();
     sessionTimeShmemInit();
     sessionStatShmemInit();
     sessionMemoryShmemInit();
@@ -543,4 +546,5 @@ void CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
     if (t_thrd.storage_cxt.shmem_startup_hook)
         t_thrd.storage_cxt.shmem_startup_hook();
 }
+
 

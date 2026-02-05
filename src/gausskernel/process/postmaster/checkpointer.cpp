@@ -447,6 +447,7 @@ void CheckpointerMain(void)
             u_sess->attr.attr_common.ExitOnAnyError = true;
             
             /* Close down the database */
+            pgstat_write_statsfile_permanent();
             ShutdownXLOG(0, 0);
 
             /* release compression ctx */
@@ -1512,3 +1513,4 @@ void CallCheckpointCallback(CheckpointEvent checkpointEvent, XLogRecPtr lsn)
     }
 }
 #endif
+

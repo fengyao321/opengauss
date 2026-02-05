@@ -31,6 +31,7 @@
 #include "funcapi.h"
 #include "utils/syscache.h"
 #include "pgstat.h"
+#include "pgstat_shmem.h"
 #include "access/gtm.h"
 #include "access/heapam.h"
 #include "utils/lsyscache.h"
@@ -358,13 +359,14 @@ static void pgstat_exit(SIGNAL_ARGS);
 static void pgstat_beshutdown_hook(int code, Datum arg);
 static void pgstat_sighup_handler(SIGNAL_ARGS);
 
-static PgStat_StatDBEntry* pgstat_get_db_entry(Oid databaseid, bool create);
-static PgStat_StatTabEntry* pgstat_get_tab_entry(
-    PgStat_StatDBEntry* dbentry, Oid tableoid, bool create, uint32 statFlag);
+static PgStatSharedDBEntry* pgstat_get_db_entry(Oid databaseid, bool create, LWLockMode mode, LWLock** lock);
+static PgStatSharedTabEntry* pgstat_get_tab_entry(Oid databaseid, Oid tableoid, uint32 statFlag, bool create,
+    LWLockMode mode, LWLock** lock, bool* found);
 template <bool save_last_scan>
 static void pgstat_write_statsfile(bool permanent);
 static HTAB* pgstat_read_statsfile(Oid onlydb, bool permanent);
 static void backend_read_statsfile(void);
+static void pgstat_load_statsfile_into_shmem(void);
 
 static void pgstat_send_tabstat(PgStat_MsgTabstat* tsmsg);
 static void pgstat_send_funcstats(void);
@@ -440,263 +442,36 @@ static void DetachMySessionTimeEntry(volatile SessionTimeEntry* pEntry);
  */
 void pgstat_init(void)
 {
-    ACCEPT_TYPE_ARG3 alen;
-    struct addrinfo *addrs = NULL, *addr = NULL, hints;
-    int ret;
-    fd_set rset;
-    struct timeval tv;
-    char test_byte;
-    int sel_res;
-    int tries = 0;
-    struct sockaddr_storage pgStatAddr;
-
-#define TESTBYTEVAL ((char)199)
-
-    /*
-     * Create the UDP socket for sending and receiving statistic messages
-     */
-    hints.ai_flags = AI_PASSIVE;
-    hints.ai_family = PF_UNSPEC;
-    hints.ai_socktype = SOCK_DGRAM;
-    hints.ai_protocol = 0;
-    hints.ai_addrlen = 0;
-    hints.ai_addr = NULL;
-    hints.ai_canonname = NULL;
-    hints.ai_next = NULL;
-    ret = pg_getaddrinfo_all("localhost", NULL, &hints, &addrs);
-    if (ret || (addrs == NULL)) {
-        ereport(LOG, (errmsg("could not resolve \"localhost\": %s", gai_strerror(ret))));
-        goto startup_failed;
-    }
-
-    /*
-     * On some platforms, pg_getaddrinfo_all() may return multiple addresses
-     * only one of which will actually work (eg, both IPv6 and IPv4 addresses
-     * when kernel will reject IPv6).  Worse, the failure may occur at the
-     * bind() or perhaps even connect() stage.	So we must loop through the
-     * results till we find a working combination. We will generate LOG
-     * messages, but no error, for bogus combinations.
-     */
-    for (addr = addrs; addr; addr = addr->ai_next) {
-#ifdef HAVE_UNIX_SOCKETS
-        /* Ignore AF_UNIX sockets, if any are returned. */
-        if (addr->ai_family == AF_UNIX)
-            continue;
-#endif
-
-        if (++tries > 1)
-            ereport(LOG, (errmsg("trying another address for the statistics collector")));
-
-        /*
-         * Create the socket.
-         */
-        if ((g_instance.stat_cxt.pgStatSock = socket(addr->ai_family, SOCK_DGRAM, 0)) == PGINVALID_SOCKET) {
-            ereport(LOG, (errcode_for_socket_access(), errmsg("could not create socket for statistics collector: %m")));
-            continue;
-        }
-
-#ifdef F_SETFD
-        if (fcntl(g_instance.stat_cxt.pgStatSock, F_SETFD, FD_CLOEXEC) == -1) {
-            ereport(LOG,
-                (errcode_for_socket_access(), errmsg("setsockopt(FD_CLOEXEC) failed for statistics collector: %m")));
-            closesocket(g_instance.stat_cxt.pgStatSock);
-            g_instance.stat_cxt.pgStatSock = PGINVALID_SOCKET;
-            continue;
-        }
-#endif /* F_SETFD */
-
-        /*
-         * Bind it to a kernel assigned port on localhost and get the assigned
-         * port via getsockname().
-         */
-        if (bind(g_instance.stat_cxt.pgStatSock, addr->ai_addr, addr->ai_addrlen) < 0) {
-            ereport(LOG, (errcode_for_socket_access(), errmsg("could not bind socket for statistics collector: %m")));
-            closesocket(g_instance.stat_cxt.pgStatSock);
-            g_instance.stat_cxt.pgStatSock = PGINVALID_SOCKET;
-            continue;
-        }
-
-        alen = sizeof(pgStatAddr);
-        if (getsockname(g_instance.stat_cxt.pgStatSock, (struct sockaddr*)&pgStatAddr, &alen) < 0) {
-            ereport(LOG,
-                (errcode_for_socket_access(), errmsg("could not get address of socket for statistics collector: %m")));
-            closesocket(g_instance.stat_cxt.pgStatSock);
-            g_instance.stat_cxt.pgStatSock = PGINVALID_SOCKET;
-            continue;
-        }
-
-        /*
-         * Connect the socket to its own address.  This saves a few cycles by
-         * not having to respecify the target address on every send. This also
-         * provides a kernel-level check that only packets from this same
-         * address will be received.
-         */
-        if (connect(g_instance.stat_cxt.pgStatSock, (struct sockaddr*)&pgStatAddr, alen) < 0) {
-            ereport(
-                LOG, (errcode_for_socket_access(), errmsg("could not connect socket for statistics collector: %m")));
-            closesocket(g_instance.stat_cxt.pgStatSock);
-            g_instance.stat_cxt.pgStatSock = PGINVALID_SOCKET;
-            continue;
-        }
-
-        /*
-         * Try to send and receive a one-byte test message on the socket. This
-         * is to catch situations where the socket can be created but will not
-         * actually pass data (for instance, because kernel packet filtering
-         * rules prevent it).
-         */
-        test_byte = TESTBYTEVAL;
-
-    retry1:
-        errno = 0;
-        if (send(g_instance.stat_cxt.pgStatSock, &test_byte, 1, 0) <= 0) {
-            if (errno == EINTR)
-                goto retry1; /* if interrupted, just retry */
-            ereport(LOG,
-                (errcode_for_socket_access(),
-                    errmsg("could not send test message on socket for statistics collector: %m")));
-            closesocket(g_instance.stat_cxt.pgStatSock);
-            g_instance.stat_cxt.pgStatSock = PGINVALID_SOCKET;
-            continue;
-        }
-
-        /*
-         * There could possibly be a little delay before the message can be
-         * received.  We arbitrarily allow up to half a second before deciding
-         * it's broken.
-         * need a loop to handle EINTR
-         */
-        for (;;) {
-            FD_ZERO(&rset);
-            if (g_instance.stat_cxt.pgStatSock + 1 > FD_SETSIZE) {
-                ereport(ERROR,
-                    (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("fd + 1 cannot be greater than FD_SETSIZE")));
-            }
-            FD_SET(g_instance.stat_cxt.pgStatSock, &rset);
-
-            tv.tv_sec = 0;
-            tv.tv_usec = 500000;
-            sel_res = select(g_instance.stat_cxt.pgStatSock + 1, &rset, NULL, NULL, &tv);
-            if (sel_res >= 0 || errno != EINTR)
-                break;
-        }
-        if (sel_res < 0) {
-            ereport(LOG, (errcode_for_socket_access(), errmsg("select() failed in statistics collector: %m")));
-            closesocket(g_instance.stat_cxt.pgStatSock);
-            g_instance.stat_cxt.pgStatSock = PGINVALID_SOCKET;
-            continue;
-        }
-        if (sel_res == 0 || !FD_ISSET(g_instance.stat_cxt.pgStatSock, &rset)) {
-            /*
-             * This is the case we actually think is likely, so take pains to
-             * give a specific message for it.
-             *
-             * errno will not be set meaningfully here, so don't use it.
-             */
-            ereport(LOG,
-                (errcode(ERRCODE_CONNECTION_FAILURE),
-                    errmsg("test message did not get through on socket for statistics collector")));
-            closesocket(g_instance.stat_cxt.pgStatSock);
-            g_instance.stat_cxt.pgStatSock = PGINVALID_SOCKET;
-            continue;
-        }
-
-        test_byte++; /* just make sure variable is changed */
-
-    retry2:
-        errno = 0;
-        if (recv(g_instance.stat_cxt.pgStatSock, &test_byte, 1, 0) <= 0) {
-            if (errno == EINTR)
-                goto retry2; /* if interrupted, just retry */
-            ereport(LOG,
-                (errcode_for_socket_access(),
-                    errmsg("could not receive test message on socket for statistics collector: %m")));
-            closesocket(g_instance.stat_cxt.pgStatSock);
-            g_instance.stat_cxt.pgStatSock = PGINVALID_SOCKET;
-            continue;
-        }
-
-        if (test_byte != TESTBYTEVAL) {
-            /* strictly paranoia ... */
-            ereport(LOG,
-                (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-                    errmsg("incorrect test message transmission on socket for statistics collector")));
-            closesocket(g_instance.stat_cxt.pgStatSock);
-            g_instance.stat_cxt.pgStatSock = PGINVALID_SOCKET;
-            continue;
-        }
-
-        /* If we get here, we have a working socket */
-        break;
-    }
-
-    /* Did we find a working address? */
-    if ((addr == NULL) || g_instance.stat_cxt.pgStatSock == PGINVALID_SOCKET)
-        goto startup_failed;
-
-    /*
-     * Set the socket to non-blocking IO.  This ensures that if the collector
-     * falls behind, statistics messages will be discarded; backends won't
-     * block waiting to send messages to the collector.
-     */
-    if (!pg_set_noblock(g_instance.stat_cxt.pgStatSock)) {
-        ereport(LOG,
-            (errcode_for_socket_access(), errmsg("could not set statistics collector socket to nonblocking mode: %m")));
-        goto startup_failed;
-    }
-
-    /*
-     * Try to ensure that the socket's receive buffer is at least
-     * PGSTAT_MIN_RCVBUF bytes, so that it won't easily overflow and lose
-     * data.  Use of UDP protocol means that we are willing to lose data under
-     * heavy load, but we don't want it to happen just because of ridiculously
-     * small default buffer sizes (such as 8KB on older Windows versions).
-     */
-    {
-        int old_rcvbuf;
-        int new_rcvbuf;
-        ACCEPT_TYPE_ARG3 rcvbufsize = sizeof(old_rcvbuf);
-
-        if (getsockopt(g_instance.stat_cxt.pgStatSock, SOL_SOCKET, SO_RCVBUF, (char*)&old_rcvbuf, &rcvbufsize) < 0) {
-            elog(LOG, "getsockopt(SO_RCVBUF) failed: %m");
-            /* if we can't get existing size, always try to set it */
-            old_rcvbuf = 0;
-        }
-
-        new_rcvbuf = PGSTAT_MIN_RCVBUF;
-        if (old_rcvbuf < new_rcvbuf) {
-            if (setsockopt(
-                    g_instance.stat_cxt.pgStatSock, SOL_SOCKET, SO_RCVBUF, (char*)&new_rcvbuf, sizeof(new_rcvbuf)) <
-                0) {
-                elog(LOG, "setsockopt(SO_RCVBUF) failed: %m");
-            }
-        }
-    }
-
-    pg_freeaddrinfo_all(hints.ai_family, addrs);
-
-    initGlobalBadBlockStat();
-
-    return;
-
-startup_failed:
-    ereport(LOG, (errmsg("disabling statistics collector for lack of working socket")));
-
-    if (NULL != addrs)
-        pg_freeaddrinfo_all(hints.ai_family, addrs);
-
-    if (g_instance.stat_cxt.pgStatSock != PGINVALID_SOCKET)
-        closesocket(g_instance.stat_cxt.pgStatSock);
-    g_instance.stat_cxt.pgStatSock = PGINVALID_SOCKET;
-
-    /*
-     * Adjust GUC variables to suppress useless activity, and for debugging
-     * purposes (seeing track_counts off is a clue that we failed here). We
-     * use PGC_S_OVERRIDE because there is no point in trying to turn it back
-     * on from postgresql.conf without a restart.
-     */
-    SetConfigOption("track_counts", "off", PGC_INTERNAL, PGC_S_OVERRIDE);
+    g_instance.stat_cxt.pgStatSock = 1;
+    g_instance.stat_cxt.last_pgstat_start_time = 0;
+    g_instance.stat_cxt.last_statwrite = 0;
+    g_instance.stat_cxt.last_statrequest = 0;
+    pgstat_load_statsfile_into_shmem();
 }
+
+static void pgstat_load_statsfile_into_shmem(void)
+{
+    if (g_pgstat_shared == NULL)
+        return;
+
+    MemoryContext oldctx = u_sess->stat_cxt.pgStatLocalContext;
+    HTAB* oldhash = u_sess->stat_cxt.pgStatDBHash;
+
+    u_sess->stat_cxt.pgStatLocalContext = NULL;
+    u_sess->stat_cxt.pgStatDBHash = NULL;
+
+    pgstat_setup_memcxt();
+    HTAB* dbhash = pgstat_read_statsfile(InvalidOid, true);
+    if (dbhash != NULL)
+        pgstat_shared_import_snapshot(dbhash, u_sess->stat_cxt.globalStats);
+
+    if (u_sess->stat_cxt.pgStatLocalContext != NULL)
+        MemoryContextDelete(u_sess->stat_cxt.pgStatLocalContext);
+
+    u_sess->stat_cxt.pgStatLocalContext = oldctx;
+    u_sess->stat_cxt.pgStatDBHash = oldhash;
+}
+
 
 /*
  * pgstat_reset_all() -
@@ -726,28 +501,14 @@ void pgstat_reset_all(void)
  */
 ThreadId pgstat_start(void)
 {
-    time_t curtime;
-
-    /*
-     * Check that the socket is there, else pgstat_init failed and we can do
-     * nothing useful.
-     */
-    if (g_instance.stat_cxt.pgStatSock == PGINVALID_SOCKET)
-        return 0;
-
-    /*
-     * Do nothing if too soon since last collector start.  This is a safety
-     * valve to protect against continuous respawn attempts if the collector
-     * is dying immediately at launch.	Note that since we will be re-called
-     * from the postmaster main loop, we will get another chance later.
-     */
-    curtime = time(NULL);
-    if ((unsigned int)(curtime - g_instance.stat_cxt.last_pgstat_start_time) < (unsigned int)PGSTAT_RESTART_INTERVAL)
-        return 0;
-    g_instance.stat_cxt.last_pgstat_start_time = curtime;
-
-    return initialize_util_thread(PGSTAT);
+    return 0;
 }
+
+bool pgstat_collector_enabled(void)
+{
+    return false;
+}
+
 
 void allow_immediate_pgstat_restart(void)
 {
@@ -5429,27 +5190,97 @@ static void pgstat_setheader(PgStat_MsgHdr* hdr, StatMsgType mtype)
  */
 void pgstat_send(void* msg, int len)
 {
-    int rc;
-
     if (g_instance.stat_cxt.pgStatSock == PGINVALID_SOCKET)
+        return;
+
+    if (len < (int)sizeof(PgStat_MsgHdr))
         return;
 
     ((PgStat_MsgHdr*)msg)->m_size = len;
 
-    /* We'll retry after EINTR, but ignore all other failures */
-    do {
-        PGSTAT_INIT_TIME_RECORD();
-        PGSTAT_START_TIME_RECORD();
-        rc = send(g_instance.stat_cxt.pgStatSock, msg, len, 0);
-        END_NET_SEND_INFO(rc);
-    } while (rc < 0 && errno == EINTR);
-
-#ifdef USE_ASSERT_CHECKING
-    /* In debug builds, log send failures ... */
-    if (rc < 0)
-        elog(LOG, "could not send to statistics collector: %m");
-#endif
+    switch (((PgStat_MsgHdr*)msg)->m_type) {
+        case PGSTAT_MTYPE_DUMMY:
+            break;
+        case PGSTAT_MTYPE_INQUIRY:
+            pgstat_recv_inquiry((PgStat_MsgInquiry*)msg, len);
+            break;
+        case PGSTAT_MTYPE_TABSTAT:
+            pgstat_recv_tabstat((PgStat_MsgTabstat*)msg, len);
+            break;
+        case PGSTAT_MTYPE_TABPURGE:
+            pgstat_recv_tabpurge((PgStat_MsgTabpurge*)msg, len);
+            break;
+        case PGSTAT_MTYPE_DROPDB:
+            pgstat_recv_dropdb((PgStat_MsgDropdb*)msg, len);
+            break;
+        case PGSTAT_MTYPE_RESETCOUNTER:
+            pgstat_recv_resetcounter((PgStat_MsgResetcounter*)msg, len);
+            break;
+        case PGSTAT_MTYPE_RESETSHAREDCOUNTER:
+            pgstat_recv_resetsharedcounter((PgStat_MsgResetsharedcounter*)msg, len);
+            break;
+        case PGSTAT_MTYPE_RESETSINGLECOUNTER:
+            pgstat_recv_resetsinglecounter((PgStat_MsgResetsinglecounter*)msg, len);
+            break;
+        case PGSTAT_MTYPE_AUTOVAC_START:
+            pgstat_recv_autovac((PgStat_MsgAutovacStart*)msg, len);
+            break;
+        case PGSTAT_MTYPE_VACUUM:
+            pgstat_recv_vacuum((PgStat_MsgVacuum*)msg, len);
+            break;
+        case PGSTAT_MTYPE_AUTOVAC_STAT:
+            pgstat_recv_autovac_stat((PgStat_MsgAutovacStat*)msg, len);
+            break;
+        case PGSTAT_MTYPE_DATA_CHANGED:
+            pgstat_recv_data_changed((PgStat_MsgDataChanged*)msg, len);
+            break;
+        case PGSTAT_MTYPE_TRUNCATE:
+            pgstat_recv_truncate((PgStat_MsgTruncate*)msg, len);
+            break;
+        case PGSTAT_MTYPE_ANALYZE:
+            pgstat_recv_analyze((PgStat_MsgAnalyze*)msg, len);
+            break;
+        case PGSTAT_MTYPE_BGWRITER:
+            pgstat_recv_bgwriter((PgStat_MsgBgWriter*)msg, len);
+            break;
+        case PGSTAT_MTYPE_FUNCSTAT:
+            pgstat_recv_funcstat((PgStat_MsgFuncstat*)msg, len);
+            break;
+        case PGSTAT_MTYPE_FUNCPURGE:
+            pgstat_recv_funcpurge((PgStat_MsgFuncpurge*)msg, len);
+            break;
+        case PGSTAT_MTYPE_RECOVERYCONFLICT:
+            pgstat_recv_recoveryconflict((PgStat_MsgRecoveryConflict*)msg);
+            break;
+        case PGSTAT_MTYPE_DEADLOCK:
+            pgstat_recv_deadlock((PgStat_MsgDeadlock*)msg);
+            break;
+        case PGSTAT_MTYPE_FILE:
+            pgstat_recv_filestat((PgStat_MsgFile*)msg, len);
+            break;
+        case PGSTAT_MTYPE_TEMPFILE:
+            pgstat_recv_tempfile((PgStat_MsgTempFile*)msg, len);
+            break;
+        case PGSTAT_MTYPE_MEMRESERVED:
+            pgstat_recv_memReserved((PgStat_MsgMemReserved*)msg);
+            break;
+        case PGSTAT_MTYPE_BADBLOCK:
+            pgstat_recv_badblock_stat((PgStat_MsgBadBlock*)msg, len);
+            break;
+        case PGSTAT_MTYPE_RESPONSETIME:
+            pgstat_recv_sql_responstime((PgStat_SqlRT*)msg, len);
+            break;
+        case PGSTAT_MTYPE_CLEANUPHOTKEYS:
+            pgstat_recv_cleanup_hotkeys((PgStat_MsgCleanupHotkeys*)msg, len);
+            break;
+        case PGSTAT_MTYPE_PRUNESTAT:
+            PgstatRecvPrunestat((PgStat_MsgPrune*)msg, len);
+            break;
+        default:
+            break;
+    }
 }
+
 
 /* ----------
  * pgstat_send_bgwriter() -
@@ -5535,317 +5366,10 @@ static void PgstatCollectThreadStatus(void)
  */
 void PgstatCollectorMain()
 {
-    int len;
-    PgStat_Msg msg;
-    int wr;
-    TimestampTz get_thread_status_start_time;
-
-    IsUnderPostmaster = true; /* we are a postmaster subprocess now */
-
-    t_thrd.proc_cxt.MyProcPid = gs_thread_self(); /* reset t_thrd.proc_cxt.MyProcPid */
-
-    t_thrd.proc_cxt.MyStartTime = time(NULL); /* record Start Time for logging */
-
-    t_thrd.proc_cxt.MyProgName = "PgstatCollector";
-
-    t_thrd.myLogicTid = noProcLogicTid + PGSTAT_LID;
-
-    /* Initialize private latch for use by signal handlers */
-    InitLatch(&g_instance.stat_cxt.pgStatLatch);
-
-    /*
-     * Ignore all signals usually bound to some action in the postmaster,
-     * except SIGHUP and SIGQUIT.  Note we don't need a SIGUSR1 handler to
-     * support latch operations, because g_instance.stat_cxt.pgStatLatch is local not shared.
-     */
-    (void)gspqsignal(SIGURG, print_stack);
-    (void)gspqsignal(SIGHUP, pgstat_sighup_handler);
-    (void)gspqsignal(SIGINT, SIG_IGN);
-    (void)gspqsignal(SIGTERM, SIG_IGN);
-    (void)gspqsignal(SIGQUIT, pgstat_exit);
-    (void)gspqsignal(SIGALRM, SIG_IGN);
-    (void)gspqsignal(SIGPIPE, SIG_IGN);
-    (void)gspqsignal(SIGUSR1, SIG_IGN);
-    (void)gspqsignal(SIGUSR2, SIG_IGN);
-    (void)gspqsignal(SIGCHLD, SIG_DFL);
-    (void)gspqsignal(SIGTTIN, SIG_DFL);
-    (void)gspqsignal(SIGTTOU, SIG_DFL);
-    (void)gspqsignal(SIGCONT, SIG_DFL);
-    (void)gspqsignal(SIGWINCH, SIG_DFL);
-
-    gs_signal_setmask(&t_thrd.libpq_cxt.UnBlockSig, NULL);
-    (void)gs_signal_unblock_sigusr2();
-
-    /*
-     * Identify myself via ps
-     */
-    init_ps_display("stats collector process", "", "", "");
-
-    /*
-     * Arrange to write the initial status file right away
-     */
-    get_thread_status_start_time = g_instance.stat_cxt.last_statrequest = GetCurrentTimestamp();
-    g_instance.stat_cxt.last_statwrite = g_instance.stat_cxt.last_statrequest - 1;
-
-    /*
-     * Read in an existing statistics stats file or initialize the stats to
-     * zero.
-     */
-    u_sess->stat_cxt.pgStatRunningInCollector = true;
-    u_sess->stat_cxt.pgStatDBHash = pgstat_read_statsfile(InvalidOid, true);
-
-    t_thrd.mem_cxt.mask_password_mem_cxt = AllocSetContextCreate(t_thrd.top_mem_cxt,
-        "MaskPasswordCtx",
-        ALLOCSET_DEFAULT_MINSIZE,
-        ALLOCSET_DEFAULT_INITSIZE,
-        ALLOCSET_DEFAULT_MAXSIZE);
-    /*
-     * Loop to process messages until we get SIGQUIT or detect ungraceful
-     * death of our parent postmaster.
-     *
-     * For performance reasons, we don't want to do ResetLatch/WaitLatch after
-     * every message; instead, do that only after a recv() fails to obtain a
-     * message.  (This effectively means that if backends are sending us stuff
-     * like mad, we won't notice postmaster death until things slack off a
-     * bit; which seems fine.)	To do that, we have an inner loop that
-     * iterates as long as recv() succeeds.  We do recognize got_SIGHUP inside
-     * the inner loop, which means that such interrupts will get serviced but
-     * the latch won't get cleared until next time there is a break in the
-     * action.
-     */
-    for (;;) {
-        TimestampTz get_thread_status_current_time = GetCurrentTimestamp();
-
-        if (u_sess->attr.attr_common.pgstat_collect_thread_status_interval > 0 &&
-            TimestampDifferenceExceeds(get_thread_status_start_time,
-                get_thread_status_current_time,
-                60 * u_sess->attr.attr_common.pgstat_collect_thread_status_interval * 1000)) {
-            // transfer from minute into msec
-            PgstatCollectThreadStatus();
-            get_thread_status_start_time = GetCurrentTimestamp();
-        }
-        /* Clear any already-pending wakeups */
-        ResetLatch(&g_instance.stat_cxt.pgStatLatch);
-
-        /*
-         * Quit if we get SIGQUIT from the postmaster.
-         */
-        if (t_thrd.stat_cxt.need_exit)
-            break;
-
-        /*
-         * Inner loop iterates as long as we keep getting messages, or until
-         * need_exit becomes set.
-         */
-        while (!t_thrd.stat_cxt.need_exit) {
-            /*
-             * Reload configuration if we got SIGHUP from the postmaster.
-             */
-            if (g_instance.stat_cxt.got_SIGHUP) {
-                g_instance.stat_cxt.got_SIGHUP = false;
-                ProcessConfigFile(PGC_SIGHUP);
-            }
-
-            /*
-             * Write the stats file if a new request has arrived that is not
-             * satisfied by existing file.
-             */
-            if (g_instance.stat_cxt.last_statwrite < g_instance.stat_cxt.last_statrequest)
-                pgstat_write_statsfile<true>(false);
-
-            PgstatUpdateHotkeys();
-
-            /*
-             * Try to receive and process a message.  This will not block,
-             * since the socket is set to non-blocking mode.
-             *
-             * XXX On Windows, we have to force pgwin32_recv to cooperate,
-             * despite the previous use of pg_set_noblock() on the socket.
-             * This is extremely broken and should be fixed someday.
-             */
-#ifdef WIN32
-            pgwin32_noblock = 1;
-#endif
-            len = recv(g_instance.stat_cxt.pgStatSock, (char*)&msg, sizeof(PgStat_Msg), 0);
-
-#ifdef WIN32
-            pgwin32_noblock = 0;
-#endif
-
-            if (len < 0) {
-                if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
-                    break; /* out of inner loop */
-                ereport(ERROR, (errcode_for_socket_access(), errmsg("could not read statistics message: %m")));
-            }
-
-            /*
-             * We ignore messages that are smaller than our common header
-             */
-            if ((size_t)len < sizeof(PgStat_MsgHdr))
-                continue;
-
-            /*
-             * The received length must match the length in the header
-             */
-            if (msg.msg_hdr.m_size != len)
-                continue;
-
-            /*
-             * O.K. - we accept this message.  Process it.
-             */
-            switch (msg.msg_hdr.m_type) {
-                case PGSTAT_MTYPE_DUMMY:
-                    break;
-
-                case PGSTAT_MTYPE_INQUIRY:
-                    pgstat_recv_inquiry((PgStat_MsgInquiry*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_TABSTAT:
-                    pgstat_recv_tabstat((PgStat_MsgTabstat*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_TABPURGE:
-                    pgstat_recv_tabpurge((PgStat_MsgTabpurge*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_DROPDB:
-                    pgstat_recv_dropdb((PgStat_MsgDropdb*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_RESETCOUNTER:
-                    pgstat_recv_resetcounter((PgStat_MsgResetcounter*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_RESETSHAREDCOUNTER:
-                    pgstat_recv_resetsharedcounter((PgStat_MsgResetsharedcounter*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_RESETSINGLECOUNTER:
-                    pgstat_recv_resetsinglecounter((PgStat_MsgResetsinglecounter*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_AUTOVAC_START:
-                    pgstat_recv_autovac((PgStat_MsgAutovacStart*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_VACUUM:
-                    pgstat_recv_vacuum((PgStat_MsgVacuum*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_AUTOVAC_STAT:
-                    pgstat_recv_autovac_stat((PgStat_MsgAutovacStat*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_DATA_CHANGED:
-                    pgstat_recv_data_changed((PgStat_MsgDataChanged*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_TRUNCATE:
-                    pgstat_recv_truncate((PgStat_MsgTruncate*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_ANALYZE:
-                    pgstat_recv_analyze((PgStat_MsgAnalyze*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_BGWRITER:
-                    pgstat_recv_bgwriter((PgStat_MsgBgWriter*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_FUNCSTAT:
-                    pgstat_recv_funcstat((PgStat_MsgFuncstat*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_FUNCPURGE:
-                    pgstat_recv_funcpurge((PgStat_MsgFuncpurge*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_RECOVERYCONFLICT:
-                    pgstat_recv_recoveryconflict((PgStat_MsgRecoveryConflict*)&msg);
-                    break;
-
-                case PGSTAT_MTYPE_DEADLOCK:
-                    pgstat_recv_deadlock((PgStat_MsgDeadlock*)&msg);
-                    break;
-
-                case PGSTAT_MTYPE_FILE:
-                    pgstat_recv_filestat((PgStat_MsgFile*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_TEMPFILE:
-                    pgstat_recv_tempfile((PgStat_MsgTempFile*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_MEMRESERVED:
-                    pgstat_recv_memReserved((PgStat_MsgMemReserved*)&msg);
-                    break;
-
-                case PGSTAT_MTYPE_BADBLOCK:
-                    pgstat_recv_badblock_stat((PgStat_MsgBadBlock*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_RESPONSETIME:
-                    pgstat_recv_sql_responstime((PgStat_SqlRT*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_CLEANUPHOTKEYS:
-                    pgstat_recv_cleanup_hotkeys((PgStat_MsgCleanupHotkeys*)&msg, len);
-                    break;
-
-                case PGSTAT_MTYPE_PRUNESTAT:
-                    PgstatRecvPrunestat((PgStat_MsgPrune*)&msg, len);
-                    break;
-
-                default:
-                    break;
-            }
-        } /* end of inner message-processing loop */
-
-        /* Sleep until there's something to do */
-#ifndef WIN32
-        wr = WaitLatchOrSocket(&g_instance.stat_cxt.pgStatLatch,
-            WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_SOCKET_READABLE | WL_TIMEOUT,
-            g_instance.stat_cxt.pgStatSock,
-            60 * 1000L /* msec */);
-#else
-
-        /*
-         * Windows, at least in its Windows Server 2003 R2 incarnation,
-         * sometimes loses FD_READ events.	Waking up and retrying the recv()
-         * fixes that, so don't sleep indefinitely.  This is a crock of the
-         * first water, but until somebody wants to debug exactly what's
-         * happening there, this is the best we can do.  The two-second
-         * timeout matches our pre-9.2 behavior, and needs to be short enough
-         * to not provoke "using stale statistics" complaints from
-         * backend_read_statsfile.
-         */
-        wr = WaitLatchOrSocket(&g_instance.stat_cxt.pgStatLatch,
-            WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_SOCKET_READABLE | WL_TIMEOUT,
-            g_instance.stat_cxt.pgStatSock,
-            2 * 1000L /* msec */);
-#endif
-
-        /*
-         * Emergency bailout if postmaster has died.  This is to avoid the
-         * necessity for manual cleanup of all postmaster children.
-         */
-        if ((uint32)wr & WL_POSTMASTER_DEATH)
-            break;
-    } /* end of outer loop */
-
-    /*
-     * Save the final stats to reuse at next startup.
-     */
-    if (likely(t_thrd.proc->workingVersionNum >= PGSTAT_LAST_SCAN_VERSION_NUM)) {
-        pgstat_write_statsfile<true>(true);
-    } else {
-        pgstat_write_statsfile<false>(true);
-    }
-
-    DEC_NUM_ALIVE_THREADS_WAITTED();
-    gs_thread_exit(0);
+    ereport(LOG, (errmsg("statistics collector is disabled (shared-memory mode)")));
+    proc_exit(0);
 }
+
 
 /* SIGQUIT signal handler for collector process */
 static void pgstat_exit(SIGNAL_ARGS)
@@ -5874,126 +5398,23 @@ static void pgstat_sighup_handler(SIGNAL_ARGS)
  * table entry exists, initialize it, if the create parameter is true.
  * Else, return NULL.
  */
-static PgStat_StatDBEntry* pgstat_get_db_entry(Oid databaseid, bool create)
+static PgStatSharedDBEntry* pgstat_get_db_entry(Oid databaseid, bool create, LWLockMode mode, LWLock** lock)
 {
-    PgStat_StatDBEntry* result = NULL;
-    bool found = false;
-    HASHACTION action = (create ? HASH_ENTER : HASH_FIND);
-    errno_t rc = EOK;
-
-    /* Lookup or create the hash table entry for this database */
-    result = (PgStat_StatDBEntry*)hash_search(u_sess->stat_cxt.pgStatDBHash, &databaseid, action, &found);
-
-    if (!create && !found)
-        return NULL;
-
-    /* If not found, initialize the new one. */
-    if (!found) {
-        HASHCTL hash_ctl;
-
-        result->tables = NULL;
-        result->functions = NULL;
-        result->n_xact_commit = 0;
-        result->n_xact_rollback = 0;
-        result->n_blocks_fetched = 0;
-        result->n_blocks_hit = 0;
-        result->n_cu_mem_hit = 0;
-        result->n_cu_hdd_sync = 0;
-        result->n_cu_hdd_asyn = 0;
-        result->n_tuples_returned = 0;
-        result->n_tuples_fetched = 0;
-        result->n_tuples_inserted = 0;
-        result->n_tuples_updated = 0;
-        result->n_tuples_deleted = 0;
-        result->last_autovac_time = 0;
-        result->n_conflict_tablespace = 0;
-        result->n_conflict_lock = 0;
-        result->n_conflict_snapshot = 0;
-        result->n_conflict_bufferpin = 0;
-        result->n_conflict_startup_deadlock = 0;
-        result->n_temp_files = 0;
-        result->n_temp_bytes = 0;
-        result->n_deadlocks = 0;
-        result->n_block_read_time = 0;
-        result->n_block_write_time = 0;
-        result->n_mem_mbytes_reserved = 0;
-
-        result->stat_reset_timestamp = GetCurrentTimestamp();
-
-        rc = memset_s(&hash_ctl, sizeof(hash_ctl), 0, sizeof(hash_ctl));
-        securec_check(rc, "\0", "\0");
-        hash_ctl.keysize = sizeof(PgStat_StatTabKey);
-        hash_ctl.entrysize = sizeof(PgStat_StatTabEntry);
-        hash_ctl.hash = tag_hash;
-        result->tables = hash_create("Per-database table", PGSTAT_TAB_HASH_SIZE, &hash_ctl, HASH_ELEM | HASH_FUNCTION);
-
-        hash_ctl.keysize = sizeof(Oid);
-        hash_ctl.entrysize = sizeof(PgStat_StatFuncEntry);
-        hash_ctl.hash = oid_hash;
-        result->functions =
-            hash_create("Per-database function", PGSTAT_FUNCTION_HASH_SIZE, &hash_ctl, HASH_ELEM | HASH_FUNCTION);
-    }
-
-    return result;
+    return pgstat_shared_get_db_entry(databaseid, create, mode, lock, NULL);
 }
+
 
 /*
  * Lookup the hash table entry for the specified table. If no hash
  * table entry exists, initialize it, if the create parameter is true.
  * Else, return NULL.
  */
-static PgStat_StatTabEntry* pgstat_get_tab_entry(
-    PgStat_StatDBEntry* dbentry, Oid tableoid, bool create, uint32 statFlag)
+static PgStatSharedTabEntry* pgstat_get_tab_entry(Oid databaseid, Oid tableoid, uint32 statFlag, bool create,
+    LWLockMode mode, LWLock** lock, bool* found)
 {
-    PgStat_StatTabEntry* result = NULL;
-    bool found = false;
-    HASHACTION action = (create ? HASH_ENTER : HASH_FIND);
-    PgStat_StatTabKey tabkey;
-
-    tabkey.statFlag = statFlag;
-    tabkey.tableid = tableoid;
-
-    /* Lookup or create the hash table entry for this table */
-    result = (PgStat_StatTabEntry*)hash_search(dbentry->tables, (void*)(&tabkey), action, &found);
-
-    if (!create && !found)
-        return NULL;
-
-    /* If not found, initialize the new one. */
-    if (!found) {
-        result->numscans = 0;
-        result->lastscan = 0;
-        result->tuples_returned = 0;
-        result->tuples_fetched = 0;
-        result->tuples_inserted = 0;
-        result->tuples_updated = 0;
-        result->tuples_deleted = 0;
-        result->tuples_hot_updated = 0;
-        result->tuples_inplace_updated = 0;
-        result->n_live_tuples = 0;
-        result->n_dead_tuples = 0;
-        result->changes_since_analyze = 0;
-        result->blocks_fetched = 0;
-        result->blocks_hit = 0;
-        result->cu_mem_hit = 0;
-        result->cu_hdd_sync = 0;
-        result->cu_hdd_asyn = 0;
-        result->vacuum_timestamp = 0;
-        result->vacuum_count = 0;
-        result->autovac_vacuum_timestamp = 0;
-        result->autovac_vacuum_count = 0;
-        result->analyze_timestamp = 0;
-        result->analyze_count = 0;
-        result->autovac_analyze_timestamp = 0;
-        result->autovac_analyze_count = 0;
-        result->autovac_status = 0;
-        result->data_changed_timestamp = 0;
-        result->success_prune_cnt = 0;
-        result->total_prune_cnt = 0;
-    }
-
-    return result;
+    return pgstat_shared_get_tab_entry(databaseid, tableoid, statFlag, create, mode, lock, found);
 }
+
 
 /* ----------
  * pgstat_write_statsfile() -
@@ -6019,6 +5440,18 @@ static void pgstat_write_statsfile(bool permanent)
     const char* tmpfile = permanent ? PGSTAT_STAT_PERMANENT_TMPFILE : u_sess->stat_cxt.pgstat_stat_tmpname;
     const char* statfile = permanent ? PGSTAT_STAT_PERMANENT_FILENAME : u_sess->stat_cxt.pgstat_stat_filename;
     int rc;
+
+    HTAB* saved_dbhash = u_sess->stat_cxt.pgStatDBHash;
+    MemoryContext saved_ctx = u_sess->stat_cxt.pgStatLocalContext;
+
+    u_sess->stat_cxt.pgStatLocalContext = AllocSetContextCreate(u_sess->top_mem_cxt,
+        "PgStatWriteSnapshot",
+        ALLOCSET_SMALL_MINSIZE,
+        ALLOCSET_SMALL_INITSIZE,
+        ALLOCSET_SMALL_MAXSIZE);
+
+    pgstat_shared_copy_snapshot(InvalidOid, u_sess->stat_cxt.pgStatLocalContext,
+        &u_sess->stat_cxt.pgStatDBHash, u_sess->stat_cxt.globalStats);
 
     /*
      * Open the statistics temp file to write out the current values.
@@ -6155,6 +5588,13 @@ static void pgstat_write_statsfile(bool permanent)
          */
         g_instance.stat_cxt.last_statwrite = u_sess->stat_cxt.globalStats->stats_timestamp;
 
+        LWLock* glock = pgstat_shared_global_lock();
+        if (glock != NULL) {
+            LWLockAcquire(glock, LW_EXCLUSIVE);
+            g_pgstat_shared->global_stats.stats_timestamp = u_sess->stat_cxt.globalStats->stats_timestamp;
+            LWLockRelease(glock);
+        }
+
         /*
          * If there is clock skew between backends and the collector, we could
          * receive a stats request time that's in the future.  If so, complain
@@ -6176,8 +5616,19 @@ static void pgstat_write_statsfile(bool permanent)
         }
     }
 
+    if (u_sess->stat_cxt.pgStatLocalContext != NULL)
+        MemoryContextDelete(u_sess->stat_cxt.pgStatLocalContext);
+
+    u_sess->stat_cxt.pgStatLocalContext = saved_ctx;
+    u_sess->stat_cxt.pgStatDBHash = saved_dbhash;
+
     if (permanent)
         unlink(u_sess->stat_cxt.pgstat_stat_filename);
+}
+
+void pgstat_write_statsfile_permanent(void)
+{
+    pgstat_write_statsfile<true>(true);
 }
 
 static HTAB* pgstat_read_statsfile_hashcreate(const char* tableString, int hashSize, HASHCTL* hashCtl)
@@ -6500,47 +5951,21 @@ done:
  */
 static bool pgstat_read_statsfile_timestamp(bool permanent, TimestampTz* ts)
 {
-    PgStat_GlobalStats myGlobalStats;
-    FILE* fpin = NULL;
-    int32 format_id;
-    const char* statfile = permanent ? PGSTAT_STAT_PERMANENT_FILENAME : u_sess->stat_cxt.pgstat_stat_filename;
-
-    /*
-     * Try to open the status file.  As above, anything but ENOENT is worthy
-     * of complaining about.
-     */
-    if ((fpin = AllocateFile(statfile, PG_BINARY_R)) == NULL) {
-        if (errno != ENOENT)
-            ereport(u_sess->stat_cxt.pgStatRunningInCollector ? LOG : WARNING,
-                (errcode_for_file_access(), errmsg("could not open statistics file \"%s\": %m", statfile)));
+    if (g_pgstat_shared == NULL || ts == NULL)
         return false;
-    }
 
-    /*
-     * Verify it's of the expected format.
-     */
-    if (fread(&format_id, 1, sizeof(format_id), fpin) != sizeof(format_id) || format_id != PGSTAT_FILE_FORMAT_ID) {
-        ereport(u_sess->stat_cxt.pgStatRunningInCollector ? LOG : WARNING,
-            (errmsg("corrupted statistics file \"%s\"", statfile)));
-        (void)FreeFile(fpin);
-        return false;
-    }
+    LWLock* lock = pgstat_shared_global_lock();
+    if (lock != NULL)
+        LWLockAcquire(lock, LW_SHARED);
 
-    /*
-     * Read global stats struct
-     */
-    if (fread(&myGlobalStats, 1, sizeof(myGlobalStats), fpin) != sizeof(myGlobalStats)) {
-        ereport(u_sess->stat_cxt.pgStatRunningInCollector ? LOG : WARNING,
-            (errmsg("corrupted statistics file \"%s\"", statfile)));
-        (void)FreeFile(fpin);
-        return false;
-    }
+    *ts = g_pgstat_shared->global_stats.stats_timestamp;
 
-    *ts = myGlobalStats.stats_timestamp;
+    if (lock != NULL)
+        LWLockRelease(lock);
 
-    (void)FreeFile(fpin);
     return true;
 }
+
 
 /*
  * If not already done, read the statistics collector stats file into
@@ -6549,120 +5974,32 @@ static bool pgstat_read_statsfile_timestamp(bool permanent, TimestampTz* ts)
  */
 static void backend_read_statsfile(void)
 {
-    TimestampTz cur_ts;
-    TimestampTz min_ts;
-    int count;
-
-    /* already read it? */
     if (u_sess->stat_cxt.pgStatDBHash)
         return;
     Assert(!u_sess->stat_cxt.pgStatRunningInCollector);
 
-    /*
-     * We set the minimum acceptable timestamp to PGSTAT_STAT_INTERVAL msec
-     * before now.	This indirectly ensures that the collector needn't write
-     * the file more often than PGSTAT_STAT_INTERVAL.  In an autovacuum
-     * worker, however, we want a lower delay to avoid using stale data, so we
-     * use PGSTAT_RETRY_DELAY (since the number of worker is low, this
-     * shouldn't be a problem).
-     *
-     * Note that we don't recompute min_ts after sleeping; so we might end up
-     * accepting a file a bit older than PGSTAT_STAT_INTERVAL.	In practice
-     * that shouldn't happen, though, as long as the sleep time is less than
-     * PGSTAT_STAT_INTERVAL; and we don't want to lie to the collector about
-     * what our cutoff time really is.
-     */
-    cur_ts = GetCurrentTimestamp();
-    if (IsAutoVacuumWorkerProcess())
-        min_ts = TimestampTzPlusMilliseconds(cur_ts, -PGSTAT_RETRY_DELAY);
-    else
-        min_ts = TimestampTzPlusMilliseconds(cur_ts, -PGSTAT_STAT_INTERVAL);
+    pgstat_setup_memcxt();
 
-    /*
-     * Loop until fresh enough stats file is available or we ran out of time.
-     * The stats inquiry message is sent repeatedly in case collector drops
-     * it; but not every single time, as that just swamps the collector.
-     */
-    for (count = 0; count < PGSTAT_POLL_LOOP_COUNT; count++) {
-        TimestampTz file_ts = 0;
-
-        CHECK_FOR_INTERRUPTS();
-
-        if (pgstat_read_statsfile_timestamp(false, &file_ts) && file_ts >= min_ts)
-            break;
-        if (g_instance.pid_cxt.PgStatPID == 0) {
-            ereport(LOG, (errmsg("statistics collector process is not exists using stale statistics")));
-            break;
-        }
-        /* Not there or too old, so kick the collector and wait a bit */
-        if ((count % PGSTAT_INQ_LOOP_COUNT) == 0)
-            pgstat_send_inquiry(min_ts);
-
-        pg_usleep(PGSTAT_RETRY_DELAY * 1000L);
-    }
-
-    if (count >= PGSTAT_POLL_LOOP_COUNT)
-        ereport(LOG,
-            (errmsg("using stale statistics instead of current ones "
-                    "because stats collector is not responding")));
-
-    /* Autovacuum launcher and the global stats tracker want stats about all databases */
+    Oid onlydb;
     if (IsAutoVacuumLauncherProcess() || IsGlobalStatsTrackerProcess())
-        u_sess->stat_cxt.pgStatDBHash = pgstat_read_statsfile(InvalidOid, false);
+        onlydb = InvalidOid;
     else
-        u_sess->stat_cxt.pgStatDBHash = pgstat_read_statsfile(u_sess->proc_cxt.MyDatabaseId, false);
+        onlydb = u_sess->proc_cxt.MyDatabaseId;
+
+    pgstat_shared_copy_snapshot(onlydb, u_sess->stat_cxt.pgStatLocalContext,
+        &u_sess->stat_cxt.pgStatDBHash, u_sess->stat_cxt.globalStats);
 }
+
 
 void pgstat_read_analyzed()
 {
-    /* Similar to pgstat_read_statsfile. */
-    FILE* fpin = NULL;
-    int32 format_id;
-    PgStat_StatDBEntry dbbuf;
-    PgStat_StatTabEntry tabbuf;
-    PgStat_StatFuncEntry funcbuf;
-    HASHCTL hash_ctl;
-    errno_t errorno = EOK;
-    PgStat_AnaCheckEntry* tabentry = NULL;
-    const char* statfile = u_sess->stat_cxt.pgstat_stat_filename;
-    bool need_collected = false;
-    bool found = false;
-
-    /* Similar to backend_read_statsfile */
-    TimestampTz cur_ts;
-    TimestampTz min_ts;
-    int count;
-
-    Assert(!u_sess->stat_cxt.pgStatRunningInCollector);
-
-    /* Loop until fresh enough stats file is available or we ran out of time. */
-    cur_ts = GetCurrentTimestamp();
-    min_ts = TimestampTzPlusMilliseconds(cur_ts, -PGSTAT_STAT_INTERVAL);
-    for (count = 0; count < PGSTAT_POLL_LOOP_COUNT; count++) {
-        TimestampTz file_ts = 0;
-
-        CHECK_FOR_INTERRUPTS();
-
-        if (pgstat_read_statsfile_timestamp(false, &file_ts) && file_ts >= min_ts)
-            break;
-
-        /* Not there or too old, so kick the collector and wait a bit */
-        if ((count % PGSTAT_INQ_LOOP_COUNT) == 0)
-            pgstat_send_inquiry(min_ts);
-
-        pg_usleep(PGSTAT_RETRY_DELAY * 1000L);
-    }
-
-    if (count >= PGSTAT_POLL_LOOP_COUNT)
-        ereport(LOG,
-            (errmsg("using stale statistics instead of current ones "
-                    "because stats collector is not responding")));
-
-    /*
-     * Similar to pgstat_read_statsfile.
-     * The hash table will live in u_sess->stat_cxt.pgStatLocalContext
-     */
+    backend_read_statsfile();
     pgstat_setup_memcxt();
+
+    HASHCTL hash_ctl;
+    PgStat_AnaCheckEntry* tabentry = NULL;
+    errno_t errorno = EOK;
+    bool found = false;
 
     errorno = memset_s(&hash_ctl, sizeof(hash_ctl), 0, sizeof(hash_ctl));
     securec_check(errorno, "\0", "\0");
@@ -6671,114 +6008,45 @@ void pgstat_read_analyzed()
     hash_ctl.hash = oid_hash;
     hash_ctl.hcxt = u_sess->stat_cxt.pgStatLocalContext;
     u_sess->stat_cxt.analyzeCheckHash =
-        hash_create("AnalyzeCheck hash", PGSTAT_TAB_HASH_SIZE, &hash_ctl, HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
+        hash_create("AnalyzeCheck hash", PGSTAT_TAB_HASH_SIZE, &hash_ctl,
+            HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
 
-    errorno = memset_s(u_sess->stat_cxt.globalStats, sizeof(PgStat_GlobalStats), 0, sizeof(PgStat_GlobalStats));
-    securec_check(errorno, "\0", "\0");
-    u_sess->stat_cxt.globalStats->stat_reset_timestamp = GetCurrentTimestamp();
-
-    /* 1.Try to open the status file */
-    if ((fpin = AllocateFile(statfile, PG_BINARY_R)) == NULL) {
-        if (errno != ENOENT)
-            ereport(u_sess->stat_cxt.pgStatRunningInCollector ? LOG : WARNING,
-                (errcode_for_file_access(), errmsg("could not open statistics file \"%s\": %m", statfile)));
-        elog(LOG, "[Pgstat] statfile %s is missing, using empty dbhash.", statfile);
+    if (u_sess->stat_cxt.pgStatDBHash == NULL)
         return;
-    }
 
-    /* 2.Verify it's of the expected format */
-    if (fread(&format_id, 1, sizeof(format_id), fpin) != sizeof(format_id) || format_id != PGSTAT_FILE_FORMAT_ID) {
-        ereport(u_sess->stat_cxt.pgStatRunningInCollector ? LOG : WARNING,
-            (errmsg("corrupted statistics file \"%s\"", statfile)));
-        goto done;
-    }
-
-    /* 3.Read global stats struct */
-    if (fread(u_sess->stat_cxt.globalStats, 1, sizeof(PgStat_GlobalStats), fpin) != sizeof(PgStat_GlobalStats)) {
-        ereport(u_sess->stat_cxt.pgStatRunningInCollector ? LOG : WARNING,
-            (errmsg("corrupted statistics file \"%s\"", statfile)));
-        goto done;
-    }
-
-    /* 4.Fill analyzeCheckHash */
+    HASH_SEQ_STATUS hstat;
+    hash_seq_init(&hstat, u_sess->stat_cxt.pgStatDBHash);
     for (;;) {
-        switch (fgetc(fpin)) {
-            /*
-             * Database begins. Subsequently, zero to many 'T' and 'F' entries
-             * will follow until a 'd' is encountered.
-             */
-            case 'D':
-                if (fread(&dbbuf, 1, offsetof(PgStat_StatDBEntry, tables), fpin) !=
-                    offsetof(PgStat_StatDBEntry, tables)) {
-                    ereport(u_sess->stat_cxt.pgStatRunningInCollector ? LOG : WARNING,
-                        (errmsg("corrupted statistics file \"%s\"", statfile)));
-                    goto done;
-                }
+        PgStat_StatDBEntry* dbentry = (PgStat_StatDBEntry*)hash_seq_search(&hstat);
+        if (dbentry == NULL)
+            break;
+        if (dbentry->databaseid != u_sess->proc_cxt.MyDatabaseId)
+            continue;
+        if (dbentry->tables == NULL)
+            continue;
 
-                /* Don't collect tables if not the requested DB */
-                if (dbbuf.databaseid != u_sess->proc_cxt.MyDatabaseId)
-                    need_collected = false;
-                else
-                    need_collected = true;
-
+        HASH_SEQ_STATUS tstat;
+        hash_seq_init(&tstat, dbentry->tables);
+        for (;;) {
+            PgStat_StatTabEntry* tabbuf = (PgStat_StatTabEntry*)hash_seq_search(&tstat);
+            if (tabbuf == NULL)
                 break;
+            if (tabbuf->tablekey.statFlag != STATFLG_RELATION)
+                continue;
 
-            /* Database ends */
-            case 'd':
-                need_collected = false;
-                break;
-
-            /* Table begins */
-            case 'T':
-                if (fread(&tabbuf, 1, sizeof(PgStat_StatTabEntry), fpin) != sizeof(PgStat_StatTabEntry)) {
-                    ereport(u_sess->stat_cxt.pgStatRunningInCollector ? LOG : WARNING,
-                        (errmsg("corrupted statistics file \"%s\"", statfile)));
-                    goto done;
-                }
-
-                /* Skip if table is not required */
-                if (!need_collected || tabbuf.tablekey.statFlag != STATFLG_RELATION)
-                    break;
-
-                tabentry = (PgStat_AnaCheckEntry*)hash_search(
-                    u_sess->stat_cxt.analyzeCheckHash, (void*)&(tabbuf.tablekey.tableid), HASH_ENTER, &found);
-                if (found) {
-                    ereport(u_sess->stat_cxt.pgStatRunningInCollector ? LOG : WARNING,
-                        (errmsg("corrupted statistics file \"%s\"", statfile)));
-                    goto done;
-                }
-
-                if (tabbuf.analyze_timestamp != 0)
-                    tabentry->is_analyzed = true;
-                else
-                    tabentry->is_analyzed = false;
-
-                break;
-
-            /* Function begins */
-            case 'F':
-                if (fread(&funcbuf, 1, sizeof(PgStat_StatFuncEntry), fpin) != sizeof(PgStat_StatFuncEntry)) {
-                    ereport(u_sess->stat_cxt.pgStatRunningInCollector ? LOG : WARNING,
-                        (errmsg("corrupted statistics file \"%s\"", statfile)));
-                    goto done;
-                }
-
-                break;
-
-            /* The EOF marker of a complete stats file */
-            case 'E':
-                goto done;
-
-            default:
+            tabentry = (PgStat_AnaCheckEntry*)hash_search(
+                u_sess->stat_cxt.analyzeCheckHash, (void*)&(tabbuf->tablekey.tableid), HASH_ENTER, &found);
+            if (found) {
                 ereport(u_sess->stat_cxt.pgStatRunningInCollector ? LOG : WARNING,
-                    (errmsg("corrupted statistics file \"%s\"", statfile)));
-                goto done;
+                    (errmsg("duplicated table entry in stats snapshot")));
+                continue;
+            }
+
+            tabentry->is_analyzed = (tabbuf->analyze_timestamp != 0);
         }
     }
-
-done:
-    (void)FreeFile(fpin);
 }
+
 
 /* ----------
  * pgstat_setup_memcxt() -
@@ -6883,19 +6151,38 @@ static void overflow_check(int64 stat_value, int64 add_value)
  */
 static void pgstat_recv_tabstat(PgStat_MsgTabstat* msg, int len)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
-    PgStat_StatTabEntry* tabentry = NULL;
-    int i;
-    bool found = false;
+    PgStatSharedDBEntry* dbentry = NULL;
+    LWLock* db_lock = NULL;
+    PgStat_Counter add_tuples_returned = 0;
+    PgStat_Counter add_tuples_fetched = 0;
+    PgStat_Counter add_tuples_inserted = 0;
+    PgStat_Counter add_tuples_updated = 0;
+    PgStat_Counter add_tuples_deleted = 0;
+    PgStat_Counter add_blocks_fetched = 0;
+    PgStat_Counter add_blocks_hit = 0;
+    PgStat_Counter add_cu_mem_hit = 0;
+    PgStat_Counter add_cu_hdd_sync = 0;
+    PgStat_Counter add_cu_hdd_asyn = 0;
 
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, true);
-    if (dbentry == NULL) {
-        ereport(ERROR, (errmsg("Failed to get database-wide stats.")));
+    for (int i = 0; i < msg->m_nentries; i++) {
+        PgStat_TableEntry* tabmsg = &(msg->m_entry[i]);
+        add_tuples_returned += tabmsg->t_counts.t_tuples_returned;
+        add_tuples_fetched += tabmsg->t_counts.t_tuples_fetched;
+        add_tuples_inserted += tabmsg->t_counts.t_tuples_inserted;
+        add_tuples_updated += tabmsg->t_counts.t_tuples_updated;
+        add_tuples_deleted += tabmsg->t_counts.t_tuples_deleted;
+        add_blocks_fetched += tabmsg->t_counts.t_blocks_fetched;
+        add_blocks_hit += tabmsg->t_counts.t_blocks_hit;
+        add_cu_mem_hit += tabmsg->t_counts.t_cu_mem_hit;
+        add_cu_hdd_sync += tabmsg->t_counts.t_cu_hdd_sync;
+        add_cu_hdd_asyn += tabmsg->t_counts.t_cu_hdd_asyn;
     }
 
-    /*
-     * Check and Update database-wide stats.
-     */
+    dbentry = pgstat_get_db_entry(msg->m_databaseid, true, LW_EXCLUSIVE, &db_lock);
+    if (dbentry == NULL)
+        return;
+
+    /* Check and update database-wide stats. */
     overflow_check(dbentry->n_xact_commit, (PgStat_Counter)(msg->m_xact_commit));
     overflow_check(dbentry->n_xact_rollback, (PgStat_Counter)(msg->m_xact_rollback));
     overflow_check(dbentry->n_block_read_time, msg->m_block_read_time);
@@ -6906,124 +6193,30 @@ static void pgstat_recv_tabstat(PgStat_MsgTabstat* msg, int len)
     dbentry->n_block_read_time += msg->m_block_read_time;
     dbentry->n_block_write_time += msg->m_block_write_time;
 
-    /*
-     * Process all table entries in the message.
-     */
-    for (i = 0; i < msg->m_nentries; i++) {
+    dbentry->n_tuples_returned += add_tuples_returned;
+    dbentry->n_tuples_fetched += add_tuples_fetched;
+    dbentry->n_tuples_inserted += add_tuples_inserted;
+    dbentry->n_tuples_updated += add_tuples_updated;
+    dbentry->n_tuples_deleted += add_tuples_deleted;
+    dbentry->n_blocks_fetched += add_blocks_fetched;
+    dbentry->n_blocks_hit += add_blocks_hit;
+    dbentry->n_cu_mem_hit += add_cu_mem_hit;
+    dbentry->n_cu_hdd_sync += add_cu_hdd_sync;
+    dbentry->n_cu_hdd_asyn += add_cu_hdd_asyn;
+
+    pgstat_shared_release_lock(db_lock);
+
+    /* Process all table entries in the message. */
+    for (int i = 0; i < msg->m_nentries; i++) {
         PgStat_TableEntry* tabmsg = &(msg->m_entry[i]);
-        PgStat_StatTabKey tabkey;
-
-        tabkey.statFlag = tabmsg->t_statFlag;
-        tabkey.tableid = tabmsg->t_id;
-
-        tabentry = (PgStat_StatTabEntry*)hash_search(dbentry->tables, (void*)(&tabkey), HASH_ENTER, &found);
-
-        if (!found) {
-            /*
-             * If it's a new table entry, initialize counters to the values we
-             * just got.
-             */
-            tabentry->numscans = tabmsg->t_counts.t_numscans;
-            tabentry->lastscan = tabmsg->t_counts.t_lastscan;
-            tabentry->tuples_returned = tabmsg->t_counts.t_tuples_returned;
-            tabentry->tuples_fetched = tabmsg->t_counts.t_tuples_fetched;
-            tabentry->tuples_inserted = tabmsg->t_counts.t_tuples_inserted;
-            tabentry->tuples_updated = tabmsg->t_counts.t_tuples_updated;
-            tabentry->tuples_deleted = tabmsg->t_counts.t_tuples_deleted;
-            tabentry->tuples_inplace_updated = tabmsg->t_counts.t_tuples_inplace_updated;
-            tabentry->tuples_hot_updated = tabmsg->t_counts.t_tuples_hot_updated;
-            if (tabmsg->t_counts.t_truncated) {
-                tabentry->n_live_tuples = 0;
-                tabentry->n_dead_tuples = 0;
-            }
-            tabentry->n_live_tuples = tabmsg->t_counts.t_delta_live_tuples;
-            tabentry->n_dead_tuples = tabmsg->t_counts.t_delta_dead_tuples;
-            tabentry->changes_since_analyze = tabmsg->t_counts.t_changed_tuples;
-            tabentry->blocks_fetched = tabmsg->t_counts.t_blocks_fetched;
-            tabentry->blocks_hit = tabmsg->t_counts.t_blocks_hit;
-            tabentry->cu_mem_hit = tabmsg->t_counts.t_cu_mem_hit;
-            tabentry->cu_hdd_sync = tabmsg->t_counts.t_cu_hdd_sync;
-            tabentry->cu_hdd_asyn = tabmsg->t_counts.t_cu_hdd_asyn;
-
-            tabentry->vacuum_timestamp = 0;
-            tabentry->vacuum_count = 0;
-            tabentry->autovac_vacuum_timestamp = 0;
-            tabentry->autovac_vacuum_count = 0;
-            tabentry->analyze_timestamp = 0;
-            tabentry->analyze_count = 0;
-            tabentry->autovac_analyze_timestamp = 0;
-            tabentry->autovac_analyze_count = 0;
-            tabentry->autovac_status = 0;
-            tabentry->data_changed_timestamp = 0;
-            tabentry->success_prune_cnt = 0;
-            tabentry->total_prune_cnt = 0;
-        } else {
-            /*
-             * Otherwise add the values to the existing entry.
-             */
-            tabentry->numscans += tabmsg->t_counts.t_numscans;
-            tabentry->tuples_returned += tabmsg->t_counts.t_tuples_returned;
-            tabentry->tuples_fetched += tabmsg->t_counts.t_tuples_fetched;
-            tabentry->tuples_inserted += tabmsg->t_counts.t_tuples_inserted;
-            tabentry->tuples_updated += tabmsg->t_counts.t_tuples_updated;
-            tabentry->tuples_deleted += tabmsg->t_counts.t_tuples_deleted;
-            tabentry->tuples_inplace_updated += tabmsg->t_counts.t_tuples_inplace_updated;
-            tabentry->tuples_hot_updated += tabmsg->t_counts.t_tuples_hot_updated;
-            /* If table was truncated, first reset the live/dead counters */
-            if (tabmsg->t_counts.t_truncated) {
-                tabentry->n_live_tuples = 0;
-                tabentry->n_dead_tuples = 0;
-            }
-            if (tabentry->analyze_timestamp == 0 || tabentry->analyze_timestamp < tabentry->data_changed_timestamp) {
-                tabentry->n_live_tuples += tabmsg->t_counts.t_delta_live_tuples;
-                tabentry->n_dead_tuples += tabmsg->t_counts.t_delta_dead_tuples;
-            }
-            tabentry->changes_since_analyze += tabmsg->t_counts.t_changed_tuples;
-            tabentry->blocks_fetched += tabmsg->t_counts.t_blocks_fetched;
-            tabentry->blocks_hit += tabmsg->t_counts.t_blocks_hit;
-            tabentry->cu_mem_hit += tabmsg->t_counts.t_cu_mem_hit;
-            tabentry->cu_hdd_sync += tabmsg->t_counts.t_cu_hdd_sync;
-            tabentry->cu_hdd_asyn += tabmsg->t_counts.t_cu_hdd_asyn;
-        }
-
-        if (tabmsg->t_counts.t_numscans) {
-            if (tabmsg->t_counts.t_lastscan > tabentry->lastscan)
-                tabentry->lastscan = tabmsg->t_counts.t_lastscan;
-        }
-
-        /* Clamp n_live_tuples in case of negative delta_live_tuples */
-        tabentry->n_live_tuples = Max(tabentry->n_live_tuples, 0);
-        /* Likewise for n_dead_tuples */
-        tabentry->n_dead_tuples = Max(tabentry->n_dead_tuples, 0);
-
-        /*
-         * Add per-table stats to the per-database entry, too.
-         */
-        dbentry->n_tuples_returned += tabmsg->t_counts.t_tuples_returned;
-        dbentry->n_tuples_fetched += tabmsg->t_counts.t_tuples_fetched;
-        dbentry->n_tuples_inserted += tabmsg->t_counts.t_tuples_inserted;
-        dbentry->n_tuples_updated += tabmsg->t_counts.t_tuples_updated;
-        dbentry->n_tuples_deleted += tabmsg->t_counts.t_tuples_deleted;
-        dbentry->n_blocks_fetched += tabmsg->t_counts.t_blocks_fetched;
-        dbentry->n_blocks_hit += tabmsg->t_counts.t_blocks_hit;
-        dbentry->n_cu_mem_hit += tabmsg->t_counts.t_cu_mem_hit;
-        dbentry->n_cu_hdd_sync += tabmsg->t_counts.t_cu_hdd_sync;
-        dbentry->n_cu_hdd_asyn += tabmsg->t_counts.t_cu_hdd_asyn;
-
-        /* partitioned table alse should record UDI info */
-        if (pg_stat_relation(tabkey.statFlag))
+        bool found = false;
+        LWLock* tab_lock = NULL;
+        PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(msg->m_databaseid, tabmsg->t_id, tabmsg->t_statFlag,
+            true, LW_EXCLUSIVE, &tab_lock, &found);
+        if (tabentry == NULL)
             continue;
 
-        tabkey.tableid = tabmsg->t_statFlag;
-        tabkey.statFlag = InvalidOid;
-
-        tabentry = (PgStat_StatTabEntry*)hash_search(dbentry->tables, (void*)(&tabkey), HASH_ENTER, &found);
-
         if (!found) {
-            /*
-             * If it's a new table entry, initialize counters to the values we
-             * just got.
-             */
             tabentry->numscans = tabmsg->t_counts.t_numscans;
             tabentry->lastscan = tabmsg->t_counts.t_lastscan;
             tabentry->tuples_returned = tabmsg->t_counts.t_tuples_returned;
@@ -7031,8 +6224,12 @@ static void pgstat_recv_tabstat(PgStat_MsgTabstat* msg, int len)
             tabentry->tuples_inserted = tabmsg->t_counts.t_tuples_inserted;
             tabentry->tuples_updated = tabmsg->t_counts.t_tuples_updated;
             tabentry->tuples_deleted = tabmsg->t_counts.t_tuples_deleted;
-            tabentry->tuples_hot_updated = tabmsg->t_counts.t_tuples_hot_updated;
             tabentry->tuples_inplace_updated = tabmsg->t_counts.t_tuples_inplace_updated;
+            tabentry->tuples_hot_updated = tabmsg->t_counts.t_tuples_hot_updated;
+            if (tabmsg->t_counts.t_truncated) {
+                tabentry->n_live_tuples = 0;
+                tabentry->n_dead_tuples = 0;
+            }
             tabentry->n_live_tuples = tabmsg->t_counts.t_delta_live_tuples;
             tabentry->n_dead_tuples = tabmsg->t_counts.t_delta_dead_tuples;
             tabentry->changes_since_analyze = tabmsg->t_counts.t_changed_tuples;
@@ -7055,17 +6252,18 @@ static void pgstat_recv_tabstat(PgStat_MsgTabstat* msg, int len)
             tabentry->success_prune_cnt = 0;
             tabentry->total_prune_cnt = 0;
         } else {
-            /*
-             * Otherwise add the values to the existing entry.
-             */
             tabentry->numscans += tabmsg->t_counts.t_numscans;
             tabentry->tuples_returned += tabmsg->t_counts.t_tuples_returned;
             tabentry->tuples_fetched += tabmsg->t_counts.t_tuples_fetched;
             tabentry->tuples_inserted += tabmsg->t_counts.t_tuples_inserted;
             tabentry->tuples_updated += tabmsg->t_counts.t_tuples_updated;
             tabentry->tuples_deleted += tabmsg->t_counts.t_tuples_deleted;
-            tabentry->tuples_hot_updated += tabmsg->t_counts.t_tuples_hot_updated;
             tabentry->tuples_inplace_updated += tabmsg->t_counts.t_tuples_inplace_updated;
+            tabentry->tuples_hot_updated += tabmsg->t_counts.t_tuples_hot_updated;
+            if (tabmsg->t_counts.t_truncated) {
+                tabentry->n_live_tuples = 0;
+                tabentry->n_dead_tuples = 0;
+            }
             if (tabentry->analyze_timestamp == 0 || tabentry->analyze_timestamp < tabentry->data_changed_timestamp) {
                 tabentry->n_live_tuples += tabmsg->t_counts.t_delta_live_tuples;
                 tabentry->n_dead_tuples += tabmsg->t_counts.t_delta_dead_tuples;
@@ -7082,8 +6280,84 @@ static void pgstat_recv_tabstat(PgStat_MsgTabstat* msg, int len)
             if (tabmsg->t_counts.t_lastscan > tabentry->lastscan)
                 tabentry->lastscan = tabmsg->t_counts.t_lastscan;
         }
+
+        tabentry->n_live_tuples = Max(tabentry->n_live_tuples, 0);
+        tabentry->n_dead_tuples = Max(tabentry->n_dead_tuples, 0);
+
+        pgstat_shared_release_lock(tab_lock);
+
+        if (pg_stat_relation(tabmsg->t_statFlag))
+            continue;
+
+        bool parent_found = false;
+        LWLock* parent_lock = NULL;
+        PgStatSharedTabEntry* parent_entry = pgstat_get_tab_entry(msg->m_databaseid, tabmsg->t_statFlag, InvalidOid,
+            true, LW_EXCLUSIVE, &parent_lock, &parent_found);
+        if (parent_entry == NULL)
+            continue;
+
+        if (!parent_found) {
+            parent_entry->numscans = tabmsg->t_counts.t_numscans;
+            parent_entry->lastscan = tabmsg->t_counts.t_lastscan;
+            parent_entry->tuples_returned = tabmsg->t_counts.t_tuples_returned;
+            parent_entry->tuples_fetched = tabmsg->t_counts.t_tuples_fetched;
+            parent_entry->tuples_inserted = tabmsg->t_counts.t_tuples_inserted;
+            parent_entry->tuples_updated = tabmsg->t_counts.t_tuples_updated;
+            parent_entry->tuples_deleted = tabmsg->t_counts.t_tuples_deleted;
+            parent_entry->tuples_hot_updated = tabmsg->t_counts.t_tuples_hot_updated;
+            parent_entry->tuples_inplace_updated = tabmsg->t_counts.t_tuples_inplace_updated;
+            parent_entry->n_live_tuples = tabmsg->t_counts.t_delta_live_tuples;
+            parent_entry->n_dead_tuples = tabmsg->t_counts.t_delta_dead_tuples;
+            parent_entry->changes_since_analyze = tabmsg->t_counts.t_changed_tuples;
+            parent_entry->blocks_fetched = tabmsg->t_counts.t_blocks_fetched;
+            parent_entry->blocks_hit = tabmsg->t_counts.t_blocks_hit;
+            parent_entry->cu_mem_hit = tabmsg->t_counts.t_cu_mem_hit;
+            parent_entry->cu_hdd_sync = tabmsg->t_counts.t_cu_hdd_sync;
+            parent_entry->cu_hdd_asyn = tabmsg->t_counts.t_cu_hdd_asyn;
+
+            parent_entry->vacuum_timestamp = 0;
+            parent_entry->vacuum_count = 0;
+            parent_entry->autovac_vacuum_timestamp = 0;
+            parent_entry->autovac_vacuum_count = 0;
+            parent_entry->analyze_timestamp = 0;
+            parent_entry->analyze_count = 0;
+            parent_entry->autovac_analyze_timestamp = 0;
+            parent_entry->autovac_analyze_count = 0;
+            parent_entry->autovac_status = 0;
+            parent_entry->data_changed_timestamp = 0;
+            parent_entry->success_prune_cnt = 0;
+            parent_entry->total_prune_cnt = 0;
+        } else {
+            parent_entry->numscans += tabmsg->t_counts.t_numscans;
+            parent_entry->tuples_returned += tabmsg->t_counts.t_tuples_returned;
+            parent_entry->tuples_fetched += tabmsg->t_counts.t_tuples_fetched;
+            parent_entry->tuples_inserted += tabmsg->t_counts.t_tuples_inserted;
+            parent_entry->tuples_updated += tabmsg->t_counts.t_tuples_updated;
+            parent_entry->tuples_deleted += tabmsg->t_counts.t_tuples_deleted;
+            parent_entry->tuples_hot_updated += tabmsg->t_counts.t_tuples_hot_updated;
+            parent_entry->tuples_inplace_updated += tabmsg->t_counts.t_tuples_inplace_updated;
+            if (parent_entry->analyze_timestamp == 0 ||
+                parent_entry->analyze_timestamp < parent_entry->data_changed_timestamp) {
+                parent_entry->n_live_tuples += tabmsg->t_counts.t_delta_live_tuples;
+                parent_entry->n_dead_tuples += tabmsg->t_counts.t_delta_dead_tuples;
+            }
+            parent_entry->changes_since_analyze += tabmsg->t_counts.t_changed_tuples;
+            parent_entry->blocks_fetched += tabmsg->t_counts.t_blocks_fetched;
+            parent_entry->blocks_hit += tabmsg->t_counts.t_blocks_hit;
+            parent_entry->cu_mem_hit += tabmsg->t_counts.t_cu_mem_hit;
+            parent_entry->cu_hdd_sync += tabmsg->t_counts.t_cu_hdd_sync;
+            parent_entry->cu_hdd_asyn += tabmsg->t_counts.t_cu_hdd_asyn;
+        }
+
+        if (tabmsg->t_counts.t_numscans) {
+            if (tabmsg->t_counts.t_lastscan > parent_entry->lastscan)
+                parent_entry->lastscan = tabmsg->t_counts.t_lastscan;
+        }
+
+        pgstat_shared_release_lock(parent_lock);
     }
 }
+
 
 /* ----------
  * pgstat_recv_tabpurge() -
@@ -7093,45 +6367,28 @@ static void pgstat_recv_tabstat(PgStat_MsgTabstat* msg, int len)
  */
 static void pgstat_recv_tabpurge(PgStat_MsgTabpurge* msg, int len)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
-    PgStat_StatTabKey tabkey;
-    PgStat_StatTabEntry* tabentry = NULL;
-    PgStat_StatTabKey parentkey;
-    PgStat_StatTabEntry* parententry = NULL;
-    int i;
+    for (int i = 0; i < msg->m_nentries; i++) {
+        PgStatSharedTabEntry removed;
+        bool removed_ok = pgstat_shared_remove_tab_entry(msg->m_databaseid, msg->m_entry[i].m_tableid,
+            msg->m_entry[i].m_statFlag, &removed);
+        if (!removed_ok)
+            continue;
 
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, false);
-    /*
-     * No need to purge if we don't even know the database.
-     */
-    if ((dbentry == NULL) || (dbentry->tables == NULL))
-        return;
-
-    /*
-     * Process all table entries in the message.
-     */
-    for (i = 0; i < msg->m_nentries; i++) {
-        tabkey.statFlag = msg->m_entry[i].m_statFlag;
-        tabkey.tableid = msg->m_entry[i].m_tableid;
-
-        tabentry = (PgStat_StatTabEntry*)hash_search(dbentry->tables, (void*)(&tabkey), HASH_FIND, NULL);
-
-        /* modify parent table's stat info if it is a patition */
-        if ((tabentry != NULL) && tabkey.statFlag) {
-            parentkey.tableid = tabkey.statFlag;
-            parentkey.statFlag = InvalidOid;
-            parententry = (PgStat_StatTabEntry*)hash_search(dbentry->tables, (void*)(&parentkey), HASH_FIND, NULL);
+        if (msg->m_entry[i].m_statFlag) {
+            LWLock* parent_lock = NULL;
+            bool found = false;
+            PgStatSharedTabEntry* parententry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_entry[i].m_statFlag,
+                InvalidOid, false, LW_EXCLUSIVE, &parent_lock, &found);
             if (parententry != NULL) {
-                parententry->n_dead_tuples = Max(0, parententry->n_dead_tuples - tabentry->n_dead_tuples);
-                parententry->n_live_tuples = Max(0, parententry->n_live_tuples - tabentry->n_live_tuples);
-                parententry->changes_since_analyze += tabentry->changes_since_analyze;
+                parententry->n_dead_tuples = Max(0, parententry->n_dead_tuples - removed.n_dead_tuples);
+                parententry->n_live_tuples = Max(0, parententry->n_live_tuples - removed.n_live_tuples);
+                parententry->changes_since_analyze += removed.changes_since_analyze;
+                pgstat_shared_release_lock(parent_lock);
             }
         }
-
-        /* Remove from hashtable if present; we don't care if it's not. */
-        (void*)hash_search(dbentry->tables, (void*)(&tabkey), HASH_REMOVE, NULL);
     }
 }
+
 
 /* ----------
  * pgstat_recv_dropdb() -
@@ -7141,36 +6398,13 @@ static void pgstat_recv_tabpurge(PgStat_MsgTabpurge* msg, int len)
  */
 static void pgstat_recv_dropdb(PgStat_MsgDropdb* msg, int len)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
     Oid db_oid = msg->m_databaseid;
-    /*
-     * Lookup the database in the hashtable.
-     */
-    dbentry = pgstat_get_db_entry(db_oid, false);
+    pgstat_shared_drop_db(db_oid);
 
-    /*
-     * If found, remove it.
-     */
-    if (NULL != dbentry) {
-        if (dbentry->tables != NULL)
-            hash_destroy(dbentry->tables);
-        if (dbentry->functions != NULL)
-            hash_destroy(dbentry->functions);
-
-        if (hash_search(u_sess->stat_cxt.pgStatDBHash, (void*)&(db_oid), HASH_REMOVE, NULL) == NULL) {
-            ereport(ERROR,
-                (errcode(ERRCODE_DATA_CORRUPTED),
-                    errmsg("database hash table corrupted "
-                           "during cleanup --- abort")));
-        }
-    }
-
-    /*
-     * delete database related hotkeys statistics
-     */
+    /* delete database related hotkeys statistics */
     g_instance.stat_cxt.lru->DeleteHotkeysInDB(db_oid);
-
 }
+
 
 /* ----------
  * pgstat_recv_resetcounter() -
@@ -7180,69 +6414,10 @@ static void pgstat_recv_dropdb(PgStat_MsgDropdb* msg, int len)
  */
 static void pgstat_recv_resetcounter(PgStat_MsgResetcounter* msg, int len)
 {
-    HASHCTL hash_ctl;
-    PgStat_StatDBEntry* dbentry = NULL;
-    errno_t rc = EOK;
-
-    /*
-     * Lookup the database in the hashtable.  Nothing to do if not there.
-     */
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, false);
-    if (dbentry == NULL)
-        return;
-
-    /*
-     * We simply throw away all the database's table entries by recreating a
-     * new hash table for them.
-     */
-    if (dbentry->tables != NULL)
-        hash_destroy(dbentry->tables);
-    if (dbentry->functions != NULL)
-        hash_destroy(dbentry->functions);
-
-    dbentry->tables = NULL;
-    dbentry->functions = NULL;
-
+    pgstat_shared_reset_db(msg->m_databaseid);
     (void)gs_lock_test_and_set_64(&g_instance.stat_cxt.NodeStatResetTime, GetCurrentTimestamp());
-
-    /*
-     * Reset database-level stats too.	This should match the initialization
-     * code in pgstat_get_db_entry().
-     */
-    dbentry->n_xact_commit = 0;
-    dbentry->n_xact_rollback = 0;
-    dbentry->n_blocks_fetched = 0;
-    dbentry->n_blocks_hit = 0;
-    dbentry->n_cu_mem_hit = 0;
-    dbentry->n_cu_hdd_sync = 0;
-    dbentry->n_cu_hdd_asyn = 0;
-    dbentry->n_tuples_returned = 0;
-    dbentry->n_tuples_fetched = 0;
-    dbentry->n_tuples_inserted = 0;
-    dbentry->n_tuples_updated = 0;
-    dbentry->n_tuples_deleted = 0;
-    dbentry->last_autovac_time = 0;
-    dbentry->n_temp_bytes = 0;
-    dbentry->n_temp_files = 0;
-    dbentry->n_deadlocks = 0;
-    dbentry->n_block_read_time = 0;
-    dbentry->n_block_write_time = 0;
-    dbentry->n_mem_mbytes_reserved = 0;
-
-    dbentry->stat_reset_timestamp = GetCurrentTimestamp();
-
-    rc = memset_s(&hash_ctl, sizeof(hash_ctl), 0, sizeof(hash_ctl));
-    securec_check(rc, "\0", "\0");
-    hash_ctl.keysize = sizeof(PgStat_StatTabKey);
-    hash_ctl.entrysize = sizeof(PgStat_StatTabEntry);
-    hash_ctl.hash = tag_hash;
-    dbentry->tables = hash_create("Per-database table", PGSTAT_TAB_HASH_SIZE, &hash_ctl, HASH_ELEM | HASH_FUNCTION);
-
-    hash_ctl.keysize = sizeof(Oid);
-    hash_ctl.entrysize = sizeof(PgStat_StatFuncEntry);
-    hash_ctl.hash = oid_hash;
-    dbentry->functions = hash_create("Per-database function", 512, &hash_ctl, HASH_ELEM | HASH_FUNCTION);
 }
+
 
 /* ----------
  * pgstat_recv_resetshared() -
@@ -7252,21 +6427,12 @@ static void pgstat_recv_resetcounter(PgStat_MsgResetcounter* msg, int len)
  */
 static void pgstat_recv_resetsharedcounter(PgStat_MsgResetsharedcounter* msg, int len)
 {
-    errno_t rc = EOK;
-
     if (msg->m_resettarget == RESET_BGWRITER) {
-        /* Reset the global background writer statistics for the cluster. */
-        rc = memset_s(u_sess->stat_cxt.globalStats, sizeof(PgStat_GlobalStats), 0, sizeof(PgStat_GlobalStats));
-        securec_check(rc, "\0", "\0");
-        u_sess->stat_cxt.globalStats->stat_reset_timestamp = GetCurrentTimestamp();
+        pgstat_shared_reset_sharedcounter(msg->m_resettarget);
         gs_lock_test_and_set_64(&g_instance.stat_cxt.NodeStatResetTime, GetCurrentTimestamp());
     }
-
-    /*
-     * Presumably the sender of this message validated the target, don't
-     * complain here if it's not valid
-     */
 }
+
 
 /* ----------
  * pgstat_recv_resetsinglecounter() -
@@ -7276,28 +6442,23 @@ static void pgstat_recv_resetsharedcounter(PgStat_MsgResetsharedcounter* msg, in
  */
 static void pgstat_recv_resetsinglecounter(PgStat_MsgResetsinglecounter* msg, int len)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
-
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, false);
+    LWLock* db_lock = NULL;
+    PgStatSharedDBEntry* dbentry = pgstat_get_db_entry(msg->m_databaseid, false, LW_EXCLUSIVE, &db_lock);
     if (dbentry == NULL)
         return;
 
     /* Set the reset timestamp for the whole database */
     dbentry->stat_reset_timestamp = GetCurrentTimestamp();
+    pgstat_shared_release_lock(db_lock);
     gs_lock_test_and_set_64(&g_instance.stat_cxt.NodeStatResetTime, GetCurrentTimestamp());
 
-    /* Remove object if it exists, ignore it if not */
     if (msg->m_resettype == RESET_TABLE) {
-        PgStat_StatTabKey tabkey;
-
-        tabkey.statFlag = msg->p_objectid;
-        tabkey.tableid = msg->m_objectid;
-
-        (void)hash_search(dbentry->tables, (void*)&(tabkey), HASH_REMOVE, NULL);
+        (void)pgstat_shared_remove_tab_entry(msg->m_databaseid, msg->m_objectid, msg->p_objectid, NULL);
     } else if (msg->m_resettype == RESET_FUNCTION) {
-        (void)hash_search(dbentry->functions, (void*)&(msg->m_objectid), HASH_REMOVE, NULL);
+        (void)pgstat_shared_remove_func_entry(msg->m_databaseid, msg->m_objectid);
     }
 }
+
 
 /* ----------
  * pgstat_recv_autovac() -
@@ -7307,15 +6468,15 @@ static void pgstat_recv_resetsinglecounter(PgStat_MsgResetsinglecounter* msg, in
  */
 static void pgstat_recv_autovac(PgStat_MsgAutovacStart* msg, int len)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
-
-    /*
-     * Store the last autovacuum time in the database's hashtable entry.
-     */
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, true);
+    LWLock* db_lock = NULL;
+    PgStatSharedDBEntry* dbentry = pgstat_get_db_entry(msg->m_databaseid, true, LW_EXCLUSIVE, &db_lock);
+    if (dbentry == NULL)
+        return;
 
     dbentry->last_autovac_time = msg->m_start_time;
+    pgstat_shared_release_lock(db_lock);
 }
+
 
 /* ----------
  * pgstat_recv_vacuum() -
@@ -7325,16 +6486,13 @@ static void pgstat_recv_autovac(PgStat_MsgAutovacStart* msg, int len)
  */
 static void pgstat_recv_vacuum(PgStat_MsgVacuum* msg, int len)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
-    PgStat_StatTabEntry* tabentry = NULL;
+    LWLock* tab_lock = NULL;
+    bool found = false;
+    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_tableoid, msg->m_statFlag, true,
+        LW_EXCLUSIVE, &tab_lock, &found);
+    if (tabentry == NULL)
+        return;
 
-    /*
-     * Store the data in the table's hashtable entry.
-     */
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, true);
-    tabentry = pgstat_get_tab_entry(dbentry, msg->m_tableoid, true, msg->m_statFlag);
-
-    /* Resetting dead_tuples ... use negtive number to verify Cstore */
     if (msg->m_tuples < 0) {
         tabentry->n_dead_tuples = 0;
     } else {
@@ -7352,17 +6510,22 @@ static void pgstat_recv_vacuum(PgStat_MsgVacuum* msg, int len)
         tabentry->vacuum_count++;
     }
 
-    /* the deadtuples in main partition should also be updated */
+    pgstat_shared_release_lock(tab_lock);
+
     if (OidIsValid(msg->m_statFlag)) {
-        PgStat_StatTabEntry* main_tabentry = pgstat_get_tab_entry(dbentry, msg->m_statFlag, false, InvalidOid);
+        LWLock* main_lock = NULL;
+        PgStatSharedTabEntry* main_tabentry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_statFlag, InvalidOid, false,
+            LW_EXCLUSIVE, &main_lock, &found);
         if (main_tabentry != NULL) {
             if (msg->m_tuples < 0)
                 main_tabentry->n_dead_tuples = 0;
             else
                 main_tabentry->n_dead_tuples = Max(0, main_tabentry->n_dead_tuples - msg->m_tuples);
+            pgstat_shared_release_lock(main_lock);
         }
     }
 }
+
 
 /* ----------
  * PgstatRecvPrunestat() -
@@ -7372,18 +6535,19 @@ static void pgstat_recv_vacuum(PgStat_MsgVacuum* msg, int len)
  */
 static void PgstatRecvPrunestat(PgStat_MsgPrune* msg, int len)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
-    PgStat_StatTabEntry* tabentry = NULL;
-
-    /*
-     * Store the data in the table's hashtable entry.
-     */
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, true);
-    tabentry = pgstat_get_tab_entry(dbentry, msg->m_tableoid, true, msg->m_statFlag);
+    LWLock* tab_lock = NULL;
+    bool found = false;
+    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_tableoid, msg->m_statFlag, true,
+        LW_EXCLUSIVE, &tab_lock, &found);
+    if (tabentry == NULL)
+        return;
 
     tabentry->success_prune_cnt += msg->m_pruned_blocks;
     tabentry->total_prune_cnt += msg->m_scanned_blocks;
+
+    pgstat_shared_release_lock(tab_lock);
 }
+
 
 
 /* ----------
@@ -7394,18 +6558,17 @@ static void PgstatRecvPrunestat(PgStat_MsgPrune* msg, int len)
  */
 static void pgstat_recv_data_changed(PgStat_MsgDataChanged* msg, int len)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
-    PgStat_StatTabEntry* tabentry = NULL;
+    LWLock* tab_lock = NULL;
+    bool found = false;
+    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_tableoid, msg->m_statFlag, true,
+        LW_EXCLUSIVE, &tab_lock, &found);
+    if (tabentry == NULL)
+        return;
 
-    /*
-     * Store the data in the table's hashtable entry.
-     */
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, true);
-    tabentry = pgstat_get_tab_entry(dbentry, msg->m_tableoid, true, msg->m_statFlag);
-
-    /* store start time of insert/delete/update operation */
     tabentry->data_changed_timestamp = msg->m_changed_time;
+    pgstat_shared_release_lock(tab_lock);
 }
+
 
 /* ----------
  * pgstat_recv_autovac_stat() -
@@ -7415,19 +6578,21 @@ static void pgstat_recv_data_changed(PgStat_MsgDataChanged* msg, int len)
  */
 static void pgstat_recv_autovac_stat(PgStat_MsgAutovacStat* msg, int len)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
-    PgStat_StatTabEntry* tabentry = NULL;
+    LWLock* tab_lock = NULL;
+    bool found = false;
+    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_tableoid, msg->m_statFlag, true,
+        LW_EXCLUSIVE, &tab_lock, &found);
+    if (tabentry == NULL)
+        return;
 
-    /*
-     * Store the data in the table's hashtable entry.
-     */
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, true);
-    tabentry = pgstat_get_tab_entry(dbentry, msg->m_tableoid, true, msg->m_statFlag);
-    if (tabentry && AV_TIMEOUT == msg->m_autovacStat) {
+    if (AV_TIMEOUT == msg->m_autovacStat) {
         increase_continued_timeout(tabentry->autovac_status);
         increase_toatl_timeout(tabentry->autovac_status);
     }
+
+    pgstat_shared_release_lock(tab_lock);
 }
+
 
 /* ----------
  * pgstat_recv_truncate() -
@@ -7437,31 +6602,35 @@ static void pgstat_recv_autovac_stat(PgStat_MsgAutovacStat* msg, int len)
  */
 static void pgstat_recv_truncate(PgStat_MsgTruncate* msg, int len)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
-    PgStat_StatTabEntry* tabentry = NULL;
-    PgStat_StatTabEntry* parent_entry = NULL;
+    LWLock* tab_lock = NULL;
+    bool found = false;
+    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_tableoid, msg->m_statFlag, true,
+        LW_EXCLUSIVE, &tab_lock, &found);
+    if (tabentry == NULL)
+        return;
 
-    /*
-     * Store the data in the table's hashtable entry.
-     */
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, true);
-    tabentry = pgstat_get_tab_entry(dbentry, msg->m_tableoid, true, msg->m_statFlag);
+    PgStat_Counter dead = tabentry->n_dead_tuples;
+    PgStat_Counter live = tabentry->n_live_tuples;
+    PgStat_Counter changed = tabentry->changes_since_analyze;
 
-    /* modify parent table's stat info(dead_tuple, live_tuple, changes_since_analyze) if it is a patition */
     if (msg->m_statFlag) {
-        parent_entry = pgstat_get_tab_entry(dbentry, msg->m_statFlag, true, InvalidOid);
-
-        if (NULL != parent_entry) {
-            parent_entry->n_dead_tuples = Max(0, parent_entry->n_dead_tuples - tabentry->n_dead_tuples);
-            parent_entry->n_live_tuples = Max(0, parent_entry->n_live_tuples - tabentry->n_live_tuples);
-            parent_entry->changes_since_analyze += tabentry->changes_since_analyze;
+        LWLock* parent_lock = NULL;
+        PgStatSharedTabEntry* parent_entry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_statFlag, InvalidOid, true,
+            LW_EXCLUSIVE, &parent_lock, &found);
+        if (parent_entry != NULL) {
+            parent_entry->n_dead_tuples = Max(0, parent_entry->n_dead_tuples - dead);
+            parent_entry->n_live_tuples = Max(0, parent_entry->n_live_tuples - live);
+            parent_entry->changes_since_analyze += changed;
+            pgstat_shared_release_lock(parent_lock);
         }
     }
 
-    /* After truncate reset dead_tuple and live_tuple */
     tabentry->n_dead_tuples = 0;
     tabentry->n_live_tuples = 0;
+
+    pgstat_shared_release_lock(tab_lock);
 }
+
 
 /* ----------
  * pgstat_recv_analyze() -
@@ -7471,22 +6640,15 @@ static void pgstat_recv_truncate(PgStat_MsgTruncate* msg, int len)
  */
 static void pgstat_recv_analyze(PgStat_MsgAnalyze* msg, int len)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
-    PgStat_StatTabEntry* tabentry = NULL;
-
-    /*
-     * Store the data in the table's hashtable entry.
-     */
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, true);
-    tabentry = pgstat_get_tab_entry(dbentry, msg->m_tableoid, true, msg->m_statFlag);
+    LWLock* tab_lock = NULL;
+    bool found = false;
+    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_tableoid, msg->m_statFlag, true,
+        LW_EXCLUSIVE, &tab_lock, &found);
+    if (tabentry == NULL)
+        return;
 
     tabentry->n_live_tuples = msg->m_live_tuples;
     tabentry->n_dead_tuples = msg->m_dead_tuples;
-
-    /*
-     * We reset changes_since_analyze to zero, forgetting any changes that
-     * occurred while the ANALYZE was in progress.
-     */
     tabentry->changes_since_analyze = 0;
 
     if (msg->m_autovacuum) {
@@ -7499,7 +6661,10 @@ static void pgstat_recv_analyze(PgStat_MsgAnalyze* msg, int len)
         tabentry->analyze_timestamp = msg->m_analyzetime;
         tabentry->analyze_count++;
     }
+
+    pgstat_shared_release_lock(tab_lock);
 }
+
 
 /* ----------
  * pgstat_recv_bgwriter() -
@@ -7509,56 +6674,80 @@ static void pgstat_recv_analyze(PgStat_MsgAnalyze* msg, int len)
  */
 static void pgstat_recv_bgwriter(PgStat_MsgBgWriter* msg, int len)
 {
-    if (u_sess->stat_cxt.globalStats->timed_checkpoints > (INT64_MAX - msg->m_timed_checkpoints)) {
+    LWLock* lock = pgstat_shared_global_lock();
+    if (lock == NULL)
+        return;
+
+    LWLockAcquire(lock, LW_EXCLUSIVE);
+    PgStat_GlobalStats* stats = pgstat_shared_global_stats();
+    if (stats == NULL) {
+        LWLockRelease(lock);
+        return;
+    }
+
+    if (stats->timed_checkpoints > (INT64_MAX - msg->m_timed_checkpoints)) {
+        LWLockRelease(lock);
         ereport(ERROR, (errmsg("timed_checkpoints overflow")));
     }
-    u_sess->stat_cxt.globalStats->timed_checkpoints += msg->m_timed_checkpoints;
+    stats->timed_checkpoints += msg->m_timed_checkpoints;
 
-    if (u_sess->stat_cxt.globalStats->requested_checkpoints > (INT64_MAX - msg->m_requested_checkpoints)) {
+    if (stats->requested_checkpoints > (INT64_MAX - msg->m_requested_checkpoints)) {
+        LWLockRelease(lock);
         ereport(ERROR, (errmsg("requested_checkpoints overflow")));
     }
-    u_sess->stat_cxt.globalStats->requested_checkpoints += msg->m_requested_checkpoints;
+    stats->requested_checkpoints += msg->m_requested_checkpoints;
 
-    if (u_sess->stat_cxt.globalStats->checkpoint_write_time > (INT64_MAX - msg->m_checkpoint_write_time)) {
+    if (stats->checkpoint_write_time > (INT64_MAX - msg->m_checkpoint_write_time)) {
+        LWLockRelease(lock);
         ereport(ERROR, (errmsg("checkpoint_write_time overflow")));
     }
-    u_sess->stat_cxt.globalStats->checkpoint_write_time += msg->m_checkpoint_write_time;
+    stats->checkpoint_write_time += msg->m_checkpoint_write_time;
 
-    if (u_sess->stat_cxt.globalStats->checkpoint_sync_time > (INT64_MAX - msg->m_checkpoint_sync_time)) {
+    if (stats->checkpoint_sync_time > (INT64_MAX - msg->m_checkpoint_sync_time)) {
+        LWLockRelease(lock);
         ereport(ERROR, (errmsg("checkpoint_sync_time overflow")));
     }
-    u_sess->stat_cxt.globalStats->checkpoint_sync_time += msg->m_checkpoint_sync_time;
+    stats->checkpoint_sync_time += msg->m_checkpoint_sync_time;
 
-    if (u_sess->stat_cxt.globalStats->buf_written_checkpoints > (INT64_MAX - msg->m_buf_written_checkpoints)) {
+    if (stats->buf_written_checkpoints > (INT64_MAX - msg->m_buf_written_checkpoints)) {
+        LWLockRelease(lock);
         ereport(ERROR, (errmsg("buf_written_checkpoints overflow")));
     }
-    u_sess->stat_cxt.globalStats->buf_written_checkpoints += msg->m_buf_written_checkpoints;
+    stats->buf_written_checkpoints += msg->m_buf_written_checkpoints;
 
-    if (u_sess->stat_cxt.globalStats->buf_written_clean > (INT64_MAX - msg->m_buf_written_clean)) {
+    if (stats->buf_written_clean > (INT64_MAX - msg->m_buf_written_clean)) {
+        LWLockRelease(lock);
         ereport(ERROR, (errmsg("buf_written_clean overflow")));
     }
-    u_sess->stat_cxt.globalStats->buf_written_clean += msg->m_buf_written_clean;
+    stats->buf_written_clean += msg->m_buf_written_clean;
 
-    if (u_sess->stat_cxt.globalStats->maxwritten_clean > (INT64_MAX - msg->m_maxwritten_clean)) {
+    if (stats->maxwritten_clean > (INT64_MAX - msg->m_maxwritten_clean)) {
+        LWLockRelease(lock);
         ereport(ERROR, (errmsg("maxwritten_clean overflow")));
     }
-    u_sess->stat_cxt.globalStats->maxwritten_clean += msg->m_maxwritten_clean;
+    stats->maxwritten_clean += msg->m_maxwritten_clean;
 
-    if (u_sess->stat_cxt.globalStats->buf_written_backend > (INT64_MAX - msg->m_buf_written_backend)) {
+    if (stats->buf_written_backend > (INT64_MAX - msg->m_buf_written_backend)) {
+        LWLockRelease(lock);
         ereport(ERROR, (errmsg("buf_written_backend overflow")));
     }
-    u_sess->stat_cxt.globalStats->buf_written_backend += msg->m_buf_written_backend;
+    stats->buf_written_backend += msg->m_buf_written_backend;
 
-    if (u_sess->stat_cxt.globalStats->buf_fsync_backend > (INT64_MAX - msg->m_buf_fsync_backend)) {
+    if (stats->buf_fsync_backend > (INT64_MAX - msg->m_buf_fsync_backend)) {
+        LWLockRelease(lock);
         ereport(ERROR, (errmsg("buf_fsync_backend overflow")));
     }
-    u_sess->stat_cxt.globalStats->buf_fsync_backend += msg->m_buf_fsync_backend;
+    stats->buf_fsync_backend += msg->m_buf_fsync_backend;
 
-    if (u_sess->stat_cxt.globalStats->buf_alloc > (INT64_MAX - msg->m_buf_alloc)) {
+    if (stats->buf_alloc > (INT64_MAX - msg->m_buf_alloc)) {
+        LWLockRelease(lock);
         ereport(ERROR, (errmsg("buf_alloc overflow")));
     }
-    u_sess->stat_cxt.globalStats->buf_alloc += msg->m_buf_alloc;
+    stats->buf_alloc += msg->m_buf_alloc;
+
+    LWLockRelease(lock);
 }
+
 
 /* ----------
  * pgstat_recv_recoveryconflict() -
@@ -7568,9 +6757,10 @@ static void pgstat_recv_bgwriter(PgStat_MsgBgWriter* msg, int len)
  */
 static void pgstat_recv_recoveryconflict(const PgStat_MsgRecoveryConflict* msg)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
-
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, true);
+    LWLock* db_lock = NULL;
+    PgStatSharedDBEntry* dbentry = pgstat_get_db_entry(msg->m_databaseid, true, LW_EXCLUSIVE, &db_lock);
+    if (dbentry == NULL)
+        return;
 
     switch (msg->m_reason) {
         case PROCSIG_RECOVERY_CONFLICT_DATABASE:
@@ -7596,10 +6786,13 @@ static void pgstat_recv_recoveryconflict(const PgStat_MsgRecoveryConflict* msg)
             dbentry->n_conflict_startup_deadlock++;
             break;
         default:
+            pgstat_shared_release_lock(db_lock);
             ereport(ERROR,
                 (errcode(ERRCODE_CASE_NOT_FOUND),
                     errmsg("unrecognized bypass recovery conflict reason: %d", msg->m_reason)));
     }
+
+    pgstat_shared_release_lock(db_lock);
 }
 
 /* ----------
@@ -7610,11 +6803,13 @@ static void pgstat_recv_recoveryconflict(const PgStat_MsgRecoveryConflict* msg)
  */
 static void pgstat_recv_deadlock(const PgStat_MsgDeadlock* msg)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
-
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, true);
+    LWLock* db_lock = NULL;
+    PgStatSharedDBEntry* dbentry = pgstat_get_db_entry(msg->m_databaseid, true, LW_EXCLUSIVE, &db_lock);
+    if (dbentry == NULL)
+        return;
 
     dbentry->n_deadlocks++;
+    pgstat_shared_release_lock(db_lock);
 }
 
 /* ----------
@@ -7625,12 +6820,14 @@ static void pgstat_recv_deadlock(const PgStat_MsgDeadlock* msg)
  */
 static void pgstat_recv_tempfile(PgStat_MsgTempFile* msg, int len)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
-
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, true);
+    LWLock* db_lock = NULL;
+    PgStatSharedDBEntry* dbentry = pgstat_get_db_entry(msg->m_databaseid, true, LW_EXCLUSIVE, &db_lock);
+    if (dbentry == NULL)
+        return;
 
     dbentry->n_temp_bytes += msg->m_filesize;
     dbentry->n_temp_files += 1;
+    pgstat_shared_release_lock(db_lock);
 }
 
 void pgstate_update_percentile_responsetime(void)
@@ -7799,9 +6996,10 @@ static void prepare_calculate_single(const SqlRTInfoArray* sql_rt_info, int* cou
  */
 static void pgstat_recv_memReserved(const PgStat_MsgMemReserved* msg)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
-
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, true);
+    LWLock* db_lock = NULL;
+    PgStatSharedDBEntry* dbentry = pgstat_get_db_entry(msg->m_databaseid, true, LW_EXCLUSIVE, &db_lock);
+    if (dbentry == NULL)
+        return;
 
     if (msg->m_reserve_or_release == 1)
         dbentry->n_mem_mbytes_reserved += msg->m_memMbytes;
@@ -7810,6 +7008,8 @@ static void pgstat_recv_memReserved(const PgStat_MsgMemReserved* msg)
 
     if (dbentry->n_mem_mbytes_reserved < 0)
         dbentry->n_mem_mbytes_reserved = 0;
+
+    pgstat_shared_release_lock(db_lock);
 }
 
 /* ----------
@@ -7821,18 +7021,23 @@ static void pgstat_recv_memReserved(const PgStat_MsgMemReserved* msg)
 static void pgstat_recv_funcstat(PgStat_MsgFuncstat* msg, int len)
 {
     PgStat_FunctionEntry* funcmsg = &(msg->m_entry[0]);
-    PgStat_StatDBEntry* dbentry = NULL;
-    PgStat_StatFuncEntry* funcentry = NULL;
     int i;
-    bool found = false;
-
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, true);
+    LWLock* db_lock = NULL;
+    (void)pgstat_get_db_entry(msg->m_databaseid, true, LW_EXCLUSIVE, &db_lock);
+    pgstat_shared_release_lock(db_lock);
 
     /*
      * Process all function entries in the message.
      */
     for (i = 0; i < msg->m_nentries; i++, funcmsg++) {
-        funcentry = (PgStat_StatFuncEntry*)hash_search(dbentry->functions, (void*)&(funcmsg->f_id), HASH_ENTER, &found);
+        LWLock* func_lock = NULL;
+        bool found = false;
+        PgStatSharedFuncEntry* funcentry =
+            pgstat_shared_get_func_entry(msg->m_databaseid, funcmsg->f_id, true, LW_EXCLUSIVE, &func_lock, &found);
+        if (funcentry == NULL) {
+            pgstat_shared_release_lock(func_lock);
+            continue;
+        }
 
         if (!found) {
             /*
@@ -7850,6 +7055,8 @@ static void pgstat_recv_funcstat(PgStat_MsgFuncstat* msg, int len)
             funcentry->f_total_time += funcmsg->f_total_time;
             funcentry->f_self_time += funcmsg->f_self_time;
         }
+
+        pgstat_shared_release_lock(func_lock);
     }
 }
 
@@ -7861,23 +7068,14 @@ static void pgstat_recv_funcstat(PgStat_MsgFuncstat* msg, int len)
  */
 static void pgstat_recv_funcpurge(PgStat_MsgFuncpurge* msg, int len)
 {
-    PgStat_StatDBEntry* dbentry = NULL;
     int i;
-
-    dbentry = pgstat_get_db_entry(msg->m_databaseid, false);
-
-    /*
-     * No need to purge if we don't even know the database.
-     */
-    if ((dbentry == NULL) || (dbentry->functions == NULL))
-        return;
 
     /*
      * Process all function entries in the message.
      */
     for (i = 0; i < msg->m_nentries; i++) {
-        /* Remove from hashtable if present; we don't care if it's not. */
-        (void)hash_search(dbentry->functions, (void*)&(msg->m_functionid[i]), HASH_REMOVE, NULL);
+        /* Remove from shared hash if present; we don't care if it's not. */
+        (void)pgstat_shared_remove_func_entry(msg->m_databaseid, msg->m_functionid[i]);
     }
 }
 
@@ -10426,4 +9624,7 @@ TableDistributionInfo* GetRemoteGsLWLockStatus(TupleDesc tuple_desc)
 
     return distribuion_info;
 }
+
+
+
 

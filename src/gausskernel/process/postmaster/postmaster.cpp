@@ -4612,7 +4612,8 @@ static int ServerLoop(void)
         }
 
         /* If we have lost the stats collector, try to start a new one */
-        if (g_instance.pid_cxt.PgStatPID == 0 && (pmState == PM_RUN || pmState == PM_HOT_STANDBY) && !dummyStandbyMode)
+        if (pgstat_collector_enabled() && g_instance.pid_cxt.PgStatPID == 0 &&
+            (pmState == PM_RUN || pmState == PM_HOT_STANDBY) && !dummyStandbyMode)
             g_instance.pid_cxt.PgStatPID = pgstat_start();
 
 #ifndef ENABLE_LITE_MODE
@@ -7617,7 +7618,7 @@ static void reaper(SIGNAL_ARGS)
                 ArchObsThreadManage();
             }
 
-            if (g_instance.pid_cxt.PgStatPID == 0 && !dummyStandbyMode)
+            if (pgstat_collector_enabled() && g_instance.pid_cxt.PgStatPID == 0 && !dummyStandbyMode)
                 g_instance.pid_cxt.PgStatPID = pgstat_start();
 
 #ifndef ENABLE_LITE_MODE
@@ -8150,7 +8151,7 @@ static void reaper(SIGNAL_ARGS)
             if (!EXIT_STATUS_0(exitstatus))
                 LogChildExit(LOG, _("statistics collector process"), pid, exitstatus);
 
-            if (pmState == PM_RUN || pmState == PM_HOT_STANDBY)
+            if (pgstat_collector_enabled() && (pmState == PM_RUN || pmState == PM_HOT_STANDBY))
                 g_instance.pid_cxt.PgStatPID = pgstat_start();
             continue;
         }
@@ -10370,7 +10371,7 @@ static void handle_begin_hot_standby()
          * Likewise, start other special children as needed.
          */
         Assert(g_instance.pid_cxt.PgStatPID == 0);
-        if (!dummyStandbyMode)
+        if (pgstat_collector_enabled() && !dummyStandbyMode)
             g_instance.pid_cxt.PgStatPID = pgstat_start();
         PMUpdateDBState(NORMAL_STATE, get_cur_mode(), get_cur_repl_num());
         ereport(LOG,

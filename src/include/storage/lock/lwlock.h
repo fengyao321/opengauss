@@ -247,6 +247,7 @@ enum BuiltinTrancheIds
     LWTRANCHE_GWC_MAPPING,
     LWTRANCHE_NORMALIZED_SQL,
     LWTRANCHE_START_BLOCK_MAPPING,
+    LWTRANCHE_PGSTAT_HASH,
     LWTRANCHE_BUFFER_IO_IN_PROGRESS,
     LWTRANCHE_BUFFER_CONTENT,
     LWTRANCHE_UNDO_ZONE,
@@ -492,3 +493,4 @@ extern int LWLockTranchesAllocated;
 //typedef LWLock *LWLockId; // Uncomment it later. Now should disable to find bugs
 
 #endif   /* LWLOCK_H */
+
