@@ -43,6 +43,16 @@ extern THR_LOCAL ThreadInstrumentation* runtimeThreadInstr;
         StreamInstrumentation::TrackEndTime(nodeid, id); \
     } while (0);
 
+#ifdef ENABLE_NEON
+/* Prefeth statistics */
+typedef struct {
+    int64 hits;
+    int64 misses;
+    int64 expired;
+    int64 duplicates;
+} PrefetchInfo;
+#endif
+
 typedef struct BufferUsage {
     long shared_blks_hit;      /* # of shared buffer hits */
     long shared_blks_read;     /* # of shared disk blocks read */
@@ -56,6 +66,9 @@ typedef struct BufferUsage {
     long temp_blks_written;    /* # of temp blocks written */
     instr_time blk_read_time;  /* time spent reading */
     instr_time blk_write_time; /* time spent writing */
+#ifdef ENABLE_NEON
+    PrefetchInfo prefetch; /* prefetch statistics */
+#endif
 } BufferUsage;
 
 typedef struct CPUUsage {
@@ -1092,4 +1105,8 @@ extern void setOperatorInfo(OperatorInfo* operatorMemory, Instrumentation* Instr
     OperatorPlanInfo* opt_plan_info = NULL);
 extern int64 e_rows_convert_to_int64(double plan_rows);
 extern void releaseOperatorInfoEC(OperatorInfo* sessionMemory);
+#ifdef ENABLE_NEON
+extern PGDLLIMPORT BufferUsage pgBufferUsage;
+#endif
+
 #endif /* INSTRUMENT_H */
