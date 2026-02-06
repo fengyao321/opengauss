@@ -99,9 +99,9 @@ select CONSTRAINT_CATALOG,CONSTRAINT_SCHEMA,CONSTRAINT_NAME,CHECK_CLAUSE FROM IN
  test_b1            | coverage          | 4994_13141_1_not_null | coverage_id IS NOT NULL
 (1 row)
 
-select COLLATION_NAME,CHARACTER_SET_NAME,ID,IS_DEFAULT,IS_COMPILED,SORTLEN,PAD_ATTRIBUTE from INFORMATION_SCHEMA.COLLATIONS order by 1,2,3,4 limit 1;
- collation_name | character_set_name |  id   | is_default | is_compiled | sortlen | pad_attribute 
-----------------+--------------------+-------+------------+-------------+---------+---------------
+select COLLATION_NAME,CHARACTER_SET_NAME,IS_DEFAULT,IS_COMPILED,SORTLEN,PAD_ATTRIBUTE from INFORMATION_SCHEMA.COLLATIONS order by 1,2,3,4 limit 1;
+ collation_name | character_set_name | is_default | is_compiled | sortlen | pad_attribute 
+----------------+--------------------+------------+-------------+---------+---------------
 --?.*
 (1 row)
 
