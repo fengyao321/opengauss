@@ -94,6 +94,8 @@
 ./share/postgresql/extension/hstore--1.0--1.1.sql
 ./share/postgresql/extension/log_fdw--1.0.sql
 ./share/postgresql/extension/log_fdw.control
+./share/postgresql/extension/ogai--1.0.sql
+./share/postgresql/extension/ogai.control
 ./share/postgresql/extension/mot_fdw--1.0.sql
 ./share/postgresql/extension/mot_fdw.control
 ./share/postgresql/extension/postgres_fdw--1.0.sql

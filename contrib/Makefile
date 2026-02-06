@@ -71,9 +71,10 @@ SUBDIRS = \
 		gms_assert   \
 		gms_compress	\
 		gms_tcp         \
-		jieba_tokenizer   \
-		shark \
-		rack_dev
+	jieba_tokenizer   \
+	shark \
+	rack_dev	\
+	ogai
 
 ifeq ($(with_openssl),yes)
 SUBDIRS += sslinfo

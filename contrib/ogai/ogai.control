@@ -1,0 +1,6 @@
+# ogai extension
+comment = 'OGAI - AI vectorization and search framework for openGauss'
+default_version = '1.0'
+module_pathname = '$libdir/ogai'
+relocatable = false
+schema = ogai

@@ -125,6 +125,8 @@
 ./share/postgresql/extension/dblink--1.0.sql
 ./share/postgresql/extension/dblink--unpackaged--1.0.sql
 ./share/postgresql/extension/dblink.control
+./share/postgresql/extension/ogai--1.0.sql
+./share/postgresql/extension/ogai.control
 ./share/postgresql/timezone/GB-Eire
 ./share/postgresql/timezone/Turkey
 ./share/postgresql/timezone/Kwajalein

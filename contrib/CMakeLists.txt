@@ -43,6 +43,7 @@ set(CMAKE_MODULE_PATH
     ${CMAKE_CURRENT_SOURCE_DIR}/shark
     ${CMAKE_CURRENT_SOURCE_DIR}/age
     ${CMAKE_CURRENT_SOURCE_DIR}/rack_dev
+    ${CMAKE_CURRENT_SOURCE_DIR}/ogai
 )
 
 if(NOT "${ENABLE_LITE_MODE}" STREQUAL "ON")
@@ -109,3 +110,4 @@ add_subdirectory(gms_i18n)
 add_subdirectory(gms_assert)
 add_subdirectory(shark)
 add_subdirectory(rack_dev)
+add_subdirectory(ogai)
