@@ -5468,6 +5468,7 @@ static void CheckCleanCodeWarningInfo(const int baseNum, const int currentNum,
 }
 
 #define BASE_GLOBAL_VARIABLE_NUM 244
+
 #define CMAKE_CMD_BUF_LEN 1000
 
 static void check_global_variables()

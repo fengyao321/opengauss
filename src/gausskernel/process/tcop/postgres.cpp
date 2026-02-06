@@ -11330,6 +11330,9 @@ void audit_processlogout_unified()
  */
 static void ForceModifyInitialPwd(const char* query_string, List* parsetree_list)
 {
+#ifdef ENABLE_NEON
+    return;
+#endif
     Oid current_user = GetUserId();
 
     if (current_user != BOOTSTRAP_SUPERUSERID || parsetree_list == NIL) {

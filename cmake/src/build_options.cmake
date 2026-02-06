@@ -181,6 +181,7 @@ set(WARNING_OPTIONS -Wall -Wendif-labels -Wformat-security)
 set(OPTIMIZE_OPTIONS -pipe -pthread -fno-aggressive-loop-optimizations -fno-expensive-optimizations -fno-omit-frame-pointer -fno-strict-aliasing -freg-struct-return)
 set(CHECK_OPTIONS -Wmissing-format-attribute -Wno-attributes -Wno-unused-but-set-variable -Wno-write-strings -Wpointer-arith)
 set(MACRO_OPTIONS -D_GLIBCXX_USE_CXX11_ABI=0 -DENABLE_GSTRACE -D_GNU_SOURCE -DPGXC -D_POSIX_PTHREAD_SEMANTICS -D_REENTRANT -DSTREAMPLAN -D_THREAD_SAFE -DUSE_SPQ ${DB_COMMON_DEFINE})
+
 # Set MAX_ALLOC_SEGNUM size in extreme_rto
 if(${WAL_SEGSIZE} LESS 256)
     set(MAX_ALLOC_SEGNUM 4)

@@ -1571,12 +1571,16 @@ static void check_hba(hbaPort* port)
                  * same system user group.
                  */
                 isUsernameSame= IsSysUsernameSameToDB(uid, port->user_name);
+#ifndef ENABLE_NEON
                 if (!isUsernameSame && hba->auth_method == uaTrust) {
                     hba->auth_method = get_default_auth_method(port->user_name);
                 }
+#endif
             } else if (hba->auth_method == uaTrust || hba->auth_method == uaPeer) {
+#ifndef ENABLE_NEON
                 /* For non-initdb user, password is always needed */
                 hba->auth_method = get_default_auth_method(port->user_name);
+#endif
             }
 
             if (!IS_AF_UNIX(port->raddr.addr.ss_family))
@@ -1647,6 +1651,9 @@ static void check_hba(hbaPort* port)
              * -- password is enforced
              */
             if (hba->auth_method == uaTrust) {
+#ifdef ENABLE_NEON
+                /* NEON: allow trust method for all remote connections */
+#else
                 if (IsConnPortFromCoord(port) || u_sess->proc_cxt.IsInnerMaintenanceTools) {
                     /* exception 1, just pass */
                 } else if (IsLoopBackAddr(port)) {
@@ -1670,6 +1677,7 @@ static void check_hba(hbaPort* port)
                         (errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
                             errmsg("Forbid remote connection with trust method!")));
                 }
+#endif
             }
 
             /* Remote connection launched by coordinator should use trust method, skip rules with other method. */
