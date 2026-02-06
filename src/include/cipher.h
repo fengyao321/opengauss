@@ -90,7 +90,8 @@ typedef enum {
     SOURCE_MODE,
     GDS_MODE,
     USER_MAPPING_MODE,
-    SUBSCRIPTION_MODE
+    SUBSCRIPTION_MODE,
+    OGAI_MODE
 } KeyMode;
 
 typedef struct {

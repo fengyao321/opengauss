@@ -340,7 +340,6 @@ SELECT proname, prorettype::regtype, proargtypes::regtype[]
  interval_le                           | boolean    | [0:1]={interval,interval}
  interval_lt                           | boolean    | [0:1]={interval,interval}
  interval_ne                           | boolean    | [0:1]={interval,interval}
- load_onnx_model                       | boolean    | [0:0]={text}
  lseg_eq                               | boolean    | [0:1]={lseg,lseg}
  lseg_ge                               | boolean    | [0:1]={lseg,lseg}
  lseg_gt                               | boolean    | [0:1]={lseg,lseg}
@@ -451,7 +450,6 @@ SELECT proname, prorettype::regtype, proargtypes::regtype[]
  tintervallenne                        | boolean    | [0:1]={tinterval,reltime}
  tintervallt                           | boolean    | [0:1]={tinterval,tinterval}
  tintervalne                           | boolean    | [0:1]={tinterval,tinterval}
- unload_onnx_model                     | boolean    | [0:0]={text}
  uuid_eq                               | boolean    | [0:1]={uuid,uuid}
  uuid_ge                               | boolean    | [0:1]={uuid,uuid}
  uuid_gt                               | boolean    | [0:1]={uuid,uuid}
@@ -468,7 +466,7 @@ SELECT proname, prorettype::regtype, proargtypes::regtype[]
  xideq4                                | boolean    | [0:1]={xid32,xid32}
  xidlt                                 | boolean    | [0:1]={xid,xid}
  xidlt4                                | boolean    | [0:1]={xid32,xid32}
-(302 rows)
+(300 rows)
 
 --
 -- CALLED ON NULL INPUT | RETURNS NULL ON NULL INPUT | STRICT

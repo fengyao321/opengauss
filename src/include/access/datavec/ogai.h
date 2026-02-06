@@ -36,4 +36,6 @@ Datum ogai_chunk(PG_FUNCTION_ARGS);
 Datum load_onnx_model(PG_FUNCTION_ARGS);
 Datum unload_onnx_model(PG_FUNCTION_ARGS);
 Datum ogai_notify(PG_FUNCTION_ARGS);
+Datum ogai_encrypt_api_key(PG_FUNCTION_ARGS);
+Datum ogai_decrypt_api_key(PG_FUNCTION_ARGS);
 #endif // OGAI_H

@@ -25,6 +25,8 @@
 #include "funcapi.h"
 #include "utils/memutils.h"
 #include "utils/elog.h"
+#include "utils/builtins.h"
+#include "cipher.h"
 #include "access/datavec/ogai_model_framework.h"
 #include "access/datavec/ogai_model_manager.h"
 #include "access/datavec/ogai_textsplitter_wrapper.h"
@@ -350,4 +352,83 @@ Datum unload_onnx_model(PG_FUNCTION_ARGS)
     PG_END_TRY();
 
     PG_RETURN_BOOL(true);
+}
+
+/*
+ * ogai_encrypt_api_key - Encrypt API key for secure storage
+ *
+ * This function encrypts an API key using OGAI_MODE encryption.
+ * The encrypted string can be safely stored in ogai.model_sources table.
+ *
+ * Usage: SELECT ogai_encrypt_api_key('your-api-key');
+ */
+Datum ogai_encrypt_api_key(PG_FUNCTION_ARGS)
+{
+    char* plainApiKey = NULL;
+    char* encryptedApiKey = NULL;
+
+    if (PG_ARGISNULL(0)) {
+        PG_RETURN_NULL();
+    }
+
+    plainApiKey = text_to_cstring(PG_GETARG_TEXT_PP(0));
+    if (plainApiKey == NULL || strlen(plainApiKey) == 0) {
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("api_key cannot be empty")));
+    }
+
+    /* Encrypt using OGAI_MODE */
+    encryptedApiKey = encryptECString(plainApiKey, OGAI_MODE);
+    if (encryptedApiKey == NULL) {
+        ereport(ERROR,
+                (errcode(ERRCODE_EXTERNAL_ROUTINE_INVOCATION_EXCEPTION),
+                 errmsg("Failed to encrypt api_key")));
+    }
+
+    /* Clear the plain text for security */
+    errno_t rc = memset_s(plainApiKey, strlen(plainApiKey), 0, strlen(plainApiKey));
+    securec_check(rc, "\0", "\0");
+
+    PG_RETURN_TEXT_P(cstring_to_text(encryptedApiKey));
+}
+
+/*
+ * ogai_decrypt_api_key - Decrypt API key for viewing
+ *
+ * This function decrypts an encrypted API key using OGAI_MODE decryption.
+ * Use this to verify or view the actual API key stored in ogai.model_sources table.
+ *
+ * Usage: SELECT ogai_decrypt_api_key(api_key) FROM ogai.model_sources WHERE model_key = 'xxx';
+ *
+ * Note: If the input is not encrypted (plain text), it will be returned as-is.
+ */
+Datum ogai_decrypt_api_key(PG_FUNCTION_ARGS)
+{
+    char* inputApiKey = NULL;
+    char* decryptedApiKey = NULL;
+
+    if (PG_ARGISNULL(0)) {
+        PG_RETURN_NULL();
+    }
+
+    inputApiKey = text_to_cstring(PG_GETARG_TEXT_PP(0));
+    if (inputApiKey == NULL || strlen(inputApiKey) == 0) {
+        PG_RETURN_NULL();
+    }
+
+    /* Check if the api_key is encrypted */
+    if (IsECEncryptedString(inputApiKey)) {
+        /* Decrypt using OGAI_MODE */
+        if (!decryptECString(inputApiKey, &decryptedApiKey, OGAI_MODE)) {
+            ereport(ERROR,
+                    (errcode(ERRCODE_EXTERNAL_ROUTINE_INVOCATION_EXCEPTION),
+                     errmsg("Failed to decrypt api_key"),
+                     errhint("Make sure the ogai.key.cipher file exists and is valid.")));
+        }
+        PG_RETURN_TEXT_P(cstring_to_text(decryptedApiKey));
+    }
+
+    /* Not encrypted, return as-is */
+    PG_RETURN_TEXT_P(cstring_to_text(inputApiKey));
 }
