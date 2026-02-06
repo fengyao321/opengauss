@@ -208,10 +208,6 @@ static char* snapshot_names[] = { "schema", "create", "prepare", "sample", "publ
 static char* snapshot_files[SNAPSHOT_LEN];
 static bool enableDCF = false;
 #endif
-/* ogai (openGauss AI) vectorization and search related SQL files */
-static char* g_ogaiNames[] = { "ogai_tables", "ogai_functions" };
-#define OGAI_LEN (sizeof(g_ogaiNames) / sizeof(g_ogaiNames[0]))
-static char* g_ogaiFiles[OGAI_LEN];
 static bool made_new_pgdata = false;
 static bool found_existing_pgdata = false;
 static bool made_new_xlogdir = false;
@@ -2286,42 +2282,6 @@ static void setup_snapshots(void)
     check_ok();
 }
 #endif
-
-/*
- * set up ogai (openGauss AI vectorization and search)
- */
-static void SetupOgai(void)
-{
-    PG_CMD_DECL;
-    char** line;
-    char** currentSetup;
-    int nRet = 0;
-
-    fputs(_("creating ogai catalog ... "), stdout);
-    (void)fflush(stdout);
-
-    for (unsigned i = 0; i < OGAI_LEN; i++) {
-        currentSetup = readfile(g_ogaiFiles[i]);
-
-        nRet = snprintf_s(
-            cmd, sizeof(cmd), sizeof(cmd) - 1, "\"%s\" %s -j template1 >%s 2>&1",
-            backend_exec, backend_options, DEVNULL);
-        securec_check_ss_c(nRet, "\0", "\0");
-
-        PG_CMD_OPEN;
-
-        for (line = currentSetup; *line != NULL; line++) {
-            PG_CMD_PUTS(*line);
-            FREE_AND_RESET(*line);
-        }
-
-        PG_CMD_CLOSE;
-
-        FREE_AND_RESET(currentSetup);
-    }
-
-    check_ok();
-}
 
 /* * update system tables as we needed */
 static void setup_update(void)
@@ -4581,13 +4541,6 @@ int main(int argc, char* argv[])
     }
 #endif
 
-    for (unsigned idx = 0; idx < OGAI_LEN; idx++) {
-        char buf[128];
-        nRet = sprintf_s(buf, sizeof(buf), "ogai/%s.sql", g_ogaiNames[idx]);
-        securec_check_ss_c(nRet, "\0", "\0");
-        set_input(&g_ogaiFiles[idx], buf);
-    }
-
     set_info_version();
 
     if (show_setting || debug) {
@@ -4644,10 +4597,6 @@ int main(int argc, char* argv[])
         check_input(snapshot_files[i]);
     }
 #endif
-
-    for (unsigned idx = 0; idx < OGAI_LEN; idx++) {
-        check_input(g_ogaiFiles[idx]);
-    }
 
     setlocales();
 
@@ -5158,8 +5107,6 @@ int main(int argc, char* argv[])
 #ifndef ENABLE_MULTIPLE_NODES
         setup_snapshots();
 #endif
-
-        SetupOgai();
 
         vacuum_db();
 
