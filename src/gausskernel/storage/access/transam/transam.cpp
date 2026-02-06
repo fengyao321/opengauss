@@ -36,6 +36,10 @@
 #include "ddes/dms/ss_transaction.h"
 #include "ddes/dms/ss_common_attr.h"
 
+#ifdef ENABLE_NEON
+#include "access/xlog.h"
+#endif /* ENABLE_NEON */
+
 #ifdef PGXC
 #include "utils/builtins.h"
 #endif
@@ -282,11 +286,26 @@ static CLogXidStatus TransactionLogFetch(TransactionId transactionId)
     CLogXidStatus xidstatus;
     XLogRecPtr xidlsn;
 
+#ifdef ENABLE_NEON
+    /*
+     * NEON REPLICA MODE: Check if we should bypass the transaction status cache.
+     * In Neon replica mode, we cannot trust cached transaction status because
+     * the primary may have committed new transactions that we don't know about.
+     */
+    volatile XLogCtlData *xlogctl = t_thrd.shemem_ptr_cxt.XLogCtl;
+    bool neonReplicaMode = (xlogctl != NULL && xlogctl->NeonReplicaMode);
+#endif /* ENABLE_NEON */
+    
     /*
      * Before going to the commit log manager, check our single item cache to
      * see if we didn't just check the transaction status a moment ago.
+     * Skip this cache in Neon replica mode to always get fresh status.
      */
+#ifdef ENABLE_NEON
+    if (!neonReplicaMode && TransactionIdEquals(transactionId, t_thrd.xact_cxt.cachedFetchXid)) {
+#else
     if (TransactionIdEquals(transactionId, t_thrd.xact_cxt.cachedFetchXid)) {
+#endif /* ENABLE_NEON */
         t_thrd.xact_cxt.latestFetchXid = t_thrd.xact_cxt.cachedFetchXid;
         t_thrd.xact_cxt.latestFetchXidStatus = t_thrd.xact_cxt.cachedFetchXidStatus;
         return t_thrd.xact_cxt.cachedFetchXidStatus;
@@ -311,8 +330,13 @@ static CLogXidStatus TransactionLogFetch(TransactionId transactionId)
     /*
      * Cache it, but DO NOT cache status for unfinished or sub-committed
      * transactions!  We only cache status that is guaranteed not to change.
+     * Skip caching in Neon replica mode - we need fresh status on each query.
      */
+#ifdef ENABLE_NEON
+    if (!neonReplicaMode && xidstatus != CLOG_XID_STATUS_IN_PROGRESS && xidstatus != CLOG_XID_STATUS_SUB_COMMITTED) {
+#else
     if (xidstatus != CLOG_XID_STATUS_IN_PROGRESS && xidstatus != CLOG_XID_STATUS_SUB_COMMITTED) {
+#endif /* ENABLE_NEON */
         t_thrd.xact_cxt.cachedFetchXid = transactionId;
         t_thrd.xact_cxt.cachedFetchXidStatus = xidstatus;
         t_thrd.xact_cxt.cachedCommitLSN = xidlsn;

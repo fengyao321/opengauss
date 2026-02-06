@@ -327,6 +327,10 @@ struct PGPROC {
 
 /* NOTE: "typedef struct PGPROC PGPROC" appears in storage/lock/lock.h. */
 
+#ifdef ENABLE_NEON
+extern PGDLLIMPORT PGPROC *MyProc;
+#endif
+
 /* the offset of the last padding if exists*/
 #define PGXACT_PAD_OFFSET 55
 

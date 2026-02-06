@@ -42,6 +42,13 @@ typedef struct xl_invalid_page{
     XLogPhyBlock pblk;
 }xl_invalid_page;
 
+/*
+ * Returns true if we shouldn't do REDO on that block in record indicated by
+ * block_id; false otherwise.
+ */
+#ifdef ENABLE_NEON
+    extern bool    (*redo_read_buffer_filter) (XLogReaderState *record, uint8 block_id);
+#endif
 
 extern bool XLogHaveInvalidPages(void);
 extern void* XLogGetInvalidPages();

@@ -496,6 +496,9 @@ typedef struct XLogCtlData {
     /* Protected by info_lck: */
     XLogwrtRqst LogwrtRqst;
     XLogRecPtr RedoRecPtr; /* a recent copy of Insert->RedoRecPtr */
+#ifdef ENABLE_NEON
+    XLogRecPtr RedoStartLSN; /* neon: copy of startup's RedoStartLSN for walproposer's use */
+#endif
     TransactionId ckptXid;
     XLogRecPtr asyncXactLSN;          /* LSN of newest async commit/abort */
     XLogRecPtr replicationSlotMinLSN; /* oldest LSN needed by any slot */
@@ -561,7 +564,14 @@ typedef struct XLogCtlData {
      * recovery.  Protected by info_lck.
      */
     bool SharedHotStandbyActive;
-
+#ifdef ENABLE_NEON
+    /*
+     * NeonReplicaMode indicates if this is a Neon replica node.
+     * In Neon replica mode, buffer cache hits must be bypassed to get
+     * fresh pages from pageserver. Protected by info_lck.
+     */
+    bool NeonReplicaMode;
+#endif
     /*
      * WalWriterSleeping indicates whether the WAL writer is currently in
      * low-power mode (and hence should be nudged if an async commit occurs).
@@ -721,6 +731,13 @@ extern XLogSegNo GetNewestXLOGSegNo(const char* workingPath);
 #define XLOG_CONTAIN_CSN 0x80000000
 #define XLOG_MASK_TERM 0x7FFFFFFF
 
+#ifdef ENABLE_NEON
+/* Neon-specific recovery support */
+extern bool NeonRecoveryRequested;
+extern XLogRecPtr neonLastRec;
+extern bool neonWriteOk;
+#endif
+
 extern XLogRecPtr XLogInsertRecord(struct XLogRecData* rdata, XLogRecPtr fpw_lsn, bool need_flush);
 extern void XLogWaitFlush(XLogRecPtr recptr);
 extern void XLogWaitBufferInit(XLogRecPtr recptr);
@@ -746,12 +763,19 @@ extern const char *xlog_type_name(uint8 subtype);
 
 extern void issue_xlog_fsync(int fd, XLogSegNo segno);
 
+#ifdef ENABLE_NEON
+extern XLogRecPtr GetRedoStartLsn(void);
+#endif
+
 extern bool RecoveryInProgress(void);
 extern bool HotStandbyActive(void);
 extern bool HotStandbyActiveInReplay(void);
 extern bool XLogInsertAllowed(void);
 extern bool SSModifySharedLunAllowed(void);
 extern void GetXLogReceiptTime(TimestampTz* rtime, bool* fromStream);
+#ifdef ENABLE_NEON
+extern void XLogWaitForReplayOf(XLogRecPtr redoEndRecPtr);
+#endif
 extern XLogRecPtr GetXLogReplayRecPtr(TimeLineID* targetTLI, XLogRecPtr* ReplayReadPtr = NULL);
 extern void SetXLogReplayRecPtr(XLogRecPtr readRecPtr, XLogRecPtr endRecPtr);
 extern void DumpXlogCtl();
@@ -1025,4 +1049,28 @@ extern void InitUndoCountThreshold();
 /* for recovery */
 void SSWriteInstanceControlFile(int fd, const char* buffer, int id, off_t size);
 extern XlogKeeper* generate_xlog_keepers(void);
+
+#ifdef ENABLE_NEON
+/* Hooks for LwLSN */
+typedef XLogRecPtr (*set_lwlsn_block_hook_type)(XLogRecPtr lsn, RelFileNode relfilenode, ForkNumber forknum,
+    BlockNumber blkno);
+typedef XLogRecPtr (*set_lwlsn_block_range_hook_type)(XLogRecPtr lsn, RelFileNode rnode, ForkNumber forknum,
+    BlockNumber from, BlockNumber n_blocks);
+typedef XLogRecPtr (*set_lwlsn_block_v_hook_type)(const XLogRecPtr *lsns, RelFileNode relfilenode, ForkNumber forknum,
+    BlockNumber blockno, int nblocks);
+typedef XLogRecPtr (*set_lwlsn_db_hook_type)(XLogRecPtr lsn);
+typedef XLogRecPtr (*set_lwlsn_relation_hook_type)(XLogRecPtr lsn, RelFileNode relfilenode, ForkNumber forknum);
+typedef void (*set_max_lwlsn_hook_type) (XLogRecPtr lsn);
+
+extern set_lwlsn_block_hook_type set_lwlsn_block_hook;
+extern set_lwlsn_block_range_hook_type set_lwlsn_block_range_hook;
+extern set_lwlsn_block_v_hook_type set_lwlsn_block_v_hook;
+extern set_lwlsn_db_hook_type set_lwlsn_db_hook;
+extern set_lwlsn_relation_hook_type set_lwlsn_relation_hook;
+extern set_max_lwlsn_hook_type set_max_lwlsn_hook;
+
+/* NEON: Hook to allow the neon extension to restore running-xacts from CLOG at replica startup */
+typedef bool (*restore_running_xacts_callback_t) (CheckPoint *checkpoint, TransactionId **xids, int *nxids);
+extern restore_running_xacts_callback_t restore_running_xacts_callback;
+#endif
 #endif /* XLOG_H */

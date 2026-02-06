@@ -279,6 +279,19 @@ TransactionId OldestXidAfterRecovery;
  */
 THR_LOCAL ControlFileData *ControlFile = NULL;
 
+#ifdef ENABLE_NEON
+/* NEON: Hook to allow the neon extension to restore running-xacts from CLOG at replica startup */
+restore_running_xacts_callback_t restore_running_xacts_callback;
+
+/* NEON: Hook Definitions that enabled the moving of LastWrittenLSN Cache to the neon extension*/
+set_lwlsn_block_hook_type set_lwlsn_block_hook = NULL;
+set_lwlsn_block_range_hook_type set_lwlsn_block_range_hook = NULL;
+set_lwlsn_block_v_hook_type set_lwlsn_block_v_hook = NULL;
+set_lwlsn_db_hook_type set_lwlsn_db_hook = NULL;
+set_lwlsn_relation_hook_type set_lwlsn_relation_hook = NULL;
+set_max_lwlsn_hook_type set_max_lwlsn_hook = NULL;
+#endif /* ENABLE_NEON */
+
 static void remove_xlogtemp_files(void);
 static bool validate_parse_delay_ddl_file(DelayDDLRange *delayRange);
 static bool write_delay_ddl_file(const DelayDDLRange &delayRange, bool onErrDelete);
@@ -345,6 +358,15 @@ typedef struct XLogSwitchInfo {
 
 volatile bool IsPendingXactsRecoveryDone = false;
 
+#ifdef ENABLE_NEON
+/* Neon-specific recovery support */
+bool NeonRecoveryRequested = false;
+bool NeonReplicaMode = false;  /* Set to true for Neon hot standby replicas */
+XLogRecPtr neonLastRec = InvalidXLogRecPtr;
+bool neonWriteOk = false;
+
+static void readNeonSignalFile(void);
+#endif
 static void XLogFlushCore(XLogRecPtr writeRqstPtr);
 static void XLogSelfFlush(void);
 static void XLogSelfFlushWithoutStatus(int numHitsOnStartPage, XLogRecPtr currPos, int currLRC);
@@ -6854,6 +6876,60 @@ void XLOGShmemInit(void)
     }
 }
 
+#ifdef ENABLE_NEON
+/*
+ * Wait for recovery to complete replaying all WAL up to and including
+ * redoEndRecPtr.
+ *
+ * This gets woken up for every WAL record replayed, so make sure you're not
+ * trying to wait an LSN that is too far in the future.
+ */
+void
+XLogWaitForReplayOf(XLogRecPtr redoEndRecPtr)
+{
+    static XLogRecPtr replayRecPtr = 0;
+
+    if (!RecoveryInProgress())
+        return;
+
+    /*
+     * Check the backend-local variable first, we may be able to skip accessing
+     * shared memory (which requires locking)
+     */
+    if (redoEndRecPtr <= replayRecPtr)
+        return;
+
+    replayRecPtr = GetXLogReplayRecPtr(NULL);
+
+    /*
+     * Check again if we're going to need to wait, now that we've updated
+     * the local cached variable.
+     */
+    if (redoEndRecPtr <= replayRecPtr)
+        return;
+
+    /*
+     * We need to wait for the variable, so prepare for that.
+     *
+     * Note: This wakes up every time a WAL record is replayed, so this can
+     * be expensive.
+     */
+
+    while (redoEndRecPtr > replayRecPtr)
+    {
+        bool timeout;
+
+        timeout = false;
+        if (timeout)
+            ereport(LOG,
+                    (errmsg("Waiting for recovery to catch up to %X/%X",
+                            LSN_FORMAT_ARGS(redoEndRecPtr))));
+        else
+            replayRecPtr = GetXLogReplayRecPtr(NULL);
+    }
+}
+#endif
+
 static XLogSegNo GetOldestXLOGSegNo(const char *workingPath)
 {
     DIR *xlogDir = NULL;
@@ -7236,6 +7312,92 @@ static char *str_time(pg_time_t tnow)
 
     return t_thrd.xlog_cxt.buf;
 }
+
+#ifdef ENABLE_NEON
+/*
+ * Read neon.signal file to check if Neon recovery is requested.
+ * 
+ * If the file exists, set NeonRecoveryRequested to true and parse
+ * the previous LSN value, which is used to skip checkpoint record
+ * reading and start directly from the basebackup LSN.
+ */
+#define NEON_SIGNAL_FILE "neon.signal"
+
+static void readNeonSignalFile(void)
+{
+    int fd;
+
+    fd = BasicOpenFile(NEON_SIGNAL_FILE, O_RDONLY | PG_BINARY, 0);
+    if (fd >= 0) {
+        struct stat statbuf;
+        char *content = NULL;
+        char prev_lsn_str[20];
+
+        /* Slurp the file into a string */
+        if (stat(NEON_SIGNAL_FILE, &statbuf) != 0) {
+            ereport(ERROR,
+                    (errcode_for_file_access(),
+                     errmsg("could not stat file \"%s\": %m",
+                            NEON_SIGNAL_FILE)));
+        }
+        content = (char *)palloc(statbuf.st_size + 1);
+        if (read(fd, content, statbuf.st_size) != statbuf.st_size) {
+            ereport(ERROR,
+                    (errcode_for_file_access(),
+                     errmsg("could not read file \"%s\": %m",
+                            NEON_SIGNAL_FILE)));
+        }
+        content[statbuf.st_size] = '\0';
+
+        /* Parse it */
+        if (sscanf(content, "PREV LSN: %19s", prev_lsn_str) != 1) {
+            ereport(ERROR,
+                    (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                     errmsg("invalid data in file \"%s\"", NEON_SIGNAL_FILE)));
+        }
+
+        if (strcmp(prev_lsn_str, "invalid") == 0) {
+            /* No prev LSN. Forbid starting up in read-write mode */
+            neonLastRec = InvalidXLogRecPtr;
+            neonWriteOk = false;
+        } else if (strcmp(prev_lsn_str, "none") == 0) {
+            /*
+             * The page server had no valid prev LSN, but assured that it's ok
+             * to start without it. This happens when you start the compute
+             * node for the first time on a new branch.
+             */
+            neonLastRec = InvalidXLogRecPtr;
+            neonWriteOk = true;
+        } else {
+            uint32 hi, lo;
+
+            if (sscanf(prev_lsn_str, "%X/%X", &hi, &lo) != 2) {
+                ereport(ERROR,
+                        (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                         errmsg("invalid data in file \"%s\"", NEON_SIGNAL_FILE)));
+            }
+            neonLastRec = ((uint64)hi) << 32 | lo;
+
+            /* If prev LSN is given, it better be valid */
+            if (XLByteEQ(neonLastRec, InvalidXLogRecPtr)) {
+                ereport(ERROR,
+                        (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                         errmsg("invalid prev-LSN in file \"%s\"", NEON_SIGNAL_FILE)));
+            }
+            neonWriteOk = true;
+        }
+        NeonRecoveryRequested = true;
+        close(fd);
+
+        ereport(LOG,
+                (errmsg("[NEON] found '%s' file. setting prev LSN to %X/%X",
+                        NEON_SIGNAL_FILE,
+                        (uint32)(neonLastRec >> 32), (uint32)neonLastRec)));
+        
+        pfree(content);
+    }
+}
+#endif
 
 /*
  * See if there is a recovery command file (recovery.conf), and if so
@@ -8847,6 +9009,18 @@ static void ReadRemainSegsFile()
     }
 }
 
+#ifdef ENABLE_NEON
+/*
+ * RedoStartLsn is set only once by startup process, locking is not required
+ * after its exit.
+ */
+XLogRecPtr
+GetRedoStartLsn(void)
+{
+    return t_thrd.shemem_ptr_cxt.XLogCtl->RedoStartLSN;
+}
+#endif
+
 static uint32 XLogGetRemainContentLen()
 {
     uint32 contentLen = 0;
@@ -9377,12 +9551,29 @@ void StartupXLOG(void)
             t_thrd.shemem_ptr_cxt.ControlFile->timeline = 1;
         }
     }
+#ifdef ENABLE_NEON
+    /*
+     * Read neon.signal before anything else.
+     */
+    readNeonSignalFile();
 
+    if (t_thrd.shemem_ptr_cxt.ControlFile->state < DB_SHUTDOWNED ||
+        t_thrd.shemem_ptr_cxt.ControlFile->state > DB_IN_PRODUCTION ||
+        (!XRecOffIsValid(t_thrd.shemem_ptr_cxt.ControlFile->checkPoint) && !NeonRecoveryRequested)) {
+        ereport(FATAL, (errmsg("control file contains invalid data: state=%u (valid range: %d-%d), checkPoint=%X/%X (valid: %s)",
+                               t_thrd.shemem_ptr_cxt.ControlFile->state,
+                               DB_SHUTDOWNED, DB_IN_PRODUCTION,
+                               (uint32)(t_thrd.shemem_ptr_cxt.ControlFile->checkPoint >> 32),
+                               (uint32)(t_thrd.shemem_ptr_cxt.ControlFile->checkPoint),
+                               XRecOffIsValid(t_thrd.shemem_ptr_cxt.ControlFile->checkPoint) ? "yes" : "no")));
+    }
+#else
     if (t_thrd.shemem_ptr_cxt.ControlFile->state < DB_SHUTDOWNED ||
         t_thrd.shemem_ptr_cxt.ControlFile->state > DB_IN_PRODUCTION ||
         !XRecOffIsValid(t_thrd.shemem_ptr_cxt.ControlFile->checkPoint)) {
         ereport(FATAL, (errmsg("control file contains invalid data")));
     }
+#endif
 
     if (t_thrd.shemem_ptr_cxt.ControlFile->state == DB_SHUTDOWNED) {
         DBStateShutdown = true;
@@ -9662,6 +9853,72 @@ void StartupXLOG(void)
         }
         /* set flag to delete it later */
         haveBackupLabel = true;
+#ifdef ENABLE_NEON
+    } else if (NeonRecoveryRequested) {
+        /*
+         * Neon hacks to spawn compute node without WAL.  Pretend that we
+         * just finished reading the record that started at 'neonLastRec'
+         * and ended at checkpoint.redo
+         */
+        ereport(LOG,
+                (errmsg("starting with neon basebackup at LSN %X/%X, prev %X/%X",
+                        (uint32)(t_thrd.shemem_ptr_cxt.ControlFile->checkPointCopy.redo >> 32),
+                        (uint32)(t_thrd.shemem_ptr_cxt.ControlFile->checkPointCopy.redo),
+                        (uint32)(neonLastRec >> 32),
+                        (uint32)neonLastRec)));
+
+        checkPointLoc = neonLastRec;
+        t_thrd.xlog_cxt.RedoStartLSN = t_thrd.shemem_ptr_cxt.ControlFile->checkPointCopy.redo;
+        /* make basebackup LSN available for walproposer */
+        t_thrd.shemem_ptr_cxt.XLogCtl->RedoStartLSN = t_thrd.xlog_cxt.RedoStartLSN;
+        RecPtr = t_thrd.shemem_ptr_cxt.ControlFile->checkPointCopy.redo;
+        
+        /*
+         * LastRec should point to the previous record (neonLastRec), not the redo point.
+         * If neonLastRec is invalid or >= checkpoint.redo, this means we're starting
+         * from the first record on a new branch. In that case, use a position earlier in
+         * the page to satisfy the assertion that PrevPos < StartPos.
+         */
+        if (XLByteEQ(neonLastRec, InvalidXLogRecPtr) || XLByteLE(RecPtr, neonLastRec)) {
+            /* Set LastRec to the beginning of the current page */
+            t_thrd.xlog_cxt.LastRec = RecPtr - (RecPtr % XLOG_BLCKSZ);
+            if (XLByteEQ(t_thrd.xlog_cxt.LastRec, RecPtr)) {
+                /* If RecPtr is at page boundary, go back to previous page */
+                t_thrd.xlog_cxt.LastRec = RecPtr - XLOG_BLCKSZ;
+            }
+        } else {
+            t_thrd.xlog_cxt.LastRec = neonLastRec;
+        }
+
+        rcm = memcpy_s(&checkPoint, sizeof(CheckPoint), &t_thrd.shemem_ptr_cxt.ControlFile->checkPointCopy, sizeof(CheckPoint));
+        securec_check(rcm, "", "");
+
+        /*
+         * When a primary Neon compute node is started, we pretend that it
+         * started after a clean shutdown and no recovery is needed. We don't
+         * need to do WAL replay to make the database consistent, the page
+         * server does that on a page-by-page basis.
+         *
+         * When starting a read-only replica, we will also start from a
+         * consistent snapshot of the cluster the start LSN, so we don't need
+         * to perform WAL replay to get there. However, wasShutdown must be
+         * set to false, because wasShutdown==true would imply that there are
+         * no transactions still in-progress at the start LSN, and we would
+         * initialize the known-assigned XIDs machinery for hot standby
+         * incorrectly. If this is a static read-only node that doesn't follow
+         * the primary though, then it's OK, as we will never see the possible
+         * commits of the in-progress transactions.
+         */
+        if (t_thrd.xlog_cxt.StandbyModeRequested && neonWriteOk) {
+            wasShutdown = false;
+        } else {
+            wasShutdown = true;
+        }
+
+        /* No need to read checkpoint record from WAL in Neon mode */
+        wasCheckpoint = true;
+        recordLen = sizeof(CheckPoint);
+#endif
     } else {
         /*
          * If tablespace_map file is present without backup_label file, there
@@ -9770,21 +10027,44 @@ void StartupXLOG(void)
     /*
      * initialize double write, recover partial write
      * in SS Switchover, skip dw init since we didn't do ShutdownXLOG
+     * in Neon mode, skip dw init since we don't have DW files in basebackup
      */
+#ifdef ENABLE_NEON
+    if (!SS_STANDBY_MODE && !SS_PRIMARY_DEMOTING && !NeonRecoveryRequested) {
+#else
     if (!SS_STANDBY_MODE && !SS_PRIMARY_DEMOTING) {
+#endif
         /* process assist file of chunk recycling */
         dw_ext_init();
         dw_init();
         g_instance.dms_cxt.dw_init = true;
     }
 
-    /* Recover meta of undo subsystem. */
+    /* Recover meta of undo subsystem. 
+     * Skip in Neon mode since we don't have undo meta files in basebackup
+     */
+#ifdef ENABLE_NEON
+    if (!NeonRecoveryRequested) {
+        undo::RecoveryUndoSystemMeta();
+    }
+#else
     undo::RecoveryUndoSystemMeta();
+#endif
 
     /* initialize account hash table lock */
     g_instance.policy_cxt.account_table_lock = LWLockAssign(LWTRANCHE_ACCOUNT_TABLE);
 
+    /*
+     * In Neon mode, we've already set LastRec and RecPtr in the Neon recovery branch.
+     * Don't overwrite them here.
+     */
+#ifdef ENABLE_NEON
+    if (!NeonRecoveryRequested) {
+        t_thrd.xlog_cxt.LastRec = RecPtr = checkPointLoc;
+    }
+#else
     t_thrd.xlog_cxt.LastRec = RecPtr = checkPointLoc;
+#endif
     ereport(LOG, (errmsg("redo record is at %X/%X; shutdown %s", (uint32)(checkPoint.redo >> 32),
                          (uint32)checkPoint.redo, wasShutdown ? "TRUE" : "FALSE")));
     ereport(DEBUG1, (errmsg("next MultiXactId: " XID_FMT "; next MultiXactOffset: " XID_FMT, checkPoint.nextMulti,
@@ -9959,10 +10239,19 @@ void StartupXLOG(void)
     } else {
         t_thrd.xlog_cxt.doPageWrites = t_thrd.xlog_cxt.lastFullPageWrites;
     }
+#ifdef ENABLE_NEON
+    if (set_max_lwlsn_hook) {
+        set_max_lwlsn_hook(t_thrd.xlog_cxt.RedoRecPtr);
+    }
 
+    if (XLByteLT(RecPtr, checkPoint.redo) && !NeonRecoveryRequested) {
+        ereport(PANIC, (errmsg("invalid redo in checkpoint record")));
+    }
+#else
     if (XLByteLT(RecPtr, checkPoint.redo)) {
         ereport(PANIC, (errmsg("invalid redo in checkpoint record")));
     }
+#endif
 
     /*
      * Check whether we need to force recovery from WAL.  If it appears to
@@ -9999,6 +10288,47 @@ void StartupXLOG(void)
         ereport(LOG, (errmsg("[SS reform] Skip redo replay in standby mode")));
         t_thrd.xlog_cxt.InRecovery = false;
     }
+
+#ifdef ENABLE_NEON
+    /*
+     * NEON: In Neon mode, page reconstruction is handled by the pageserver,
+     * so we don't need to replay WAL locally. However, for Neon hot standby
+     * (replica mode), we need to keep InRecovery=true and StandbyMode=true
+     * so that the WAL receiver can consume WAL from safekeepers to update
+     * our LSN position. This allows us to read pages at the latest LSN.
+     */
+    if (NeonRecoveryRequested) {
+        if (t_thrd.xlog_cxt.StandbyModeRequested) {
+            /*
+             * NEON HOT STANDBY REPLICA MODE:
+             * - Keep InRecovery=true (already set from recovery.conf)
+             * - Set NeonReplicaMode for buffer cache bypass (pages fetched from pageserver)
+             * - Activate hot standby immediately (no local WAL replay needed)
+             */
+            NeonReplicaMode = true;
+            t_thrd.xlog_cxt.reachedConsistency = true;
+            
+            volatile XLogCtlData *xlogctl = t_thrd.shemem_ptr_cxt.XLogCtl;
+            SpinLockAcquire(&xlogctl->info_lck);
+            xlogctl->SharedHotStandbyActive = true;
+            xlogctl->NeonReplicaMode = true;
+            SpinLockRelease(&xlogctl->info_lck);
+            
+            t_thrd.xlog_cxt.LocalHotStandbyActive = true;
+            pg_atomic_write_u32(&(g_instance.comm_cxt.predo_cxt.hotStdby), ATOMIC_TRUE);
+            
+            ereport(LOG, (errmsg("Neon: Hot standby replica activated")));
+            
+            if (IsUnderPostmaster) {
+                SendPostmasterSignal(PMSIGNAL_BEGIN_HOT_STANDBY);
+            }
+        } else {
+            /* Neon primary: no WAL replay needed */
+            ereport(LOG, (errmsg("Neon: Primary mode activated")));
+            t_thrd.xlog_cxt.InRecovery = false;
+        }
+    }
+#endif
 
     g_instance.dms_cxt.SSRecoveryInfo.in_ondemand_recovery = false;
     SetDefaultExtremeRtoMode();
@@ -10318,8 +10648,29 @@ void StartupXLOG(void)
          * checkPoint.redo is equel to RecPtr and checkPoint.redo is last record, so here record which
          * next read should be Startptr of checkPoint.redo, instead of Endptr of checkPoint.redo, which
          * could be NULL. Otherwise, the process will end in a loop of this function(ReadRecord).
+         * 
+         * In Neon mode, we don't have local WAL files, so skip reading WAL records entirely.
          */
+#ifdef ENABLE_NEON
+        if (NeonRecoveryRequested) {
+            /*
+             * Neon mode: In Neon, the pageserver handles page reconstruction from WAL.
+             * We don't have local WAL files to read.
+             * 
+             * For Neon replicas (hot standby), we skip WAL redo because:
+             * 1. Pageserver reconstructs pages from WAL
+             * 2. Replicas request the latest pages from pageserver using UINT64_MAX
+             * 3. No local WAL replay is needed
+             * 
+             * Buffer cache invalidation for replicas is handled differently:
+             * - We skip LFC and prefetch caches for replicas (in neon_read)
+             * - Replicas always request fresh pages from pageserver
+             */
+            record = NULL;
+        } else if (XLByteLT(checkPoint.redo, RecPtr) || SS_STANDBY_PROMOTING ||
+#else
         if (XLByteLT(checkPoint.redo, RecPtr) || SS_STANDBY_PROMOTING ||
+#endif
             (XLByteLE(checkPoint.redo, RecPtr) && SS_ONDEMAND_REALTIME_BUILD_NORMAL)) {
             /* back up to find the record */
             record = ReadRecord(xlogreader, checkPoint.redo, PANIC, false);
@@ -10686,10 +11037,70 @@ void StartupXLOG(void)
      * recovery, e.g., timeline history file) from archive or pg_xlog.
      */
     t_thrd.xlog_cxt.StandbyMode = false;
+    
     /*
      * Re-fetch the last valid or last applied record, so we can identify the
      * exact endpoint of what we consider the valid portion of WAL.
+     * 
+     * When starting from a neon base backup, we don't have WAL. Initialize
+     * the WAL page where we will start writing new records from scratch,
+     * instead.
      */
+#ifdef ENABLE_NEON
+    if (NeonRecoveryRequested) {
+        if (!neonWriteOk) {
+            /*
+             * We cannot start generating new WAL if we don't have a valid prev-LSN
+             * to use for the first new WAL record. (Shouldn't happen.)
+             */
+            ereport(ERROR, (errmsg("cannot start in read-write mode from this base backup")));
+        } else {
+            int offs = RecPtr % XLOG_BLCKSZ;
+            XLogRecPtr lastPage = RecPtr - offs;
+            bool isLongHeader = (lastPage % XLogSegSize) == 0;
+            int lastPageSize = isLongHeader ? SizeOfXLogLongPHD : SizeOfXLogShortPHD;
+            int idx = XLogRecPtrToBufIdx(lastPage);
+            char *page = &t_thrd.shemem_ptr_cxt.XLogCtl->pages[idx * XLOG_BLCKSZ];
+            XLogPageHeader xlogPageHdr = (XLogPageHeader) page;
+
+            xlogPageHdr->xlp_pageaddr = lastPage;
+            xlogPageHdr->xlp_magic = XLOG_PAGE_MAGIC;
+            xlogPageHdr->xlp_tli = t_thrd.xlog_cxt.ThisTimeLineID;
+            xlogPageHdr->xlp_info = 0;
+            /*
+             * If we start writing with offset from page beginning, pretend in
+             * page header there is a record ending where actual data will
+             * start.
+             */
+            xlogPageHdr->xlp_rem_len = offs - lastPageSize;
+            if (xlogPageHdr->xlp_rem_len > 0)
+                xlogPageHdr->xlp_info |= XLP_FIRST_IS_CONTRECORD;
+            t_thrd.xlog_cxt.readOff = lastPage % XLogSegSize;
+
+            if (isLongHeader) {
+                XLogLongPageHeader longHdr = (XLogLongPageHeader) page;
+
+                longHdr->xlp_sysid = GetSystemIdentifier();
+                longHdr->xlp_seg_size = XLogSegSize;
+                longHdr->xlp_xlog_blcksz = XLOG_BLCKSZ;
+
+                xlogPageHdr->xlp_info |= XLP_LONG_HEADER;
+            }
+
+            ereport(LOG, (errmsg("Neon: Continue writing WAL at %X/%X", 
+                                 (uint32)(RecPtr >> 32), (uint32)RecPtr)));
+        }
+        /* In Neon mode, EndOfLog is set to checkpoint.redo (already in RecPtr) */
+        EndOfLog = RecPtr;
+    } else {
+        xlogreader->readSegNo = 0;
+        xlogreader->readOff = 0;
+        xlogreader->readLen = 0;
+        record = ReadRecord(xlogreader, t_thrd.xlog_cxt.LastRec, PANIC, false);
+        UpdateTermFromXLog(record->xl_term);
+        EndOfLog = t_thrd.xlog_cxt.EndRecPtr;
+    }
+#else
     xlogreader->readSegNo = 0;
     xlogreader->readOff = 0;
     xlogreader->readLen = 0;
@@ -10697,6 +11108,7 @@ void StartupXLOG(void)
     UpdateTermFromXLog(record->xl_term);
 
     EndOfLog = t_thrd.xlog_cxt.EndRecPtr;
+#endif
     XLByteToPrevSeg(EndOfLog, endLogSegNo);
     if (!SS_DISASTER_STANDBY_CLUSTER && (SS_STANDBY_FAILOVER || SS_STANDBY_PROMOTING)) {
         bool use_existent = true;
@@ -10758,10 +11170,21 @@ void StartupXLOG(void)
      * was active, and make a writable copy of the last WAL segment. (Note
      * that we also have a copy of the last block of the old WAL in readBuf;
      * we will use that below.)
+     * 
+     * NEON: Skip exitArchiveRecovery in Neon mode because it tries to copy
+     * local WAL files which don't exist in Neon architecture.
      */
+#ifdef ENABLE_NEON
+    if (t_thrd.xlog_cxt.ArchiveRecoveryRequested && !NeonRecoveryRequested) {
+        exitArchiveRecovery(xlogreader->readPageTLI, endLogSegNo);
+    } else if (t_thrd.xlog_cxt.ArchiveRecoveryRequested && NeonRecoveryRequested) {
+        ereport(LOG, (errmsg("Neon: Skipping exitArchiveRecovery (no local WAL files in Neon mode)")));
+    }
+#else
     if (t_thrd.xlog_cxt.ArchiveRecoveryRequested) {
         exitArchiveRecovery(xlogreader->readPageTLI, endLogSegNo);
     }
+#endif
 
     /*
      * Prepare to write WAL starting at EndOfLog position, and init xlog
@@ -10769,9 +11192,25 @@ void StartupXLOG(void)
      * previous incarnation.
      */
     t_thrd.xlog_cxt.openLogSegNo = endLogSegNo;
+#ifdef ENABLE_NEON
+    /*
+     * NEON: In Neon mode, WAL is sent to safekeepers via walproposer, not written
+     * to local WAL files. Skip opening local WAL file in Neon mode to avoid
+     * "could not open file pg_xlog/..." errors. This allows Neon hot standby
+     * to work correctly while preserving original openGauss hot standby behavior.
+     */
+    if (!g_instance.attr.attr_storage.enable_uwal && !NeonRecoveryRequested) {
+        t_thrd.xlog_cxt.openLogFile = XLogFileOpen(t_thrd.xlog_cxt.openLogSegNo);
+    } else if (NeonRecoveryRequested) {
+        /* In Neon mode, we don't use local WAL files */
+        t_thrd.xlog_cxt.openLogFile = -1;
+        ereport(LOG, (errmsg("Neon: Skipping XLogFileOpen for hot standby (WAL goes to safekeepers)")));
+    }
+#else
     if (!g_instance.attr.attr_storage.enable_uwal) {
         t_thrd.xlog_cxt.openLogFile = XLogFileOpen(t_thrd.xlog_cxt.openLogSegNo);
     }
+#endif
     t_thrd.xlog_cxt.openLogOff = 0;
     Insert = &t_thrd.shemem_ptr_cxt.XLogCtl->Insert;
     Insert->CurrBytePos = XLogRecPtrToBytePos(EndOfLog);
@@ -10791,6 +11230,8 @@ void StartupXLOG(void)
      * Tricky point here: readBuf contains the *last* block that the LastRec
      * record spans, not the one it starts in.  The last block is indeed the
      * one we want to use.
+     * 
+     * In Neon mode, we don't have a readBuf to copy from, so skip the copy.
      */
     if (EndOfLog % XLOG_BLCKSZ != 0) {
         char *page = NULL;
@@ -10799,7 +11240,11 @@ void StartupXLOG(void)
         XLogRecPtr pageBeginPtr;
 
         pageBeginPtr = EndOfLog - (EndOfLog % XLOG_BLCKSZ);
+#ifdef ENABLE_NEON
+        if (!NeonRecoveryRequested && redoReadOff != (pageBeginPtr % XLogSegSize)) {
+#else
         if (redoReadOff != (pageBeginPtr % XLogSegSize)) {
+#endif
             ereport(FATAL, (errmsg("redo check error: EndOfLog: %lx, pageBeginPtr: %lx, redoReadOff: %x", EndOfLog,
                                    pageBeginPtr, redoReadOff)));
         }
@@ -10809,8 +11254,17 @@ void StartupXLOG(void)
         /* Copy the valid part of the last block, and zero the rest */
         page = &t_thrd.shemem_ptr_cxt.XLogCtl->pages[firstIdx * XLOG_BLCKSZ];
         len = EndOfLog % XLOG_BLCKSZ;
+        
+#ifdef ENABLE_NEON
+        /* In Neon mode, skip copying from readBuf as we don't have one */
+        if (!NeonRecoveryRequested) {
+            errorno = memcpy_s(page, XLOG_BLCKSZ, xlogreader->readBuf, len);
+            securec_check(errorno, "", "");
+        }
+#else
         errorno = memcpy_s(page, XLOG_BLCKSZ, xlogreader->readBuf, len);
         securec_check(errorno, "", "");
+#endif
 
         errorno = memset_s(page + len, XLOG_BLCKSZ - len, 0, XLOG_BLCKSZ - len);
         securec_check(errorno, "", "");
@@ -14372,6 +14826,35 @@ void xlog_redo(XLogReaderState *record)
     } else if (info == XLOG_RESTORE_POINT) {
         /* nothing to do here */
     } else if (info == XLOG_FPI || info == XLOG_FPI_FOR_HINT) {
+#ifdef ENABLE_NEON
+        if ((XLogRecGetInfo(record) & XLR_INFO_MASK) == XLOG_MERGE_RECORD){
+            for (uint8 block_id = 0; block_id <= record->max_block_id; block_id++) {
+                RedoBufferInfo buffer;
+                XLogRedoAction result;
+
+                result = XLogReadBufferForRedo(record, block_id, &buffer);
+                if (result == BLK_DONE && !IsUnderPostmaster) {
+                    /*
+                    * In the special WAL process, blocks that are being ignored
+                    * return BLK_DONE. Accept that.
+                    */
+                } else if (result != BLK_RESTORED) {
+                    ereport(ERROR, (errcode(ERRCODE_CASE_NOT_FOUND),
+                                    errmsg("unexpected XLogReadBufferForRedo result when restoring backup block, block id: %d", block_id)));
+                }
+                
+                UnlockReleaseBuffer(buffer.buf);
+            }
+        } else {
+            RedoBufferInfo buffer;
+            if (XLogReadBufferForRedo(record, 0, &buffer) != BLK_RESTORED) {
+                ereport(ERROR, (errcode(ERRCODE_CASE_NOT_FOUND),
+                                errmsg("unexpected XLogReadBufferForRedo result when restoring backup block")));
+            }
+
+            UnlockReleaseBuffer(buffer.buf);
+        }
+#else
         RedoBufferInfo buffer;
 
         /*
@@ -14406,6 +14889,7 @@ void xlog_redo(XLogReaderState *record)
 
             UnlockReleaseBuffer(buffer.buf);
         }
+#endif
     } else if (info == XLOG_BACKUP_END) {
         XLogRecPtr startpoint;
         errno_t rc = EOK;

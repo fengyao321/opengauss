@@ -54,6 +54,10 @@
 #include "access/extreme_rto/page_redo.h"
 #include "access/smb.h"
 
+#if defined(ENABLE_NEON) && !defined(FRONTEND)
+    bool    (*redo_read_buffer_filter) (XLogReaderState *record, uint8 block_id);
+#endif
+
 /*
  * During XLOG replay, we may see XLOG records for incremental updates of
  * pages that no longer exist, because their relation was later dropped or
@@ -771,6 +775,72 @@ XLogRedoAction XLogReadBufferForRedoExtended(XLogReaderState *record, uint8 bloc
         /* Caller specified a bogus block_id */
         ereport(PANIC, (errmsg("failed to locate backup block with ID %d", block_id)));
     }
+
+#if defined(ENABLE_NEON) && !defined(FRONTEND)
+    bool hasBlockImage = XLogRecHasBlockImage(record, block_id);
+    bool filterResult = redo_read_buffer_filter ? redo_read_buffer_filter(record, block_id) : false;
+    if (filterResult) {
+        /*
+         * This block is not the target block we're trying to reconstruct.
+         * However, if the WAL record has a full-page image (FPI) for this block,
+         * some redo functions (like heap_xlog_newpage) expect BLK_RESTORED.
+         * For neon walredo, when a block is filtered out but has FPI, we need to:
+         * 1. Read the buffer (even if it's not the target block)
+         * 2. Restore the FPI content to the buffer
+         * 3. Return BLK_RESTORED
+         * This is critical because some redo functions (e.g., heap_xlog_update)
+         * read data from the old page to construct the new page. If we don't
+         * restore the FPI, the old page will be empty/zeroed, causing data loss.
+         */
+        if (hasBlockImage) {
+            /*
+             * We must read the buffer and restore the FPI content.
+             * Use RBM_ZERO_AND_LOCK to ensure the buffer is allocated.
+             */
+            bufferinfo->buf = ReadBufferWithoutRelcache(blockinfo.rnode, blockinfo.forknum,
+                                                        blockinfo.blkno, RBM_ZERO_AND_LOCK, NULL, &(blockinfo.pblk));
+            
+            /* Set up bufferinfo fields that callers may need */
+            bufferinfo->lsn = record->EndRecPtr;
+            bufferinfo->blockinfo = blockinfo;
+            
+            /* Get the page from the buffer */
+            Page page = BufferGetPage(bufferinfo->buf);
+            bufferinfo->pageinfo.page = page;
+            bufferinfo->pageinfo.pagesize = BufferGetPageSize(bufferinfo->buf);
+            
+            /*
+             * Restore the FPI content to the buffer - this was missing before!
+             * Without this, the buffer would be empty/zeroed, causing data loss.
+             */
+            char *imagedata;
+            uint16 hole_offset;
+            uint16 hole_length;
+            imagedata = XLogRecGetBlockImage(record, block_id, &hole_offset, &hole_length);
+            if (imagedata != NULL) {
+                RestoreBlockImage(imagedata, hole_offset, hole_length, (char *)page);
+                /* Set LSN on the restored page */
+                XlogUpdateFullPageWriteLsn(page, record->EndRecPtr);
+            }
+            return BLK_RESTORED;
+        } else {
+            if (mode == RBM_ZERO_AND_LOCK || mode == RBM_ZERO_AND_CLEANUP_LOCK) {
+                bufferinfo->buf = ReadBufferWithoutRelcache(blockinfo.rnode, blockinfo.forknum,
+                                             blockinfo.blkno, mode, NULL, &(blockinfo.pblk));
+                /* Set up bufferinfo fields that callers may need */
+                bufferinfo->lsn = record->EndRecPtr;
+                bufferinfo->blockinfo = blockinfo;
+                bufferinfo->pageinfo.page = BufferGetPage(bufferinfo->buf);
+                bufferinfo->pageinfo.pagesize = BufferGetPageSize(bufferinfo->buf);
+            } else {
+                bufferinfo->buf = InvalidBuffer;
+                /* Even for invalid buffer, set pagesize to prevent uninitialized value */
+                bufferinfo->pageinfo.pagesize = (Size)BLCKSZ;
+            }
+            return BLK_DONE;
+        }
+    }
+#endif
 
     /*
      * Make sure that if the block is marked with WILL_INIT, the caller is
