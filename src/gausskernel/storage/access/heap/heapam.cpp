@@ -9754,7 +9754,11 @@ static void heap_do_sync_disk(Relation rel)
             }
             rd_node.bucketNode = *bucketnode;
             /* FlushRelationBuffers will have opened rd_smgr */
+#ifdef ENABLE_NEON
+            SMgrRelation oreln = smgropen(rd_node, InvalidBackendId, 0, rel->rd_rel->relpersistence);
+#else
             SMgrRelation oreln = smgropen(rd_node, InvalidBackendId);
+#endif /* ENABLE_NEON */
             smgrimmedsync(oreln, MAIN_FORKNUM);
             smgrclose(oreln);
         }

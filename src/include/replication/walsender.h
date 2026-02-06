@@ -40,10 +40,24 @@
     AM_WAL_HADR_CN_SENDER || AM_WAL_SHARE_STORE_SENDER)
 #define STANDBY_IN_BARRIER_PAUSE ((reply->replyFlags & IS_PAUSE_BY_TARGET_BARRIER) != 0)
 
+#ifdef ENABLE_NEON
+/* Forward declaration for WalSnd struct defined in walsender_private.h */
+struct WalSnd;
+typedef struct WalSnd WalSnd;
+#endif
 typedef struct WSXLogJustSendRegion {
     XLogRecPtr start_ptr;
     XLogRecPtr end_ptr;
 } WSXLogJustSendRegion;
+
+#ifdef ENABLE_NEON
+/* expose these so that they can be reused by the neon walproposer extension */
+extern void LagTrackerWrite(XLogRecPtr lsn, TimestampTz local_flush_time);
+extern TimeOffset LagTrackerRead(int head, XLogRecPtr lsn, TimestampTz now);
+extern void ProcessStandbyReply(XLogRecPtr writePtr, XLogRecPtr flushPtr,
+                                XLogRecPtr applyPtr, TimestampTz replyTime,
+                                bool replyRequested);
+#endif
 
 extern int WalSenderMain(void);
 extern void GetPMstateAndRecoveryInProgress(void);
@@ -74,6 +88,11 @@ extern bool WalSndQuorumInProgress(int type);
 extern XLogSegNo WalGetSyncCountWindow(void);
 extern void add_archive_task_to_list(int archive_task_status_idx, WalSnd *walsnd);
 extern void XLogCompression(int *compressedSize, XLogRecPtr startPtr, Size nbytes);
+
+#ifdef ENABLE_NEON
+extern XLogRecPtr WalSndWaitForWal(XLogRecPtr loc);
+extern void InitWalSnd(void);
+#endif
 
 /*
  * Remember that we want to wakeup walsenders later

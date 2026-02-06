@@ -27,6 +27,15 @@
 
 typedef int File;
 
+#ifdef ENABLE_NEON
+struct AioDispatchDesc;
+typedef struct AioDispatchDesc AioDispatchDesc_t;
+struct f_smgr;
+// Alternative implementation of calculate_database_size()
+typedef int64 (*dbsize_hook_type) (Oid dbOid);
+extern PGDLLIMPORT dbsize_hook_type dbsize_hook;
+#endif
+
 /*
  * smgr.c maintains a table of SMgrRelation objects, which are essentially
  * cached file handles.  An SMgrRelation is created (if not already present)
@@ -48,7 +57,10 @@ typedef int File;
 typedef struct SMgrRelationData {
     /* rnode is the hashtable lookup key, so it must be first! */
     RelFileNodeBackend smgr_rnode; /* relation physical identifier */
-
+#ifdef ENABLE_NEON
+    /* copy of pg_class.relpersistence, or 0 if not known */
+    char        smgr_relpersistence;
+#endif
     /* pointer to owning pointer, or NULL if none */
     struct SMgrRelationData** smgr_owner;
     uint64 xact_seqno;
@@ -75,8 +87,10 @@ typedef struct SMgrRelationData {
      * Fields below here are intended to be private to smgr.c and its
      * submodules. Do not touch them from elsewhere.
      */
+#ifdef ENABLE_NEON
+    const struct f_smgr *smgr;
+#endif
     int smgr_which; /* storage manager selector */
-
     /* for md.c; NULL for forks that are not open */
     int md_fdarray_size;
     struct _MdfdVec** md_fd;
@@ -161,9 +175,63 @@ inline bool is_standby_read_seg_relnode(const RelFileNode &rnode)
 #endif
 
 #define FILE_ALREADY_EXIST(err) ((err) == EEXIST || (err) == ERR_DSS_DIR_CREATE_DUPLICATED)
+#ifdef ENABLE_NEON
+/*
+ * This struct of function pointers defines the API between smgr.c and
+ * any individual storage manager module.  Note that smgr subfunctions are
+ * generally expected to report problems via elog(ERROR).  An exception is
+ * that smgr_unlink should use elog(WARNING), rather than erroring out,
+ * because we normally unlink relations during post-commit/abort cleanup,
+ * and so it's too late to raise an error.  Also, various conditions that
+ * would normally be errors should be allowed during bootstrap and/or WAL
+ * recovery --- see comments in md.c for details.
+ */
+typedef struct f_smgr {
+    void (*smgr_init)(void);     /* may be NULL */
+    void (*smgr_shutdown)(void); /* may be NULL */
+    void (*smgr_close)(SMgrRelation reln, ForkNumber forknum, BlockNumber blockNum);
+    void (*smgr_create)(SMgrRelation reln, ForkNumber forknum, bool isRedo);
+    bool (*smgr_exists)(SMgrRelation reln, ForkNumber forknum, BlockNumber blockNum);
+    void (*smgr_unlink)(const RelFileNodeBackend &rnode, ForkNumber forknum, bool isRedo, BlockNumber blockNum);
+    void (*smgr_extend)(SMgrRelation reln, ForkNumber forknum, BlockNumber blockNum, char *buffer, bool skipFsync);
+    void (*smgr_prefetch)(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum);
+    SMGR_READ_STATUS (*smgr_read)(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, char *buffer);
+    void (*smgr_bulkread)(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, int blockCount, char *buffer);
+    void (*smgr_write)(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, const char *buffer, bool skipFsync);
+    void (*smgr_writeback)(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, BlockNumber nblocks,
+                           RelFileNode relNode);
+    BlockNumber (*smgr_nblocks)(SMgrRelation reln, ForkNumber forknum);
+    void (*smgr_truncate)(SMgrRelation reln, ForkNumber forknum, BlockNumber nblocks);
+    void (*smgr_immedsync)(SMgrRelation reln, ForkNumber forknum);
+    void (*smgr_async_read)(SMgrRelation reln, ForkNumber forknum, AioDispatchDesc_t **dList, int32 dn);
+    void (*smgr_async_write)(SMgrRelation reln, ForkNumber forknum, AioDispatchDesc_t **dList, int32 dn);
+    void (*smgr_move_buckets)(const RelFileNodeBackend &dest, const RelFileNodeBackend &src, List *bList);
+} f_smgr;
+
+typedef void (*smgr_init_hook_type) (void);
+typedef void (*smgr_shutdown_hook_type) (void);
+extern PGDLLIMPORT smgr_init_hook_type smgr_init_hook;
+extern PGDLLIMPORT smgr_shutdown_hook_type smgr_shutdown_hook;
+extern void smgr_init_standard(void);
+extern void smgr_shutdown_standard(void);
+
+typedef const f_smgr *(*smgr_hook_type) (BackendId backend, RelFileNode rnode);
+extern PGDLLIMPORT smgr_hook_type smgr_hook;
+extern const f_smgr *smgr_standard(BackendId backend, RelFileNode rnode);
+
+extern const f_smgr *smgr(BackendId backend, RelFileNode rnode);
+
+/* SLRU read hook for Neon to read SLRU segments from pageserver */
+typedef int (*slru_read_hook_type)(const char *path, int64 segno, void *buffer);
+extern PGDLLIMPORT slru_read_hook_type slru_read_hook;
+#endif
 
 extern void smgrinit(void);
+#ifdef ENABLE_NEON
+extern SMgrRelation smgropen(const RelFileNode& rnode, BackendId backend, int col = 0, char relpersistence = 0);
+#else
 extern SMgrRelation smgropen(const RelFileNode& rnode, BackendId backend, int col = 0);
+#endif
 extern void smgrshutdown(int code, Datum arg);
 extern bool smgrexists(SMgrRelation reln, ForkNumber forknum, BlockNumber blockNum = InvalidBlockNumber);
 extern void smgrsetowner(SMgrRelation* owner, SMgrRelation reln);

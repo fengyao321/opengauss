@@ -94,6 +94,28 @@
 #define LOCK_THREADID_MASK ((((uintptr_t)&t_thrd) >> 20) % 6)
 #define LOCK_REFCOUNT_ONE_BY_THREADID (1LU << (8 * LOCK_THREADID_MASK))
 
+#ifdef ENABLE_NEON
+/* Forward declaration for Neon replica mode check */
+static bool neon_is_replica_mode_bufmgr(void);
+
+/* 
+ * Check if running in Neon replica mode.
+ * In Neon replica mode, we need to bypass buffer cache hits to get fresh pages
+ * because we don't do WAL replay to invalidate cached pages.
+ * 
+ * We read from XLogCtlData in shared memory, which is set during startup
+ * and accessible from all backend processes.
+ */
+static bool neon_is_replica_mode_bufmgr(void)
+{
+    volatile XLogCtlData *xlogctl = t_thrd.shemem_ptr_cxt.XLogCtl;
+    if (xlogctl == NULL) {
+        return false;
+    }
+    return xlogctl->NeonReplicaMode;
+}
+#endif
+
 const int ONE_MILLISECOND = 1;
 const int TEN_MICROSECOND = 10;
 const int MILLISECOND_TO_MICROSECOND = 1000;
@@ -1842,9 +1864,11 @@ Buffer ReadBufferWithoutRelcache(const RelFileNode &rnode, ForkNumber fork_num, 
                                  ReadBufferMode mode, BufferAccessStrategy strategy, const XLogPhyBlock *pblk)
 {
     bool hit = false;
-
+#ifdef ENABLE_NEON
+    SMgrRelation smgr = smgropen(rnode, InvalidBackendId, 0, RELPERSISTENCE_PERMANENT);
+#else
     SMgrRelation smgr = smgropen(rnode, InvalidBackendId);
-
+#endif
     return ReadBuffer_common(smgr, RELPERSISTENCE_PERMANENT, fork_num, block_num, mode, strategy, &hit, pblk);
 }
 
@@ -1853,9 +1877,11 @@ Buffer ReadUndoBufferWithoutRelcache(const RelFileNode& rnode, ForkNumber forkNu
     char relpersistence)
 {
     bool hit = false;
-
+#ifdef ENABLE_NEON
+    SMgrRelation smgr = smgropen(rnode, InvalidBackendId, 0, RELPERSISTENCE_PERMANENT);
+#else
     SMgrRelation smgr = smgropen(rnode, InvalidBackendId);
-
+#endif
     return ReadBuffer_common(smgr, relpersistence, forkNum, blockNum, mode, strategy, &hit, NULL);
 }
 
@@ -1871,8 +1897,11 @@ Buffer ReadUndoBufferWithoutRelcache(const RelFileNode& rnode, ForkNumber forkNu
 Buffer ReadBufferForRemote(const RelFileNode &rnode, ForkNumber fork_num, BlockNumber block_num, ReadBufferMode mode,
                            BufferAccessStrategy strategy, bool *hit, const XLogPhyBlock *pblk)
 {
+#ifdef ENABLE_NEON
+    SMgrRelation smgr = smgropen(rnode, InvalidBackendId, 0, RELPERSISTENCE_PERMANENT);
+#else
     SMgrRelation smgr = smgropen(rnode, InvalidBackendId);
-
+#endif
     if (unlikely(fork_num >= smgr->md_fdarray_size || fork_num < 0)) {
         ereport(ERROR, (errcode(ERRCODE_DATA_CORRUPTED),
                         errmsg("invalid forkNum %d, should be less than %d", fork_num, smgr->md_fdarray_size)));
@@ -1897,7 +1926,11 @@ Buffer ReadBuffer_common_for_localbuf(RelFileNode rnode, char relpersistence, Fo
     bool need_reapir = false;
 
     *hit = false;
+#ifdef ENABLE_NEON
+    SMgrRelation smgr = smgropen(rnode, InvalidBackendId, 0, RELPERSISTENCE_PERMANENT);
+#else
     SMgrRelation smgr = smgropen(rnode, InvalidBackendId);
+#endif
     /* Make sure we will have room to remember the buffer pin */
     ResourceOwnerEnlargeBuffers(t_thrd.utils_cxt.CurrentResourceOwner);
 
@@ -2037,7 +2070,11 @@ Buffer ReadBuffer_common_for_direct(RelFileNode rnode, char relpersistence, Fork
     bool need_reapir = false;
 
     isExtend = (blockNum == P_NEW);
+#ifdef ENABLE_NEON
+    SMgrRelation smgr = smgropen(rnode, InvalidBackendId, 0, RELPERSISTENCE_PERMANENT);
+#else
     SMgrRelation smgr = smgropen(rnode, InvalidBackendId);
+#endif
     /* Substitute proper block number if caller asked for P_NEW */
     if (isExtend)
         blockNum = smgrnblocks(smgr, forkNum);
@@ -2269,7 +2306,11 @@ void ReadBuffer_common_for_check(ReadBufferMode readmode, BufferDesc* buf_desc,
     BlockNumber blockNum = InvalidBlockNumber;
     ForkNumber forkNum = buf_desc->tag.forkNum;
     bool isExtend = (buf_ctrl->state & BUF_IS_EXTEND) ? true: false;
+#ifdef ENABLE_NEON
+    SMgrRelation smgr = smgropen(buf_desc->tag.rnode, InvalidBackendId, 0, RELPERSISTENCE_PERMANENT);
+#else
     SMgrRelation smgr = smgropen(buf_desc->tag.rnode, InvalidBackendId);
+#endif
     blockNum = buf_desc->tag.blockNum;
     char relpersistence = (buf_ctrl->state & BUF_IS_RELPERSISTENT)? 'p': 0;
 
@@ -2375,9 +2416,17 @@ Buffer ReadBuffer_common_for_dms(ReadBufferMode readmode, BufferDesc* buf_desc, 
 static inline void BufferDescSetPBLK(BufferDesc *buf, const XLogPhyBlock *pblk)
 {
     if (pblk != NULL) {
+#ifdef ENABLE_NEON
+        if (PhyBlockIsValid(*pblk)) {
+            /* Valid pblk for segment-page storage, set segment info */
+            buf->extra->seg_fileno = pblk->relNode;
+            buf->extra->seg_blockno = pblk->block;
+        }
+#else
         Assert(PhyBlockIsValid(*pblk));
         buf->extra->seg_fileno = pblk->relNode;
         buf->extra->seg_blockno = pblk->block;
+#endif
     }
 }
 
@@ -2702,10 +2751,43 @@ found_branch:
      * if it was already in the buffer pool, we're done
      */
     if (found) {
+#ifdef ENABLE_NEON
+        /*
+         * NEON REPLICA MODE:
+         * In Neon replica mode, we cannot trust cached buffer contents because
+         * the primary may have written new data that we haven't seen via WAL replay.
+         * Since Neon replicas don't do WAL replay (pageserver handles that), we must
+         * re-read the page from pageserver to get the latest version.
+         *
+         * We invalidate the cached buffer and force a re-read from storage.
+         */
+        if (neon_is_replica_mode_bufmgr() && !isLocalBuf && !isExtend) {
+            /*
+             * NEON REPLICA MODE:
+             * Clear the BM_VALID flag so that the buffer contents are considered
+             * invalid and will be re-read from storage (pageserver).
+             */
+            do {
+                uint64 buf_state = LockBufHdr(bufHdr);
+                buf_state &= ~BM_VALID;
+                UnlockBufHdr(bufHdr, buf_state);
+            } while (!StartBufferIO(bufHdr, true));
+
+            u_sess->instr_cxt.pg_buffer_usage->shared_blks_read++;
+            pgstatCountSharedBlocksRead4SessionLevel();
+
+            goto neon_replica_read_page;
+        }
+#endif
+        
         if (ENABLE_DMS && !isLocalBuf) {
             MarkReadPblk(bufHdr->buf_id, pblk);
         }
+#ifdef ENABLE_NEON
+        if (!isExtend && found) {
+#else
         if (!isExtend) {
+#endif
             /* Just need to update stats before we exit */
             *hit = true;
             t_thrd.vacuum_cxt.VacuumPageHit++;
@@ -2931,6 +3013,13 @@ found_branch:
      * it's not been recycled) but come right back here to try smgrextend
      * again.
      */
+#ifdef ENABLE_NEON
+neon_replica_read_page:
+    /*
+     * NEON REPLICA: We may jump here directly from a cache hit to force a re-read.
+     * In that case, we've already invalidated the buffer and started IO.
+     */
+#endif
     Assert(!(pg_atomic_read_u64(&bufHdr->state) & BM_VALID)); /* spinlock not needed */
 
     bufBlock = isLocalBuf ? LocalBufHdrGetBlock(bufHdr) : BufHdrGetBlock(bufHdr);
@@ -3093,7 +3182,6 @@ void PageCheckWhenChosedElimination(const BufferDesc *buf, uint64 oldFlags)
     }
 }
 #endif
-
 
 /*
  * BufferAlloc -- subroutine for ReadBuffer.  Handles lookup of a shared
@@ -5290,8 +5378,12 @@ void FlushBuffer(void *buf, SMgrRelation reln, ReadBufferMethod flushmethod, boo
 
     /* Find smgr relation for buffer */
     if (reln == NULL || (IsValidColForkNum(bufferinfo.blockinfo.forknum)))
+#ifdef ENABLE_NEON
+        reln = smgropen(bufferinfo.blockinfo.rnode, InvalidBackendId,
+                        GetColumnNum(bufferinfo.blockinfo.forknum), RELPERSISTENCE_PERMANENT);
+#else
         reln = smgropen(bufferinfo.blockinfo.rnode, InvalidBackendId, GetColumnNum(bufferinfo.blockinfo.forknum));
-
+#endif
     TRACE_POSTGRESQL_BUFFER_FLUSH_START(bufferinfo.blockinfo.forknum, bufferinfo.blockinfo.blkno,
                                         reln->smgr_rnode.node.spcNode, reln->smgr_rnode.node.dbNode,
                                         reln->smgr_rnode.node.relNode);
@@ -5434,7 +5526,6 @@ void FlushBuffer(void *buf, SMgrRelation reln, ReadBufferMethod flushmethod, boo
         t_thrd.log_cxt.error_context_stack = errcontext.previous;
     }
 }
-
 
 void AdioFlushBuffer(BufferDesc *buf, SMgrRelation reln, ReadBufferMethod flushmethod)
 {
@@ -5842,7 +5933,6 @@ void DropTempRelFileNodeAllBuffers(const RelFileNodeBackend& rnode)
     }
     gstrace_exit(GS_TRC_ID_DropRelFileNodeAllBuffers);
 }
-
 
 /*
  * DropRelFileNodeAllBuffers - This function removes from the buffer pool
@@ -7817,7 +7907,6 @@ static int ts_ckpt_progress_comparator(Datum a, Datum b, void *arg)
     }
 }
 
-
 /* RemoteReadFile
  *              primary dn use this function repair file.
  */
@@ -7928,7 +8017,6 @@ retry:
 
     return size;
 }
-
 
 void RemoteReadBlock(const RelFileNodeBackend &rnode, ForkNumber fork_num, BlockNumber block_num,
                      char *buf, const XLogPhyBlock *pblk, int timeout)
