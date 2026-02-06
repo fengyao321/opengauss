@@ -123,10 +123,6 @@ DATA(insert OID = 4994 ( "coverage" PGUID 0 _null_ n f _null_));
 DESCR("coverage schema");
 #define PROC_COVERAGE_NAMESPACE 4994
 
-DATA(insert OID = 4995 ( "ogai" PGUID 0 _null_ n f _null_));
-DESCR("ogai schema");
-#define PG_OGAI_NAMESPACE 4995
-
 DATA(insert OID = 9049 ( "dbe_sql_util" PGUID 0 _null_ n f _null_));
 DESCR("sql util schema");
 #define DBE_SQL_UTIL_NAMESPACE 9049
