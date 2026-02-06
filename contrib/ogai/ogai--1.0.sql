@@ -645,3 +645,785 @@ END IF;
 END;
 $$ LANGUAGE plpgsql
 SECURITY INVOKER;
+
+CREATE OR REPLACE FUNCTION ogai.search(
+    p_task_name TEXT,
+    p_query TEXT,
+    p_return_cols TEXT DEFAULT '',
+    p_limit INTEGER DEFAULT 10,
+    p_where_clause TEXT DEFAULT ''
+)
+RETURNS TABLE(
+    result_record JSONB
+) AS $$
+DECLARE
+    v_task_record ogai.vectorize_tasks%ROWTYPE;
+    v_search_query TEXT;
+    v_vector_col TEXT := 'ogai_embedding';
+    v_embedding_vector TEXT := '';
+    v_select_fields TEXT := '';
+BEGIN
+SELECT * INTO v_task_record
+FROM ogai.vectorize_tasks
+WHERE task_name = p_task_name;
+
+IF NOT FOUND THEN
+        RAISE EXCEPTION 'Task not found: %', p_task_name;
+END IF;
+
+    -- Determine vector column name and query method based on method
+    IF v_task_record.method = 'append' THEN
+        v_vector_col := 'ogai_embedding';
+        -- append mode query source table
+        v_embedding_vector := format(
+            'ogai_embedding(%L, %L, %L)',
+            p_query,
+            v_task_record.model_key,
+            v_task_record.dim
+        );
+
+        IF p_return_cols IS NOT NULL AND trim(p_return_cols) IS DISTINCT FROM '' THEN
+SELECT string_agg(quote_ident(trim(field)), ', ')
+INTO v_select_fields
+FROM unnest(string_to_array(p_return_cols, ',')) AS field
+WHERE trim(field) IS DISTINCT FROM '';
+
+IF v_select_fields IS NOT NULL AND trim(v_select_fields) IS DISTINCT FROM '' THEN
+                v_search_query := format(
+                    $query$
+                    SELECT
+                        row_to_json(t)::JSONB AS result_record
+                    FROM (
+                        SELECT
+                            (%I <=> %s) AS similarity_score,
+                            %s
+                        FROM %I.%I
+                        WHERE 1=1 %s
+                        ORDER BY %I <=> %s
+                        LIMIT %s
+                    ) t
+                    $query$,
+                    v_vector_col,
+                    v_embedding_vector,
+                    v_select_fields,
+                    v_task_record.src_schema,
+                    v_task_record.src_table,
+                    CASE WHEN p_where_clause IS NOT NULL AND trim(p_where_clause) IS DISTINCT FROM ''
+                         THEN ' AND ' || p_where_clause
+                         ELSE '' END,
+                    v_vector_col,
+                    v_embedding_vector,
+                    p_limit
+                );
+ELSE
+                v_search_query := format(
+                    $query$
+                    SELECT
+                        row_to_json(t)::JSONB AS result_record
+                    FROM (
+                        SELECT
+                            *,
+                            (%I <=> %s) AS similarity_score
+                        FROM %I.%I
+                        WHERE 1=1 %s
+                        ORDER BY %I <=> %s
+                        LIMIT %s
+                    ) t
+                    $query$,
+                    v_vector_col,
+                    v_embedding_vector,
+                    v_task_record.src_schema,
+                    v_task_record.src_table,
+                    CASE WHEN p_where_clause IS NOT NULL AND trim(p_where_clause) IS DISTINCT FROM ''
+                         THEN ' AND ' || p_where_clause
+                         ELSE '' END,
+                    v_vector_col,
+                    v_embedding_vector,
+                    p_limit
+                );
+END IF;
+ELSE
+            v_search_query := format(
+                $query$
+                SELECT
+                    row_to_json(t)::JSONB AS result_record
+                FROM (
+                    SELECT
+                        *,
+                        (%I <=> %s) AS similarity_score
+                    FROM %I.%I
+                    WHERE 1=1 %s
+                    ORDER BY %I <=> %s
+                    LIMIT %s
+                ) t
+                $query$,
+                v_vector_col,
+                v_embedding_vector,
+                v_task_record.src_schema,
+                v_task_record.src_table,
+                CASE WHEN p_where_clause IS NOT NULL AND trim(p_where_clause) IS DISTINCT FROM ''
+                     THEN ' AND ' || p_where_clause
+                     ELSE '' END,
+                v_vector_col,
+                v_embedding_vector,
+                p_limit
+            );
+END IF;
+ELSE
+        -- join mode query view
+        v_vector_col := 'ogai_embedding';
+        v_embedding_vector := format(
+            'ogai_embedding(%L, %L, %L)',
+            p_query,
+            v_task_record.model_key,
+            v_task_record.dim
+        );
+
+        IF p_return_cols IS NOT NULL AND trim(p_return_cols) IS DISTINCT FROM '' THEN
+SELECT string_agg(quote_ident(trim(field)), ', ')
+INTO v_select_fields
+FROM unnest(string_to_array(p_return_cols, ',')) AS field
+WHERE trim(field) IS DISTINCT FROM '';
+
+IF v_select_fields IS NOT NULL AND trim(v_select_fields) IS DISTINCT FROM '' THEN
+                v_search_query := format(
+                    $query$
+                    SELECT
+                        row_to_json(t)::JSONB AS result_record
+                    FROM (
+                        SELECT
+                            (%I <=> %s) AS similarity_score,
+                            %s
+                        FROM %I.%I
+                        WHERE 1=1 %s
+                        ORDER BY %I <=> %s
+                        LIMIT %s
+                    ) t
+                    $query$,
+                    v_vector_col,
+                    v_embedding_vector,
+                    v_select_fields,
+                    v_task_record.src_schema,
+                    v_task_record.src_table || '_vector_view',
+                    CASE WHEN p_where_clause IS NOT NULL AND trim(p_where_clause) IS DISTINCT FROM ''
+                         THEN ' AND ' || p_where_clause
+                         ELSE '' END,
+                    v_vector_col,
+                    v_embedding_vector,
+                    p_limit
+                );
+ELSE
+                v_search_query := format(
+                    $query$
+                    SELECT
+                        row_to_json(t)::JSONB AS result_record
+                    FROM (
+                        SELECT
+                            *,
+                            (%I <=> %s) AS similarity_score
+                        FROM %I.%I
+                        WHERE 1=1 %s
+                        ORDER BY %I <=> %s
+                        LIMIT %s
+                    ) t
+                    $query$,
+                    v_vector_col,
+                    v_embedding_vector,
+                    v_task_record.src_schema,
+                    v_task_record.src_table || '_vector_view',
+                    CASE WHEN p_where_clause IS NOT NULL AND trim(p_where_clause) IS DISTINCT FROM ''
+                         THEN ' AND ' || p_where_clause
+                         ELSE '' END,
+                    v_vector_col,
+                    v_embedding_vector,
+                    p_limit
+                );
+END IF;
+ELSE
+            v_search_query := format(
+                $query$
+                SELECT
+                    row_to_json(t)::JSONB AS result_record
+                FROM (
+                    SELECT
+                        *,
+                        (%I <=> %s) AS similarity_score
+                    FROM %I.%I
+                    WHERE 1=1 %s
+                    ORDER BY %I <=> %s
+                    LIMIT %s
+                ) t
+                $query$,
+                v_vector_col,
+                v_embedding_vector,
+                v_task_record.src_schema,
+                v_task_record.src_table || '_vector_view',
+                CASE WHEN p_where_clause IS NOT NULL AND trim(p_where_clause) IS DISTINCT FROM ''
+                     THEN ' AND ' || p_where_clause
+                     ELSE '' END,
+                v_vector_col,
+                v_embedding_vector,
+                p_limit
+            );
+END IF;
+END IF;
+
+    --RAISE NOTICE 'Generated SQL: %', v_search_query;
+RETURN QUERY EXECUTE v_search_query;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER;
+
+CREATE OR REPLACE FUNCTION ogai.ai_unvectorize(
+    p_task_name TEXT
+) RETURNS TABLE(
+    success BOOLEAN,
+    message TEXT
+) AS $$
+DECLARE
+    v_task_record ogai.vectorize_tasks%ROWTYPE;
+    v_trigger_name TEXT;
+    v_vector_table TEXT;
+    v_vector_view TEXT;
+    v_error TEXT := '';
+    v_steps_completed TEXT[] := '{}';
+BEGIN
+    -- 1. Find task
+    BEGIN
+        SELECT * INTO STRICT v_task_record
+        FROM ogai.vectorize_tasks
+        WHERE task_name = p_task_name;
+    EXCEPTION WHEN NO_DATA_FOUND THEN
+        RETURN QUERY SELECT false, 'Task not found: ' || p_task_name;
+        RETURN;
+    END;
+
+    -- 2. Drop trigger
+    BEGIN
+        v_trigger_name := format('trg_ogai_vectorize_%s', replace(p_task_name, '-', '_'));
+
+        EXECUTE format(
+            'DROP TRIGGER IF EXISTS %I ON %I.%I',
+            v_trigger_name,
+            v_task_record.src_schema,
+            v_task_record.src_table
+        );
+
+        v_steps_completed := array_append(v_steps_completed, 'Dropped trigger: ' || v_trigger_name);
+    EXCEPTION WHEN OTHERS THEN
+        v_error := v_error || format('Failed to drop trigger: %s; ', SQLERRM);
+    END;
+
+    -- 3. Drop indexes
+    BEGIN
+        IF v_task_record.method = 'append' THEN
+            -- Append mode: drop indexes on source table
+            -- Drop BM25 index based on enable_bm25
+            IF v_task_record.enable_bm25 THEN
+                EXECUTE format('DROP INDEX IF EXISTS %I.%I',
+                    v_task_record.src_schema,
+                    v_task_record.src_table || '_bm25_idx'
+                );
+            END IF;
+            EXECUTE format('DROP INDEX IF EXISTS %I.%I',
+                v_task_record.src_schema,
+                v_task_record.src_table || '_vector_idx'
+            );
+        ELSE
+            -- Join mode: drop indexes on vector table
+            -- Drop BM25 index based on enable_bm25
+            IF v_task_record.enable_bm25 THEN
+                EXECUTE format('DROP INDEX IF EXISTS %I.%I',
+                    v_task_record.src_schema,
+                    v_task_record.src_table || '_vector_bm25_idx'
+                );
+                EXECUTE format('DROP INDEX IF EXISTS %I.%I',
+                    v_task_record.src_schema,
+                    v_task_record.src_table || '_bm25_idx'
+                );
+            END IF;
+            EXECUTE format('DROP INDEX IF EXISTS %I.%I',
+                v_task_record.src_schema,
+                v_task_record.src_table || '_vector_vector_idx'
+            );
+        END IF;
+        v_steps_completed := array_append(v_steps_completed, 'Dropped indexes');
+    EXCEPTION WHEN OTHERS THEN
+        v_error := v_error || format('Failed to drop indexes: %s; ', SQLERRM);
+    END;
+
+    -- 4. Clean up resources based on method
+    IF v_task_record.method = 'append' THEN
+        -- append mode: drop vector column
+        BEGIN
+            EXECUTE format(
+                'ALTER TABLE %I.%I DROP COLUMN IF EXISTS ogai_embedding',
+                v_task_record.src_schema,
+                v_task_record.src_table
+            );
+            v_steps_completed := array_append(v_steps_completed, 'Dropped column: ogai_embedding');
+        EXCEPTION WHEN OTHERS THEN
+            v_error := v_error || format('Failed to drop column: %s; ', SQLERRM);
+        END;
+    ELSE
+        -- join mode: drop vector table and view (in user schema)
+        v_vector_table := v_task_record.src_table || '_vector';
+        v_vector_view := v_task_record.src_table || '_vector_view';
+
+        -- Drop view
+        BEGIN
+            EXECUTE format('DROP VIEW IF EXISTS %I.%I CASCADE', v_task_record.src_schema, v_vector_view);
+            v_steps_completed := array_append(v_steps_completed, 'Dropped view: ' || v_task_record.src_schema || '.' || v_vector_view);
+        EXCEPTION WHEN OTHERS THEN
+            v_error := v_error || format('Failed to drop view: %s; ', SQLERRM);
+        END;
+
+        -- Drop vector table
+        BEGIN
+            EXECUTE format('DROP TABLE IF EXISTS %I.%I CASCADE', v_task_record.src_schema, v_vector_table);
+            v_steps_completed := array_append(v_steps_completed, 'Dropped table: ' || v_task_record.src_schema || '.' || v_vector_table);
+        EXCEPTION WHEN OTHERS THEN
+            v_error := v_error || format('Failed to drop table: %s; ', SQLERRM);
+        END;
+    END IF;
+
+    -- 5. Clean up related messages in queue
+    BEGIN
+        DELETE FROM ogai.vectorize_queue
+        WHERE message::TEXT LIKE '%' || p_task_name || '%';
+
+        v_steps_completed := array_append(v_steps_completed, 'Cleaned queue messages');
+    EXCEPTION WHEN OTHERS THEN
+        v_error := v_error || format('Failed to clean queue: %s; ', SQLERRM);
+    END;
+
+    -- 6. Delete task record
+    BEGIN
+        DELETE FROM ogai.vectorize_tasks
+        WHERE task_name = p_task_name;
+
+        v_steps_completed := array_append(v_steps_completed, 'Deleted task record');
+    EXCEPTION WHEN OTHERS THEN
+        v_error := v_error || format('Failed to delete task: %s; ', SQLERRM);
+    END;
+
+    -- 7. Return result
+    IF v_error = '' THEN
+        RETURN QUERY SELECT
+            true,
+            'Successfully unvectorized task: ' || p_task_name || E'\n' ||
+            'Steps: ' || array_to_string(v_steps_completed, '; ');
+    ELSE
+        RETURN QUERY SELECT
+            false,
+            'Partial errors during unvectorize: ' || v_error || E'\n' ||
+            'Completed steps: ' || array_to_string(v_steps_completed, '; ');
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER;
+
+
+CREATE OR REPLACE FUNCTION ogai.rag(
+    p_user_question   TEXT,
+    p_task_name       TEXT,
+    p_reranker_model  TEXT,
+    p_chat_model      TEXT,
+    p_rerank_limit    INTEGER DEFAULT 5,
+    p_search_limit    INTEGER DEFAULT 20
+)
+RETURNS TEXT AS $$
+DECLARE
+    v_task_record ogai.vectorize_tasks%ROWTYPE;
+    v_search_result JSONB;
+    v_raw_docs TEXT[] := '{}';
+    v_reranked RECORD;
+    v_top_docs TEXT[] := '{}';
+    v_context TEXT := '';
+    v_final_prompt TEXT;
+    v_answer TEXT;
+BEGIN
+    -- Parameter validation
+    IF p_search_limit <= 0 THEN
+        RAISE EXCEPTION 'p_search_limit must be positive';
+    END IF;
+    IF p_rerank_limit <= 0 THEN
+        RAISE EXCEPTION 'p_rerank_limit must be positive';
+    END IF;
+
+    -- Get task information
+    BEGIN
+        SELECT * INTO STRICT v_task_record
+        FROM ogai.vectorize_tasks
+        WHERE task_name = p_task_name;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE EXCEPTION 'Task not found: %', p_task_name;
+        WHEN TOO_MANY_ROWS THEN
+            RAISE EXCEPTION 'Multiple tasks found with name: %', p_task_name;
+    END;
+
+    -- Vector search
+    FOR v_search_result IN
+        SELECT result_record
+        FROM ogai.search(p_task_name, p_user_question, '', p_search_limit, '')
+    LOOP
+        IF v_search_result IS NULL THEN
+            CONTINUE;
+        END IF;
+
+        IF v_task_record.method = 'append' THEN
+            IF v_search_result ? v_task_record.src_col THEN
+                v_raw_docs := array_append(v_raw_docs, v_search_result->>v_task_record.src_col);
+            END IF;
+        ELSE
+            IF v_search_result ? 'chunk_text' THEN
+                v_raw_docs := array_append(v_raw_docs, v_search_result->>'chunk_text');
+            END IF;
+        END IF;
+    END LOOP;
+
+    IF array_length(v_raw_docs, 1) IS NULL OR array_length(v_raw_docs, 1) = 0 THEN
+        RETURN ogai_generate(p_user_question, p_chat_model);
+    END IF;
+
+    -- Reranking
+    FOR v_reranked IN
+        SELECT document
+        FROM ogai_rerank(p_user_question, v_raw_docs, p_reranker_model)
+        ORDER BY rerank_score DESC
+        LIMIT p_rerank_limit
+    LOOP
+        v_top_docs := array_append(v_top_docs, v_reranked.document);
+    END LOOP;
+
+    -- Concatenate context
+    SELECT string_agg(doc, E'\n\n---\n\n') INTO v_context
+    FROM unnest(v_top_docs) AS t(doc);
+
+    -- Construct final prompt
+    v_final_prompt := format(
+        'Answer the question based on the following reference materials. If the materials are not relevant, answer based on common sense only.\n\nReference Materials:\n%s\n\nQuestion: %s',
+        v_context,
+        p_user_question
+    );
+
+    -- Call LLM to generate answer
+    v_answer := ogai_generate(v_final_prompt, p_chat_model);
+
+    RETURN v_answer;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER;
+
+CREATE OR REPLACE FUNCTION ogai.hybrid_search(
+    p_task_name TEXT,
+    p_query TEXT,
+    p_return_cols TEXT DEFAULT '',
+    p_limit INTEGER DEFAULT 10,
+    p_where_clause TEXT DEFAULT ''
+)
+RETURNS TABLE(
+    result_record JSONB
+) AS $$
+DECLARE
+    v_task_record ogai.vectorize_tasks%ROWTYPE;
+    v_vector_query TEXT;
+    v_bm25_query TEXT;
+    v_hybrid_query TEXT;
+    v_vector_col TEXT := 'ogai_embedding';
+    v_embedding_vector TEXT := '';
+    v_select_fields TEXT := '';
+    v_ratio DOUBLE PRECISION;
+    v_bm25_col TEXT;
+    v_use_join_mode BOOLEAN := false;
+BEGIN
+    -- Get task information
+    SELECT * INTO v_task_record
+    FROM ogai.vectorize_tasks
+    WHERE task_name = p_task_name;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Task not found: %', p_task_name;
+    END IF;
+
+    -- Check if BM25 is enabled for this task
+    IF NOT v_task_record.enable_bm25 THEN
+        RAISE EXCEPTION 'BM25 is not enabled for task: %. Please use ogai.search() instead or recreate the task with enable_bm25=true.', p_task_name;
+    END IF;
+
+    v_ratio := current_setting('ogai.hybrid_search_ratio')::DOUBLE PRECISION;
+
+    -- Validate ratio range
+    IF v_ratio < 0 OR v_ratio > 1 THEN
+        RAISE EXCEPTION 'hybrid_search_ratio must be between 0 and 1, got: %', v_ratio;
+    END IF;
+
+    -- Determine columns for BM25 and vector search
+    IF v_task_record.method = 'append' THEN
+        v_vector_col := 'ogai_embedding';
+        v_bm25_col := v_task_record.src_col;
+        v_use_join_mode := false;
+    ELSE
+        -- join mode
+        v_vector_col := 'ogai_embedding';
+        IF v_task_record.max_chunk_size > 0 THEN
+            v_bm25_col := 'chunk_text';
+        ELSE
+            v_bm25_col := v_task_record.src_col;
+        END IF;
+        v_use_join_mode := true;
+    END IF;
+
+    -- Generate embedding for vector search
+    v_embedding_vector := format(
+        'ogai_embedding(%L, %L, %L)',
+        p_query,
+        v_task_record.model_key,
+        v_task_record.dim
+    );
+
+    -- Parse return columns
+    IF p_return_cols IS NOT NULL AND trim(p_return_cols) IS DISTINCT FROM '' THEN
+        SELECT string_agg(quote_ident(trim(field)), ', ')
+        INTO v_select_fields
+        FROM unnest(string_to_array(p_return_cols, ',')) AS field
+        WHERE trim(field) IS DISTINCT FROM '';
+    END IF;
+
+    -- Enable index scan for BM25 to work properly in subqueries
+    PERFORM set_config('enable_seqscan', 'off', false);
+    PERFORM set_config('enable_indexscan', 'on', false);
+
+    -- Build hybrid search query
+    IF v_use_join_mode THEN
+        -- Join mode: query from vector_view
+        IF v_select_fields IS NOT NULL AND trim(v_select_fields) IS DISTINCT FROM '' THEN
+            v_hybrid_query := format(
+                $query$
+                WITH vector_scores AS (
+                    SELECT
+                        %I AS pk_col,
+                        1.0 / (1.0 + (%I <=> %s)) AS vector_score
+                    FROM %I.%I
+                    WHERE 1=1 %s
+                ),
+                bm25_scores AS (
+                    SELECT * FROM (
+                        SELECT
+                            %I AS pk_col,
+                            %I <&> %L AS bm25_score
+                        FROM %I.%I
+                        WHERE 1=1 %s
+                        ORDER BY %I <&> %L DESC
+                    ) subq
+                ),
+                combined AS (
+                    SELECT
+                        COALESCE(v.pk_col, b.pk_col) AS pk_col,
+                        COALESCE(v.vector_score, 0) AS vector_score,
+                        COALESCE(b.bm25_score, 0) AS bm25_score,
+                        (%L * COALESCE(v.vector_score, 0) / NULLIF(MAX(v.vector_score) OVER (), 0) +
+                         (1.0 - %L) * COALESCE(b.bm25_score, 0) / NULLIF(MAX(b.bm25_score) OVER (), 0)) AS hybrid_score
+                    FROM vector_scores v
+                    FULL OUTER JOIN bm25_scores b ON v.pk_col = b.pk_col
+                )
+                SELECT row_to_json(t)::JSONB AS result_record
+                FROM (
+                    SELECT c.hybrid_score, %s
+                    FROM combined c
+                    JOIN %I.%I src ON src.%I = c.pk_col
+                    ORDER BY c.hybrid_score DESC NULLS LAST
+                    LIMIT %s
+                ) t
+                $query$,
+                v_task_record.primary_key,
+                v_vector_col, v_embedding_vector,
+                v_task_record.src_schema, v_task_record.src_table || '_vector_view',
+                CASE WHEN p_where_clause IS NOT NULL AND trim(p_where_clause) IS DISTINCT FROM ''
+                     THEN ' AND ' || p_where_clause ELSE '' END,
+                v_task_record.primary_key,
+                v_bm25_col, p_query,
+                v_task_record.src_schema, v_task_record.src_table || '_vector_view',
+                CASE WHEN p_where_clause IS NOT NULL AND trim(p_where_clause) IS DISTINCT FROM ''
+                     THEN ' AND ' || p_where_clause ELSE '' END,
+                v_bm25_col, p_query,
+                v_ratio, v_ratio,
+                v_select_fields,
+                v_task_record.src_schema, v_task_record.src_table,
+                v_task_record.primary_key,
+                p_limit
+            );
+        ELSE
+            v_hybrid_query := format(
+                $query$
+                WITH vector_scores AS (
+                    SELECT
+                        %I AS pk_col,
+                        1.0 / (1.0 + (%I <=> %s)) AS vector_score
+                    FROM %I.%I
+                    WHERE 1=1 %s
+                ),
+                bm25_scores AS (
+                    SELECT * FROM (
+                        SELECT
+                            %I AS pk_col,
+                            %I <&> %L AS bm25_score
+                        FROM %I.%I
+                        WHERE 1=1 %s
+                        ORDER BY %I <&> %L DESC
+                    ) subq
+                ),
+                combined AS (
+                    SELECT
+                        COALESCE(v.pk_col, b.pk_col) AS pk_col,
+                        COALESCE(v.vector_score, 0) AS vector_score,
+                        COALESCE(b.bm25_score, 0) AS bm25_score,
+                        (%L * COALESCE(v.vector_score, 0) / NULLIF(MAX(v.vector_score) OVER (), 0) +
+                         (1.0 - %L) * COALESCE(b.bm25_score, 0) / NULLIF(MAX(b.bm25_score) OVER (), 0)) AS hybrid_score
+                    FROM vector_scores v
+                    FULL OUTER JOIN bm25_scores b ON v.pk_col = b.pk_col
+                )
+                SELECT row_to_json(t)::JSONB AS result_record
+                FROM (
+                    SELECT c.hybrid_score, src.*
+                    FROM combined c
+                    JOIN %I.%I src ON src.%I = c.pk_col
+                    ORDER BY c.hybrid_score DESC NULLS LAST
+                    LIMIT %s
+                ) t
+                $query$,
+                v_task_record.primary_key,
+                v_vector_col, v_embedding_vector,
+                v_task_record.src_schema, v_task_record.src_table || '_vector_view',
+                CASE WHEN p_where_clause IS NOT NULL AND trim(p_where_clause) IS DISTINCT FROM ''
+                     THEN ' AND ' || p_where_clause ELSE '' END,
+                v_task_record.primary_key,
+                v_bm25_col, p_query,
+                v_task_record.src_schema, v_task_record.src_table || '_vector_view',
+                CASE WHEN p_where_clause IS NOT NULL AND trim(p_where_clause) IS DISTINCT FROM ''
+                     THEN ' AND ' || p_where_clause ELSE '' END,
+                v_bm25_col, p_query,
+                v_ratio, v_ratio,
+                v_task_record.src_schema, v_task_record.src_table,
+                v_task_record.primary_key,
+                p_limit
+            );
+        END IF;
+    ELSE
+        -- Append mode: query from source table
+        IF v_select_fields IS NOT NULL AND trim(v_select_fields) IS DISTINCT FROM '' THEN
+            v_hybrid_query := format(
+                $query$
+                WITH vector_scores AS (
+                    SELECT
+                        %I AS pk_col,
+                        1.0 / (1.0 + (%I <=> %s)) AS vector_score
+                    FROM %I.%I
+                    WHERE 1=1 %s
+                ),
+                bm25_scores AS (
+                    SELECT * FROM (
+                        SELECT
+                            %I AS pk_col,
+                            %I <&> %L AS bm25_score
+                        FROM %I.%I
+                        WHERE 1=1 %s
+                        ORDER BY %I <&> %L DESC
+                    ) subq
+                ),
+                combined AS (
+                    SELECT
+                        COALESCE(v.pk_col, b.pk_col) AS pk_col,
+                        COALESCE(v.vector_score, 0) AS vector_score,
+                        COALESCE(b.bm25_score, 0) AS bm25_score,
+                        (%L * COALESCE(v.vector_score, 0) / NULLIF(MAX(v.vector_score) OVER (), 0) +
+                         (1.0 - %L) * COALESCE(b.bm25_score, 0) / NULLIF(MAX(b.bm25_score) OVER (), 0)) AS hybrid_score
+                    FROM vector_scores v
+                    FULL OUTER JOIN bm25_scores b ON v.pk_col = b.pk_col
+                )
+                SELECT row_to_json(t)::JSONB AS result_record
+                FROM (
+                    SELECT c.hybrid_score, %s
+                    FROM combined c
+                    JOIN %I.%I src ON src.%I = c.pk_col
+                    ORDER BY c.hybrid_score DESC NULLS LAST
+                    LIMIT %s
+                ) t
+                $query$,
+                v_task_record.primary_key,
+                v_vector_col, v_embedding_vector,
+                v_task_record.src_schema, v_task_record.src_table,
+                CASE WHEN p_where_clause IS NOT NULL AND trim(p_where_clause) IS DISTINCT FROM ''
+                     THEN ' AND ' || p_where_clause ELSE '' END,
+                v_task_record.primary_key,
+                v_bm25_col, p_query,
+                v_task_record.src_schema, v_task_record.src_table,
+                CASE WHEN p_where_clause IS NOT NULL AND trim(p_where_clause) IS DISTINCT FROM ''
+                     THEN ' AND ' || p_where_clause ELSE '' END,
+                v_bm25_col, p_query,
+                v_ratio, v_ratio,
+                v_select_fields,
+                v_task_record.src_schema, v_task_record.src_table,
+                v_task_record.primary_key,
+                p_limit
+            );
+        ELSE
+            v_hybrid_query := format(
+                $query$
+                WITH vector_scores AS (
+                    SELECT
+                        %I AS pk_col,
+                        1.0 / (1.0 + (%I <=> %s)) AS vector_score
+                    FROM %I.%I
+                    WHERE 1=1 %s
+                ),
+                bm25_scores AS (
+                    SELECT * FROM (
+                        SELECT
+                            %I AS pk_col,
+                            %I <&> %L AS bm25_score
+                        FROM %I.%I
+                        WHERE 1=1 %s
+                        ORDER BY %I <&> %L DESC
+                    ) subq
+                ),
+                combined AS (
+                    SELECT
+                        COALESCE(v.pk_col, b.pk_col) AS pk_col,
+                        COALESCE(v.vector_score, 0) AS vector_score,
+                        COALESCE(b.bm25_score, 0) AS bm25_score,
+                        (%L * COALESCE(v.vector_score, 0) / NULLIF(MAX(v.vector_score) OVER (), 0) +
+                         (1.0 - %L) * COALESCE(b.bm25_score, 0) / NULLIF(MAX(b.bm25_score) OVER (), 0)) AS hybrid_score
+                    FROM vector_scores v
+                    FULL OUTER JOIN bm25_scores b ON v.pk_col = b.pk_col
+                )
+                SELECT row_to_json(t)::JSONB AS result_record
+                FROM (
+                    SELECT c.hybrid_score, src.*
+                    FROM combined c
+                    JOIN %I.%I src ON src.%I = c.pk_col
+                    ORDER BY c.hybrid_score DESC NULLS LAST
+                    LIMIT %s
+                ) t
+                $query$,
+                v_task_record.primary_key,
+                v_vector_col, v_embedding_vector,
+                v_task_record.src_schema, v_task_record.src_table,
+                CASE WHEN p_where_clause IS NOT NULL AND trim(p_where_clause) IS DISTINCT FROM ''
+                     THEN ' AND ' || p_where_clause ELSE '' END,
+                v_task_record.primary_key,
+                v_bm25_col, p_query,
+                v_task_record.src_schema, v_task_record.src_table,
+                CASE WHEN p_where_clause IS NOT NULL AND trim(p_where_clause) IS DISTINCT FROM ''
+                     THEN ' AND ' || p_where_clause ELSE '' END,
+                v_bm25_col, p_query,
+                v_ratio, v_ratio,
+                v_task_record.src_schema, v_task_record.src_table,
+                v_task_record.primary_key,
+                p_limit
+            );
+        END IF;
+    END IF;
+
+    -- Execute hybrid search query
+    RETURN QUERY EXECUTE v_hybrid_query;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER;

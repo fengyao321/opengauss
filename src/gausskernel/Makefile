@@ -617,6 +617,7 @@ endif
 	$(MAKE) -C $(top_builddir)/contrib/test_decoding install
 	$(MAKE) -C $(top_builddir)/contrib/mppdb_decoding install
 	$(MAKE) -C $(top_builddir)/contrib/security_plugin install
+	$(MAKE) -C $(top_builddir)/contrib/ogai install
 	$(INSTALL_DATA) $(srcdir)/../common/backend/libpq/pg_hba.conf.sample '$(DESTDIR)$(datadir)/pg_hba.conf.sample'
 	$(INSTALL_DATA) $(srcdir)/../common/backend/libpq/pg_ident.conf.sample '$(DESTDIR)$(datadir)/pg_ident.conf.sample'
 ifeq ($(enable_multiple_nodes), yes)
