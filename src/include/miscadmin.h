@@ -186,6 +186,12 @@ extern const uint32 SELECT_STMT_HAS_ROTATE;
 extern void register_backend_version(uint32 backend_version);
 extern bool contain_backend_version(uint32 version_number);
 
+#ifdef ENABLE_NEON
+/* Callback called by ProcessInterrupts in the loop while it is returning true. */
+typedef bool (*process_interrupts_callback_t)(void);
+extern process_interrupts_callback_t ProcessInterruptsCallback;
+#endif
+
 #define INPLACE_UPGRADE_PRECOMMIT_VERSION 1
 
 // b_format_behavior_compat_options params
@@ -564,6 +570,26 @@ extern int trace_recovery(int trace_level);
 #define SENDER_LOCAL_USERID_CHANGE 0x0004
 #define RECEIVER_LOCAL_USERID_CHANGE 0x0008
 
+#ifdef ENABLE_NEON
+typedef enum BackendType {
+    B_INVALID = 0,
+    B_AUTOVAC_LAUNCHER,
+    B_AUTOVAC_WORKER,
+    B_BACKEND,
+    B_BG_WORKER,
+    B_BG_WRITER,
+    B_CHECKPOINTER,
+    B_STARTUP,
+    B_WAL_RECEIVER,
+    B_WAL_SENDER,
+    B_WAL_WRITER,
+    B_ARCHIVER,
+    B_STATS_COLLECTOR,
+    B_LOGGER,
+} BackendType;
+extern BackendType MyBackendType;
+#endif
+
 /* now in utils/init/miscinit.c */
 extern char* GetUserNameFromId(Oid roleid);
 extern char* GetUserNameById(Oid roleid);
@@ -794,6 +820,10 @@ extern void BaseInit(void);
 #define LOCK_FILE_LINE_SOCKET_DIR 5
 #define LOCK_FILE_LINE_LISTEN_ADDR 6
 #define LOCK_FILE_LINE_SHMEM_KEY 7
+#ifdef ENABLE_NEON
+#define LOCK_FILE_LINE_PM_STATUS 8
+#define PM_STATUS_READY "ready   "  /* ready for connections */
+#endif
 
 extern void CreateDataDirLockFile(bool amPostmaster);
 extern void CreateSocketLockFile(const char* socketfile, bool amPostmaster, bool is_create_psql_sock = true);
@@ -827,4 +857,7 @@ extern size_t GetHashMemoryLimit(void);
 #endif
 
 #define UPSERT_ROW_STORE_VERSION_NUM 92073 /* Version control for UPSERT */
+#ifdef ENABLE_NEON
+extern void InitStandaloneProcess(const char* argv0);
+#endif
 #endif /* MISCADMIN_H */
