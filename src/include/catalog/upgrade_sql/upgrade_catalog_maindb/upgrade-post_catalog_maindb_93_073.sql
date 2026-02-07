@@ -27,7 +27,7 @@ CREATE OR REPLACE FUNCTION pg_catalog.pg_extract_collate_name(oid) RETURNS text
     NOT FENCED
     RETURNS NULL ON NULL INPUT
     AS
-$$select collname::text FROM pg_catalog.pg_collation where oid = $1 $$;
+$$select collname::text from pg_catalog.pg_collation where oid = $1 $$;
 
 CREATE OR REPLACE FUNCTION pg_catalog.pg_get_expr(text, oid) RETURNS text LANGUAGE INTERNAL IMMUTABLE STRICT as 'pg_get_expr';
 

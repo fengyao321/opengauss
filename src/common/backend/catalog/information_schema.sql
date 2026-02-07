@@ -779,7 +779,7 @@ CREATE VIEW columns AS
             CAST(
                CASE WHEN ad.adsrc = 'AUTO_INCREMENT' THEN 'AUTO_INCREMENT' 
                ELSE
-                  CASE WHEN ad.adsrc_on_update is not null THEN CONCAT('DEFAULT_GENERATED on update ', ad.adsrc_on_update)
+                  CASE WHEN ad.adsrc_on_update is not null THEN CONCAT('DEFAULT_GENERATED on update ', pg_catalog.quote_literal(ad.adsrc_on_update))
                   ELSE null
                   END
                END 
@@ -1460,7 +1460,7 @@ CREATE OR REPLACE FUNCTION pg_catalog.pg_extract_collate_name(oid) RETURNS text
     NOT FENCED
     RETURNS NULL ON NULL INPUT
     AS
-$$select collname::text from pg_collation where oid = $1 $$;
+$$select collname::text from pg_catalog.pg_collation where oid = $1 $$;
 
 
 CREATE OR REPLACE FUNCTION pg_catalog.pg_get_expr(text, oid) RETURNS text LANGUAGE INTERNAL IMMUTABLE STRICT as 'pg_get_expr';

@@ -4,7 +4,7 @@ CREATE OPERATOR pg_catalog.@>(
 leftarg = jsonb, rightarg = jsonb, procedure = jsonb_contains,
 restrict = contsel, join = contjoinsel
 );
-COMMENT ON OPERATOR pg_catalog.@>(jsonb, jsonb) IS 'jsonb_contains';
+COMMENT ON OPERATOR pg_catalog.@>(jsonb, jsonb) IS 'contains';
 
 set d_format_behavior_compat_options = 'enable_abs';
 DROP OPERATOR IF EXISTS pg_catalog.<@(jsonb, jsonb) cascade;
@@ -13,5 +13,5 @@ CREATE OPERATOR pg_catalog.<@(
 leftarg = jsonb, rightarg = jsonb, procedure = jsonb_contained,
 restrict = contsel, join = contjoinsel
 );
-COMMENT ON OPERATOR pg_catalog.<@(jsonb, jsonb) IS 'jsonb_contained';
+COMMENT ON OPERATOR pg_catalog.<@(jsonb, jsonb) IS 'contained';
 
