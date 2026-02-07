@@ -1569,6 +1569,377 @@ static int pg_utf8_verifier(const unsigned char* s, int len)
 }
 
 /*
+ * The fast path of the UTF-8 verifier uses a deterministic finite automaton
+ * (DFA) for multibyte characters. In a traditional table-driven DFA, the
+ * input byte and current state are used to compute an index into an array of
+ * state transitions. Since the address of the next transition is dependent
+ * on this computation, there is latency in executing the load instruction,
+ * and the CPU is not kept busy.
+ *
+ * Instead, we use a "shift-based" DFA as described by Per Vognsen:
+ *
+ * https://gist.github.com/pervognsen/218ea17743e1442e59bb60d29b1aa725
+ *
+ * In a shift-based DFA, the input byte is an index into array of integers
+ * whose bit pattern encodes the state transitions. To compute the next
+ * state, we simply right-shift the integer by the current state and apply a
+ * mask. In this scheme, the address of the transition only depends on the
+ * input byte, so there is better pipelining.
+ *
+ * The naming convention for states and transitions was adopted from a UTF-8
+ * to UTF-16/32 transcoder, whose table is reproduced below:
+ *
+ * https://github.com/BobSteagall/utf_utils/blob/6b7a465265de2f5fa6133d653df0c9bdd73bbcf8/src/utf_utils.cpp
+ *
+ * ILL  ASC  CR1  CR2  CR3  L2A  L3A  L3B  L3C  L4A  L4B  L4C CLASS / STATE
+ * ==========================================================================
+ * err, END, err, err, err, CS1, P3A, CS2, P3B, P4A, CS3, P4B,      | BGN/END
+ * err, err, err, err, err, err, err, err, err, err, err, err,      | ERR
+ *                                                                  |
+ * err, err, END, END, END, err, err, err, err, err, err, err,      | CS1
+ * err, err, CS1, CS1, CS1, err, err, err, err, err, err, err,      | CS2
+ * err, err, CS2, CS2, CS2, err, err, err, err, err, err, err,      | CS3
+ *                                                                  |
+ * err, err, err, err, CS1, err, err, err, err, err, err, err,      | P3A
+ * err, err, CS1, CS1, err, err, err, err, err, err, err, err,      | P3B
+ *                                                                  |
+ * err, err, err, CS2, CS2, err, err, err, err, err, err, err,      | P4A
+ * err, err, CS2, err, err, err, err, err, err, err, err, err,      | P4B
+ *
+ * In the most straightforward implementation, a shift-based DFA for UTF-8
+ * requires 64-bit integers to encode the transitions, but with an SMT solver
+ * it's possible to find state numbers such that the transitions fit within
+ * 32-bit integers, as Dougall Johnson demonstrated:
+ *
+ * https://gist.github.com/dougallj/166e326de6ad4cf2c94be97a204c025f
+ *
+ * This packed representation is the reason for the seemingly odd choice of
+ * state values below.
+ */
+
+/* Error */
+#define ERR 0
+/* Begin */
+#define BGN 11
+/* Continuation states, expect 1/2/3 continuation bytes */
+#define CS1 16
+#define CS2 1
+#define CS3 5
+/* Leading byte was E0/ED, expect 1 more continuation byte */
+#define P3A 6
+#define P3B 20
+/* Leading byte was F0/F4, expect 2 more continuation bytes */
+#define P4A 25
+#define P4B 30
+/* Begin and End are the same state */
+#define END BGN
+
+/* The encoded state transitions for the lookup table */
+
+/* ASCII */
+#define ASC (END << BGN)
+/* 2-byte lead */
+#define L2A (CS1 << BGN)
+/* 3-byte lead */
+#define L3A (P3A << BGN)
+#define L3B (CS2 << BGN)
+#define L3C (P3B << BGN)
+/* 4-byte lead */
+#define L4A (P4A << BGN)
+#define L4B (CS3 << BGN)
+#define L4C (P4B << BGN)
+/* Continuation byte */
+#define CR1 ((END << CS1) | (CS1 << CS2) | (CS2 << CS3) | (CS1 << P3B) | (CS2 << P4B))
+#define CR2 ((END << CS1) | (CS1 << CS2) | (CS2 << CS3) | (CS1 << P3B) | (CS2 << P4A))
+#define CR3 ((END << CS1) | (CS1 << CS2) | (CS2 << CS3) | (CS1 << P3A) | (CS2 << P4A))
+/* Invalid byte */
+#define ILL ERR
+
+static const uint32 Utf8Transition[256] = {
+    /* 00..7F: ASCII */
+    ILL, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC,
+    ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC,
+    ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC,
+    ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC,
+    ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC,
+    ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC,
+    ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC,
+    ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC, ASC,
+    /* 80..BF: continuation bytes */
+    CR1, CR1, CR1, CR1, CR1, CR1, CR1, CR1, CR1, CR1, CR1, CR1, CR1, CR1, CR1, CR1,
+    CR2, CR2, CR2, CR2, CR2, CR2, CR2, CR2, CR2, CR2, CR2, CR2, CR2, CR2, CR2, CR2,
+    CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3,
+    CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3, CR3,
+    /* C0..DF: 2-byte lead */
+    ILL, ILL, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A,
+    L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A, L2A,
+    /* E0..EF: 3-byte lead */
+    L3A, L3B, L3B, L3B, L3B, L3B, L3B, L3B, L3B, L3B, L3B, L3B, L3B, L3C, L3B, L3B,
+    /* F0..FF: 4-byte lead */
+    L4A, L4B, L4B, L4B, L4C, ILL, ILL, ILL, ILL, ILL, ILL, ILL, ILL, ILL, ILL, ILL
+};
+
+/* Mask for UTF-8 state machine (32-bit shift modulo) */
+#define UTF8_STATE_MASK (31)
+
+static void utf8_advance(const unsigned char* s, uint32* state, int len)
+{
+    while (len > 0) {
+        *state = Utf8Transition[*s++] >> (*state & UTF8_STATE_MASK);
+        len--;
+    }
+    *state &= UTF8_STATE_MASK;
+}
+
+/*
+ * UTF-8 validation constants.
+ */
+#define NEON_CHUNK_SIZE (16)
+#define NEON_DOUBLE_STRIDE (32)
+#define UTF8_HIGH_BIT_MASK (0x80)
+
+/* Check if chunk contains only valid ASCII (no zero bytes or high-bit set).
+ * Same name; which implementation is compiled is controlled by USE_NEON_UTF8_VALIDATION.
+ */
+#ifdef USE_NEON_UTF8_VALIDATION
+static bool is_valid_ascii(const unsigned char* s, int len)
+{
+    const unsigned char* ptr = s;
+    int remaining = len;
+    uint8x16_t highbit_cum = vdupq_n_u8(0);
+
+    while (remaining >= NEON_CHUNK_SIZE) {
+        uint8x16_t chunk = vld1q_u8(ptr);
+        uint8x16_t zero_check = vceqq_u8(chunk, vdupq_n_u8(0));
+        if (vmaxvq_u8(zero_check) != 0) {
+            return false;
+        }
+        highbit_cum = vorrq_u8(highbit_cum, chunk);
+        ptr += NEON_CHUNK_SIZE;
+        remaining -= NEON_CHUNK_SIZE;
+    }
+
+    uint8x16_t highbit_mask = vdupq_n_u8(0x80);
+    uint8x16_t highbits = vandq_u8(highbit_cum, highbit_mask);
+    if (vmaxvq_u8(highbits) != 0) {
+        return false;
+    }
+
+    while (remaining > 0) {
+        if (*ptr == '\0' || IS_HIGHBIT_SET(*ptr)) {
+            return false;
+        }
+        ptr++;
+        remaining--;
+    }
+    return true;
+}
+#else
+static bool is_valid_ascii(const unsigned char* s, int len)
+{
+    const unsigned char* ptr = s;
+    int remaining = len;
+    uint64 chunk;
+    uint64 highbit_cum = UINT64CONST(0);
+    uint64 zero_cum = UINT64CONST(0x8080808080808080);
+    errno_t rc;
+
+    Assert(len % sizeof(chunk) == 0);
+
+    while (remaining > 0) {
+        rc = memcpy_s(&chunk, sizeof(chunk), ptr, sizeof(chunk));
+        securec_check_c(rc, "\0", "\0");
+        zero_cum &= (chunk + UINT64CONST(0x7f7f7f7f7f7f7f7f));
+        highbit_cum |= chunk;
+        ptr += sizeof(chunk);
+        remaining -= sizeof(chunk);
+    }
+
+    if (highbit_cum & UINT64CONST(0x8080808080808080)) {
+        return false;
+    }
+    if (zero_cum != UINT64CONST(0x8080808080808080)) {
+        return false;
+    }
+    return true;
+}
+#endif
+
+#ifdef USE_NEON_UTF8_VALIDATION
+/* Process 32-byte NEON chunk, returns true if should break */
+static bool neon_process_double(const unsigned char** ps, int* plen,
+    uint32* state, const unsigned char* start, int origLen)
+{
+    const unsigned char* s = *ps;
+    uint8x16_t c1 = vld1q_u8(s);
+    uint8x16_t c2 = vld1q_u8(s + NEON_CHUNK_SIZE);
+    uint8x16_t mask = vdupq_n_u8(UTF8_HIGH_BIT_MASK);
+    if (vmaxvq_u8(vceqq_u8(c1, vdupq_n_u8(0))) != 0 ||
+        vmaxvq_u8(vceqq_u8(c2, vdupq_n_u8(0))) != 0) {
+        return true;
+    }
+    if (*state == END && vmaxvq_u8(vandq_u8(c1, mask)) == 0 &&
+        vmaxvq_u8(vandq_u8(c2, mask)) == 0) {
+        *ps += NEON_DOUBLE_STRIDE;
+        *plen -= NEON_DOUBLE_STRIDE;
+        return false;
+    }
+    utf8_advance(s, state, NEON_DOUBLE_STRIDE);
+    if (*state == ERR) {
+        *plen = origLen;
+        *ps = start;
+        return true;
+    }
+    *ps += NEON_DOUBLE_STRIDE;
+    *plen -= NEON_DOUBLE_STRIDE;
+    return false;
+}
+
+/* Process 16-byte NEON chunk, returns true if should break */
+static bool neon_process_single(const unsigned char** ps, int* plen,
+    uint32* state, const unsigned char* start, int origLen)
+{
+    const unsigned char* s = *ps;
+    uint8x16_t c = vld1q_u8(s);
+    uint8x16_t mask = vdupq_n_u8(UTF8_HIGH_BIT_MASK);
+    if (vmaxvq_u8(vceqq_u8(c, vdupq_n_u8(0))) != 0) {
+        return true;
+    }
+    if (*state == END && vmaxvq_u8(vandq_u8(c, mask)) == 0) {
+        *ps += NEON_CHUNK_SIZE;
+        *plen -= NEON_CHUNK_SIZE;
+        return false;
+    }
+    utf8_advance(s, state, NEON_CHUNK_SIZE);
+    if (*state == ERR) {
+        *plen = origLen;
+        *ps = start;
+        return true;
+    }
+    *ps += NEON_CHUNK_SIZE;
+    *plen -= NEON_CHUNK_SIZE;
+    return false;
+}
+
+/*
+ * UTF-8 string verification entry point.
+ * Same name; which implementation is compiled is controlled by USE_NEON_UTF8_VALIDATION.
+ */
+static int pg_utf8_verifystr(const unsigned char* s, int len)
+{
+    const unsigned char* start = s;
+    const int origLen = len;
+    uint32 state = BGN;
+
+    while (len >= NEON_DOUBLE_STRIDE) {
+        if (neon_process_double(&s, &len, &state, start, origLen)) {
+            break;
+        }
+    }
+    while (len >= NEON_CHUNK_SIZE) {
+        if (neon_process_single(&s, &len, &state, start, origLen)) {
+            break;
+        }
+    }
+    if (state != ERR && state != END && s > start) {
+        while (s > start) {
+            s--;
+            len++;
+            if (!IS_HIGHBIT_SET(*s) || pg_utf_mblen(s) > 1) {
+                break;
+            }
+        }
+    }
+    while (len > 0) {
+        int l;
+        if (!IS_HIGHBIT_SET(*s)) {
+            if (*s == '\0') {
+                break;
+            }
+            l = 1;
+        } else {
+            l = pg_utf8_verifier(s, len);
+            if (l == -1) {
+                break;
+            }
+        }
+        s += l;
+        len -= l;
+    }
+    return s - start;
+}
+#else
+static int pg_utf8_verifystr(const unsigned char* s, int len)
+{
+    const unsigned char* start = s;
+    const int origLen = len;
+    uint32 state = BGN;
+
+    if (len >= NEON_CHUNK_SIZE) {
+        while (len >= NEON_CHUNK_SIZE) {
+            if (state != END || !is_valid_ascii(s, NEON_CHUNK_SIZE)) {
+                utf8_advance(s, &state, NEON_CHUNK_SIZE);
+            }
+            s += NEON_CHUNK_SIZE;
+            len -= NEON_CHUNK_SIZE;
+        }
+        if (state == ERR) {
+            len = origLen;
+            s = start;
+        }
+        while (s > start) {
+            s--;
+            len++;
+            if (!IS_HIGHBIT_SET(*s) || pg_utf_mblen(s) > 1) {
+                break;
+            }
+        }
+    }
+
+    while (len > 0) {
+        int l;
+        if (!IS_HIGHBIT_SET(*s)) {
+            if (*s == '\0') {
+                break;
+            }
+            l = 1;
+        } else {
+            l = pg_utf8_verifier(s, len);
+            if (l == -1) {
+                break;
+            }
+        }
+        s += l;
+        len -= l;
+    }
+    return s - start;
+}
+#endif
+
+#undef ERR
+#undef BGN
+#undef CS1
+#undef CS2
+#undef CS3
+#undef P3A
+#undef P3B
+#undef P4A
+#undef P4B
+#undef END
+#undef ASC
+#undef L2A
+#undef L3A
+#undef L3B
+#undef L3C
+#undef L4A
+#undef L4B
+#undef L4C
+#undef CR1
+#undef CR2
+#undef CR3
+#undef ILL
+
+/*
  * Check for validity of a single UTF-8 encoded character
  *
  * This directly implements the rules in RFC3629.  The bizarre-looking
@@ -2123,6 +2494,12 @@ int pg_encoding_verifymbstr(int encoding, const char* mbstr, int len)
         return nullpos - mbstr;
     }
 
+    /* UTF-8 has optimized string verifier with SIMD/NEON support */
+    if (encoding == PG_UTF8) {
+        return pg_utf8_verifystr((const unsigned char*)mbstr, len);
+    }
+
+    /* Fall back to per-character verification for other encodings */
     mbverify = pg_wchar_table[encoding].mbverify;
     ok_bytes = 0;
 
@@ -2298,6 +2675,35 @@ int pg_verify_mbstr_len(int encoding, const char* mbstr, int len, bool noError)
 #endif
     }
 
+    /*
+     * UTF-8 fast path: use bulk verifier (SIMD/NEON when available).
+     * Skip when bulkload illegal chars conversion is enabled (needs per-byte replacement).
+     */
+    if (encoding == PG_UTF8
+#ifndef FRONTEND
+        && !bulkload_illegal_chars_conversion
+#endif
+    ) {
+        int valid_len = pg_utf8_verifystr((const unsigned char*)mbstr, len);
+        if (valid_len == len) {
+            /* Return character count (same semantics as generic path). */
+            int char_count = 0;
+            const unsigned char* p = (const unsigned char*)mbstr;
+            int remaining = len;
+            while (remaining > 0) {
+                int l = pg_utf_mblen(p);
+                char_count++;
+                p += l;
+                remaining -= l;
+            }
+            return char_count;
+        }
+        if (noError) {
+            return -1;
+        }
+        report_invalid_encoding(encoding, mbstr + valid_len, len - valid_len);
+    }
+
     /* fetch function pointer just once */
     mbverify = pg_wchar_table[encoding].mbverify;
 
@@ -2429,7 +2835,7 @@ void report_invalid_encoding(int encoding, const char* mbstr, int len)
     int j, jlimit;
     int rc = -1;
     int bufLen = sizeof(buf);
-    
+
     jlimit = Min(l, len);
     jlimit = Min(jlimit, 8); /* prevent buffer overrun */
 
