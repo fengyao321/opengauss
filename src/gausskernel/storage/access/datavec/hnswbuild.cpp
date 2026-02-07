@@ -1719,13 +1719,34 @@ void GetLsgSample(HnswBuildState *buildstate)
 void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildState *buildstate,
                        ForkNumber forkNum, bool insert)
 {
+    Oid toastRelOid = InvalidOid;
+    Relation toastRel = NULL;
+
 #ifdef HNSW_MEMORY
     SeedRandom(42);
 #endif
 
     InitBuildState(buildstate, heap, index, indexInfo, forkNum, false);
 
+    /*
+     * Lock the TOAST table to prevent VACUUM from cleaning up TOAST data
+     * during index build. This is necessary because:
+     * 1. Index build uses SnapshotAny which may see RECENTLY_DEAD tuples
+     * 2. VACUUM may use a newer OldestXmin and consider those tuples as DEAD
+     * 3. If VACUUM cleans TOAST data while we're building, detoast will fail
+     *
+     * We use ShareLock which conflicts with ShareUpdateExclusiveLock used by VACUUM.
+     */
+    if (heap != NULL && OidIsValid(heap->rd_rel->reltoastrelid)) {
+        toastRelOid = heap->rd_rel->reltoastrelid;
+        toastRel = heap_open(toastRelOid, ShareLock);
+        ereport(DEBUG1, (errmsg("HNSW build: locked TOAST table %u to prevent VACUUM interference", toastRelOid)));
+    }
+
     if (buildstate->isUStore) {
+        if (toastRel != NULL) {
+            heap_close(toastRel, ShareLock);
+        }
         ereport(ERROR, (errmsg("ustore table cannot support hnsw.")));
     }
     if (HnswGetEnableMMap(index)) {
@@ -1791,6 +1812,12 @@ void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildSt
         LogNewpageRange(index, forkNum, 0, RelationGetNumberOfBlocksInFork(index, forkNum), true);
 
     FreeBuildState(buildstate, false);
+
+    /* Release the TOAST table lock after index build is complete */
+    if (toastRel != NULL) {
+        heap_close(toastRel, ShareLock);
+        ereport(DEBUG1, (errmsg("HNSW build: released TOAST table lock")));
+    }
 }
 
 /*
