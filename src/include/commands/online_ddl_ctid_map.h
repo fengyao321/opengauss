@@ -39,5 +39,9 @@ extern bool OnlineDDLInsertCtidMap(ItemPointer oldTid, Oid relId, ItemPointer ne
 extern ItemPointerData OnlineDDLGetTargetCtid(ItemPointer oldTid, Relation relation, Relation indexRelation);
 extern ItemPointerData OnlineDDLGetTargetCtid(ItemPointer oldTid, Oid* partOid, Relation relation,
                                               Relation indexRelation);
+extern void OldCtidGetNewPartitionAndCtid(ItemPointer oldTid, Oid* partOid, ItemPointer newTid, Relation relation,
+                                          Relation indexRelation);
+extern bool OldCtidAndPartitionGetNewCtid(ItemPointer oldTid, Oid* partOid, ItemPointer newTid,
+                                                     Relation relation, Relation indexRelation);
 
 #endif /* ONLINE_DDL_CTID_MAP_H */

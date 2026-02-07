@@ -1514,7 +1514,7 @@ Relation partitionGetRelation(Relation rel, Partition part)
     if (!IsBootstrapProcessingMode()) {
         ResourceOwnerRememberFakerelRef(t_thrd.utils_cxt.CurrentResourceOwner, relation);
     }
-    OnlineDDLRelationSetup(relation, rel);
+    OnlineDDLRelationSetup(relation, rel, part);
     relation->rd_node = part->pd_node;
     relation->rd_refcnt = part->pd_refcnt;
     relation->rd_backend = InvalidBackendId;

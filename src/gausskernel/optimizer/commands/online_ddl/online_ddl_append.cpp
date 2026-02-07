@@ -39,6 +39,8 @@
 
 #define DatumGetItemPointer(X) ((ItemPointer)DatumGetPointer(X))
 
+const int ONLINE_DDL_CTID_MAP_ATTR_NUM_FOR_NORMAL_TABLE = 2;      /* old_tup_ctid, new_tup_ctid */
+const int ONLINE_DDL_CTID_MAP_ATTR_NUM_FOR_PARTITIONED_TABLE = 3; /* old_tup_ctid, new_tup_ctid, partition_oid */
 const int ONLINE_DDL_APPENDER_MAX_SCAN_TIME = 5;
 const int ONLINE_DDL_APPENDER_MAX_FINISH_PAGES = 8;
 
@@ -152,6 +154,35 @@ OnlineDDLAppender* OnlineDDLInitAppender(List* oldPartitionList, List* newOidLis
     appender->newRelation = NULL;
     appender->oldPartitionList = oldPartitionList;
     appender->newOidList = newOidList;
+    appender->deltaRelation = deltaRelation;
+    appender->ctidMapRelation = ctidMapRelation;
+    appender->ctidMapIndex = ctidMapIndex;
+    appender->alterTableInfo = alterTableInfo;
+
+    appender->PartitionOidMap = InitPartitionOidMap();
+
+    return appender;
+}
+
+OnlineDDLAppender* OnlineDDLInitAppender(List* oldPartitionList, Relation newRelation, Relation deltaRelation,
+                                         Relation ctidMapRelation, Relation ctidMapIndex, HTAB* partitionAppendMap,
+                                         AlteredTableInfo* alterTableInfo)
+{
+    OnlineDDLAppender* appender = NULL;
+    appender = (OnlineDDLAppender*)palloc0(sizeof(OnlineDDLAppender));
+    appender->inAppendMode = true;
+    appender->deltaLogScanTimes = 0;
+    appender->oldTableScanTimes = 0;
+
+    ItemPointerSet(&appender->deltaLogScanIdx, 0, 1);
+
+    ItemPointerSetInvalid(&appender->oldTableScanIdx);
+    appender->partitionAppendMap = partitionAppendMap;
+
+    appender->oldRelation = NULL;
+    appender->newRelation = newRelation;
+    appender->oldPartitionList = oldPartitionList;
+    appender->newOidList = NIL;
     appender->deltaRelation = deltaRelation;
     appender->ctidMapRelation = ctidMapRelation;
     appender->ctidMapIndex = ctidMapIndex;
@@ -663,22 +694,32 @@ static bool OnlineDDLInsertIntoNewRelation(OnlineDDLAppender* appender, HeapTupl
                  * For partitioned tables, use hash table to get the corresponding temporary table OID and establish
                  * mapping relationship
                  */
-                if (appender->PartitionOidMap != NULL) {
-                    /*
-                     * If it's a partitioned table scenario, establish mapping relationship between old partition tuple
-                     * and new partition tuple
-                     */
-                    Oid oldPartOid = RelationGetRelid(oldRelation);
-                    Oid tempTableOid = GetTempTableFromOldPartition(appender, oldPartOid);
-                    if (OidIsValid(tempTableOid)) {
-                        // Insert mapping relationship with partition OID
-                        OnlineDDLInsertCtidMap(&((HeapTuple)oldTuple)->t_self, tempTableOid,
-                                               &((HeapTuple)newTuple)->t_self, appender->ctidMapRelation);
-                    }
-                } else {
-                    // Non-partitioned table case, use ordinary mapping relationship
+                if (appender->ctidMapRelation->rd_att->natts == ONLINE_DDL_CTID_MAP_ATTR_NUM_FOR_NORMAL_TABLE) {
                     OnlineDDLInsertCtidMap(&((HeapTuple)oldTuple)->t_self, &((HeapTuple)newTuple)->t_self,
                                            appender->ctidMapRelation);
+                } else if (appender->ctidMapRelation->rd_att->natts ==
+                           ONLINE_DDL_CTID_MAP_ATTR_NUM_FOR_PARTITIONED_TABLE) {
+                    if (appender->PartitionOidMap != NULL) {
+                        /*
+                         * If it's a partitioned table scenario, establish mapping relationship between old partition
+                         * tuple and new partition tuple
+                         */
+                        Oid oldPartOid = RelationGetRelid(oldRelation);
+                        Oid tempTableOid = GetTempTableFromOldPartition(appender, oldPartOid);
+                        if (OidIsValid(tempTableOid)) {
+                            // Insert mapping relationship with partition OID
+                            OnlineDDLInsertCtidMap(&((HeapTuple)oldTuple)->t_self, tempTableOid,
+                                                   &((HeapTuple)newTuple)->t_self, appender->ctidMapRelation);
+                        } else {
+                            OnlineDDLInsertCtidMap(&((HeapTuple)oldTuple)->t_self, appender->newRelation->rd_id,
+                                                   &((HeapTuple)newTuple)->t_self, appender->ctidMapRelation);
+                        }
+                    }
+                } else {
+                    ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                                    errmsg("[Online-DDL] OnlineDDLInsertIntoNewRelation error: invalid ctid map "
+                                           "relation attribute number: %d.",
+                                           appender->ctidMapRelation->rd_att->natts)));
                 }
             }
             ResetExprContext(econtext);
@@ -751,7 +792,151 @@ static bool OnlineDDLDeleteFromNewRelation(OnlineDDLAppender* appender, ItemPoin
     return true;
 }
 
-static bool OnlineDDLAppendScanDeltaLog(OnlineDDLAppender* appender, TableScanDesc deltaLogScan)
+static bool ScanDeltaLogForRewriteRowTable(OnlineDDLAppender* appender, TableScanDesc deltaLogScan,
+                                           ItemPointerData oldTupCtid)
+{
+    ItemPointerData newTupCtid = OnlineDDLGetTargetCtid(&oldTupCtid, appender->ctidMapRelation, appender->ctidMapIndex);
+    // Only attempt deletion if we have a valid target ctid
+    if (ItemPointerIsValid(&newTupCtid)) {
+        bool deleted = OnlineDDLDeleteFromNewRelation(appender, &newTupCtid);
+        if (!deleted) {
+            ereport(WARNING, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                              errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog warning: failed to "
+                                     "delete tuple with ctid (%u, %u) from new relation.",
+                                     ItemPointerGetBlockNumber(&newTupCtid), ItemPointerGetOffsetNumber(&newTupCtid))));
+        }
+    } else {
+        ereport(DEBUG1, (errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog target ctid is invalid for "
+                                "old tuple (%u, %u), may not have been inserted yet.",
+                                ItemPointerGetBlockNumber(&oldTupCtid), ItemPointerGetOffsetNumber(&oldTupCtid))));
+    }
+}
+
+static bool ScanDeltaLogForRewriteRowPartitionedTable(OnlineDDLAppender* appender, TableScanDesc deltaLogScan,
+                                                      ItemPointerData oldTupCtid, Oid oldPartOid)
+{
+    ereport(ONLINE_DDL_LOG_LEVEL,
+            (errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog processing delete operation on "
+                    "partitioned table for tuple (%u, %u).",
+                    ItemPointerGetBlockNumber(&oldTupCtid), ItemPointerGetOffsetNumber(&oldTupCtid))));
+    // Step 1: Use the hash table to find the corresponding new partition OID.
+    Oid newPartOid = GetTempTableFromOldPartition(appender, oldPartOid);
+    if (!OidIsValid(newPartOid)) {
+        ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                        errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog cannot find mapping for old "
+                               "partition %u in the hash table.",
+                               oldPartOid)));
+    }
+    // Step 2: Temporarily switch the newRelation in appender to point to the correct partition
+    Relation savedNewRelation = appender->newRelation;
+    appender->newRelation = heap_open(newPartOid, AccessShareLock);
+    // Add check to ensure opening succeeds
+    if (appender->newRelation == NULL) {
+        appender->newRelation = savedNewRelation;  // Restore original relation
+        ereport(ERROR, (errmsg("[Online-DDL] Failed to open new partition relation with OID %u", newPartOid)));
+    }
+    // Step 3: Now perform the final lookup to get the target ctid in the NEW partition.
+    // The 'newPartOid' is passed as an inout parameter, potentially updated by the function.
+    ItemPointerData newTupCtid =
+        OnlineDDLGetTargetCtid(&oldTupCtid, &oldPartOid, appender->ctidMapRelation, appender->ctidMapIndex);
+    // Only attempt deletion if we have a valid target ctid
+    if (ItemPointerIsValid(&newTupCtid)) {
+        // Perform the deletion on the correct partition
+        bool deleted = OnlineDDLDeleteFromNewRelation(appender, &newTupCtid);
+        if (!deleted) {
+            ereport(WARNING, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                              errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog warning: failed to "
+                                     "delete tuple with ctid (%u, %u) from new partition relation %u.",
+                                     ItemPointerGetBlockNumber(&newTupCtid), ItemPointerGetOffsetNumber(&newTupCtid),
+                                     newPartOid)));
+        }
+    } else {
+        ereport(ONLINE_DDL_LOG_LEVEL,
+                (errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog target ctid is invalid for old tuple "
+                        "(%u, %u), may not have been inserted yet.",
+                        ItemPointerGetBlockNumber(&oldTupCtid), ItemPointerGetOffsetNumber(&oldTupCtid))));
+    }
+    // Step 4: Restore the original newRelation in appender
+    heap_close(appender->newRelation, AccessShareLock);
+    appender->newRelation = savedNewRelation;
+}
+
+static bool ScanDeltaLogForSplitPartition(OnlineDDLAppender* appender, TableScanDesc deltaLogScan,
+                                          ItemPointerData oldTupCtid)
+{
+    Oid newPartOid = InvalidOid;
+    ItemPointerData newTupCtid;
+
+    ereport(ONLINE_DDL_LOG_LEVEL,
+            (errmsg("[Online-DDL] ScanDeltaLogForSplitPartition processing delete operation on "
+                    "partitioned table for tuple (%u, %u).",
+                    ItemPointerGetBlockNumber(&oldTupCtid), ItemPointerGetOffsetNumber(&oldTupCtid))));
+
+    // Step 1: Lookup ctid map to get the NEW partition and target ctid.
+    // The 'newPartOid' and 'newTupCtid' are passed as inout parameters, potentially updated by the function.
+    OldCtidGetNewPartitionAndCtid(&oldTupCtid, &newPartOid, &newTupCtid, appender->ctidMapRelation,
+                                  appender->ctidMapIndex);
+    if (!OidIsValid(newPartOid) || !ItemPointerIsValid(&newTupCtid)) {
+        ereport(ERROR,
+                (errcode(ERRCODE_UNEXPECTED_NULL_VALUE), errmsg("[Online-DDL] ScanDeltaLogForSplitPartition ERROR.")));
+    }
+
+    // Step 2: Temporarily switch the newRelation in appender to point to the correct partition
+    Relation savedNewRelation = appender->newRelation;
+    Partition newPartition = partitionOpen(savedNewRelation, newPartOid, AccessShareLock);
+    appender->newRelation = partitionGetRelation(savedNewRelation, newPartition);
+    appender->newRelation->rd_online_ddl_operators = NULL;
+
+    // Only attempt deletion if we have a valid target ctid
+    if (ItemPointerIsValid(&newTupCtid)) {
+        // Perform the deletion on the correct partition
+        bool deleted = OnlineDDLDeleteFromNewRelation(appender, &newTupCtid);
+        if (!deleted) {
+            ereport(WARNING, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                              errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog warning: failed to "
+                                     "delete tuple with ctid (%u, %u) from new partition relation.",
+                                     ItemPointerGetBlockNumber(&newTupCtid), ItemPointerGetOffsetNumber(&newTupCtid))));
+        }
+    } else {
+        ereport(ONLINE_DDL_LOG_LEVEL,
+                (errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog target ctid is invalid for old tuple "
+                        "(%u, %u), may not have been inserted yet.",
+                        ItemPointerGetBlockNumber(&oldTupCtid), ItemPointerGetOffsetNumber(&oldTupCtid))));
+    }
+    // Step 4: Restore the original newRelation in appender
+    partitionClose(savedNewRelation, newPartition, AccessShareLock);
+    appender->newRelation = savedNewRelation;
+}
+
+static bool ScanDeltaLogForMergePartition(OnlineDDLAppender* appender, TableScanDesc deltaLogScan,
+                                          ItemPointerData oldTupCtid, Oid oldPartOid)
+{
+    ItemPointerData newTupCtid =
+        OnlineDDLGetTargetCtid(&oldTupCtid, &oldPartOid, appender->ctidMapRelation, appender->ctidMapIndex);
+    // Only attempt deletion if we have a valid target ctid
+    if (ItemPointerIsValid(&newTupCtid)) {
+
+        ereport(ONLINE_DDL_LOG_LEVEL,
+                (errmsg("[Online-DDL] ScanDeltaLogForMergePartition processing delete operation on "
+                        "partitioned table for tuple (%u, %u).",
+                        ItemPointerGetBlockNumber(&newTupCtid), ItemPointerGetOffsetNumber(&newTupCtid))));
+        bool deleted = OnlineDDLDeleteFromNewRelation(appender, &newTupCtid);
+        if (!deleted) {
+            ereport(WARNING, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                              errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog warning: failed to "
+                                     "delete tuple with ctid (%u, %u) from new partition relation.",
+                                     ItemPointerGetBlockNumber(&newTupCtid), ItemPointerGetOffsetNumber(&newTupCtid))));
+        }
+    } else {
+        ereport(ONLINE_DDL_LOG_LEVEL,
+                (errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog target ctid is invalid for old tuple "
+                        "(%u, %u), may not have been inserted yet.",
+                        ItemPointerGetBlockNumber(&oldTupCtid), ItemPointerGetOffsetNumber(&oldTupCtid))));
+    }
+}
+
+static bool OnlineDDLAppendScanDeltaLog(OnlineDDLAppender* appender, TableScanDesc deltaLogScan,
+                                        OnlineDDLScenario scenario)
 {
     if ((HeapScanDesc)deltaLogScan == NULL) {
         ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -852,78 +1037,25 @@ static bool OnlineDDLAppendScanDeltaLog(OnlineDDLAppender* appender, TableScanDe
                 }
 #endif
                 /* delete old tuple from new relation */
-                if (isPartitioned) {
-                    ereport(ONLINE_DDL_LOG_LEVEL,
-                            (errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog processing delete operation on "
-                                    "partitioned table for tuple (%u, %u).",
-                                    ItemPointerGetBlockNumber(&oldTupCtid), ItemPointerGetOffsetNumber(&oldTupCtid))));
-
-                    // Step 1: Use the hash table to find the corresponding new partition OID.
-                    Oid newPartOid = GetTempTableFromOldPartition(appender, oldPartOid);
-                    if (!OidIsValid(newPartOid)) {
+                switch (scenario) {
+                    case ONLINE_DDL_REWRITE_ROW_TABLE:
+                        ScanDeltaLogForRewriteRowTable(appender, deltaLogScan, oldTupCtid);
+                        break;
+                    case ONLINE_DDL_REWRITE_ROW_PARTITIONED_TABLE:
+                        ScanDeltaLogForRewriteRowPartitionedTable(appender, deltaLogScan, oldTupCtid, oldPartOid);
+                        break;
+                    case ONLINE_DDL_SPLIT_PARTITION:
+                        ScanDeltaLogForSplitPartition(appender, deltaLogScan, oldTupCtid);
+                        break;
+                    case ONLINE_DDL_MERGE_PARTITION:
+                        ScanDeltaLogForMergePartition(appender, deltaLogScan, oldTupCtid, oldPartOid);
+                        break;
+                    default:
                         ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
-                                        errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog cannot find mapping for old "
-                                               "partition %u in the hash table.",
-                                               oldPartOid)));
-                    }
-
-                    // Step 2: Temporarily switch the newRelation in appender to point to the correct partition
-                    Relation savedNewRelation = appender->newRelation;
-                    appender->newRelation = heap_open(newPartOid, AccessShareLock);
-
-                    // Add check to ensure opening succeeds
-                    if (appender->newRelation == NULL) {
-                        appender->newRelation = savedNewRelation;  // Restore original relation
-                        ereport(WARNING,
-                                (errmsg("[Online-DDL] Failed to open new partition relation with OID %u", newPartOid)));
-                        continue;
-                    }
-
-                    // Step 3: Now perform the final lookup to get the target ctid in the NEW partition.
-                    // The 'newPartOid' is passed as an inout parameter, potentially updated by the function.
-                    ItemPointerData newTupCtid = OnlineDDLGetTargetCtid(
-                        &oldTupCtid, &oldPartOid, appender->ctidMapRelation, appender->ctidMapIndex);
-
-                    // Only attempt deletion if we have a valid target ctid
-                    if (ItemPointerIsValid(&newTupCtid)) {
-                        // Perform the deletion on the correct partition
-                        bool deleted = OnlineDDLDeleteFromNewRelation(appender, &newTupCtid);
-                        if (!deleted) {
-                            ereport(WARNING, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
-                                              errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog warning: failed to "
-                                                     "delete tuple with ctid (%u, %u) from new partition relation %u.",
-                                                     ItemPointerGetBlockNumber(&newTupCtid),
-                                                     ItemPointerGetOffsetNumber(&newTupCtid), newPartOid)));
-                        }
-                    } else {
-                        ereport(
-                            ONLINE_DDL_LOG_LEVEL,
-                            (errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog target ctid is invalid for old tuple "
-                                    "(%u, %u), may not have been inserted yet.",
-                                    ItemPointerGetBlockNumber(&oldTupCtid), ItemPointerGetOffsetNumber(&oldTupCtid))));
-                    }
-                    // Step 4: Restore the original newRelation in appender
-                    heap_close(appender->newRelation, AccessShareLock);
-                    appender->newRelation = savedNewRelation;
-                } else {
-                    ItemPointerData newTupCtid =
-                        OnlineDDLGetTargetCtid(&oldTupCtid, appender->ctidMapRelation, appender->ctidMapIndex);
-                    // Only attempt deletion if we have a valid target ctid
-                    if (ItemPointerIsValid(&newTupCtid)) {
-                        bool deleted = OnlineDDLDeleteFromNewRelation(appender, &newTupCtid);
-                        if (!deleted) {
-                            ereport(WARNING, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
-                                              errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog warning: failed to "
-                                                     "delete tuple with ctid (%u, %u) from new relation.",
-                                                     ItemPointerGetBlockNumber(&newTupCtid),
-                                                     ItemPointerGetOffsetNumber(&newTupCtid))));
-                        }
-                    } else {
-                        ereport(DEBUG1, (errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog target ctid is invalid for "
-                                                "old tuple (%u, %u), may not have been inserted yet.",
-                                                ItemPointerGetBlockNumber(&oldTupCtid),
-                                                ItemPointerGetOffsetNumber(&oldTupCtid))));
-                    }
+                                        errmsg("[Online-DDL] OnlineDDLAppendScanDeltaLog error: invalid scenario %u "
+                                               "for delete operation in delta log tuple with ctid (%u, %u).",
+                                               scenario, ItemPointerGetBlockNumber(deltaLogCtid),
+                                               ItemPointerGetOffsetNumber(deltaLogCtid))));
                 }
                 break;
             }
@@ -1042,6 +1174,159 @@ static bool OnlineDDLAppendScanOldTable(OnlineDDLAppender* appender, TableScanDe
     return scanFinished;
 }
 
+// New function that adapts readTuplesAndInsertInternal for OnlineDDL scenarios
+// This function follows the same pattern as OnlineDDLAppendScanOldTable but with partitioning logic
+static bool OnlineDDLAppendScanOldTableWithPartitioning(OnlineDDLAppender* appender, TableScanDesc oldTableScan)
+{
+    if ((HeapScanDesc)oldTableScan == NULL) {
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("[Online-DDL] OnlineDDLAppendScanOldTableWithPartitioning error: oldTableScan is null.")));
+    }
+    if (((HeapScanDesc)oldTableScan)->rs_base.rs_nblocks == 0) {
+        ereport(ONLINE_DDL_LOG_LEVEL,
+                (errcode(MOD_ONLINE_DDL), errmsg("[Online-DDL] OnlineDDLAppendScanOldTableWithPartitioning notice: old "
+                                                 "relation relation is empty, no tuple to process.")));
+        return true;
+    }
+
+    HeapTuple tuple = NULL;
+    bool scanFinished = false;
+    uint32 hiOptions = (!XLogIsNeeded()) ? TABLE_INSERT_SKIP_FSM : (TABLE_INSERT_SKIP_FSM | TABLE_INSERT_SKIP_WAL);
+    ItemPointerData tmpCtid;
+    ItemPointerSet(&tmpCtid, 0, 1);
+
+    // For partitioning, we need a hash table to cache partition relations
+    HTAB* partRelHTAB = NULL;
+
+    while ((tuple = (HeapTuple)tableam_scan_getnexttuple(oldTableScan, ForwardScanDirection)) != NULL) {
+        ItemPointer oldTableCtid = &tuple->t_self;
+        ereport(ONLINE_DDL_LOG_LEVEL,
+                (errmsg("Scan old table tuple:  (%u, %u)", ItemPointerGetBlockNumber(oldTableCtid),
+                        ItemPointerGetOffsetNumber(oldTableCtid))));
+        bool committed;
+        BlockNumber block;
+        Buffer buffer;
+        HeapTuple copyedTuple = NULL;
+
+        /* check ctid if has been scaned */
+        if (!CompareItemPointer(&appender->oldTableScanIdx, oldTableCtid)) {
+            ereport(ONLINE_DDL_LOG_LEVEL,
+                    (errcode(MOD_ONLINE_DDL),
+                     errmsg("[Online-DDL] OnlineDDLAppendScanOldTableWithPartitioning notice: tuple with ctid (%u, %u) "
+                            "has been scaned, skip.",
+                            ItemPointerGetBlockNumber(oldTableCtid), ItemPointerGetOffsetNumber(oldTableCtid))));
+            continue;
+        }
+
+#ifdef USE_ASSERT_CHECKING
+        Assert(CompareItemPointer(&tmpCtid, oldTableCtid) || AreItemPointersAdjacent(&tmpCtid, oldTableCtid));
+        tmpCtid = *oldTableCtid;
+#endif
+
+        block = ItemPointerGetBlockNumber(oldTableCtid);
+        buffer = ReadBuffer(appender->oldRelation, block);
+        LockBuffer(buffer, BUFFER_LOCK_SHARE);
+        committed = CheckTupleVisibile(tuple, buffer);
+        /* If the tuple is aborted, skip it. */
+        if (!committed) {
+            LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
+            ereport(ONLINE_DDL_LOG_LEVEL,
+                    (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
+                     errmsg("[Online-DDL] OnlineDDLAppendScanOldTableWithPartitioning tuple with ctid (%u, %u) in old "
+                            "relation is not committed, skip.",
+                            ItemPointerGetBlockNumber(oldTableCtid), ItemPointerGetOffsetNumber(oldTableCtid))));
+            ItemPointerSet(&appender->oldTableScanIdx, ItemPointerGetBlockNumber(oldTableCtid),
+                           ItemPointerGetOffsetNumber(oldTableCtid));
+            ReleaseBuffer(buffer);
+            continue;
+        }
+
+        /* If the tuple is visible, insert it into the new relation. */
+        copyedTuple = heapCopyTuple(tuple, appender->oldRelation->rd_att, NULL);
+        LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
+        ReleaseBuffer(buffer);
+
+        // Instead of directly inserting into appender->newRelation, we need to determine
+        // the correct partition based on the tuple's partition key, similar to readTuplesAndInsertInternal
+        Oid targetPartOid = InvalidOid;
+        int partitionno = INVALID_PARTITION_NO;
+        Oid targetSubPartOid = InvalidOid;
+        int subpartitionno = INVALID_PARTITION_NO;
+        Relation partRel = NULL;
+        Partition part = NULL;
+        Relation subPartRel = NULL;
+        Partition subPart = NULL;
+        char* partExprKeyStr = NULL;
+
+        // Calculate target partition based on partition key
+        bool partExprKeyIsNull = PartExprKeyIsNull(appender->newRelation, &partExprKeyStr);
+        if (partExprKeyIsNull) {
+            /* If the partition key does not contain an expression */
+            targetPartOid = heapTupleGetPartitionOid(appender->newRelation, (void*)copyedTuple, &partitionno, true);
+        } else {
+            /* If the partition key contain an expression */
+            TupleTableSlot* slot = MakeSingleTupleTableSlot(RelationGetDescr(appender->newRelation));
+            slot->tts_tuple = copyedTuple;
+            PartKeyExprResult partKeyExprResult =
+                ComputePartKeyExprTuple(appender->newRelation, NULL, slot, NULL, partExprKeyStr);
+            targetPartOid = heapTupleGetPartitionOid(appender->newRelation, (void*)(&partKeyExprResult), &partitionno,
+                                                     false, false, false);
+            if (PointerIsValid(slot)) {
+                ExecDropSingleTupleTableSlot(slot);
+            }
+            pfree(partExprKeyStr);
+        }
+
+        // Find the target partition relation
+        searchFakeReationForPartitionOid(partRelHTAB, CurrentMemoryContext, appender->newRelation, targetPartOid,
+                                         partitionno, partRel, part, RowExclusiveLock);
+        if (RelationIsSubPartitioned(appender->newRelation)) {
+            targetSubPartOid = heapTupleGetPartitionOid(partRel, (void*)copyedTuple, &subpartitionno, true);
+            searchFakeReationForPartitionOid(partRelHTAB, CurrentMemoryContext, partRel, targetSubPartOid,
+                                             subpartitionno, subPartRel, subPart, RowExclusiveLock);
+            partRel = subPartRel;
+        }
+        // Create a temporary appender with the computed partition as the target "newRelation"
+        partRel->rd_online_ddl_operators = NULL;
+        // Relation savedNewRelation = appender->newRelation;
+        appender->newRelation = partRel;  // Set the dynamically computed partition as target
+
+        // Call the lower-level function with the computed partition
+        OnlineDDLInsertIntoNewRelation(appender, copyedTuple, hiOptions);
+
+        if (CompareItemPointer(&appender->oldTableScanIdx, oldTableCtid)) {
+            ItemPointerSet(&appender->oldTableScanIdx, ItemPointerGetBlockNumber(oldTableCtid),
+                           ItemPointerGetOffsetNumber(oldTableCtid));
+        }
+        CHECK_FOR_INTERRUPTS();
+    }
+
+    if (appender->newRelation) {
+        /* If we skipped writing WAL, then we need to sync the heap. */
+        if (((hiOptions & TABLE_INSERT_SKIP_WAL) || enable_heap_bcm_data_replication()) &&
+            !RelationIsSegmentTable(appender->newRelation)) {
+            heap_sync(appender->newRelation);
+        }
+
+        /*
+         * After the temporary table is rewritten, the relfilenode changes.
+         * We need to find new TmptableCacheEntry with new relfilenode.
+         * Then set new auto_increment counter value in new TmptableCacheEntry.
+         */
+        CopyTempAutoIncrement(appender->oldRelation, appender->newRelation);
+    }
+
+    /* finish this scan */
+    scanFinished = (tuple == NULL);
+
+    if (PointerIsValid(partRelHTAB)) {
+        FakeRelationCacheDestroy(partRelHTAB);
+    }
+
+    return scanFinished;
+}
+
 bool OnlineDDLAppendForNormalTable(OnlineDDLAppender* appender)
 {
     Relation oldRelation = appender->oldRelation;
@@ -1098,7 +1383,7 @@ bool OnlineDDLAppendForNormalTable(OnlineDDLAppender* appender)
             heapScan->rs_base.rs_inited = true;
         }
         CHECK_FOR_INTERRUPTS();
-        deltaLogScanFinished = OnlineDDLAppendScanDeltaLog(appender, deltaLogScan);
+        deltaLogScanFinished = OnlineDDLAppendScanDeltaLog(appender, deltaLogScan, ONLINE_DDL_REWRITE_ROW_TABLE);
         appender->deltaLogScanTimes += (deltaLogScanFinished ? 1 : 0);
         oldTableScanFinished = OnlineDDLAppendScanOldTable(appender, oldTableScan);
         appender->oldTableScanTimes += (oldTableScanFinished ? 1 : 0);
@@ -1135,7 +1420,7 @@ bool OnlineDDLAppendForNormalTable(OnlineDDLAppender* appender)
     }
 
     /* Append for the last time. */
-    OnlineDDLAppendScanDeltaLog(appender, deltaLogScan);
+    OnlineDDLAppendScanDeltaLog(appender, deltaLogScan, ONLINE_DDL_REWRITE_ROW_TABLE);
     OnlineDDLAppendScanOldTable(appender, oldTableScan);
 
     tableam_scan_end(deltaLogScan);
@@ -1220,7 +1505,8 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
             heapScan->rs_base.rs_inited = true;
         }
 
-        deltaLogScanFinished = OnlineDDLAppendScanDeltaLog(appender, deltaLogScan);
+        deltaLogScanFinished =
+            OnlineDDLAppendScanDeltaLog(appender, deltaLogScan, ONLINE_DDL_REWRITE_ROW_PARTITIONED_TABLE);
         appender->deltaLogScanTimes += (deltaLogScanFinished ? 1 : 0);
 
         // Iterate through all partitions and scan data for each partition
@@ -1299,7 +1585,7 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
         }
         heapScan->rs_base.rs_inited = true;
     }
-    OnlineDDLAppendScanDeltaLog(appender, deltaLogScan);
+    OnlineDDLAppendScanDeltaLog(appender, deltaLogScan, ONLINE_DDL_REWRITE_ROW_PARTITIONED_TABLE);
 
     // Append for the last time for each partition - using same structure as main loop
     ListCell* oldPartRelCell = NULL;
@@ -1379,18 +1665,290 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
     return true;
 }
 
-bool OnlineDDLAppend(OnlineDDLAppender* appender)
+bool OnlineDDLAppendForSplitPartition(OnlineDDLAppender* appender)
 {
-    bool isPartitioned = appender->oldRelation == NULL && appender->newRelation == NULL &&
-                         appender->oldPartitionList != NIL && appender->newOidList != NIL;
-    if (isPartitioned) {
-        Assert(appender->oldRelation == NULL && appender->oldPartitionList != NIL);
-        Assert(appender->newRelation == NULL && appender->newOidList != NIL);
-        return OnlineDDLAppendForPartitionedTable(appender);
-    } else {
-        Assert(appender->oldRelation != NULL && appender->newRelation != NULL);
-        Assert(appender->oldPartitionList == NIL && appender->newOidList == NIL);
-        return OnlineDDLAppendForNormalTable(appender);
+    Relation oldRelation = appender->oldRelation;
+    Relation newRelation = appender->newRelation;
+
+    /* init scan desc */
+    TableScanDesc deltaLogScan;
+    deltaLogScan = tableam_scan_begin(appender->deltaRelation, SnapshotAny, 0, NULL);
+    TableScanDesc oldTableScan;
+    oldTableScan = tableam_scan_begin(oldRelation, SnapshotAny, 0, NULL);
+
+    bool firstScan = true;
+    bool deltaLogScanFinished = true;
+    bool oldTableScanFinished = true;
+
+    /* scan delta log and old table */
+    while (true) {
+        int deltaLogRemainPages = 0;
+        int oldTableRemainPages = 0;
+        GetRemainPages(appender, &deltaLogRemainPages, &oldTableRemainPages);
+        if (deltaLogRemainPages <= ONLINE_DDL_APPENDER_MAX_FINISH_PAGES - oldTableRemainPages && !firstScan) {
+            ereport(LOG, (errmsg("[Online-DDL] relation %s finish data catchup by reach max finish pages: %d, "
+                                 "delta log remain pages: %d, old table remain pages: %d.",
+                                 oldRelation->rd_rel->relname.data, ONLINE_DDL_APPENDER_MAX_FINISH_PAGES,
+                                 deltaLogRemainPages, oldTableRemainPages)));
+            break;
+        }
+        if (appender->deltaLogScanTimes >= ONLINE_DDL_APPENDER_MAX_SCAN_TIME &&
+            appender->oldTableScanTimes >= ONLINE_DDL_APPENDER_MAX_SCAN_TIME && !firstScan) {
+            ereport(LOG, (errmsg("[Online-DDL] relation %s finish catchup by reach max scan times: %d, "
+                                 "delta log remain pages: %d, old table remain pages: %d.",
+                                 oldRelation->rd_rel->relname.data, ONLINE_DDL_APPENDER_MAX_SCAN_TIME,
+                                 deltaLogRemainPages, oldTableRemainPages)));
+            break;
+        }
+        if (appender->deltaLogScanTimes > 0 && deltaLogScanFinished) {
+            HeapScanDesc heapScan = (HeapScanDesc)deltaLogScan;
+            Assert(!heapScan->rs_base.rs_inited);
+            heapScan->rs_base.rs_cblock = ItemPointerGetBlockNumber(&appender->deltaLogScanIdx);
+            heapScan->rs_base.rs_nblocks = RelationGetNumberOfBlocks(appender->deltaRelation);
+            if (heapScan->rs_base.rs_nblocks != 0) {
+                heapgetpage((TableScanDesc)heapScan, heapScan->rs_base.rs_cblock);
+            }
+            heapScan->rs_base.rs_inited = true;
+        }
+        if (appender->oldTableScanTimes > 0 && oldTableScanFinished) {
+            HeapScanDesc heapScan = (HeapScanDesc)oldTableScan;
+            Assert(!heapScan->rs_base.rs_inited);
+            heapScan->rs_base.rs_cblock = ItemPointerGetBlockNumberNoCheck(&appender->oldTableScanIdx);
+            heapScan->rs_base.rs_nblocks = RelationGetNumberOfBlocks(oldRelation);
+            if (heapScan->rs_base.rs_nblocks != 0) {
+                heapgetpage((TableScanDesc)heapScan, heapScan->rs_base.rs_cblock);
+            }
+            heapScan->rs_base.rs_inited = true;
+        }
+        CHECK_FOR_INTERRUPTS();
+        deltaLogScanFinished = OnlineDDLAppendScanDeltaLog(appender, deltaLogScan, ONLINE_DDL_SPLIT_PARTITION);
+        appender->deltaLogScanTimes += (deltaLogScanFinished ? 1 : 0);
+        oldTableScanFinished = OnlineDDLAppendScanOldTableWithPartitioning(appender, oldTableScan);
+        appender->oldTableScanTimes += (oldTableScanFinished ? 1 : 0);
+        firstScan = false;
+    }
+    tableam_scan_end(deltaLogScan);
+    tableam_scan_end(oldTableScan);
+
+    return true;
+}
+
+bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
+{
+    // For partitioned tables during merge operation, process delta log and all source partitions together
+    TableScanDesc deltaLogScan = tableam_scan_begin(appender->deltaRelation, SnapshotAny, 0, NULL);
+    List* oldTableScanList = NIL;
+    ListCell* oldCell = NULL;
+    ListCell* newCell = NULL;
+    ListCell* cell = NULL;
+    List* oldPartRelationList = appender->oldPartitionList;
+    List* newPartRelationList = NIL;
+
+    foreach (cell, oldPartRelationList) {
+        Relation oldPartRelation = (Relation)lfirst(cell);
+        TableScanDesc oldTableScan = tableam_scan_begin(oldPartRelation, SnapshotAny, 0, NULL);
+        oldTableScanList = lappend(oldTableScanList, oldTableScan);
+    }
+
+    bool deltaLogScanFinished = true;
+    bool firstScan = true;
+    // Maintain separate scan counter for each partition
+    List* oldTableScanTimesList = NIL;
+    foreach (cell, oldPartRelationList) {
+        int* scanTimes = (int*)palloc(sizeof(int));
+        *scanTimes = 0;
+        oldTableScanTimesList = lappend(oldTableScanTimesList, scanTimes);
+    }
+
+    // Unified while loop to handle delta log and all partitions
+    while (true) {
+        int deltaLogRemainPages = 0;
+        int totalOldTableRemainPages = 0;
+
+        if (deltaLogRemainPages <= ONLINE_DDL_APPENDER_MAX_FINISH_PAGES - totalOldTableRemainPages && !firstScan) {
+            ereport(LOG, (errmsg("[Online-DDL] partitioned table finish data catchup by reach max finish pages: "
+                                 "delta log %d, old tables %d",
+                                 deltaLogRemainPages, totalOldTableRemainPages)));
+            break;
+        }
+
+        if (appender->deltaLogScanTimes >= ONLINE_DDL_APPENDER_MAX_SCAN_TIME && !firstScan) {
+            ereport(LOG,
+                    (errmsg("[Online-DDL] partitioned table finish catchup by reach max scan times for delta log: %d",
+                            ONLINE_DDL_APPENDER_MAX_SCAN_TIME)));
+            break;
+        }
+
+        // Scan delta log
+        if (appender->deltaLogScanTimes > 0 && deltaLogScanFinished) {
+            HeapScanDesc heapScan = (HeapScanDesc)deltaLogScan;
+            Assert(!heapScan->rs_base.rs_inited);
+            heapScan->rs_base.rs_cblock = ItemPointerGetBlockNumber(&appender->deltaLogScanIdx);
+            heapgetpage((TableScanDesc)heapScan, heapScan->rs_base.rs_cblock);
+            heapScan->rs_base.rs_nblocks = RelationGetNumberOfBlocks(appender->deltaRelation);
+            heapScan->rs_base.rs_inited = true;
+        }
+
+        deltaLogScanFinished = OnlineDDLAppendScanDeltaLog(appender, deltaLogScan, ONLINE_DDL_MERGE_PARTITION);
+        appender->deltaLogScanTimes += (deltaLogScanFinished ? 1 : 0);
+
+        // Iterate through all partitions and scan data for each partition
+        ListCell* oldPartRelCell = NULL;
+        ListCell* oldPartScanCell = NULL;
+        ListCell* oldPartScanTimesCell = NULL;
+        forthree(oldPartRelCell, oldPartRelationList,          // old partition relation
+                 oldPartScanCell, oldTableScanList,            // old table scan
+                 oldPartScanTimesCell, oldTableScanTimesList)  // scan times for each partition
+        {
+            Relation oldPartRelation = (Relation)lfirst(oldPartRelCell);
+            TableScanDesc oldTableScan = (TableScanDesc)lfirst(oldPartScanCell);
+            int* oldTableScanTimes = (int*)lfirst(oldPartScanTimesCell);
+
+            // Get the starting scan position for this partition from partitionAppendMap
+            OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+            ItemPointerData partitionScanIdx = {{0, 0}, 0};
+            if (operators != NULL) {
+                partitionScanIdx = operators->getEndCtidForPartition(oldPartRelation->rd_id);
+            } else {
+                ItemPointerSet(&partitionScanIdx, 0, 1);
+            }
+
+            // Temporarily save and replace the relation and scan index in appender
+            Relation savedOldRelation = appender->oldRelation;
+            ItemPointerData savedOldTableScanIdx = appender->oldTableScanIdx;
+
+            appender->oldRelation = oldPartRelation;
+            appender->oldTableScanIdx = partitionScanIdx;
+
+            bool oldTableScanFinished = true;
+
+            if (*oldTableScanTimes > 0 && oldTableScanFinished) {
+                HeapScanDesc heapScan = (HeapScanDesc)oldTableScan;
+                Assert(!heapScan->rs_base.rs_inited);
+                heapScan->rs_base.rs_cblock = ItemPointerGetBlockNumber(&appender->oldTableScanIdx);
+                heapgetpage((TableScanDesc)heapScan, heapScan->rs_base.rs_cblock);
+                heapScan->rs_base.rs_nblocks = RelationGetNumberOfBlocks(oldPartRelation);
+                heapScan->rs_base.rs_inited = true;
+            }
+
+            oldTableScanFinished = OnlineDDLAppendScanOldTable(appender, oldTableScan);
+            *oldTableScanTimes += (oldTableScanFinished ? 1 : 0);
+
+            // Restore the relation and scan index in appender
+            appender->oldRelation = savedOldRelation;
+            appender->oldTableScanIdx = savedOldTableScanIdx;
+        }
+
+        firstScan = false;
+    }
+
+    ereport(NOTICE, (errmsg("Online DDL get AccessExclusiveLock for partitioned table before commit, "
+                            "append data for the last time.")));
+
+    // Get AccessExclusiveLock before commit for all partitions
+    foreach (cell, oldPartRelationList) {
+        Relation oldPartRelation = (Relation)lfirst(cell);
+        LockRelation(oldPartRelation, AccessExclusiveLock);
+    }
+
+    // Append for the last time for delta log
+    {
+        HeapScanDesc heapScan = (HeapScanDesc)deltaLogScan;
+        Assert(!heapScan->rs_base.rs_inited);
+        heapScan->rs_base.rs_cblock = ItemPointerGetBlockNumber(&appender->deltaLogScanIdx);
+        heapScan->rs_base.rs_nblocks = RelationGetNumberOfBlocks(appender->deltaRelation);
+        if (heapScan->rs_base.rs_nblocks != 0) {
+            heapgetpage((TableScanDesc)heapScan, heapScan->rs_base.rs_cblock);
+        }
+        heapScan->rs_base.rs_inited = true;
+    }
+    OnlineDDLAppendScanDeltaLog(appender, deltaLogScan, ONLINE_DDL_MERGE_PARTITION);
+
+    // Append for the last time for each partition - using same structure as main loop
+    ListCell* oldPartRelCell = NULL;
+    ListCell* oldPartScanCell = NULL;
+    ListCell* oldPartScanTimesCell = NULL;
+    forthree(oldPartRelCell, oldPartRelationList,          // old partition relation
+             oldPartScanCell, oldTableScanList,            // old table scan
+             oldPartScanTimesCell, oldTableScanTimesList)  // scan times for each partition
+    {
+        Relation oldPartRelation = (Relation)lfirst(oldPartRelCell);
+        TableScanDesc oldTableScan = (TableScanDesc)lfirst(oldPartScanCell);
+        int* oldTableScanTimes = (int*)lfirst(oldPartScanTimesCell);
+
+        // Get the starting scan position for this partition from partitionAppendMap
+        OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+        ItemPointerData partitionScanIdx = {{0, 0}, 0};
+        if (operators != NULL) {
+            partitionScanIdx = operators->getEndCtidForPartition(oldPartRelation->rd_id);
+        } else {
+            ItemPointerSet(&partitionScanIdx, 0, 1);
+        }
+
+        // Temporarily save and replace the relation and scan index in appender
+        Relation savedOldRelation = appender->oldRelation;
+        ItemPointerData savedOldTableScanIdx = appender->oldTableScanIdx;
+
+        appender->oldRelation = oldPartRelation;
+        appender->oldTableScanIdx = partitionScanIdx;
+
+        bool oldTableScanFinished = true;
+
+        if (*oldTableScanTimes > 0 && oldTableScanFinished) {
+            HeapScanDesc heapScan = (HeapScanDesc)oldTableScan;
+            Assert(!heapScan->rs_base.rs_inited);
+            heapScan->rs_base.rs_cblock = ItemPointerGetBlockNumber(&appender->oldTableScanIdx);
+            heapgetpage((TableScanDesc)heapScan, heapScan->rs_base.rs_cblock);
+            heapScan->rs_base.rs_nblocks = RelationGetNumberOfBlocks(oldPartRelation);
+            heapScan->rs_base.rs_inited = true;
+        }
+
+        oldTableScanFinished = OnlineDDLAppendScanOldTable(appender, oldTableScan);
+        *oldTableScanTimes += (oldTableScanFinished ? 1 : 0);
+
+        // Restore the relation and scan index in appender
+        appender->oldRelation = savedOldRelation;
+        appender->oldTableScanIdx = savedOldTableScanIdx;
+    }
+
+    // Clean up log scanner
+    tableam_scan_end(deltaLogScan);
+    foreach (cell, oldTableScanList) {
+        TableScanDesc oldTableScan = (TableScanDesc)lfirst(cell);
+        tableam_scan_end(oldTableScan);
+    }
+
+    // Free scan counter
+    foreach (cell, oldTableScanTimesList) {
+        int* scanTimes = (int*)lfirst(cell);
+        pfree(scanTimes);
+    }
+    list_free(oldTableScanTimesList);
+
+    // Close partition relations
+    foreach (cell, oldPartRelationList) {
+        Relation oldPartRelation = (Relation)lfirst(cell);
+        heap_close(oldPartRelation, AccessExclusiveLock);
+    }
+    heap_close(appender->newRelation, NoLock);
+
+    return true;
+}
+
+bool OnlineDDLAppend(OnlineDDLAppender* appender, OnlineDDLScenario scenario)
+{
+    switch (scenario) {
+        case ONLINE_DDL_REWRITE_ROW_TABLE:
+            return OnlineDDLAppendForNormalTable(appender);
+        case ONLINE_DDL_REWRITE_ROW_PARTITIONED_TABLE:
+            return OnlineDDLAppendForPartitionedTable(appender);
+        case ONLINE_DDL_SPLIT_PARTITION:
+            return OnlineDDLAppendForSplitPartition(appender);
+        case ONLINE_DDL_MERGE_PARTITION:
+            return OnlineDDLAppendForMergePartition(appender);
+        default:
+            ereport(ERROR, (errmsg("[Online-DDL] unsupported scenario: %d", scenario)));
+            break;
     }
 }
 

@@ -131,9 +131,9 @@ void OnlineDDLRegisterGlobalHashEntry(DDLGlobalHashEntry* entry)
     LWLockAcquire(OnlineDDLHashLock, LW_EXCLUSIVE);
     DDLGlobalHashEntry* result =
         (DDLGlobalHashEntry*)hash_search(g_instance.online_ddl_cxt.globalInfoHash, &key, HASH_ENTER, &found);
-    ereport(ONLINE_DDL_LOG_LEVEL, (errmodule(MOD_ONLINE_DDL),
-                                   errmsg("[Online-DDL] OnlineDDLRegisterGlobalHashEntry: hashKey {%u, %u, %u}",
-                                          key.spcNode, key.dbNode, key.relId)));
+    ereport(ONLINE_DDL_LOG_LEVEL,
+            (errmodule(MOD_ONLINE_DDL), errmsg("[Online-DDL] OnlineDDLRegisterGlobalHashEntry: hashKey {%u, %u, %u}",
+                                               key.spcNode, key.dbNode, key.relId)));
 
     /*
      * If the entry is found, we need to check the status.
@@ -178,10 +178,10 @@ bool OnlineDDLReleaseHashEntry(DDLGlobalHashKey hashKey, TransactionId xid)
 
     LWLockAcquire(OnlineDDLHashLock, LW_EXCLUSIVE);
     entry = (DDLGlobalHashEntry*)hash_search(g_instance.online_ddl_cxt.globalInfoHash, &hashKey, HASH_FIND, &found);
-    ereport(ONLINE_DDL_LOG_LEVEL, (errmodule(MOD_ONLINE_DDL),
-                                   errmsg("[Online-DDL] OnlineDDLReleaseHashEntry: hashKey {%u, %u, %u} ,"
-                                          "find out the entry, found: %d",
-                                          hashKey.spcNode, hashKey.dbNode, hashKey.relId, found)));
+    ereport(ONLINE_DDL_LOG_LEVEL,
+            (errmodule(MOD_ONLINE_DDL), errmsg("[Online-DDL] OnlineDDLReleaseHashEntry: hashKey {%u, %u, %u} ,"
+                                               "find out the entry, found: %d",
+                                               hashKey.spcNode, hashKey.dbNode, hashKey.relId, found)));
     if (!found || entry == NULL || entry->operators->getStartXid() != xid) {
         LWLockRelease(OnlineDDLHashLock);
         return false;
@@ -471,7 +471,7 @@ bool OnlineDDLRelOperators::insertCtidMap(ItemPointer oldTid, Oid relId, ItemPoi
 }
 
 void OnlineDDLRelOperators::OnlineDDLAppendIncrementalData(Relation oldRelation, Relation newRelation,
-                                                           AlteredTableInfo* alterTableInfo)
+                                                           AlteredTableInfo* alterTableInfo, OnlineDDLScenario scenario)
 {
     List* indexOidList = NIL;
     Relation ctidMapIndex = NULL;
@@ -492,7 +492,7 @@ void OnlineDDLRelOperators::OnlineDDLAppendIncrementalData(Relation oldRelation,
                                                ctidMapIndex, this->endCtidInternal, alterTableInfo);
         ereport(NOTICE, (errmodule(MOD_ONLINE_DDL),
                          errmsg("Online DDL baseline data copy completed, start to append incremental data.")));
-        OnlineDDLAppend(this->appender);
+        OnlineDDLAppend(this->appender, scenario);
     } else {
         this->appender = OnlineDDLInitAppender(oldRelation, NULL, this->deltaRelation, this->ctidMapRelation,
                                                ctidMapIndex, this->endCtidInternal, alterTableInfo);
@@ -507,7 +507,7 @@ void OnlineDDLRelOperators::OnlineDDLAppendIncrementalData(Relation oldRelation,
 
 /* for partition table */
 void OnlineDDLRelOperators::OnlineDDLAppendIncrementalData(List* oldPartRelList, List* newOidList,
-                                                           AlteredTableInfo* alterTableInfo)
+                                                           AlteredTableInfo* alterTableInfo, OnlineDDLScenario scenario)
 {
     List* indexOidList = NIL;
     Relation ctidMapIndex = NULL;
@@ -528,10 +528,46 @@ void OnlineDDLRelOperators::OnlineDDLAppendIncrementalData(List* oldPartRelList,
                                                ctidMapIndex, this->partitionAppendMap, alterTableInfo);
         ereport(NOTICE, (errmodule(MOD_ONLINE_DDL),
                          errmsg("Online DDL baseline data copy completed, start to append incremental data.")));
-        OnlineDDLAppend(this->appender);
+        OnlineDDLAppend(this->appender, scenario);
     } else {
-        this->appender = OnlineDDLInitAppender(oldPartRelList, NULL, this->deltaRelation, this->ctidMapRelation,
+        this->appender = OnlineDDLInitAppender(oldPartRelList, NIL, this->deltaRelation, this->ctidMapRelation,
                                                ctidMapIndex, this->partitionAppendMap, alterTableInfo);
+        ereport(NOTICE, (errmodule(MOD_ONLINE_DDL),
+                         errmsg("Online DDL baseline data check completed, start to check incremental data.")));
+        OnlineDDLOnlyCheck(this->appender);
+    }
+    if (ctidMapIndex != NULL) {
+        index_close(ctidMapIndex, AccessShareLock);
+    }
+}
+
+void OnlineDDLRelOperators::OnlineDDLAppendIncrementalData(List* oldPartRelList, Relation newRelation,
+                                                           AlteredTableInfo* alterTableInfo, OnlineDDLScenario scenario)
+{
+    List* indexOidList = NIL;
+    Relation ctidMapIndex = NULL;
+
+    /* Get ctid map index */
+    indexOidList = RelationGetIndexList(this->ctidMapRelation);
+    if (list_length(indexOidList) != 1) {
+        ereport(ERROR,
+                (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                 errmsg("[Online-DDL] ctid map relation %u must have only one index.", this->ctidMapRelation->rd_id)));
+    }
+    Oid indexOid = (Oid)linitial_oid(indexOidList);
+    ctidMapIndex = index_open(indexOid, AccessShareLock);
+    list_free_ext(indexOidList);
+
+    if (onlineDDLType > ONLINE_DDL_CHECK) {
+        this->appender = OnlineDDLInitAppender(oldPartRelList, newRelation, this->deltaRelation, this->ctidMapRelation,
+                                               ctidMapIndex, this->partitionAppendMap, alterTableInfo);
+        ereport(NOTICE, (errmodule(MOD_ONLINE_DDL),
+                         errmsg("Online DDL baseline data copy completed, start to append incremental data.")));
+        OnlineDDLAppend(this->appender, scenario);
+    } else {
+        this->appender =
+            OnlineDDLInitAppender(oldPartRelList, (Relation)NULL, this->deltaRelation, this->ctidMapRelation,
+                                  ctidMapIndex, this->partitionAppendMap, alterTableInfo);
         ereport(NOTICE, (errmodule(MOD_ONLINE_DDL),
                          errmsg("Online DDL baseline data check completed, start to check incremental data.")));
         OnlineDDLOnlyCheck(this->appender);
@@ -565,8 +601,8 @@ bool CheckOnlineDDLStatusRunning(DDLGlobalHashKey hashKey, TransactionId xid)
                 (errmodule(MOD_ONLINE_DDL),
                  errmsg("[Online-DDL] CheckOnlineDDLStatusRunning: hashKey {%u, %u, %u} is disabled,"
                         " reason: status is %d, or xid not match, current xid %lu, entry xid %lu",
-                        hashKey.spcNode, hashKey.dbNode, hashKey.relId,
-                        entry->operators->getStatus(), xid, entry->operators->getStartXid())));
+                        hashKey.spcNode, hashKey.dbNode, hashKey.relId, entry->operators->getStatus(), xid,
+                        entry->operators->getStartXid())));
         return false;
     }
 
@@ -598,15 +634,23 @@ void OnlineDDLRelationSetup(Relation relation)
         relation->rd_online_ddl_operators = (void*)hashEntry->operators;
     }
 }
-void OnlineDDLRelationSetup(Relation relation, Relation parentRelation)
+void OnlineDDLRelationSetup(Relation relation, Relation parentRelation, Partition partition)
 {
     if (RelationGetAppendMode(parentRelation) != ONLINE_DDL_APPEND_MODE) {
         return;
     }
+    /* if parentRelation is parent partition of subpartition table, then use the relid of subpartitioned relation */
+    int relId =
+        RelationIsPartitionOfSubPartitionTable(parentRelation) ? parentRelation->parentId : parentRelation->rd_id;
     DDLGlobalHashEntry* hashEntry =
-        OnlineDDLGetHashEntry(GetDDLGlobalHashKey(parentRelation->rd_node, parentRelation->rd_id));
+        OnlineDDLGetHashEntry(GetDDLGlobalHashKey(parentRelation->rd_node, relId));
+    /* Only target partition can be setup */
     if (hashEntry != NULL && (hashEntry->operators->getStatus() != ONLINE_DDL_STATUS_NONE &&
                               hashEntry->operators->getStatus() != ONLINE_DDL_END)) {
+        if (hashEntry->operators->getCurrentPartitionOid() != NULL &&
+            hashEntry->operators->getCurrentPartitionOid() != partition->pd_id) {
+            return;
+        }
         relation->rd_online_ddl_operators = (void*)hashEntry->operators;
     }
 }

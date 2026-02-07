@@ -33,7 +33,7 @@
 
 const int ONLINE_DDL_GLOBAL_ID_INITIAL = 1;  // 1 ~ UINT64_MAX - 1
 
-typedef enum {
+enum OnlineDDLStatus {
     ONLINE_DDL_STATUS_NONE = 0,
     ONLINE_DDL_START,
     ONLINE_DDL_STATUS_PREPARE,
@@ -42,14 +42,13 @@ typedef enum {
     ONLINE_DDL_STATUS_CATCHUP,
     ONLINE_DDL_COMMITTING,
     ONLINE_DDL_END
-} OnlineDDLStatus;
+};
 
 enum OnlineDDLType {
     ONLINE_DDL_INVALID = 0,
     ONLINE_DDL_CHECK = 1,
     ONLINE_DDL_REWRITE = 2,
 };
-
 
 struct PartitionAppendEntry {
     Oid partOid; /* hash key */
@@ -59,8 +58,8 @@ struct PartitionAppendEntry {
 class OnlineDDLRelOperators : public BaseObject {
 private:
     Oid relId;
-    RelFileNode relfilenode; /* relfilenode */
-    OnlineDDLStatus status;  /* status of online ddl */
+    RelFileNode relfilenode;     /* relfilenode */
+    OnlineDDLStatus status;      /* status of online ddl */
     OnlineDDLType onlineDDLType; /* online ddl type */
 
     /* ddl delta log table */
@@ -120,8 +119,12 @@ public:
     ItemPointerData getEndCtidForPartition(Oid partOid);
 
     /* catch up data */
-    void OnlineDDLAppendIncrementalData(Relation oldRelation, Relation newRelation, AlteredTableInfo* alterTableInfo);
-    void OnlineDDLAppendIncrementalData(List* oldOidList, List* newOidList, AlteredTableInfo* alterTableInfo);
+    void OnlineDDLAppendIncrementalData(Relation oldRelation, Relation newRelation, AlteredTableInfo* alterTableInfo,
+                                        OnlineDDLScenario scenario);
+    void OnlineDDLAppendIncrementalData(List* oldOidList, List* newOidList, AlteredTableInfo* alterTableInfo,
+                                        OnlineDDLScenario scenario);
+    void OnlineDDLAppendIncrementalData(List* oldOidList, Relation newRelation, AlteredTableInfo* alterTableInfo,
+                                        OnlineDDLScenario scenario);
 
     Oid getRelId() const
     {
@@ -304,7 +307,7 @@ inline DDLGlobalHashKey GetDDLGlobalHashKey(RelFileNode relfilenode, Oid relId)
 
 inline OnlineDDLRelOperators* RelationGetOnlineDDLOperators(Relation relation)
 {
-    return (OnlineDDLRelOperators *) (relation->rd_online_ddl_operators);
+    return (OnlineDDLRelOperators*)(relation->rd_online_ddl_operators);
 }
 
 extern void initDDLGlobalHash(MemoryContext memctx);
@@ -317,6 +320,6 @@ extern bool OnlineDDLReleaseHashEntry(DDLGlobalHashKey hashKey, TransactionId xi
 extern DDLGlobalHashEntry* OnlineDDLGetHashEntry(DDLGlobalHashKey hashKey);
 
 extern void OnlineDDLRelationSetup(Relation relation);
-extern void OnlineDDLRelationSetup(Relation relation, Relation parentRelation);
+extern void OnlineDDLRelationSetup(Relation relation, Relation parentRelation, Partition partition);
 
 #endif /* ONLINE_DDL_H */

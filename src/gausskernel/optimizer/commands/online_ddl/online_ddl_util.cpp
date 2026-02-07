@@ -80,7 +80,7 @@ void OnlineDDLExecuteCommand(char* query)
  */
 void OnlineDDLEnableRelationAppendMode(Relation relation)
 {
-    OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(relation);
+    OnlineDDLRelOperators* operators = (OnlineDDLRelOperators*)u_sess->online_ddl_operators;
     Assert(operators != NULL);
     if (operators == NULL) {
         ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
@@ -113,7 +113,7 @@ void OnlineDDLEnableRelationAppendMode(Relation relation)
                     operators->enableTargetRelationAppendMode(RelationGetRelid(subpartrel), endCtid);
                     releaseDummyRelation(&subpartrel);
                 }
-                releaseSubPartitionList(partrel, &subpartitions, NoLock);
+                releasePartitionList(partrel, &subpartitions, NoLock);
                 releaseDummyRelation(&partrel);
             }
         } else {
