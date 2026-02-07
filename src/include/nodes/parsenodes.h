@@ -1686,6 +1686,7 @@ typedef struct ClusterStmt {
     char* indexname;    /* original index defined */
     bool verbose;       /* print progress info */
     AdaptMem memUsage;  /* adaptive memory assigned for the stmt */
+    bool concurrent;   /* cluster concurrently */
 } ClusterStmt;
 
 /* ----------------------

@@ -3042,9 +3042,9 @@ Oid heap_insert(Relation relation, HeapTuple tup, CommandId cid, int options, Bu
         options |= HEAP_INSERT_SKIP_FSM;
         BlockNumber testBlockNum = OnlineDDLRelationGetEndCtidInternal(relation);
         BlockNumber testBlockNum2 = RelationGetNumberOfBlocks(relation);
-        ItemPointerData endCtid = operators->getendCtidInternal();
+        ItemPointerData endCtid = operators->getEndCtidForPartition(relation->rd_id);
         rel_end_block = ItemPointerGetBlockNumberNoCheck(&endCtid);
-        ereport(NOTICE,
+        ereport(ONLINE_DDL_LOG_LEVEL,
             (errmsg("heap insert: relation %s in online DDL append mode, rel_end_block %u, testBlockNum %u, testBlockNum2 %u",
                 RelationGetRelationName(relation),
                 rel_end_block,
@@ -4111,8 +4111,8 @@ int heap_multi_insert(Relation relation, Relation parent, HeapTuple* tuples, int
         options |= HEAP_INSERT_SKIP_FSM;
         BlockNumber testBlockNum = OnlineDDLRelationGetEndCtidInternal(relation);
         BlockNumber testBlockNum2 = RelationGetNumberOfBlocks(relation);
-        ItemPointerData endCtid = operators->getendCtidInternal();
-        rel_end_block = ItemPointerGetBlockNumber(&endCtid);
+        ItemPointerData endCtid = operators->getEndCtidForPartition(relation->rd_id);
+        rel_end_block = ItemPointerGetBlockNumberNoCheck(&endCtid);
         ereport(ONLINE_DDL_LOG_LEVEL,
             (errmsg("heap_multi_insert: relation %s in online DDL append mode, rel_end_block %u, testBlockNum %u, testBlockNum2 %u",
                 RelationGetRelationName(relation),
@@ -5635,8 +5635,8 @@ l2:
         options |= HEAP_INSERT_SKIP_FSM;
         BlockNumber testBlockNum = OnlineDDLRelationGetEndCtidInternal(relation);
         BlockNumber testBlockNum2 = RelationGetNumberOfBlocks(relation);
-        ItemPointerData endCtid = operators->getendCtidInternal();
-        rel_end_block = ItemPointerGetBlockNumber(&endCtid);
+        ItemPointerData endCtid = operators->getEndCtidForPartition(relation->rd_id);
+        rel_end_block = ItemPointerGetBlockNumberNoCheck(&endCtid);
         ereport(ONLINE_DDL_LOG_LEVEL,
                 (errmsg("heap_update: relation %s in online DDL append mode, rel_end_block %u, testBlockNum %u, "
                         "testBlockNum2 %u",

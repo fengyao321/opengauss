@@ -8530,10 +8530,10 @@ static void ATController(AlterTableStmt *parsetree, Relation rel, List* cmds, bo
 
     /* online-ddl pharse 1: online_ddl prepare pharse. */
     if (concurrently) {
-        onlineDDLType = OnlineDDLCheckFeasible(&wqueue, rel, cmds, lockmode);
+        onlineDDLType = OnlineDDLCheckAlterFeasible(&wqueue, rel, cmds, lockmode);
         enableOnlineDDL = onlineDDLType > ONLINE_DDL_INVALID;
         if (enableOnlineDDL) {
-            OnlineDDLInstanceInit(wqueue, &rel, cmds, lockmode, onlineDDLType);
+            OnlineDDLInstanceInit(&rel, lockmode, onlineDDLType);
         }
     }
 
@@ -18771,7 +18771,6 @@ static inline void OnlineDDLClearupLockList(Oid classId, Oid objectId, Oid objec
 
 static void OnlineDDLAlterTypeCleanupLock(AlteredTableInfo* tab)
 {
-    ObjectAddress obj;
     ListCell* def_item = NULL;
     ListCell* oid_item = NULL;
 
@@ -18802,13 +18801,12 @@ static void OnlineDDLAlterTypeCleanupLock(AlteredTableInfo* tab)
     if (needRelease) {
         OnlineDDLClearupLockList(RelationRelationId, operators->getRelId(), 0);
         while (CheckLockDatabaseObject(operators->getRelId(), 114, 0, ExclusiveLock)) {
-            if (!CheckLockDatabaseObject(obj.classId, (Oid)'r', 0, ShareUpdateExclusiveLock)) {
-                LockDatabaseObject(obj.classId, (Oid)'r', 0, ShareUpdateExclusiveLock);
+            if (!CheckLockDatabaseObject(operators->getRelId(), (Oid)'r', 0, ShareUpdateExclusiveLock)) {
+                LockDatabaseObject(operators->getRelId(), (Oid)'r', 0, ShareUpdateExclusiveLock);
             }
             UnlockDatabaseObject(operators->getRelId(), (Oid)'r', 0, ExclusiveLock);
             ereport(ONLINE_DDL_LOG_LEVEL,
-                    (errcode(ERRCODE_CACHE_LOOKUP_FAILED),
-                     errmsg("OnlineDDLClearupLock lock release classId: %d, objectId:%d, lockmode:%d", obj.classId,
+                    (errmsg("OnlineDDLClearupLock lock release classId: %d, objectId:%d, lockmode:%d", operators->getRelId(),
                             (Oid)'r', ExclusiveLock)));
         }
     }
@@ -30496,6 +30494,7 @@ static void ATExecSplitPartition(Relation partTableRel, AlterTableCmd* cmd, Alte
             OnlineDDLEnableRelationAppendMode(tempTableRel);
         }
         // read temp table tuples and insert into partitioned table
+        partTableRel->rd_online_ddl_operators = NULL;
         readTuplesAndInsert(tempTableRel, partTableRel);
 
         if (enableOnlineDDL) {
@@ -31884,6 +31883,9 @@ static void readTuplesAndInsertInternal(Relation tempTableRel, Relation partTabl
                 ((UHeapTuple)copyTuple)->xc_node_id = u_sess->pgxc_cxt.PGXCNodeIdentifier;
             }
         }
+        if (enableOnlineDDL) {
+            partRel->rd_online_ddl_operators = NULL;
+        }
         tableam_tuple_insert(partRel, copyTuple, GetCurrentCommandId(true), HEAP_INSERT_SPLIT_PARTITION, NULL);
         if (enableOnlineDDL && operators->getOnlineDDLType() > ONLINE_DDL_CHECK) {
             operators->insertCtidMap(oldCtid, targetPartOid, &((HeapTuple)copyTuple)->t_self);
@@ -32883,9 +32885,9 @@ static void ExecRewriteRowTable(AlteredTableInfo* tab, Oid NewTableSpace, LOCKMO
     if (enableOnlineDDL) {
         if (srcIndexOidList != NIL && destIndexOidList != NIL) {
             OnlineDDLSwapRelationIndexes(srcIndexOidList, destIndexOidList, tab);
+            list_free_ext(srcIndexOidList);
+            list_free_ext(destIndexOidList);
         }
-        list_free_ext(srcIndexOidList);
-        list_free_ext(destIndexOidList);
     }
 
     /*
@@ -32980,7 +32982,7 @@ static void ExecRewriteRowPartitionedTable(AlteredTableInfo* tab, Oid NewTableSp
             ListCell* subcell = NULL;
             foreach (subcell, subpartitions) {
                 Partition subpartition = (Partition)lfirst(subcell);
-                if (enableOnlineDDL) {
+                if (enableOnlineDDL && CheckLockPartitionOid(partitionedTableRel->rd_id, subpartition->pd_id, AccessExclusiveLock)) {
                     UnlockPartition(partitionedTableRel->rd_id, subpartition->pd_id, AccessExclusiveLock, PARTITION_LOCK);
                 }
                 Relation oldRel = partitionGetRelation(partrel, subpartition);
@@ -33079,8 +33081,13 @@ static void ExecRewriteRowPartitionedTable(AlteredTableInfo* tab, Oid NewTableSp
         }
 
         operators->setStatus(ONLINE_DDL_STATUS_CATCHUP);
-        operators->OnlineDDLAppendIncrementalData(oldPartRelList, tempTableOidList, tab, ONLINE_DDL_REWRITE_ROW_PARTITIONED_TABLE);
-
+        operators->OnlineDDLAppendIncrementalData(oldPartRelList, tempTableOidList, tab,
+                                                  ONLINE_DDL_REWRITE_ROW_PARTITIONED_TABLE);
+        if (srcIndexOidList != NIL && destIndexOidList != NIL) {
+            OnlineDDLSwapRelationIndexes(srcIndexOidList, destIndexOidList, NULL);
+            list_free_ext(srcIndexOidList);
+            list_free_ext(destIndexOidList);
+        }
         /* swap the temp table and partition */
         ListCell* oldCell = NULL;
         ListCell* newCell = NULL;
@@ -33094,6 +33101,7 @@ static void ExecRewriteRowPartitionedTable(AlteredTableInfo* tab, Oid NewTableSp
                                     false, tab);
             releaseDummyRelation(&oldRelation);
         }
+        list_free_ext(oldPartRelList);
     }
 
     ReleaseSysCache(tuple);
@@ -35469,6 +35477,8 @@ bool OnlineDDLCheckAlterModifyColumnFeasible(AlteredTableInfo* tab, Relation rel
     if (!pgAttr->attnotnull && def->is_not_null) {
         result = true;
     }
+    ReleaseSysCache(typeTuple);
+    heap_close(attRel, RowExclusiveLock);
     return result;
 }
 

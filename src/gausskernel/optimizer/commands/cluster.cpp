@@ -44,6 +44,9 @@
 #include "commands/matview.h"
 #include "commands/tablecmds.h"
 #include "commands/vacuum.h"
+#include "commands/online_ddl.h"
+#include "commands/online_ddl_deltalog.h"
+#include "commands/online_ddl_util.h"
 #include "miscadmin.h"
 #include "pgxc/pgxc.h"
 #include "optimizer/cost.h"
@@ -298,7 +301,7 @@ void cluster(ClusterStmt* stmt, bool isTopLevel)
         heap_close(rel, NoLock);
 
         /* Do the job */
-        cluster_rel(tableOid, partOid, indexOid, false, stmt->verbose, -1, -1, &stmt->memUsage, true);
+        cluster_rel(tableOid, partOid, indexOid, false, stmt->verbose, -1, -1, &stmt->memUsage, true, stmt->concurrent);
     } else {
         /*
          * This is the "multi relation" case. We need to cluster all tables
@@ -370,7 +373,7 @@ void cluster(ClusterStmt* stmt, bool isTopLevel)
  * and error messages should refer to the operation as VACUUM not CLUSTER.
  */
 void cluster_rel(Oid tableOid, Oid partitionOid, Oid indexOid, bool recheck, bool verbose, int freeze_min_age,
-    int freeze_table_age, void* mem_info, bool onerel)
+    int freeze_table_age, void* mem_info, bool onerel, bool concurrent)
 {
     Relation OldHeap;
     LOCKMODE lockMode = NoLock;
@@ -379,6 +382,8 @@ void cluster_rel(Oid tableOid, Oid partitionOid, Oid indexOid, bool recheck, boo
     Oid save_userid;
     int save_sec_context;
     int save_nestlevel;
+    bool enableOnlineDDL = false;
+    OnlineDDLType type = ONLINE_DDL_INVALID;
 
     /* Check for user-requested abort. */
     CHECK_FOR_INTERRUPTS();
@@ -633,6 +638,20 @@ void cluster_rel(Oid tableOid, Oid partitionOid, Oid indexOid, bool recheck, boo
      */
     TransferPredicateLocksToHeapRelation(OldHeap);
 
+    if (concurrent) {
+        type = OnlineDDLCheckVacuumFeasible(OldHeap, indexOid);
+        if (type == ONLINE_DDL_VACUUM || type == ONLINE_DDL_CLUSTER) {
+            /* used in online ddl cluster */
+            if (indexOid != InvalidOid) {
+                LockRelationIdForSession(&(OldHeap->rd_lockInfo.lockRelId), ExclusiveLock);
+            }
+            enableOnlineDDL = true;
+            AtEOXact_GUC(false, save_nestlevel);
+            OnlineDDLInstanceInit(&OldHeap, AccessExclusiveLock, type, partitionOid);
+            save_nestlevel = NewGUCNestLevel();
+        }
+    }
+
     /* rebuild_relation does all the dirty work */
     if (!RELATION_IS_PARTITIONED(OldHeap)) {
         /*
@@ -651,6 +670,29 @@ void cluster_rel(Oid tableOid, Oid partitionOid, Oid indexOid, bool recheck, boo
     } else {
         /* for a specific partition */
         rebuildPartition(OldHeap, partitionOid, indexOid, freeze_min_age, freeze_table_age, verbose, memUsage);
+    }
+
+    /*
+     * Reset append mode of OldHeap here, need AccessExclusiveLock.
+     * Hold lock until transaction finish.
+     */
+    if (enableOnlineDDL) {
+        /* vacuum cuncurrently */
+        if (indexOid == InvalidOid && type == ONLINE_DDL_VACUUM) {
+            LockRelationIdForSession(&(OldHeap->rd_lockInfo.lockRelId), ExclusiveLock);
+        }
+        if (OldHeap->rd_refcnt <= 0) {
+            OldHeap = relation_open(tableOid, AccessExclusiveLock);
+            OnlineDDLInstanceFinish(OldHeap);
+        } else {
+            if (!CheckLockRelationOid(tableOid, AccessExclusiveLock)) {
+                LockRelationOid(tableOid, AccessExclusiveLock);
+                ereport(WARNING,
+                    (errcode(ERRCODE_TARGET_SERVER_NOT_ATTACHED),
+                        errmsg("Online DDL vacuum need AccessExclusiveLock Here!")));
+            }
+            OnlineDDLInstanceFinish(OldHeap);
+        }
     }
 
 out:
@@ -797,6 +839,15 @@ void mark_index_clustered(Relation rel, Oid indexOid)
     heap_close(pg_index, RowExclusiveLock);
 }
 
+inline static void OnlineDDLFinishIndexSwap(List* srcIndexOidList, List* destIndexOidList, AlteredTableInfo* tab)
+{
+    if (srcIndexOidList != NIL && destIndexOidList != NIL) {
+        OnlineDDLSwapRelationIndexes(srcIndexOidList, destIndexOidList, tab);
+        list_free_ext(srcIndexOidList);
+        list_free_ext(destIndexOidList);
+    }
+}
+
 /*
  * rebuild_relation: rebuild an existing relation in index or physical order
  *
@@ -828,8 +879,33 @@ static void rebuild_relation(
     /* Close relcache entry, but keep lock until transaction commit */
     heap_close(OldHeap, NoLock);
 
+    /* used ShareUpdateExclusiveLock if enableOnlineDDL */
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+    bool enableOnlineDDL = (operators != NULL && operators->getStatus() == ONLINE_DDL_STATUS_BASELINE_COPY);
+    LOCKMODE oldRelLockMode = enableOnlineDDL ? ShareUpdateExclusiveLock : ExclusiveLock;
     /* Create the transient table that will receive the re-ordered data */
-    OIDNewHeap = make_new_heap(tableOid, tableSpace, ExclusiveLock);
+    OIDNewHeap = make_new_heap(tableOid, tableSpace, oldRelLockMode);
+
+    List* srcIndexOidList = NIL;
+    List* destIndexOidList = NIL;
+    Relation oldRel = NULL;
+    Relation newRel = NULL;
+    if (enableOnlineDDL) {
+#ifdef USE_ASSERT_CHECKING
+        OnlineDDLLockCheck(tableOid);
+#endif
+        oldRel = heap_open(tableOid, ShareUpdateExclusiveLock);
+        newRel = heap_open(OIDNewHeap, AccessExclusiveLock);
+        ereport(ONLINE_DDL_LOG_LEVEL,
+            (errmsg("ExecRewriteRowTable: oldRelation = %u, toastoid = %u, newRelation = %u, toastoid = %u.",
+                    oldRel->rd_id, oldRel->rd_rel->reltoastrelid, newRel->rd_id, newRel->rd_rel->reltoastrelid)));
+        OnlineDDLCopyRelationIndexs(oldRel, newRel, &srcIndexOidList, &destIndexOidList);
+        heap_close(oldRel, NoLock);
+        heap_close(newRel, NoLock);
+#ifdef USE_ASSERT_CHECKING
+        OnlineDDLLockCheck(tableOid);
+#endif
+    }
 
     /* Copy the heap data into the new table in the desired order */
     copy_heap_data(OIDNewHeap,
@@ -852,6 +928,11 @@ static void rebuild_relation(
      */
     t_thrd.storage_cxt.EnlargeDeadlockTimeout = true;
     LockRelationOid(tableOid, AccessExclusiveLock);
+
+    /* switch Indexs */
+    if (enableOnlineDDL) {
+        OnlineDDLFinishIndexSwap(srcIndexOidList, destIndexOidList, NULL);
+    }
 
     /*
      * Swap the physical files of the target and transient tables, then
@@ -972,6 +1053,10 @@ static void rebuildPartitionedTable(
     Relation newHeap = NULL;
     double deleteTuplesNum = -1;
     double taotaldeleteTuples = 0;
+    List* oldPartRelList = NIL;
+    List* tempTableOidList = NIL;
+    List* srcIndexOidList = NIL;
+    List* destIndexOidList = NIL;
 
     /* remember all the new partition heap oid. */
     Oid* OIDNewHeapArray = NULL;
@@ -1028,8 +1113,13 @@ static void rebuildPartitionedTable(
     /* Build RelOptInfo */
     relOptInfo = build_simple_rel(root, 1, RELOPT_BASEREL);
 
+    /* Used to cluster concurrently partition table. */
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+    bool enableOnlineDDL = (operators != NULL && operators->getStatus() == ONLINE_DDL_STATUS_BASELINE_COPY);
+    LOCKMODE lockmode = (enableOnlineDDL) ? ShareUpdateExclusiveLock : ExclusiveLock;
+
     /* 3. plan cluster on every partition */
-    partitions = relationGetPartitionList(partTableRel, ExclusiveLock);
+    partitions = relationGetPartitionList(partTableRel, lockmode);
     OIDNewHeapArrayLen = list_length(partitions);
     OIDNewHeapArray = (Oid*)palloc(sizeof(Oid) * OIDNewHeapArrayLen);
     frozenXid = (TransactionId*)palloc(sizeof(TransactionId) * OIDNewHeapArrayLen);
@@ -1037,6 +1127,10 @@ static void rebuildPartitionedTable(
     foreach (cell, partitions) {
         partition = (Partition)lfirst(cell);
         partRel = partitionGetRelation(partTableRel, partition);
+        if (enableOnlineDDL) {
+            Relation tmpPartRel = partitionGetRelation(partTableRel, partition);
+            oldPartRelList = lappend(oldPartRelList, tmpPartRel);
+        }
 
         /* we need to transfre locks here. */
         TransferPredicateLocksToHeapRelation(partRel);
@@ -1071,6 +1165,10 @@ static void rebuildPartitionedTable(
 
         /* Copy the heap data into the new table in the desired order */
         newHeap = heap_open(OIDNewHeap, AccessExclusiveLock);
+        if (enableOnlineDDL) {
+            OnlineDDLCopyRelationIndexs(partTableRel, newHeap, &srcIndexOidList, &destIndexOidList);
+            tempTableOidList = lappend_oid(tempTableOidList, OIDNewHeap);
+        }
         if (isCStore)
             CopyCStoreData(partRel,
                 newHeap,
@@ -1105,6 +1203,24 @@ static void rebuildPartitionedTable(
     }
     Assert(pos == OIDNewHeapArrayLen);
 
+    if (enableOnlineDDL) {
+        foreach (cell, tempTableOidList) {
+            Oid newRelId = lfirst_oid(cell);
+            ReindexRelation(newRelId, REINDEX_REL_SUPPRESS_INDEX_USE | REINDEX_REL_CHECK_CONSTRAINTS,
+                            REINDEX_ALL_INDEX, NULL, NULL);
+        }
+        operators->setStatus(ONLINE_DDL_STATUS_CATCHUP);
+        operators->OnlineDDLAppendIncrementalData(oldPartRelList, tempTableOidList, MaxTransactionId, MaxTransactionId,
+                                                  ONLINE_DDL_CLUSTER_PARTITIONS);
+        OnlineDDLFinishIndexSwap(srcIndexOidList, destIndexOidList, NULL);
+        foreach (cell, oldPartRelList) {
+            Relation partRel = (Relation)lfirst(cell);
+            releaseDummyRelation(&partRel);
+        }
+        list_free_ext(tempTableOidList);
+        list_free_ext(oldPartRelList);
+    }
+
     // We must hold AccessExluviseLock before swap relfile node in order to prevent
     // from select statement.  Because vacumm full have done lots of work by here,
     // so we delay dead lock check for vacuum full thread to avoid vacuum full/cluster
@@ -1133,7 +1249,7 @@ static void rebuildPartitionedTable(
 
     ReleaseSysCache(tuple);
 
-    releasePartitionList(partTableRel, &partitions, ExclusiveLock);
+    releasePartitionList(partTableRel, &partitions, lockmode);
     heap_close(partTableRel, NoLock);
 
     if (!isCStore) {
@@ -1171,6 +1287,13 @@ static void rebuildPartition(Relation partTableRel, Oid partitionOid, Oid indexO
     TransactionId frozenXid = InvalidTransactionId;
     MultiXactId multiXid = InvalidMultiXactId;
     bool isCStore = RelationIsColStore(partTableRel);
+
+    /* cluster concurrently single partition */
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+    bool enableOnlineDDL = (operators != NULL && operators->getStatus() == ONLINE_DDL_STATUS_BASELINE_COPY);
+    LOCKMODE lockmode = (enableOnlineDDL) ? ShareUpdateExclusiveLock : ExclusiveLock;
+    List* srcIndexOidList = NIL;
+    List* destIndexOidList = NIL;
 
     TupleDesc partTabHeapDesc;
     HeapTuple tuple = NULL;
@@ -1242,7 +1365,7 @@ static void rebuildPartition(Relation partTableRel, Oid partitionOid, Oid indexO
      * 3. plan cluster on the specific partition
      * 3.1 copy data from old partition file to new relation file
      */
-    partition = partitionOpen(partTableRel, partitionOid, ExclusiveLock);
+    partition = partitionOpen(partTableRel, partitionOid, lockmode);
     partRel = partitionGetRelation(partTableRel, partition);
 
     /* get pages and tuples of partition */
@@ -1275,6 +1398,14 @@ static void rebuildPartition(Relation partTableRel, Oid partitionOid, Oid indexO
 
     /* Copy the heap data into the new table in the desired order */
     newHeap = heap_open(OIDNewHeap, AccessExclusiveLock);
+    /* Copy the index to the new table */
+    if (enableOnlineDDL) {
+        ereport(ONLINE_DDL_LOG_LEVEL, (errmsg("rebuildPartition: partTableRel %s, partRel %s, newHeap %s.",
+                                              RelationGetRelationName(partTableRel),
+                                              RelationGetRelationName(partRel),
+                                              RelationGetRelationName(newHeap))));
+        OnlineDDLCopyRelationIndexs(partTableRel, newHeap, &srcIndexOidList, &destIndexOidList);
+    }
     if (isCStore) {
         CopyCStoreData(
             partRel, newHeap, freezeMinAge, freezeTableAge, verbose, &swapToastByContent, &frozenXid, memUsage);
@@ -1301,6 +1432,10 @@ static void rebuildPartition(Relation partTableRel, Oid partitionOid, Oid indexO
             &multiXid,
             memUsage,
             &deleteTuplesNum);
+    }
+
+    if (enableOnlineDDL) {
+        OnlineDDLFinishIndexSwap(srcIndexOidList, destIndexOidList, NULL);
     }
 
     heap_close(newHeap, NoLock);
@@ -1334,8 +1469,9 @@ static void rebuildPartition(Relation partTableRel, Oid partitionOid, Oid indexO
         finishPartitionHeapSwap(partRel->rd_id, OIDNewHeap, swapToastByContent, frozenXid, multiXid);
         /* rebuild index of partition table */
         reindexFlags = REINDEX_REL_SUPPRESS_INDEX_USE;
-        (void)reindexPartition(RelationGetRelid(partTableRel), partitionOid, reindexFlags, REINDEX_ALL_INDEX);
-
+        if (!enableOnlineDDL) {
+            (void)reindexPartition(RelationGetRelid(partTableRel), partitionOid, reindexFlags, REINDEX_ALL_INDEX);
+        }
         /* close partition */
         partitionClose(partTableRel, partition, NoLock);
         releaseDummyRelation(&partRel);
@@ -1555,7 +1691,9 @@ Oid makePartitionNewHeap(Relation partitionedTableRel, TupleDesc partTabHeapDesc
     bool isNull = false;
     int ss_c = 0;
     HashBucketInfo bucketinfo;
-
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+    bool enableOnlineDDL = (operators != NULL && operators->getStatus() == ONLINE_DDL_STATUS_BASELINE_COPY);
+    LOCKMODE lockmode  = enableOnlineDDL ? ShareUpdateExclusiveLock : AccessExclusiveLock;
     /*
      * Create the new heap, using a temporary name in the same namespace as
      * the existing table.
@@ -1587,7 +1725,8 @@ Oid makePartitionNewHeap(Relation partitionedTableRel, TupleDesc partTabHeapDesc
         RELATION_OWN_BUCKETKEY(partitionedTableRel) ? &bucketinfo : NULL,
         true,
         NULL,
-        RelationGetStorageType(partitionedTableRel));
+        RelationGetStorageType(partitionedTableRel),
+        lockmode);
     Assert(OIDNewHeap != InvalidOid);
     /*
      * Advance command counter so that the newly-created relation's catalog
@@ -1942,20 +2081,9 @@ double CopyUHeapDataInternal(Relation oldHeap, Relation oldIndex, Relation newHe
     return tups_vacuumed;
 }
 
-static inline bool tuple_invisible_not_hotupdate(HeapTuple tuple, Relation relation, bool* have_invisible_tuple)
-{
-    if (HeapKeepInvisibleTuple(tuple, RelationGetDescr(relation)) && !HeapTupleIsHotUpdated(tuple)) {
-        *have_invisible_tuple = true;
-        return false;
-    } else {
-        return true;
-    }
-}
-
 double copy_heap_data_internal(Relation OldHeap, Relation OldIndex, Relation NewHeap, TransactionId OldestXmin,
     TransactionId FreezeXid, bool verbose, bool use_sort, AdaptMem* memUsage)
 {
-
     TupleDesc oldTupDesc;
     TupleDesc newTupDesc;
     Relation heapRelation = NULL;
@@ -1975,6 +2103,9 @@ double copy_heap_data_internal(Relation OldHeap, Relation OldIndex, Relation New
     int messageLevel = -1;
     PGRUsage ru0;
     SeqScanAccessor scanaccessor;
+
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+    bool enableOnlineDDL = (operators != NULL && operators->getStatus() == ONLINE_DDL_STATUS_BASELINE_COPY);
 
     pg_rusage_init(&ru0);
 
@@ -2026,10 +2157,24 @@ double copy_heap_data_internal(Relation OldHeap, Relation OldIndex, Relation New
             Oid heapId = IndexGetRelation(RelationGetRelid(OldIndex), false);
             heapRelation = heap_open(heapId, NoLock);
         }
-        indexScan = scan_handler_idx_beginscan(heapRelation, OldIndex, SnapshotAny, 0, 0);
+        if (enableOnlineDDL) {
+            Snapshot snapshot = operators->getBaselineSnapshot();
+            indexScan = scan_handler_idx_beginscan(heapRelation, OldIndex, snapshot, 0, 0);
+        } else {
+            indexScan = scan_handler_idx_beginscan(heapRelation, OldIndex, SnapshotAny, 0, 0);
+        }
         scan_handler_idx_rescan_local(indexScan, NULL, 0, NULL, 0);
     } else {
-        heapScan = tableam_scan_begin(OldHeap, SnapshotAny, 0, (ScanKey)NULL);
+        if (enableOnlineDDL) {
+            /*
+             * In online ddl mode, we get AccessExclusiveLock on OldHeap in prepare phase, so dead tuples for baseline
+             * snapshot must not be visible to other transactions.
+             */
+            Snapshot snapshot = operators->getBaselineSnapshot();
+            heapScan = tableam_scan_begin(OldHeap, snapshot, 0, (ScanKey)NULL);
+        } else {
+            heapScan = tableam_scan_begin(OldHeap, SnapshotAny, 0, (ScanKey)NULL);
+        }
         ADIO_RUN()
         {
             SeqScan_Init(heapScan, &scanaccessor, OldHeap);
@@ -2295,12 +2440,16 @@ static void copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, int 
     bool isGtt = false;
     TransactionId gttRelfrozenxid = 0;
 
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+    bool enableOnlineDDL = (operators != NULL && operators->getStatus() == ONLINE_DDL_STATUS_BASELINE_COPY);
+    LOCKMODE lockmode  = enableOnlineDDL ? ShareUpdateExclusiveLock : ExclusiveLock;
     /*
      * Open the relations we need.
      */
-    NewHeap = heap_open(OIDNewHeap, ExclusiveLock);
-    OldHeap = heap_open(OIDOldHeap, ExclusiveLock);
+    NewHeap = heap_open(OIDNewHeap, lockmode);
+    OldHeap = heap_open(OIDOldHeap, lockmode);
 
+    /* online ddl not support index */
     if (OidIsValid(OIDOldIndex))
         OldIndex = index_open(OIDOldIndex, ExclusiveLock);
     else
@@ -2324,7 +2473,7 @@ static void copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, int 
      * will be held till end of transaction.
      */
     if (OldHeap->rd_rel->reltoastrelid)
-        LockRelationOid(OldHeap->rd_rel->reltoastrelid, ExclusiveLock);
+        LockRelationOid(OldHeap->rd_rel->reltoastrelid, lockmode);
 
     /*
      * If both tables have TOAST tables, perform toast swap by content.  It is
@@ -2333,7 +2482,8 @@ static void copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, int 
      * swap by links.  This is okay because swap by content is only essential
      * for system catalogs, and we don't support schema changes for them.
      */
-    if (OldHeap->rd_rel->reltoastrelid && NewHeap->rd_rel->reltoastrelid) {
+    if (OldHeap->rd_rel->reltoastrelid && NewHeap->rd_rel->reltoastrelid &&
+        !enableOnlineDDL) {
         *pSwapToastByContent = true;
 
         /* When doing swap by content, any toast pointers written into NewHeap
@@ -2438,7 +2588,7 @@ static void copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, int 
      * tells us it's cheaper.  Otherwise, always indexscan if an index is
      * provided, else plain seqscan.
      */
-    if (OldIndex != NULL && OID_IS_BTREE(OldIndex->rd_rel->relam)) {
+    if (OldIndex != NULL && OID_IS_BTREE(OldIndex->rd_rel->relam) && !enableOnlineDDL) {
         use_sort = plan_cluster_use_sort(OIDOldHeap, OIDOldIndex);
     } else {
         use_sort = false;
@@ -2486,6 +2636,18 @@ static void copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, int 
     /* record vacuumed tuple for reporting stat to PgStatCollector */
     *ptrDeleteTupleNum = tups_vacuumed;
 
+    if (enableOnlineDDL) {
+        Assert(operators->getOnlineDDLType() == ONLINE_DDL_VACUUM ||
+               operators->getOnlineDDLType() == ONLINE_DDL_CLUSTER);
+        ReindexRelation(OIDNewHeap, REINDEX_REL_SUPPRESS_INDEX_USE | REINDEX_REL_CHECK_CONSTRAINTS, REINDEX_ALL_INDEX,
+                        NULL, NULL);
+        operators->setStatus(ONLINE_DDL_STATUS_CATCHUP);
+#ifdef USE_ASSERT_CHECKING
+        OnlineDDLLockCheck(OIDOldHeap);
+#endif
+        operators->OnlineDDLAppendIncrementalData(OldHeap, NewHeap, OldestXmin, FreezeXid, ONLINE_DDL_VACUUM_TABLE);
+    }
+
     if (OldIndex != NULL)
         index_close(OldIndex, NoLock);
     heap_close(OldHeap, NoLock);
@@ -2493,7 +2655,7 @@ static void copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, int 
 }
 
 static Relation GetPartitionIndexRel(
-    const Relation oldHeap, Oid indexOid, Relation* partTabIndexRel, Partition* partIndexRel)
+    const Relation oldHeap, Oid indexOid, Relation* partTabIndexRel, Partition* partIndexRel, LOCKMODE lockmode)
 {
     Relation oldIndex = NULL;
 
@@ -2504,7 +2666,7 @@ static Relation GetPartitionIndexRel(
             oldIndex = *partTabIndexRel;
         } else {
             partIndexOid = getPartitionIndexOid(indexOid, RelationGetRelid(oldHeap));
-            *partIndexRel = partitionOpen(*partTabIndexRel, partIndexOid, ExclusiveLock);
+            *partIndexRel = partitionOpen(*partTabIndexRel, partIndexOid, lockmode);
             if (!(*partIndexRel)->pd_part->indisusable) {
                 ereport(ERROR,
                     (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -2529,6 +2691,8 @@ static Relation GetPartitionIndexRel(
  * Notes        : There are two output parameters:
  * 				  pSwapToastByContent is set true if toast tables must be swapped by content.
  * 				  pFreezeXid receives the TransactionId used as freeze cutoff point.
+ * newHeap: new heap relation
+ * oldHeap: old fake relation of target partition
  * Input        :
  * Output       : NA
  */
@@ -2547,15 +2711,18 @@ static void copyPartitionHeapData(Relation newHeap, Relation oldHeap, Oid indexO
     MultiXactId relfrozenmxid = InvalidMultiXactId;
     double tups_vacuumed = 0;
     *pSwapToastByContent = false;
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+    bool enableOnlineDDL = (operators != NULL && operators->getStatus() == ONLINE_DDL_STATUS_BASELINE_COPY);
+    LOCKMODE lockmode  = enableOnlineDDL ? ShareUpdateExclusiveLock : ExclusiveLock;
 
-    oldIndex = GetPartitionIndexRel(oldHeap, indexOid, &partTabIndexRel, &partIndexRel);
+    oldIndex = GetPartitionIndexRel(oldHeap, indexOid, &partTabIndexRel, &partIndexRel, lockmode);
 
     /*
      * If the OldHeap has a toast table, get lock on the toast table to keep
      * it from being vacuumed.
      */
     if (oldHeap->rd_rel->reltoastrelid) {
-        LockRelationOid(oldHeap->rd_rel->reltoastrelid, ExclusiveLock);
+        LockRelationOid(oldHeap->rd_rel->reltoastrelid, lockmode);
 
         /*
          * If both tables have TOAST tables, perform toast swap by content.
@@ -2633,6 +2800,13 @@ static void copyPartitionHeapData(Relation newHeap, Relation oldHeap, Oid indexO
 
     /* Reset rd_toastoid just to be tidy --- it shouldn't be looked at again */
     newHeap->rd_toastoid = InvalidOid;
+
+    if (enableOnlineDDL && !OnlineDDLIsClusterAllPartition(operators)) {
+        ReindexRelation(newHeap->rd_id, REINDEX_REL_SUPPRESS_INDEX_USE | REINDEX_REL_CHECK_CONSTRAINTS,
+                        REINDEX_ALL_INDEX, NULL, NULL);
+        operators->setStatus(ONLINE_DDL_STATUS_CATCHUP);
+        operators->OnlineDDLAppendIncrementalData(oldHeap, newHeap, oldestXmin, freezeXid, ONLINE_DDL_VACUUM_PARTITION);
+    }
 
     /* record vacuumed tuple for reporting stat to PgStatCollector */
     if (ptrDeleteTupleNum != NULL)
@@ -3896,6 +4070,86 @@ ReformAndRewriteUTuple(UHeapTuple tuple,
 }
 
 /*
+ * Handle online DDL operations for both subpartition and non-subpartition cases
+ */
+static void OnlineDDLVacuumFullPartStartLocks(Relation oldHeap, Oid partOid, OnlineDDLRelOperators* operators,
+                                             VacuumStmt* vacstmt)
+{
+    if (!vacstmt->issubpartition) {
+        operators->setPartRelInfo(oldHeap->rd_id, InvalidOid, partOid, vacstmt->issubpartition);
+        LockPartition(oldHeap->rd_id, partOid, ShareUpdateExclusiveLock, PARTITION_LOCK);
+        PartitionIdentifier* partIdentifier = partOidGetPartID(oldHeap, partOid);
+        UnLockPartitionVacuumForSession(partIdentifier, oldHeap->rd_id, partOid, ExclusiveLock);
+        OnlineDDLLockCheck(oldHeap->rd_id, partOid);
+        OnlineDDLLockCheck(oldHeap->rd_id);
+        pfree_ext(partIdentifier);
+    } else {
+        /* get parention partition oid and paretion relation oid */
+        Oid subparentId = InvalidOid;
+        Oid relationId = partid_get_rootid(partOid, &subparentId);
+        operators->setPartRelInfo(oldHeap->rd_id, subparentId, partOid, vacstmt->issubpartition);
+
+        /* open parent partition */
+        Partition parentPartition = partitionOpen(oldHeap, subparentId, NoLock);
+        /* create fake relation of parent partition */
+        Relation parentPartRel = partitionGetRelation(oldHeap, parentPartition);
+
+        /* get ShareUpdateExclusiveLock lock */
+        LockPartition(oldHeap->rd_id, subparentId, ShareUpdateExclusiveLock, PARTITION_LOCK);
+        LockPartition(parentPartRel->rd_id, partOid, ShareUpdateExclusiveLock, PARTITION_LOCK);
+
+        /* get partition identifier */
+        PartitionIdentifier* subpartIdentifier = partOidGetPartID(parentPartRel, partOid);
+        PartitionIdentifier subpartIdtf = *subpartIdentifier;
+        PartitionIdentifier* partIdentifier = partOidGetPartID(oldHeap, subparentId);
+        PartitionIdentifier partIdtf = *partIdentifier;
+        /* release ShareUpdateExclusiveLock session lock */
+        UnLockPartitionVacuumForSession(&subpartIdtf, subparentId, partOid, ExclusiveLock);
+        UnLockPartitionVacuumForSession(&partIdtf, relationId, subparentId, ExclusiveLock);
+        releaseDummyRelation(&parentPartRel);
+        partitionClose(oldHeap, parentPartition, NoLock);
+        pfree_ext(subpartIdentifier);
+    }
+}
+
+/*
+ * Handle online DDL lock operations for both subpartition and non-subpartition cases during finish phase
+ */
+static void OnlineDDLVacuumFullPartFinishLocks(Relation oldHeap, Oid partOid, VacuumStmt* vacstmt)
+{
+    if (!vacstmt->issubpartition) {
+        PartitionIdentifier* partIdentifier = partOidGetPartID(oldHeap, partOid);
+        LockRelId partLockRelId = oldHeap->rd_lockInfo.lockRelId;
+        LockRelationIdForSession(&partLockRelId, ExclusiveLock);
+        LockPartitionVacuumForSession(partIdentifier, oldHeap->rd_id, partOid, ExclusiveLock);
+        pfree_ext(partIdentifier);
+    } else {
+        /* get parention partition oid and paretion relation oid */
+        Oid subparentId = InvalidOid;
+        Oid relationId = partid_get_rootid(partOid, &subparentId);
+        LockRelId partLockRelId = oldHeap->rd_lockInfo.lockRelId;
+
+        /* open parent partition */
+        Partition parentPartition = partitionOpen(oldHeap, subparentId, NoLock);
+        /* create fake relation of parent partition */
+        Relation parentPartRel = partitionGetRelation(oldHeap, parentPartition);
+
+        /* get partition identifier */
+        PartitionIdentifier* subpartIdentifier = partOidGetPartID(parentPartRel, partOid);
+        PartitionIdentifier subpartIdtf = *subpartIdentifier;
+        PartitionIdentifier* partIdentifier = partOidGetPartID(oldHeap, subparentId);
+        PartitionIdentifier partIdtf = *partIdentifier;
+        /* release ShareUpdateExclusiveLock session lock */
+        LockRelationIdForSession(&partLockRelId, ExclusiveLock);
+        LockPartitionVacuumForSession(&partIdtf, relationId, subparentId, ExclusiveLock);
+        LockPartitionVacuumForSession(&subpartIdtf, subparentId, partOid, ExclusiveLock);
+        releaseDummyRelation(&parentPartRel);
+        partitionClose(oldHeap, parentPartition, NoLock);
+        pfree_ext(subpartIdentifier);
+    }
+}
+
+/*
  * vacuumFullPart
  *
  * This vacuum the table by creating a new, clustered table and
@@ -3904,10 +4158,11 @@ ReformAndRewriteUTuple(UHeapTuple tuple,
  * GRANT, inheritance nor references to this table (this was a bug
  * in releases thru 7.3).
  */
-void vacuumFullPart(Oid partOid, VacuumStmt* vacstmt, int freeze_min_age, int freeze_table_age)
+void vacuumFullPart(Oid partOid, VacuumStmt* vacstmt, int freeze_min_age, int freeze_table_age, bool concurrent)
 {
     Relation oldHeap = NULL;
     Oid oldRelOid;
+    bool enableOnlineDDL = false;
 
     /* Check for user-requested abort. */
     CHECK_FOR_INTERRUPTS();
@@ -3953,6 +4208,14 @@ void vacuumFullPart(Oid partOid, VacuumStmt* vacstmt, int freeze_min_age, int fr
      */
     CheckTableNotInUse(oldHeap, "VACUUM");
 
+    /* Online ddl init. */
+    if (concurrent && OnlineDDLCheckVacuumFeasible(oldHeap, InvalidOid) == ONLINE_DDL_VACUUM) {
+        enableOnlineDDL = true;
+        OnlineDDLInstanceInit(&oldHeap, AccessExclusiveLock, ONLINE_DDL_VACUUM, partOid);
+        OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(oldHeap);
+        OnlineDDLVacuumFullPartStartLocks(oldHeap, partOid, operators, vacstmt);
+    }
+
 #ifdef ENABLE_MULTIPLE_NODES
     if (unlikely(RelationIsTsStore(oldHeap)) && g_instance.attr.attr_common.enable_tsdb) {
         Tsdb::VacFullCompaction(oldHeap, partOid);
@@ -3962,6 +4225,21 @@ void vacuumFullPart(Oid partOid, VacuumStmt* vacstmt, int freeze_min_age, int fr
 #else  // ENABLE_MULTIPLE_NODES
     rebuildPartVacFull(oldHeap, partOid, freeze_min_age, freeze_table_age, vacstmt);
 #endif  // ENABLE_MULTIPLE_NODES
+
+    /* Online DDL finish. */
+    if (enableOnlineDDL) {
+        if (oldHeap->rd_refcnt <= 0) {
+            oldHeap = relation_open(oldRelOid, AccessExclusiveLock);
+            OnlineDDLInstanceFinish(oldHeap);
+        } else {
+            if (!CheckLockRelationOid(oldRelOid, AccessExclusiveLock)) {
+                LockRelationOid(oldRelOid, AccessExclusiveLock);
+            }
+            OnlineDDLInstanceFinish(oldHeap);
+        }
+        // relock partition
+        OnlineDDLVacuumFullPartFinishLocks(oldHeap, partOid, vacstmt);
+    }
 
     /* NB: rebuildPartVacFull does heap_close() on OldHeap */
 }
@@ -4028,6 +4306,10 @@ static void VacFullCompaction(Relation oldHeap, Oid partOid)
 }
 #endif  // ENABLE_MULTIPLE_NODES
 
+/**
+ * @oldHeap: old partitioned relation
+ * @partOid: partition oid
+ */
 static void rebuildPartVacFull(Relation oldHeap, Oid partOid, int freezeMinAge, int freezeTableAge, VacuumStmt* vacstmt)
 {
     Oid tableOid = RelationGetRelid(oldHeap);
@@ -4053,6 +4335,14 @@ static void rebuildPartVacFull(Relation oldHeap, Oid partOid, int freezeMinAge, 
     bool verbose = (vacstmt->options & VACOPT_VERBOSE) != 0;
     double deleteTupleNum = 0;
     bool is_shared = false;
+
+    /* vacuum full single partition */
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+    bool enableOnlineDDL = (operators != NULL && operators->getStatus() == ONLINE_DDL_STATUS_BASELINE_COPY);
+    LOCKMODE lockmode = (enableOnlineDDL ? ShareUpdateExclusiveLock : ExclusiveLock);
+    List* srcIndexOidList = NIL;
+    List* destIndexOidList = NIL;
+
     /* Get desc of partitioned table */
     partTabHeapDesc = RelationGetDescr(oldHeap);
 
@@ -4067,13 +4357,13 @@ static void rebuildPartVacFull(Relation oldHeap, Oid partOid, int freezeMinAge, 
     }
 
     if (!vacstmt->issubpartition) {
-        partition = partitionOpen(oldHeap, partOid, ExclusiveLock);
+        partition = partitionOpen(oldHeap, partOid, lockmode);
         partRel = partitionGetRelation(oldHeap, partition);
     } else {
         subparentid = partid_get_parentid(partOid);
-        parentpartition = partitionOpen(oldHeap, subparentid, ExclusiveLock);
+        parentpartition = partitionOpen(oldHeap, subparentid, lockmode);
         parentpartRel = partitionGetRelation(oldHeap, parentpartition);
-        partition = partitionOpen(parentpartRel, partOid, ExclusiveLock);
+        partition = partitionOpen(parentpartRel, partOid, lockmode);
         partRel = partitionGetRelation(parentpartRel, partition);
     }
     is_shared = partRel->rd_rel->relisshared;
@@ -4083,6 +4373,10 @@ static void rebuildPartVacFull(Relation oldHeap, Oid partOid, int freezeMinAge, 
      */
     TransferPredicateLocksToHeapRelation(partRel);
 
+    /**
+     * oldHeap: the parent partitioned table
+     * partRel: the fake relation of target partition
+     */
     /* Create the transient table that will receive the re-ordered data */
     OIDNewHeap = makePartitionNewHeap(oldHeap,
         partTabHeapDesc,
@@ -4097,6 +4391,19 @@ static void rebuildPartVacFull(Relation oldHeap, Oid partOid, int freezeMinAge, 
 
     /* Copy the heap data into the new table in the desired order */
     newHeap = heap_open(OIDNewHeap, AccessExclusiveLock);
+
+    if (enableOnlineDDL) {
+        if (!vacstmt->issubpartition) {
+            OnlineDDLLockCheck(oldHeap->rd_id);
+            OnlineDDLLockCheck(oldHeap->rd_id, partRel->rd_id);
+        } else {
+            OnlineDDLLockCheck(oldHeap->rd_id);
+            OnlineDDLLockCheck(oldHeap->rd_id, subparentid);
+            OnlineDDLLockCheck(subparentid, partOid);
+        }
+
+        OnlineDDLCopyRelationIndexs(oldHeap, newHeap, &srcIndexOidList, &destIndexOidList);
+    }
     if (isCStore) {
         CopyCStoreData(partRel,
             newHeap,
@@ -4141,6 +4448,9 @@ static void rebuildPartVacFull(Relation oldHeap, Oid partOid, int freezeMinAge, 
         LockPartition(oldHeap->rd_id, subparentid, AccessExclusiveLock, PARTITION_LOCK);
     }
 
+    if (enableOnlineDDL) {
+        OnlineDDLFinishIndexSwap(srcIndexOidList, destIndexOidList, NULL);
+    }
     /*
      * Swap the physical files of the target and transient tables, then
      * rebuild the target's indexes and throw away the transient table.

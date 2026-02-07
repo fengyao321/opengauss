@@ -164,7 +164,6 @@ bool CheckLockRelationOid(Oid relid, LOCKMODE lockmode)
     return CheckLock(&tag, lockmode, false);
 }
 
-
 /*
  *		LockRelation
  *
@@ -1206,6 +1205,15 @@ void UnlockPartitionOid(Oid relid, uint32 seq, LOCKMODE lockmode)
     SetLocktagPartitionOid(&tag, relid, seq);
 
     (void)LockRelease(&tag, lockmode, false);
+}
+
+bool CheckLockPartitionOid(Oid relid, uint32 seq, LOCKMODE lockmode)
+{
+    LOCKTAG tag;
+
+    SetLocktagPartitionOid(&tag, relid, seq);
+
+    return CheckLock(&tag, lockmode, false);
 }
 
 static void SetLocktagPartitionSeq(LOCKTAG *tag, Oid relid, uint32 seq)

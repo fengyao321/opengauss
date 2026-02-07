@@ -91,11 +91,13 @@ void OnlineDDLEnableRelationAppendMode(Relation relation)
         ereport(ERROR, (errmsg("Unsupported relkind '%c' for online DDL append mode", relation->rd_rel->relkind)));
     }
 
-    if (RELATION_IS_PARTITIONED(relation)) {
+    if (RELATION_IS_PARTITIONED(relation) &&
+        (!OnlineDDLIsVacuumOrClusterMode(operators) || OnlineDDLIsClusterAllPartition(operators))) {
         List* partitions = NULL;
         ListCell* cell = NULL;
 
         if (RelationIsSubPartitioned(relation)) {
+            Assert(!OnlineDDLIsVacuumOrClusterMode(operators));
             partitions = relationGetPartitionList(relation, NoLock);
             foreach (cell, partitions) {
                 Partition partition = (Partition)lfirst(cell);
@@ -117,6 +119,7 @@ void OnlineDDLEnableRelationAppendMode(Relation relation)
                 releaseDummyRelation(&partrel);
             }
         } else {
+            Assert(!OnlineDDLIsVacuumOrClusterMode(operators) || OnlineDDLIsClusterAllPartition(operators));
             partitions = relationGetPartitionList(relation, NoLock);
             foreach (cell, partitions) {
                 Partition partition = (Partition)lfirst(cell);
@@ -130,6 +133,57 @@ void OnlineDDLEnableRelationAppendMode(Relation relation)
             }
         }
         releasePartitionList(relation, &partitions, NoLock);
+    } else if (RELATION_IS_PARTITIONED(relation) && (OnlineDDLIsVacuumOrClusterMode(operators))) {
+        List* partitions = NULL;
+        ListCell* cell = NULL;
+        bool findOut = false;
+
+        if (RelationIsSubPartitioned(relation)) {
+            partitions = relationGetPartitionList(relation, NoLock);
+            foreach (cell, partitions) {
+                Partition partition = (Partition)lfirst(cell);
+                if (findOut) {
+                    continue;
+                }
+                Relation partrel = partitionGetRelation(relation, partition);
+
+                List* subpartitions = relationGetPartitionList(partrel, NoLock);
+                ListCell* subcell = NULL;
+                foreach (subcell, subpartitions) {
+                    Partition subpartition = (Partition)lfirst(subcell);
+                    if (operators->getCurrentPartitionOid() != subpartition->pd_id || findOut) {
+                        continue;
+                    }
+                    Relation subpartrel = partitionGetRelation(partrel, subpartition);
+                    ItemPointerData endCtid;
+                    heap_get_max_tid(subpartrel, &endCtid);
+
+                    operators->enableTargetRelationAppendMode(endCtid);
+                    releaseDummyRelation(&subpartrel);
+                    findOut = true;
+                }
+                releasePartitionList(partrel, &subpartitions, NoLock);
+                releaseDummyRelation(&partrel);
+            }
+        } else {
+            partitions = relationGetPartitionList(relation, NoLock);
+            foreach (cell, partitions) {
+                Partition partition = (Partition)lfirst(cell);
+                if (operators->getCurrentPartitionOid() != partition->pd_id) {
+                    continue;
+                }
+                Relation partrel = partitionGetRelation(relation, partition);
+                ItemPointerData endCtid;
+                heap_get_max_tid(partrel, &endCtid);
+
+                operators->enableTargetRelationAppendMode(endCtid);
+                releaseDummyRelation(&partrel);
+                findOut = true;
+                break;
+            }
+        }
+        releasePartitionList(relation, &partitions, NoLock);
+        Assert(findOut);
     } else {
         ItemPointerData endCtid;
         heap_get_max_tid(relation, &endCtid);
@@ -171,7 +225,6 @@ void OnlineDDLCopyRelationIndexs(Relation srcRelation, Relation destRelation, Li
     foreach (cell, *srcIndexOidList) {
         Oid dstIndexPartTblspcOid;
         Oid clonedIndexRelationId;
-        Oid indexDestPartOid;
         char tmpIndexName[NAMEDATALEN];
         Relation currentIndex;
         bool skipBuild = false;
@@ -179,7 +232,7 @@ void OnlineDDLCopyRelationIndexs(Relation srcRelation, Relation destRelation, Li
 
         Oid srcIndexOid = lfirst_oid(cell);
         /* Open the src index relation. */
-        currentIndex = index_open(srcIndexOid, AccessExclusiveLock);
+        currentIndex = index_open(srcIndexOid, AccessShareLock);
         Assert(IndexIsUsable(currentIndex->rd_index));
         if (OID_IS_BTREE(currentIndex->rd_rel->relam)) {
             skipBuild = true;
@@ -198,7 +251,7 @@ void OnlineDDLCopyRelationIndexs(Relation srcRelation, Relation destRelation, Li
                 (errcode(ERRCODE_SUCCESSFUL_COMPLETION),
                  errmsg("[Online-DDL] copy index %s to relation %s success.", RelationGetRelationName(currentIndex),
                         RelationGetRelationName(destRelation))));
-        index_close(currentIndex, AccessExclusiveLock);
+        index_close(currentIndex, AccessShareLock);
     }
 }
 
@@ -213,6 +266,40 @@ void OnlineDDLLockCheck(Oid relid)
                 (errcode(ERRCODE_SUCCESSFUL_COMPLETION),
                  errmsg("OnlineDDLLockCheck warning, relation %d has lock mode %d, which is forbidden in online ddl.",
                         relid, ddlForbiddenLockmode[i])));
+        }
+    }
+    if (!CheckLockRelationOid(relid, ShareUpdateExclusiveLock)) {
+        ereport(
+            WARNING,
+            (errcode(ERRCODE_SUCCESSFUL_COMPLETION),
+             errmsg("OnlineDDLLockCheck warning, relation %d has no lock mode ShareUpdateExclusiveLock in online ddl.",
+                    relid)));
+    }
+}
+
+void OnlineDDLLockCheck(Oid relationId, Oid partitionId)
+{
+    for (int i = 0; i < LOCKMODE_NUM; i++) {
+        if (CheckLockPartitionOid(relationId, partitionId, ddlForbiddenLockmode[i])) {
+            ereport(WARNING, (errcode(ERRCODE_SUCCESSFUL_COMPLETION),
+                              errmsg("OnlineDDLLockCheck warning, relation %d partition %d has lock mode %d, which is "
+                                     "forbidden in online ddl.",
+                                     relationId, partitionId, ddlForbiddenLockmode[i])));
+        }
+    }
+    if (!CheckLockPartitionOid(relationId, partitionId, ShareUpdateExclusiveLock)) {
+        ereport(WARNING, (errcode(ERRCODE_SUCCESSFUL_COMPLETION),
+                          errmsg("OnlineDDLLockCheck warning, relation %d partition %d has no lock mode "
+                                 "ShareUpdateExclusiveLock in online ddl.",
+                                 relationId, partitionId)));
+    }
+}
+
+void OnlineDDLPartitionLockCleanup(Oid relationId, Oid partitionId)
+{
+    for (int i = 0; i < LOCKMODE_NUM; i++) {
+        while (CheckLockPartitionOid(relationId, partitionId, ddlForbiddenLockmode[i])) {
+            UnlockPartitionOid(relationId, partitionId, ddlForbiddenLockmode[i]);
         }
     }
 }

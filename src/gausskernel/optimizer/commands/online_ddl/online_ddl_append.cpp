@@ -24,13 +24,17 @@
 #include "fmgr.h"
 #include "access/tableam.h"
 #include "access/relscan.h"
+#include "access/xact.h"
+#include "access/rewriteheap.h"
 #include "utils/rel.h"
 #include "utils/lsyscache.h"
 #include "storage/item/itemptr.h"
 #include "catalog/pg_type.h"
 #include "utils/builtins.h"
 #include "storage/procarray.h"
+#include "commands/cluster.h"
 #include "commands/tablecmds.h"
+#include "commands/matview.h"
 
 #include "commands/online_ddl_deltalog.h"
 #include "commands/online_ddl_ctid_map.h"
@@ -46,6 +50,8 @@ const int ONLINE_DDL_APPENDER_MAX_FINISH_PAGES = 8;
 
 static EState* create_estate_for_relation(Relation rel);
 static inline void CleanupEstate(EState* estate, EPQState* epqstate);
+static bool OnlineDDLInsertIntoNewRelationAlterMode(OnlineDDLAppender* appender, HeapTuple oldTuple, uint32 hiOptions);
+static bool OnlineDDLInsertIntoNewRelationVacuumMode(OnlineDDLAppender* appender, HeapTuple oldTuple);
 
 #define ITEM_POINTER_FIRST_OFFSET (1)
 /* return true if a and b differ by exactly one tuple, else return false */
@@ -74,8 +80,35 @@ static HTAB* InitPartitionOidMap()
     ctl.entrysize = sizeof(PartitionOidMapEntry);
     ctl.hcxt = CurrentMemoryContext;
 
-    HTAB* hash = hash_create("Partition Oid Map", 32, &ctl, HASH_ELEM | HASH_CONTEXT | HASH_BLOBS);
+    StringInfo hashName = makeStringInfo();
+    appendStringInfo(hashName, "Partition Oid Map %u", GetCurrentTransactionId());
+    HTAB* hash = hash_create(hashName->data, 32, &ctl, HASH_ELEM | HASH_CONTEXT | HASH_BLOBS);
+    DestroyStringInfo(hashName);
     return hash;
+}
+
+void CleanupAppender(OnlineDDLAppender* appender)
+{
+    if (appender == NULL) {
+        return;
+    }
+
+    if (appender->vacuumState != NULL) {
+        if (appender->vacuumState->rwstate != NULL) {
+            end_heap_rewrite(appender->vacuumState->rwstate);
+        }
+        pfree_ext(appender->vacuumState);
+        appender->vacuumState = NULL;
+    }
+
+    if (appender->PartitionOidMap != NULL) {
+        hash_destroy(appender->PartitionOidMap);
+        appender->PartitionOidMap = NULL;
+    }
+
+    pfree_ext(appender);
+    appender = NULL;
+    return;
 }
 
 // Add mapping from old partition to temporary table in the hash table
@@ -103,10 +136,11 @@ Oid GetTempTableFromOldPartition(OnlineDDLAppender* appender, Oid oldPartOid)
 // for none-partition table, we init appender with oldRelation and newRelation
 OnlineDDLAppender* OnlineDDLInitAppender(Relation oldRelation, Relation newRelation, Relation deltaRelation,
                                          Relation ctidMapRelation, Relation ctidMapIndex, ItemPointerData endCtid,
-                                         AlteredTableInfo* alterTableInfo)
+                                         AlteredTableInfo* alterTableInfo, OnlineDDLType type)
 {
     OnlineDDLAppender* appender = NULL;
     appender = (OnlineDDLAppender*)palloc0(sizeof(OnlineDDLAppender));
+    appender->type = type;
     appender->inAppendMode = true;
     appender->deltaLogScanTimes = 0;
     appender->oldTableScanTimes = 0;
@@ -137,10 +171,11 @@ OnlineDDLAppender* OnlineDDLInitAppender(Relation oldRelation, Relation newRelat
 // for partition table, we init appender with old partition list and new oid list
 OnlineDDLAppender* OnlineDDLInitAppender(List* oldPartitionList, List* newOidList, Relation deltaRelation,
                                          Relation ctidMapRelation, Relation ctidMapIndex, HTAB* partitionAppendMap,
-                                         AlteredTableInfo* alterTableInfo)
+                                         AlteredTableInfo* alterTableInfo, OnlineDDLType type)
 {
     OnlineDDLAppender* appender = NULL;
     appender = (OnlineDDLAppender*)palloc0(sizeof(OnlineDDLAppender));
+    appender->type = type;
     appender->inAppendMode = true;
     appender->deltaLogScanTimes = 0;
     appender->oldTableScanTimes = 0;
@@ -161,15 +196,44 @@ OnlineDDLAppender* OnlineDDLInitAppender(List* oldPartitionList, List* newOidLis
 
     appender->PartitionOidMap = InitPartitionOidMap();
 
+    appender->vacuumState = NULL;
+
+    appender->partRelInfo = {0, 0, 0, false};
+
+    return appender;
+}
+
+OnlineDDLAppender* OnlineDDLAppenderInitVacuumState(OnlineDDLAppender* appender, TransactionId freezeXid,
+                                                    TransactionId oldestXid)
+{
+    Assert(appender != NULL);
+    appender->vacuumState = (VacuumState*)palloc0(sizeof(VacuumState));
+    appender->vacuumState->freezeXid = freezeXid;
+    appender->vacuumState->oldestXid = oldestXid;
+    /* init later if clusting all partitions */
+    if (appender->oldRelation != NULL) {
+        appender->vacuumState->rwstate =
+            begin_heap_rewrite(appender->oldRelation, appender->newRelation, oldestXid, freezeXid, true);
+    }
+
+    return appender;
+}
+
+OnlineDDLAppender* OnlineDDLInitPartRelInfo(OnlineDDLAppender* appender, Oid relId, Oid subParentId, Oid partOid,
+                                            bool isSubPartition)
+{
+    Assert(appender != NULL);
+    appender->partRelInfo = {relId, subParentId, partOid, isSubPartition};
     return appender;
 }
 
 OnlineDDLAppender* OnlineDDLInitAppender(List* oldPartitionList, Relation newRelation, Relation deltaRelation,
                                          Relation ctidMapRelation, Relation ctidMapIndex, HTAB* partitionAppendMap,
-                                         AlteredTableInfo* alterTableInfo)
+                                         AlteredTableInfo* alterTableInfo, OnlineDDLType type)
 {
     OnlineDDLAppender* appender = NULL;
     appender = (OnlineDDLAppender*)palloc0(sizeof(OnlineDDLAppender));
+    appender->type = type;
     appender->inAppendMode = true;
     appender->deltaLogScanTimes = 0;
     appender->oldTableScanTimes = 0;
@@ -374,6 +438,355 @@ static HeapTuple OnlineDDLGetTupleByCtid(Relation relation, ItemPointer tupCtid,
     return fetched ? tuple : NULL;
 }
 
+static bool OnlineDDLInsertOpt(OnlineDDLAppender* appender, HeapTuple oldTuple, uint32 hiOptions)
+{
+    Assert(appender != NULL);
+    bool result = false;
+    switch (appender->type) {
+        case ONLINE_DDL_REWRITE: {
+            result = OnlineDDLInsertIntoNewRelationAlterMode(appender, oldTuple, hiOptions);
+            break;
+        }
+        case ONLINE_DDL_VACUUM:
+        case ONLINE_DDL_CLUSTER: {
+            result = OnlineDDLInsertIntoNewRelationVacuumMode(appender, oldTuple);
+            break;
+        }
+        case ONLINE_DDL_INVALID:
+        case ONLINE_DDL_CHECK:
+        default: {
+            ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                            errmsg("OnlineDDLInsertOpt error: invalid ddl type %d.", appender->type)));
+            break;
+        }
+    }
+    return result;
+}
+
+/* Used in vacuum */
+static void OnlineDDLReformAndRewriteTuple(HeapTuple oldTuple, TupleDesc oldTupDesc, TupleDesc newTupDesc,
+                                           Datum* values, bool* isnull, bool newRelHasOids, RewriteState rwstate,
+                                           OnlineDDLAppender* appender)
+{
+    HeapTuple copiedTuple;
+    int i;
+    MemoryContext oldMemCxt = NULL;
+    Relation NewHeap = appender->newRelation;
+    TupleTableSlot* newslot = NULL;
+    tableam_tops_deform_tuple(oldTuple, oldTupDesc, values, isnull);
+    /* Be sure to null out any dropped columns */
+    for (i = 0; i < newTupDesc->natts; i++) {
+        if (newTupDesc->attrs[i].attisdropped) {
+            isnull[i] = true;
+        }
+    }
+    bool usePrivateMemcxt = use_heap_rewrite_memcxt(rwstate);
+    if (usePrivateMemcxt) {
+        oldMemCxt = MemoryContextSwitchTo(get_heap_rewrite_memcxt(rwstate));
+    }
+    copiedTuple = (HeapTuple)heap_form_tuple(newTupDesc, values, isnull);
+    /* Preserve OID, if any */
+    if (newRelHasOids) {
+        HeapTupleSetOid(copiedTuple, HeapTupleGetOid(oldTuple));
+    }
+    newslot = MakeSingleTupleTableSlot(newTupDesc, false, NewHeap->rd_tam_ops);
+    (void)ExecStoreTuple(copiedTuple, newslot, InvalidBuffer, false);
+
+    /* The heap rewrite module does the rest */
+    if (usePrivateMemcxt) {
+        RewriteAndCompressTup(rwstate, oldTuple, copiedTuple);
+        (void)MemoryContextSwitchTo(oldMemCxt);
+    } else {
+        rewrite_heap_tuple(rwstate, oldTuple, copiedTuple);
+    }
+    /* append index */
+    EState* estate = CreateExecutorState();
+    ResultRelInfo* resultRelInfo = makeNode(ResultRelInfo);
+    InitResultRelInfo(resultRelInfo, NewHeap, 1, 0);
+    ExecOpenIndices(resultRelInfo, false);
+    estate->es_result_relation_info = resultRelInfo;
+    estate->es_num_result_relations = 1;
+    estate->es_result_relation_info = resultRelInfo;
+    /* append index of new tuple */
+    if (resultRelInfo->ri_NumIndices > 0) {
+        List* recheckIndexes = NIL;
+        ItemPointer pTself = tableam_tops_get_t_self(NewHeap, copiedTuple);
+        recheckIndexes = ExecInsertIndexTuples(newslot, pTself, estate, NewHeap, NULL, InvalidBktId, NULL, NULL);
+        list_free_ext(recheckIndexes);
+    }
+    ExecCloseIndices(resultRelInfo);
+    /*
+     * For partitioned tables, use hash table to get the corresponding temporary table OID and establish
+     * mapping relationship
+     */
+    if (appender->PartitionOidMap != NULL) {
+        /*
+         * If it's a partitioned table scenario, establish mapping relationship between old partition tuple
+         * and new partition tuple
+         */
+        Oid oldPartOid = RelationGetRelid(NewHeap);
+        Oid tempTableOid = GetTempTableFromOldPartition(appender, oldPartOid);
+        if (OidIsValid(tempTableOid)) {
+            // Insert mapping relationship with partition OID
+            OnlineDDLInsertCtidMap(&((HeapTuple)oldTuple)->t_self, tempTableOid, &((HeapTuple)copiedTuple)->t_self,
+                                   appender->ctidMapRelation);
+        }
+    } else {
+        /* Non-partitioned table case, use ordinary mapping relationship */
+        OnlineDDLInsertCtidMap(&((HeapTuple)oldTuple)->t_self, &((HeapTuple)copiedTuple)->t_self,
+                               appender->ctidMapRelation);
+    }
+    FreeExecutorState(estate);
+    ExecDropSingleTupleTableSlot(newslot);
+    tableam_tops_free_tuple(copiedTuple);
+}
+
+static void ClusterRunMsg(Relation tblRelation, Relation indexRelation, IndexScanDesc indexScan,
+                          Tuplesortstate* tuplesort, bool verbose)
+{
+    int elevel = verbose ? VERBOSEMESSAGE : DEBUG2;
+    if (indexScan != NULL) {
+        ereport(elevel, (errcode(ERRCODE_LOG),
+                         errmsg("clustering \"%s.%s\" using index scan on \"%s\"",
+                                get_namespace_name(RelationGetNamespace(tblRelation)),
+                                RelationGetRelationName(tblRelation), RelationGetRelationName(indexRelation))));
+    } else if (tuplesort != NULL) {
+        ereport(elevel, (errcode(ERRCODE_LOG), errmsg("clustering \"%s.%s\" using sequential scan and sort",
+                                                      get_namespace_name(RelationGetNamespace(tblRelation)),
+                                                      RelationGetRelationName(tblRelation))));
+    } else {
+        ereport(elevel, (errcode(ERRCODE_LOG),
+                         errmsg("vacuuming \"%s.%s\"", get_namespace_name(RelationGetNamespace(tblRelation)),
+                                RelationGetRelationName(tblRelation))));
+    }
+}
+
+static bool OnlineDDLInsertIntoNewRelationVacuumMode(OnlineDDLAppender* appender, HeapTuple oldTuple)
+{
+    bool result = false;
+    bool useSort = false;
+    Relation OldHeap = appender->oldRelation;
+    Relation NewHeap = appender->newRelation;
+    Relation OldIndex = NULL;
+    bool verbose = false;
+    AdaptMem* memUsage = NULL;
+    Assert(OldHeap != NULL && NewHeap != NULL);
+    TransactionId OldestXmin = appender->vacuumState->oldestXid;
+    TransactionId freezeXid = appender->vacuumState->freezeXid;
+    Assert(TransactionIdIsValid(OldestXmin));
+    Assert(TransactionIdIsValid(freezeXid));
+
+    TupleDesc oldTupDesc;
+    TupleDesc newTupDesc;
+    Relation heapRelation = NULL;
+    int natts;
+    Datum* values = NULL;
+    bool* isnull = NULL;
+    IndexScanDesc indexScan = NULL;
+    TableScanDesc heapScan = NULL;
+    bool useWal = XLogIsNeeded() && RelationNeedsWAL(NewHeap);
+    bool isSystemCatalog = IsSystemRelation(OldHeap);
+    RewriteState rwstate = appender->vacuumState->rwstate;
+    Tuplesortstate* tuplesort = NULL;
+    int messageLevel = -1;
+
+    /* use_wal off requires smgr_targblock be initially invalid */
+    Assert(RelationGetTargetBlock(NewHeap) == InvalidBlockNumber);
+
+    /*
+     * Their tuple descriptors should be exactly alike, but here we only need
+     * assume that they have the same number of columns.
+     */
+    oldTupDesc = RelationGetDescr(OldHeap);
+    newTupDesc = RelationGetDescr(NewHeap);
+    Assert(newTupDesc->natts == oldTupDesc->natts);
+
+    /* Preallocate values/isnull arrays */
+    natts = newTupDesc->natts;
+    values = (Datum*)palloc(natts * sizeof(Datum));
+    isnull = (bool*)palloc(natts * sizeof(bool));
+
+    /* Set up sorting if wanted */
+    if (useSort) {
+        int workMem = (memUsage->work_mem > 0) ? memUsage->work_mem : u_sess->attr.attr_memory.maintenance_work_mem;
+        int maxMem = memUsage->max_mem;
+        tuplesort = tuplesort_begin_cluster(oldTupDesc, OldIndex, workMem, false, maxMem, false);
+    } else {
+        tuplesort = NULL;
+    }
+
+    /* Log what we're doing */
+    ClusterRunMsg(OldHeap, OldIndex, indexScan, tuplesort, verbose);
+
+    if (verbose)
+        messageLevel = VERBOSEMESSAGE;
+    else
+        messageLevel = WARNING;
+
+    if (OldHeap->rd_rel->relkind == RELKIND_MATVIEW) {
+        /* Make sure the heap looks good even if no rows are written. */
+        SetRelationIsScannable(NewHeap);
+    }
+
+    /*
+     * Perform with the oldTuple;
+     */
+    HeapTuple tuple;
+    Buffer buf;
+    bool isdead = false;
+    Page page;
+
+    CHECK_FOR_INTERRUPTS();
+
+    /* IO collector and IO scheduler for vacuum full -- for read */
+    if (ENABLE_WORKLOAD_CONTROL) {
+        IOSchedulerAndUpdate(IO_TYPE_READ, 1, IO_TYPE_ROW);
+    }
+
+    tuple = oldTuple;
+    Assert(oldTuple);
+
+    Assert(TUPLE_IS_HEAP_TUPLE(tuple));
+
+    buf = ReadBuffer(OldHeap, ItemPointerGetBlockNumber(&tuple->t_self));
+    LockBuffer(buf, BUFFER_LOCK_SHARE);
+    page = BufferGetPage(buf);
+    bool haveInvisibleTuple = false;
+
+    switch (HeapTupleSatisfiesVacuum(tuple, OldestXmin, buf)) {
+        case HEAPTUPLE_DEAD:
+            /* Definitely dead */
+            isdead = tuple_invisible_not_hotupdate(tuple, OldHeap, &haveInvisibleTuple);
+            break;
+        case HEAPTUPLE_RECENTLY_DEAD:
+            appender->vacuumState->tupRecentlyDead += 1;
+            /* fall through */
+        case HEAPTUPLE_LIVE:
+            /* Live or recently dead, must copy it */
+            isdead = false;
+            break;
+        case HEAPTUPLE_INSERT_IN_PROGRESS:
+
+            /*
+             * Since we hold exclusive lock on the relation, normally the
+             * only way to see this is if it was inserted earlier in our
+             * own transaction.  However, it can happen in system
+             * catalogs, since we tend to release write lock before commit
+             * there.  Give a warning if neither case applies; but in any
+             * case we had better copy it.
+             */
+            if (!isSystemCatalog && !TransactionIdIsCurrentTransactionId(HeapTupleGetUpdateXid(tuple)))
+                ereport(messageLevel,
+                        (errcode(ERRCODE_OBJECT_IN_USE), errmsg("concurrent insert in progress within table \"%s\"",
+                                                                RelationGetRelationName(OldHeap))));
+            /* treat as live */
+            isdead = false;
+            break;
+        case HEAPTUPLE_DELETE_IN_PROGRESS:
+
+            /*
+             * Similar situation to INSERT_IN_PROGRESS case.
+             */
+            Assert(!(tuple->t_data->t_infomask & HEAP_XMAX_IS_MULTI));
+            if (!isSystemCatalog && !TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetXmax(page, tuple->t_data)))
+                ereport(messageLevel,
+                        (errcode(ERRCODE_OBJECT_IN_USE), errmsg("concurrent delete in progress within table \"%s\"",
+                                                                RelationGetRelationName(OldHeap))));
+            /* treat as recently dead */
+            appender->vacuumState->tupRecentlyDead += 1;
+            isdead = false;
+            break;
+        default:
+            ereport(ERROR, (errcode(ERRCODE_OPERATE_RESULT_NOT_EXPECTED),
+                            errmsg("unexpected HeapTupleSatisfiesVacuum result")));
+            isdead = false; /* keep compiler quiet */
+            break;
+    }
+
+    LockBuffer(buf, BUFFER_LOCK_UNLOCK);
+
+    /* IO collector and IO scheduler for vacuum full -- for write */
+    if (ENABLE_WORKLOAD_CONTROL)
+        IOSchedulerAndUpdate(IO_TYPE_WRITE, 1, IO_TYPE_ROW);
+
+    if (isdead) {
+        appender->vacuumState->tupsVacuumed += 1;
+        /* heap rewrite module still needs to see it... */
+        /*
+         * If we are vacuuming system_catalog, another transaction may abort after we scan system_catalog A tuple,
+         * which is actually still alive. In this situation, system catalog  A is HEAPTUPLE_DELETE_IN_PROGRESS
+         * and B is dead, but A's xmax finally abort, so we cannot delete it.
+         */
+        if (!isSystemCatalog && rewrite_heap_dead_tuple(rwstate, tuple)) {
+            /* A previous recently-dead tuple is now known dead */
+            appender->vacuumState->tupsVacuumed += 1;
+            appender->vacuumState->tupRecentlyDead -= 1;
+        }
+        goto skip_tuple;
+    }
+
+    if (haveInvisibleTuple) {
+        HeapTuple copiedTuple;
+        MemoryContext oldMemCxt = NULL;
+
+        tableam_tops_deform_tuple(tuple, oldTupDesc, values, isnull);
+
+        /* Be sure to null out any dropped columns */
+        for (int i = 0; i < newTupDesc->natts; i++) {
+            if (newTupDesc->attrs[i].attisdropped)
+                isnull[i] = true;
+        }
+
+        bool usePrivateMemcxt = use_heap_rewrite_memcxt(rwstate);
+        if (usePrivateMemcxt) {
+            oldMemCxt = MemoryContextSwitchTo(get_heap_rewrite_memcxt(rwstate));
+        }
+        copiedTuple = (HeapTuple)heap_form_tuple(newTupDesc, values, isnull);
+
+        /* Preserve OID, if any */
+        if (NewHeap->rd_rel->relhasoids) {
+            HeapTupleSetOid(copiedTuple, HeapTupleGetOid(tuple));
+        }
+
+        heap_invalid_invisible_tuple(copiedTuple);
+        tuple = copiedTuple;
+        if (usePrivateMemcxt) {
+            (void)MemoryContextSwitchTo(oldMemCxt);
+        }
+    }
+
+    appender->vacuumState->numTuples += 1;
+    if (tuplesort != NULL) {
+        TuplesortPutheaptuple(tuplesort, tuple);
+    } else {
+        OnlineDDLReformAndRewriteTuple(tuple, oldTupDesc, newTupDesc, values, isnull, NewHeap->rd_rel->relhasoids,
+                                       rwstate, appender);
+    }
+
+    if (haveInvisibleTuple) {
+        tableam_tops_free_tuple(tuple);
+    }
+    result = true;
+skip_tuple:
+    ReleaseBuffer(buf);
+    if (indexScan != NULL) {
+        scan_handler_idx_endscan(indexScan);
+        if (RelationIsGlobalIndex(OldIndex)) {
+            heap_close(heapRelation, NoLock);
+        }
+    }
+
+    if (heapScan != NULL) {
+        tableam_scan_end(heapScan);
+    }
+
+    /* Clean up */
+    pfree_ext(values);
+    pfree_ext(isnull);
+
+    return result;
+}
+
 /**
  * @brief Insert tuples from old table into new table, handling data migration in online DDL operations
  *
@@ -388,7 +801,7 @@ static HeapTuple OnlineDDLGetTupleByCtid(Relation relation, ItemPointer tupCtid,
  * @param hiOptions Heap insert options
  * @return bool Returns true on success, throws an error on failure
  */
-static bool OnlineDDLInsertIntoNewRelation(OnlineDDLAppender* appender, HeapTuple oldTuple, uint32 hiOptions)
+static bool OnlineDDLInsertIntoNewRelationAlterMode(OnlineDDLAppender* appender, HeapTuple oldTuple, uint32 hiOptions)
 {
     TupleDesc oldTupDesc;
     TupleDesc newTupDesc;
@@ -669,7 +1082,7 @@ static bool OnlineDDLInsertIntoNewRelation(OnlineDDLAppender* appender, HeapTupl
                 }
             }
 
-            if (newRelation) {
+            if (newRelation && !RelationIsPartition(newRelation)) {
                 (void)tableam_tuple_insert(newRelation, newTuple, mycid, hiOptions, bistate);
                 if (autoinc > 0) {
                     SetRelAutoIncrement(oldRelation, newTupDesc, autoinc);
@@ -749,17 +1162,10 @@ static bool OnlineDDLDeleteFromNewRelation(OnlineDDLAppender* appender, ItemPoin
         ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
                         errmsg("OnlineDDLDeleteFromNewRelation error: appender is null")));
     }
-
     Relation newRelation = appender->newRelation;
-    if (newRelation == NULL || !RelationIsValid(newRelation)) {
-        ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
-                        errmsg("OnlineDDLDeleteFromNewRelation error: new relation is not valid.")));
-    }
+    Assert(newRelation != NULL && RelationIsValid(newRelation));
+    Assert(tupCtid != NULL && ItemPointerIsValid(tupCtid));
 
-    if (tupCtid == NULL || !ItemPointerIsValid(tupCtid)) {
-        ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
-                        errmsg("OnlineDDLDeleteFromNewRelation error: tupCtid is null or invalid.")));
-    }
     /* Init estate. */
     EState* estate;
     EPQState epqstate;
@@ -777,13 +1183,43 @@ static bool OnlineDDLDeleteFromNewRelation(OnlineDDLAppender* appender, ItemPoin
     Bitmapset* modifiedIdxAttrs = NULL;
     ExecIndexTuplesState exec_index_tuples_state;
     exec_index_tuples_state.estate = estate;
-    exec_index_tuples_state.targetPartRel = NULL;
+    exec_index_tuples_state.targetPartRel = appender->partRelInfo.partOid != InvalidOid ? newRelation : NULL;
     exec_index_tuples_state.p = NULL;
+
+    Relation relation = NULL;
+    Partition partition = NULL;
+    Partition subparentPartition = NULL;
+    Relation subparentRelation = NULL;
+    bool isSubPartition = false;
+    if (appender->partRelInfo.partOid) {
+        isSubPartition = appender->partRelInfo.isSubPartition;
+        relation = heap_open(appender->partRelInfo.relId, RowExclusiveLock);
+
+        if (isSubPartition) {
+            subparentPartition = partitionOpen(relation, appender->partRelInfo.subParentId, RowExclusiveLock);
+            subparentRelation = partitionGetRelation(relation, subparentPartition);
+            partition = partitionOpen(subparentRelation, appender->partRelInfo.partOid, RowExclusiveLock);
+        } else {
+            partition = partitionOpen(relation, appender->partRelInfo.partOid, RowExclusiveLock);
+        }
+        Assert(partition != NULL);
+        exec_index_tuples_state.p = partition;
+    }
     exec_index_tuples_state.conflict = NULL;
     exec_index_tuples_state.rollbackIndex = false;
 
     tableam_tops_exec_delete_index_tuples(oldslot, newRelation, NULL, tupCtid, exec_index_tuples_state,
                                           modifiedIdxAttrs);
+    if (appender->partRelInfo.partOid) {
+        if (isSubPartition) {
+            partitionClose(subparentRelation, partition, RowExclusiveLock);
+            releaseDummyRelation(&subparentRelation);
+            partitionClose(relation, subparentPartition, RowExclusiveLock);
+        } else {
+            partitionClose(relation, partition, RowExclusiveLock);
+        }
+        RelationClose(relation);
+    }
     if (oldslot) {
         ExecDropSingleTupleTableSlot(oldslot);
     }
@@ -810,6 +1246,7 @@ static bool ScanDeltaLogForRewriteRowTable(OnlineDDLAppender* appender, TableSca
                                 "old tuple (%u, %u), may not have been inserted yet.",
                                 ItemPointerGetBlockNumber(&oldTupCtid), ItemPointerGetOffsetNumber(&oldTupCtid))));
     }
+    return true;
 }
 
 static bool ScanDeltaLogForRewriteRowPartitionedTable(OnlineDDLAppender* appender, TableScanDesc deltaLogScan,
@@ -859,6 +1296,7 @@ static bool ScanDeltaLogForRewriteRowPartitionedTable(OnlineDDLAppender* appende
     // Step 4: Restore the original newRelation in appender
     heap_close(appender->newRelation, AccessShareLock);
     appender->newRelation = savedNewRelation;
+    return true;
 }
 
 static bool ScanDeltaLogForSplitPartition(OnlineDDLAppender* appender, TableScanDesc deltaLogScan,
@@ -906,6 +1344,7 @@ static bool ScanDeltaLogForSplitPartition(OnlineDDLAppender* appender, TableScan
     // Step 4: Restore the original newRelation in appender
     partitionClose(savedNewRelation, newPartition, AccessShareLock);
     appender->newRelation = savedNewRelation;
+    return true;
 }
 
 static bool ScanDeltaLogForMergePartition(OnlineDDLAppender* appender, TableScanDesc deltaLogScan,
@@ -915,7 +1354,6 @@ static bool ScanDeltaLogForMergePartition(OnlineDDLAppender* appender, TableScan
         OnlineDDLGetTargetCtid(&oldTupCtid, &oldPartOid, appender->ctidMapRelation, appender->ctidMapIndex);
     // Only attempt deletion if we have a valid target ctid
     if (ItemPointerIsValid(&newTupCtid)) {
-
         ereport(ONLINE_DDL_LOG_LEVEL,
                 (errmsg("[Online-DDL] ScanDeltaLogForMergePartition processing delete operation on "
                         "partitioned table for tuple (%u, %u).",
@@ -1146,7 +1584,7 @@ static bool OnlineDDLAppendScanOldTable(OnlineDDLAppender* appender, TableScanDe
         LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
         ReleaseBuffer(buffer);
 
-        OnlineDDLInsertIntoNewRelation(appender, copyedTuple, hiOptions);
+        OnlineDDLInsertOpt(appender, copyedTuple, hiOptions);
 
         if (CompareItemPointer(&appender->oldTableScanIdx, oldTableCtid)) {
             ItemPointerSet(&appender->oldTableScanIdx, ItemPointerGetBlockNumber(oldTableCtid),
@@ -1289,11 +1727,14 @@ static bool OnlineDDLAppendScanOldTableWithPartitioning(OnlineDDLAppender* appen
         }
         // Create a temporary appender with the computed partition as the target "newRelation"
         partRel->rd_online_ddl_operators = NULL;
-        // Relation savedNewRelation = appender->newRelation;
+        // Backup newRelation
+        Relation savedRel = appender->newRelation;
         appender->newRelation = partRel;  // Set the dynamically computed partition as target
 
         // Call the lower-level function with the computed partition
-        OnlineDDLInsertIntoNewRelation(appender, copyedTuple, hiOptions);
+        OnlineDDLInsertOpt(appender, copyedTuple, hiOptions);
+        // Restore newRelation
+        appender->newRelation = savedRel;
 
         if (CompareItemPointer(&appender->oldTableScanIdx, oldTableCtid)) {
             ItemPointerSet(&appender->oldTableScanIdx, ItemPointerGetBlockNumber(oldTableCtid),
@@ -1330,7 +1771,6 @@ static bool OnlineDDLAppendScanOldTableWithPartitioning(OnlineDDLAppender* appen
 bool OnlineDDLAppendForNormalTable(OnlineDDLAppender* appender)
 {
     Relation oldRelation = appender->oldRelation;
-    Relation newRelation = appender->newRelation;
 
     /* init scan desc */
     TableScanDesc deltaLogScan;
@@ -1394,8 +1834,29 @@ bool OnlineDDLAppendForNormalTable(OnlineDDLAppender* appender)
                             "append data for the last time.",
                             oldRelation->rd_rel->relname.data)));
     /* Get AccessExclusiveLock before commit. */
-    LockRelation(oldRelation, AccessExclusiveLock);
-    UnlockRelation(oldRelation, ShareUpdateExclusiveLock);
+    if (appender->type == ONLINE_DDL_VACUUM && appender->partRelInfo.relId != InvalidOid) {
+        PartRelInfo partRelInfo = appender->partRelInfo;
+        if (partRelInfo.isSubPartition) {
+            Assert(partRelInfo.relId != InvalidOid);
+            Assert(partRelInfo.subParentId != InvalidOid);
+            Assert(partRelInfo.partOid != InvalidOid);
+            LockPartition(partRelInfo.subParentId, partRelInfo.partOid, AccessExclusiveLock, PARTITION_LOCK);
+            LockPartition(partRelInfo.relId, partRelInfo.subParentId, AccessExclusiveLock, PARTITION_LOCK);
+            UnlockPartition(partRelInfo.relId, partRelInfo.subParentId, ShareUpdateExclusiveLock, PARTITION_LOCK);
+            UnlockPartition(partRelInfo.subParentId, partRelInfo.partOid, ShareUpdateExclusiveLock, PARTITION_LOCK);
+        } else {
+            Assert(partRelInfo.relId != InvalidOid);
+            Assert(partRelInfo.subParentId == InvalidOid);
+            Assert(partRelInfo.partOid != InvalidOid);
+            LockPartition(partRelInfo.relId, partRelInfo.partOid, AccessExclusiveLock, PARTITION_LOCK);
+            UnlockPartition(partRelInfo.relId, partRelInfo.partOid, ShareUpdateExclusiveLock, PARTITION_LOCK);
+        }
+    } else {
+        LockRelation(oldRelation, AccessExclusiveLock);
+        if (CheckLockRelation(oldRelation, ShareUpdateExclusiveLock)) {
+            UnlockRelation(oldRelation, ShareUpdateExclusiveLock);
+        }
+    }
 
     /* reinit scanDesc */
     {
@@ -1439,6 +1900,18 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
     ListCell* cell = NULL;
     List* oldPartRelationList = NIL;
     List* newPartRelationList = NIL;
+    ItemPointerData* partitionScanIndexes = NULL;
+    int partitionNum = list_length(appender->oldPartitionList);
+    partitionScanIndexes = (ItemPointerData*)palloc0(sizeof(ItemPointerData) * partitionNum);
+
+    RewriteState* rewriteStates = NULL;
+    int rewriteStateNum = 0;
+    int index = 0;
+    /* Only used when clustering partitioned table */
+    if (appender->type == ONLINE_DDL_CLUSTER) {
+        rewriteStateNum = list_length(appender->oldPartitionList);
+        rewriteStates = (RewriteState*)palloc0(sizeof(RewriteState) * rewriteStateNum);
+    }
 
     // Open all partition relations
     forboth(oldCell, appender->oldPartitionList, newCell, appender->newOidList)
@@ -1456,6 +1929,12 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
         }
         oldPartRelationList = lappend(oldPartRelationList, oldPartRelation);
         newPartRelationList = lappend(newPartRelationList, newPartRelation);
+        if (rewriteStateNum != 0) {
+            RewriteState rewriteState = begin_heap_rewrite(oldPartRelation, newPartRelation,
+                                                           appender->vacuumState->oldestXid,
+                                                           appender->vacuumState->freezeXid, true);
+            rewriteStates[index++] = rewriteState;
+        }
         // Store the mapping between old and new partition in the hash table
         AddPartitionOidMapping(appender, RelationGetRelid(oldPartRelation), newPartOid);
     }
@@ -1510,6 +1989,7 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
         appender->deltaLogScanTimes += (deltaLogScanFinished ? 1 : 0);
 
         // Iterate through all partitions and scan data for each partition
+        index = 0;
         ListCell* oldPartRelCell = NULL;
         ListCell* newPartRelCell = NULL;
         ListCell* oldPartScanCell = NULL;
@@ -1527,10 +2007,10 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
             // Get the starting scan position for this partition from partitionAppendMap
             OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
             ItemPointerData partitionScanIdx = {{0, 0}, 0};
-            if (operators != NULL) {
+            if (firstScan) {
                 partitionScanIdx = operators->getEndCtidForPartition(oldPartRelation->rd_id);
             } else {
-                ItemPointerSet(&partitionScanIdx, 0, 1);
+                partitionScanIdx = partitionScanIndexes[index];
             }
 
             // Temporarily save and replace the relation and scan index in appender
@@ -1541,7 +2021,9 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
             appender->oldRelation = oldPartRelation;
             appender->newRelation = newPartRelation;
             appender->oldTableScanIdx = partitionScanIdx;
-
+            if (rewriteStateNum != 0) {
+                appender->vacuumState->rwstate = rewriteStates[index];
+            }
             bool oldTableScanFinished = true;
 
             if (*oldTableScanTimes > 0 && oldTableScanFinished) {
@@ -1557,9 +2039,14 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
             *oldTableScanTimes += (oldTableScanFinished ? 1 : 0);
 
             // Restore the relation and scan index in appender
+            partitionScanIndexes[index] = appender->oldTableScanIdx;
             appender->oldRelation = savedOldRelation;
             appender->newRelation = savedNewRelation;
             appender->oldTableScanIdx = savedOldTableScanIdx;
+            if (rewriteStateNum != 0) {
+                appender->vacuumState->rwstate = NULL;
+            }
+            index++;
         }
 
         firstScan = false;
@@ -1591,6 +2078,7 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
     ListCell* oldPartRelCell = NULL;
     ListCell* newPartRelCell = NULL;
     ListCell* oldPartScanCell = NULL;
+    index = 0;
     forthree(oldPartRelCell, oldPartRelationList,  // old partition
              newPartRelCell, newPartRelationList,  // temp relation
              oldPartScanCell, oldTableScanList)    // old table scan
@@ -1602,10 +2090,10 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
         // Get the starting scan position for this partition from partitionAppendMap
         OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
         ItemPointerData partitionScanIdx = {{0, 0}, 0};
-        if (operators != NULL) {
+        if (firstScan) {
             partitionScanIdx = operators->getEndCtidForPartition(oldPartRelation->rd_id);
         } else {
-            ItemPointerSet(&partitionScanIdx, 0, 1);
+            partitionScanIdx = partitionScanIndexes[index];
         }
 
         // Temporarily save and replace the relation and scan index in appender
@@ -1616,6 +2104,9 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
         appender->oldRelation = oldPartRelation;
         appender->newRelation = newPartRelation;
         appender->oldTableScanIdx = partitionScanIdx;
+        if (rewriteStateNum != 0) {
+            appender->vacuumState->rwstate = rewriteStates[index];
+        }
 
         // Reinit scanDesc for final scan
         {
@@ -1633,9 +2124,14 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
         OnlineDDLAppendScanOldTable(appender, oldTableScan);
 
         // Restore the relation and scan index in appender
+        partitionScanIndexes[index] = appender->oldTableScanIdx;
         appender->oldRelation = savedOldRelation;
         appender->newRelation = savedNewRelation;
         appender->oldTableScanIdx = savedOldTableScanIdx;
+        if (rewriteStateNum != 0) {
+            appender->vacuumState->rwstate = NULL;
+        }
+        index++;
     }
 
     // Clean up log scanner
@@ -1661,6 +2157,18 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
         Relation newPartRelation = (Relation)lfirst(cell);
         heap_close(newPartRelation, NoLock);
     }
+    if (rewriteStateNum != 0) {
+        for (int i = 0; i < list_length(oldPartRelationList); i++) {
+            end_heap_rewrite(rewriteStates[i]);
+            rewriteStates[i] = NULL;
+        }
+    }
+    if (rewriteStates != NULL) {
+        pfree(rewriteStates);
+        rewriteStates = NULL;
+    }
+    pfree(partitionScanIndexes);
+    partitionScanIndexes = NULL;
 
     return true;
 }
@@ -1743,6 +2251,9 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
     ListCell* cell = NULL;
     List* oldPartRelationList = appender->oldPartitionList;
     List* newPartRelationList = NIL;
+    ItemPointerData* partitionScanIndexes;
+    int partitionNum = list_length(appender->oldPartitionList);
+    partitionScanIndexes = (ItemPointerData*)palloc0(sizeof(ItemPointerData) * partitionNum);
 
     foreach (cell, oldPartRelationList) {
         Relation oldPartRelation = (Relation)lfirst(cell);
@@ -1796,6 +2307,7 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
         ListCell* oldPartRelCell = NULL;
         ListCell* oldPartScanCell = NULL;
         ListCell* oldPartScanTimesCell = NULL;
+        int i = 0;
         forthree(oldPartRelCell, oldPartRelationList,          // old partition relation
                  oldPartScanCell, oldTableScanList,            // old table scan
                  oldPartScanTimesCell, oldTableScanTimesList)  // scan times for each partition
@@ -1807,10 +2319,10 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
             // Get the starting scan position for this partition from partitionAppendMap
             OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
             ItemPointerData partitionScanIdx = {{0, 0}, 0};
-            if (operators != NULL) {
+            if (firstScan) {
                 partitionScanIdx = operators->getEndCtidForPartition(oldPartRelation->rd_id);
             } else {
-                ItemPointerSet(&partitionScanIdx, 0, 1);
+                partitionScanIdx = partitionScanIndexes[i];
             }
 
             // Temporarily save and replace the relation and scan index in appender
@@ -1835,8 +2347,10 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
             *oldTableScanTimes += (oldTableScanFinished ? 1 : 0);
 
             // Restore the relation and scan index in appender
+            partitionScanIndexes[i] = appender->oldTableScanIdx;
             appender->oldRelation = savedOldRelation;
             appender->oldTableScanIdx = savedOldTableScanIdx;
+            i++;
         }
 
         firstScan = false;
@@ -1868,6 +2382,7 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
     ListCell* oldPartRelCell = NULL;
     ListCell* oldPartScanCell = NULL;
     ListCell* oldPartScanTimesCell = NULL;
+    int i = 0;
     forthree(oldPartRelCell, oldPartRelationList,          // old partition relation
              oldPartScanCell, oldTableScanList,            // old table scan
              oldPartScanTimesCell, oldTableScanTimesList)  // scan times for each partition
@@ -1879,10 +2394,10 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
         // Get the starting scan position for this partition from partitionAppendMap
         OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
         ItemPointerData partitionScanIdx = {{0, 0}, 0};
-        if (operators != NULL) {
+        if (firstScan) {
             partitionScanIdx = operators->getEndCtidForPartition(oldPartRelation->rd_id);
         } else {
-            ItemPointerSet(&partitionScanIdx, 0, 1);
+            partitionScanIdx = partitionScanIndexes[i];
         }
 
         // Temporarily save and replace the relation and scan index in appender
@@ -1907,8 +2422,10 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
         *oldTableScanTimes += (oldTableScanFinished ? 1 : 0);
 
         // Restore the relation and scan index in appender
+        partitionScanIndexes[i] = appender->oldTableScanIdx;
         appender->oldRelation = savedOldRelation;
         appender->oldTableScanIdx = savedOldTableScanIdx;
+        i++;
     }
 
     // Clean up log scanner
@@ -1946,6 +2463,14 @@ bool OnlineDDLAppend(OnlineDDLAppender* appender, OnlineDDLScenario scenario)
             return OnlineDDLAppendForSplitPartition(appender);
         case ONLINE_DDL_MERGE_PARTITION:
             return OnlineDDLAppendForMergePartition(appender);
+        case ONLINE_DDL_VACUUM_TABLE:
+            return OnlineDDLAppendForNormalTable(appender);
+        case ONLINE_DDL_VACUUM_PARTITION:
+            return OnlineDDLAppendForNormalTable(appender);
+        case ONLINE_DDL_VACUUM_PARTITIONS:
+            return OnlineDDLAppendForPartitionedTable(appender);
+        case ONLINE_DDL_CLUSTER_PARTITIONS:
+            return OnlineDDLAppendForPartitionedTable(appender);
         default:
             ereport(ERROR, (errmsg("[Online-DDL] unsupported scenario: %d", scenario)));
             break;
@@ -1955,7 +2480,6 @@ bool OnlineDDLAppend(OnlineDDLAppender* appender, OnlineDDLScenario scenario)
 bool OnlineDDLOnlyCheckForNormalTable(OnlineDDLAppender* appender)
 {
     Relation oldRelation = appender->oldRelation;
-    Relation newRelation = NULL;
 
     /* init scan desc */
     TableScanDesc oldTableScan;
@@ -1999,6 +2523,9 @@ bool OnlineDDLOnlyCheckForNormalTable(OnlineDDLAppender* appender)
         appender->oldTableScanTimes += (oldTableScanFinished ? 1 : 0);
         firstScan = false;
     }
+#ifdef USE_ASSERT_CHECKING
+    OnlineDDLLockCheck(appender->oldRelation->rd_id);
+#endif
     ereport(NOTICE, (errmsg("Online DDL relation %s get AccessExclusiveLock before commit, "
                             "start to append for the last time.",
                             oldRelation->rd_rel->relname.data)));

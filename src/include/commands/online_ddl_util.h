@@ -41,6 +41,15 @@ struct DDLGlobalHashKey {
     Oid relId;       /* relation */
 };
 
+/* online ddl operator type */
+enum OnlineDDLType {
+    ONLINE_DDL_INVALID = 0,
+    ONLINE_DDL_CHECK = 1,
+    ONLINE_DDL_REWRITE = 2,
+    ONLINE_DDL_VACUUM = 3,
+    ONLINE_DDL_CLUSTER = 4
+};
+
 #define ONLINE_DDL_LOG_LEVEL                                                 \
     (u_sess->attr.attr_common.log_online_ddl_level == LOG_ONLINE_DDL_DEFAULT \
          ? DEBUG5                                                            \
@@ -51,5 +60,7 @@ extern void OnlineDDLEnableRelationAppendMode(Relation relation);
 extern void OnlineDDLCopyRelationIndexs(Relation srcRelation, Relation destRelation, List** srcIndexOidList,
                                         List** destIndexOidList);
 extern void OnlineDDLLockCheck(Oid relid);
+extern void OnlineDDLLockCheck(Oid relationId, Oid partitionId);
+extern void OnlineDDLPartitionLockCleanup(Oid relationId, Oid partitionId);
 
 #endif /* ONLINE_DDL_UTIL_H */

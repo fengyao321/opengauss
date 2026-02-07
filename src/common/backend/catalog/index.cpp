@@ -59,6 +59,7 @@
 #include "commands/tablecmds.h"
 #include "commands/trigger.h"
 #include "commands/vacuum.h"
+#include "commands/online_ddl_globalhash.h"
 #include "executor/executor.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
@@ -1308,8 +1309,12 @@ Oid partition_index_create(const char* partIndexName, /* the name of partition i
         }
     }
 
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+    bool enableOnlineDDL = operators != NULL && operators->getStatus() >= ONLINE_DDL_STATUS_BASELINE_COPY;
+    LOCKMODE lockmode = enableOnlineDDL ? ShareUpdateExclusiveLock : AccessExclusiveLock;
+
     /* lock Partition */
-    LockPartition(parentIndexId, partitionIndex->pd_id, AccessExclusiveLock, PARTITION_LOCK);
+    LockPartition(parentIndexId, partitionIndex->pd_id, lockmode, PARTITION_LOCK);
 
     partitionIndex->pd_part->relpages = 0;
     partitionIndex->pd_part->reltuples = 0;
