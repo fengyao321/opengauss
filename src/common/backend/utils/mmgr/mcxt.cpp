@@ -24,6 +24,7 @@
 #include "postmaster/postmaster.h"
 #include "utils/memutils.h"
 #include "utils/memtrace.h"
+#include "utils/aset.h"
 #include "pgxc/pgxc.h"
 
 #include "miscadmin.h"
@@ -62,6 +63,8 @@ THR_LOCAL MemoryContext ErrorContext = NULL;
 THR_LOCAL MemoryContext SelfMemoryContext = NULL;
 THR_LOCAL MemoryContext TopMemoryContext = NULL;
 THR_LOCAL MemoryContext AlignMemoryContext = NULL;
+
+/* CachedContext etc. defined in opt_aset.cpp */
 
 static void MemoryContextStatsInternal(MemoryContext context, int level);
 static void FreeMemoryContextList(List* context_list);
@@ -375,8 +378,13 @@ static void MemoryContextDeleteInternal(MemoryContext context, bool parent_locke
             MemoryContextUnlock(parent);
 
         RemoveMemoryContextInfo(context);
+
+        /* Opt context freed in opt_AllocSetDelete, skip list */
+        bool isOptContext = IsOptAllocSetContext(context);
         (*context->methods->delete_context)(context);
-        (void)lappend2(context_list, &context->cell);
+        if (!isOptContext) {
+            (void)lappend2(context_list, &context->cell);
+        }
 
         if (context->session_id > 0) {
             (void)syscalllockRelease(&u_sess->utils_cxt.deleMemContextMutex);

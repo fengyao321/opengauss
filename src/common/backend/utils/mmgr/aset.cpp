@@ -371,7 +371,9 @@ MemoryContext AllocSetContextCreate(_in_ MemoryContext parent, _in_ const char* 
     switch (contextType) {
 #ifndef ENABLE_MEMORY_CHECK
         case STANDARD_CONTEXT: {
-            if (g_instance.attr.attr_memory.disable_memory_stats) {
+            /* opt path when disable_memory_stats && enable_cached_size>0 */
+            if (g_instance.attr.attr_memory.disable_memory_stats &&
+                g_instance.attr.attr_memory.enable_cached_size > 0) {
                 return opt_AllocSetContextCreate(parent, name, minContextSize, initBlockSize, maxBlockSize);
             } else {
                 return GenericMemoryAllocator::AllocSetContextCreate(

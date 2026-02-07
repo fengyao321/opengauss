@@ -53,6 +53,7 @@ typedef struct knl_instance_attr_memory {
     bool enable_memory_context_check_debug;
     int global_syscache_threshold;
     bool disable_memory_stats;
+    int enable_cached_size;
     bool enable_borrow_memory;
     int max_borrow_memory_input;
     volatile int max_borrow_memory;
