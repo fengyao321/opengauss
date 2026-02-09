@@ -24,6 +24,7 @@
  * -------------------------------------------------------------------------
  */
 #include <dlfcn.h>
+#include <stdlib.h>
 #include "postgres.h"
 #include "access/datavec/diskann.h"
 #include "access/datavec/hnsw.h"
@@ -88,8 +89,9 @@ const DiskAnnTypeInfo* DiskAnnGetTypeInfo(Relation index)
 
 FmgrInfo* DiskAnnOptionalProcInfo(Relation index, uint16 procnum)
 {
-    if (!OidIsValid(index_getprocid(index, 1, procnum)))
+    if (!OidIsValid(index_getprocid(index, 1, procnum))) {
         return NULL;
+    }
 
     return index_getprocinfo(index, 1, procnum);
 }
@@ -1061,15 +1063,21 @@ int diskann_pq_load_symbol(char *symbol, void **sym_lib_handle)
 
 int diskann_pq_resolve_path(char* absolute_path, const char* raw_path, const char* filename)
 {
-    char path[MAX_PATH_LEN] = { 0 };
-
-    if (!realpath(raw_path, path)) {
+    char* resolvedPath = realpath(raw_path, NULL);
+    if (resolvedPath == NULL) {
         if (errno != ENOENT && errno != EACCES) {
             return PQ_ERROR;
         }
+        int ret = snprintf_s(absolute_path, MAX_PATH_LEN, MAX_PATH_LEN - 1, "%s/%s", raw_path, filename);
+        if (ret < 0) {
+            return PQ_ERROR;
+        }
+        return PQ_SUCCESS;
     }
 
-    int ret = snprintf_s(absolute_path, MAX_PATH_LEN, MAX_PATH_LEN - 1, "%s/%s", path, filename);
+    int ret = snprintf_s(absolute_path, MAX_PATH_LEN, MAX_PATH_LEN - 1, "%s/%s", resolvedPath, filename);
+    free(resolvedPath);
+
     if (ret < 0) {
         return PQ_ERROR;
     }
