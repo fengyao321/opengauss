@@ -106,6 +106,8 @@
 ./share/postgresql/extension/gms_raw.control
 ./share/postgresql/extension/gms_match--1.0.sql
 ./share/postgresql/extension/gms_match.control
+./share/postgresql/extension/gms_xmlparser--1.0.sql
+./share/postgresql/extension/gms_xmlparser.control
 ./share/postgresql/extension/gms_assert--1.0.sql
 ./share/postgresql/extension/gms_assert.control
 ./share/postgresql/extension/shark--3.0.sql
@@ -806,6 +808,7 @@
 ./lib/postgresql/gms_compress.so
 ./lib/postgresql/gms_raw.so
 ./lib/postgresql/gms_match.so
+./lib/postgresql/gms_xmlparser.so
 ./lib/postgresql/gms_assert.so
 ./lib/postgresql/shark.so
 ./lib/postgresql/dblink.so

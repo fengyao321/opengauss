@@ -59,6 +59,7 @@ SUBDIRS = \
 		ndpplugin       \
 		gms_utility		\
 		gms_profiler    \
+		gms_xmlparser  \
 		gms_inaddr  \
 		gms_output      \
 		gms_stats       \
