@@ -97,6 +97,10 @@ static inline uint128 pg_bswap128(uint128 x)
 #define INT128_HIGH_NBYTES 64
 #define INT128_HALF_HIGH_NBYTES 32
 
+#ifdef ENABLE_NEON
+extern const char *pq_getmsgrawstring(StringInfo msg);
+#endif
+
 /*
  * Append a [u]int8 to a StringInfo buffer, which already has enough space
  * preallocated.

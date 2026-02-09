@@ -93,6 +93,9 @@ typedef struct StartReplicationCmd {
     NodeTag type;
     ReplicationKind kind;
     char* slotname;
+#ifdef ENABLE_NEON
+    TimeLineID    timeline;
+#endif
     XLogRecPtr startpoint;
     List* options;
 } StartReplicationCmd;

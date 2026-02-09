@@ -813,6 +813,9 @@ typedef struct knl_t_xlog_context {
     List* uwalInfoHis;
     XLogRecPtr uwalFileRenamePtr;
     XLogRecPtr last_forwarder_lsn;
+#ifdef ENABLE_NEON
+    bool am_wal_redo_postgres;
+#endif
 } knl_t_xlog_context;
 
 typedef struct knl_t_dfs_context {
@@ -2564,6 +2567,9 @@ typedef struct knl_t_walsender_context {
     bool cancelLogCtl;
     bool isUseSnapshot;
     XLogRecPtr firstConfirmedFlush;
+#ifdef ENABLE_NEON
+    bool am_walsender;
+#endif
 } knl_t_walsender_context;
 
 typedef struct knl_t_walreceiverfuncs_context {
@@ -2903,8 +2909,14 @@ typedef struct knl_t_storage_context {
     bool atexit_callback_setup;
     ONEXIT on_proc_exit_list[MAX_ON_EXITS];
     ONEXIT on_shmem_exit_list[MAX_ON_EXITS];
+#ifdef ENABLE_NEON
+    ONEXIT before_shmem_exit_list[MAX_ON_EXITS];
+#endif
     int on_proc_exit_index;
     int on_shmem_exit_index;
+#ifdef ENABLE_NEON
+    int before_shmem_exit_index;
+#endif
     bool  registerAbortBackupHandlerdone;    /* unterminated backups handler flag */
 
     union CmprMetaUnion* cmprMetaInfo;

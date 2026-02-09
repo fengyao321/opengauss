@@ -523,6 +523,9 @@ static void knl_t_xlog_init(knl_t_xlog_context* xlog_cxt)
     xlog_cxt->currentRetryTimes = 0;
     xlog_cxt->uwalInfoHis = NIL;
     xlog_cxt->last_forwarder_lsn = 0;
+#ifdef ENABLE_NEON
+    xlog_cxt->am_wal_redo_postgres = false;
+#endif
 }
 
 static void knl_t_index_init(knl_t_index_context* index_cxt)
@@ -1469,6 +1472,11 @@ static void knl_t_storage_init(knl_t_storage_context* storage_cxt)
     securec_check(rc, "\0", "\0");
     rc = memset_s(storage_cxt->on_shmem_exit_list, MAX_ON_EXITS * sizeof(ONEXIT), 0, MAX_ON_EXITS * sizeof(ONEXIT));
     securec_check(rc, "\0", "\0");
+#ifdef ENABLE_NEON
+    rc = memset_s(storage_cxt->before_shmem_exit_list, MAX_ON_EXITS * sizeof(ONEXIT), 0, MAX_ON_EXITS * sizeof(ONEXIT));
+    securec_check(rc, "\0", "\0");
+    storage_cxt->before_shmem_exit_index = 0;
+#endif /* ENABLE_NEON */
     storage_cxt->on_proc_exit_index = 0;
     storage_cxt->on_shmem_exit_index = 0;
     storage_cxt->registerAbortBackupHandlerdone = false;
@@ -1564,6 +1572,9 @@ static void knl_t_walsender_init(knl_t_walsender_context* walsender_cxt)
     walsender_cxt->isUseSnapshot = false;
     walsender_cxt->firstConfirmedFlush = InvalidXLogRecPtr;
     walsender_cxt->timeoutCheckInternal = 0;
+#ifdef ENABLE_NEON
+    walsender_cxt->am_walsender = false;
+#endif /* ENABLE_NEON */
 }
 
 static void knl_t_tsearch_init(knl_t_tsearch_context* tsearch_cxt)

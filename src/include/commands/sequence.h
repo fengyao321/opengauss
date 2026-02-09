@@ -157,9 +157,17 @@ typedef struct sequence_values
  * We don't want to log each fetching of a value from a sequence,
  * so we pre-log a few fetches in advance. In the event of
  * crash we can lose (skip over) as many values as we pre-logged.
+ *
+ * NEON: Set to 0 to ensure every nextval() writes WAL immediately.
+ * This is required for correct sequence behavior when creating branches,
+ * as branches inherit WAL state and would otherwise skip ahead by
+ * SEQ_LOG_VALS values.
  */
+#ifdef ENABLE_NEON
+const int SEQ_LOG_VALS = 0;
+#else
 const int SEQ_LOG_VALS = 32;
-
+#endif
 
 /*
  * The "special area" of a old version sequence's buffer page looks like this.

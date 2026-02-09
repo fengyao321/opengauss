@@ -79,6 +79,7 @@ option(ENABLE_THREAD_SAFETY "enable thread safety, the old is --enable-thread-sa
 
 #The following are basically no need to configure, because these libraries are necessary or must not be used in mppdb
 option(USE_SPQ "enable spq optimizer" OFF)
+option(ENABLE_NEON "enable neon branching" OFF)
 option(USE_BONJOUR "enable bonjour, the old is --with-bonjour" OFF)
 option(USE_LDAP "build with ldap, the old is --with-ldap" OFF)#ON
 option(USE_ETCD "build with etcd libs, new option for old mppdb, after 8.1 close it" OFF)
@@ -248,6 +249,11 @@ endif()
 
 if(${USE_SPQ})
     set(GAUSSDB_CONFIGURE "${GAUSSDB_CONFIGURE} -DUSE_SPQ")
+endif()
+
+if(${ENABLE_NEON})
+    set(MACRO_OPTIONS ${MACRO_OPTIONS} -DENABLE_NEON)
+    set(GAUSSDB_CONFIGURE "${GAUSSDB_CONFIGURE} -DENABLE_NEON")
 endif()
 
 if(${ENABLE_X86_RDTSCP})

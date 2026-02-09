@@ -94,7 +94,12 @@ typedef struct BackgroundWorkerArgs {
 } BackgroundWorkerArgs;
 
 /* Register a new bgworker during shared_preload_libraries */
+#ifdef ENABLE_NEON
+extern bool RegisterBackgroundWorker(BgWorkerContext *bwc, int flag = 0);
+#else
 extern bool RegisterBackgroundWorker(BackgroundWorker *worker, int flag = 0);
+#endif
+
 extern int LaunchBackgroundWorkers(int nworkers, void *bgshared, bgworker_main bgmain,
     bgworker_exit bgexit, int flag = 0);
 extern void BackgroundWorkerMain(void);

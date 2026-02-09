@@ -509,6 +509,17 @@ static inline bool RelationCreateInCurrXact(Relation rel)
  * PartitionOpenSmgr
  *		Open the partition at the smgr level, if not already done.
  */
+#ifdef ENABLE_NEON
+#define PartitionOpenSmgr(partition)                                                                 \
+    do {                                                                                             \
+        if ((partition)->pd_smgr == NULL)                                                            \
+            smgrsetowner(&((partition)->pd_smgr),                                                    \
+                smgropen((partition)->pd_node, InvalidBackendId, 0, RELPERSISTENCE_PERMANENT));      \
+        else {                                                                                       \
+            TryFreshSmgrCache((partition)->pd_smgr);                                                 \
+        }                                                                                            \
+    } while (0)
+#else
 #define PartitionOpenSmgr(partition)                                                                 \
     do {                                                                                             \
         if ((partition)->pd_smgr == NULL)                                                            \
@@ -517,6 +528,7 @@ static inline bool RelationCreateInCurrXact(Relation rel)
             TryFreshSmgrCache((partition)->pd_smgr);                                                 \
         }                                                                                            \
     } while (0)
+#endif
 
 
 /*

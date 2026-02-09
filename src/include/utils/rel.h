@@ -735,6 +735,17 @@ extern void TryFreshSmgrCache(struct SMgrRelationData *smgr);
  * RelationOpenSmgr
  *		Open the relation at the smgr level, if not already done.
  */
+#ifdef ENABLE_NEON
+#define RelationOpenSmgr(relation)                                                                       \
+    do {                                                                                                 \
+        if ((relation)->rd_smgr == NULL)                                                                 \
+            smgrsetowner(&((relation)->rd_smgr), smgropen((relation)->rd_node, (relation)->rd_backend,   \
+                         0, (relation)->rd_rel->relpersistence));                                        \
+        else {                                                                                           \
+            TryFreshSmgrCache((relation)->rd_smgr);                                                      \
+        }                                                                                                \
+    } while (0)
+#else
 #define RelationOpenSmgr(relation)                                                                       \
     do {                                                                                                 \
         if ((relation)->rd_smgr == NULL)                                                                 \
@@ -743,6 +754,7 @@ extern void TryFreshSmgrCache(struct SMgrRelationData *smgr);
             TryFreshSmgrCache((relation)->rd_smgr);                                                      \
         }                                                                                                \
     } while (0)
+#endif
 
 /*
  * RelationCloseSmgr

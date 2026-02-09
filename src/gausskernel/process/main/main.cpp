@@ -59,6 +59,66 @@
 
 #include <sys/prctl.h>
 
+#ifdef ENABLE_NEON
+#include <dlfcn.h>
+typedef int (*MainFunc) (int argc, char *argv[]);
+
+/* Function pointer type for _PG_init */
+typedef void (*PG_init_t)(void);
+
+static int CallExtMain(char *library_name, char *main_func_name, int argc, char *argv[], bool load_config)
+{
+    InitStandaloneProcess(argv[0]);
+    SetProcessingMode(InitProcessing);
+    InitializeGUCOptions();
+
+    if (load_config && !SelectConfigFiles(NULL, progname)) {
+        exit(1);
+    }
+
+    u_sess->misc_cxt.process_shared_preload_libraries_in_progress = true;
+
+    char *libpath = expand_dynamic_library_name(library_name);
+
+    void *handle = dlopen(libpath, RTLD_NOW);
+    if (!handle) {
+        ereport(WARNING,
+            (errmsg("Failed to load neon extension. exec_path:%s, Errmessage=%s.", libpath, dlerror())));
+        exit(1);
+    }
+
+    /*
+     * Call _PG_init if it exists in the library.
+     * This is necessary because dlopen doesn't automatically call it.
+     */
+    PG_init_t PG_init = (PG_init_t)dlsym(handle, "_PG_init");
+    if (PG_init != NULL) {
+        (*PG_init)();
+    }
+
+    /*
+     * After loading the extension and calling _PG_init, re-process the config
+     * file so that GUC variables registered by the extension (like neon.safekeepers)
+     * can pick up their values from postgresql.conf.
+     */
+    if (load_config) {
+        ProcessConfigFile(PGC_POSTMASTER);
+    }
+
+    MainFunc main_func = (MainFunc)dlsym(handle, main_func_name);
+    if (main_func == NULL) {
+        char *error = dlerror();
+        ereport(WARNING,
+            (errmsg("Failed to find symbol %s in neon extension. Errmessage=%s.",
+                main_func_name, error ? error : "unknown error")));
+        dlclose(handle);
+        exit(1);
+    }
+
+    return main_func(argc, argv);
+}
+#endif
+
 THR_LOCAL bool IsInitdb = false;
 
 size_t mmap_threshold = (size_t)0xffffffff;
@@ -349,10 +409,16 @@ int main(int argc, char* argv[])
 
         exit(PostgresMain(argc, argv, NULL, get_current_username(progname)));
     }
-
+#ifdef ENABLE_NEON
+    else if (argc > 1 && strcmp(argv[1], "--wal-redo") == 0) {
+        t_thrd.xlog_cxt.am_wal_redo_postgres = true;
+        CallExtMain("neon_walredo", "WalRedoMain", argc, argv, false);
+    } else if (argc > 1 && strcmp(argv[1], "--sync-safekeepers") == 0) {
+        CallExtMain("neon", "WalProposerSync", argc, argv, true);
+    }
+#endif
     exit(PostmasterMain(argc, argv));
 }
-
 /*
  * Place platform-specific startup hacks here.	This is the right
  * place to put code that must be executed early in the launch of any new

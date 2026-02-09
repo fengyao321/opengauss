@@ -149,3 +149,5 @@ ParallelIndexScanLock 139
 CBMFreeListLock 140
 SqlLimitLock 141
 OnlineDDLHashLock 142
+
+LastWrittenLsnLock 143

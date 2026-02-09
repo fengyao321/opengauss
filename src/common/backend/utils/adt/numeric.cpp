@@ -277,6 +277,8 @@ static void accum_sum_carry(NumericSumAccum *accum);
 static void accum_sum_final(NumericSumAccum *accum, NumericVar *result);
 static bool numericvar_to_uint64(const NumericVar* var, uint64* result);
 
+static bool numericvar_to_uint64(const NumericVar* var, uint64* result);
+
 /*
  * @Description: call corresponding big integer operator functions.
  *

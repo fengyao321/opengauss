@@ -207,8 +207,11 @@ void RelationCreateStorageInternal(RelFileNode rnode, char relpersistence, Oid o
     }
 
     StorageSetBackendAndLogged(relpersistence, &backend, &needs_wal);
-
+#ifdef ENABLE_NEON
+    srel = smgropen(rnode, backend, 0, relpersistence);
+#else
     srel = smgropen(rnode, backend);
+#endif /* ENABLE_NEON */
     smgrcreate(srel, MAIN_FORKNUM, false);
 
     if (needs_wal) {
@@ -326,7 +329,14 @@ void log_smgrcreate(RelFileNode* rnode, ForkNumber forkNum)
 
     XLogBeginInsert();
     XLogRegisterData((char*)&xlrec, (int)size);
+#ifdef ENABLE_NEON
+    XLogRecPtr lsn = XLogInsert(RM_SMGR_ID, info, rnode->bucketNode);
+
+    if (set_lwlsn_relation_hook)
+        set_lwlsn_relation_hook(lsn, *rnode, forkNum);
+#else
     XLogInsert(RM_SMGR_ID, info, rnode->bucketNode);
+#endif /* ENABLE_NEON */
 }
 
 static void CStoreRelDropStorage(Relation rel, RelFileNode* rnode, Oid ownerid)
@@ -1248,7 +1258,11 @@ void smgr_redo_create(RelFileNode rnode, ForkNumber forkNum, char *data)
     }
 
     if (!IsValidColForkNum(forkNum)) {
+#ifdef ENABLE_NEON
+        SMgrRelation reln = smgropen(rnode, InvalidBackendId, 0, RELPERSISTENCE_PERMANENT);
+#else
         SMgrRelation reln = smgropen(rnode, InvalidBackendId, 0);
+#endif /* ENABLE_NEON */
         smgrcreate(reln, forkNum, true);
     } else {
         CFileNode cFileNode(rnode, ColForkNum2ColumnId(forkNum), MAIN_FORKNUM);
@@ -1280,7 +1294,11 @@ void xlog_block_smgr_redo_truncate(RelFileNode rnode, BlockNumber blkno, XLogRec
     TransactionId latest_removed_xid)
 {
     smgr_redo_truncate_cancel_conflicting_proc(latest_removed_xid, lsn);
+#ifdef ENABLE_NEON
+    SMgrRelation reln = smgropen(rnode, InvalidBackendId, 0, RELPERSISTENCE_PERMANENT);
+#else
     SMgrRelation reln = smgropen(rnode, InvalidBackendId);
+#endif /* ENABLE_NEON */
     smgrcreate(reln, MAIN_FORKNUM, true);
     UpdateMinRecoveryPoint(lsn, false);
     LockRelFileNode(rnode, AccessExclusiveLock);

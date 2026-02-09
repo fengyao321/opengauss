@@ -80,7 +80,9 @@ static XLogRecPtr last_snapshot_lsn = InvalidXLogRecPtr;
 
 /* Signal handlers */
 static void bgwriter_quickdie(SIGNAL_ARGS);
+#ifndef ENABLE_NEON
 static void bgwriter_sighup_handler(SIGNAL_ARGS);
+#endif /* ENABLE_NEON */
 static void bgwriter_request_shutdown_handler(SIGNAL_ARGS);
 static void bgwriter_sigusr1_handler(SIGNAL_ARGS);
 extern void write_term_log(uint32 term);
@@ -469,7 +471,11 @@ static void bgwriter_quickdie(SIGNAL_ARGS)
 }
 
 /* SIGHUP: set flag to re-read config file at next convenient time */
+#ifdef ENABLE_NEON
+void bgwriter_sighup_handler(SIGNAL_ARGS)
+#else
 static void bgwriter_sighup_handler(SIGNAL_ARGS)
+#endif /* ENABLE_NEON */
 {
     int save_errno = errno;
 
