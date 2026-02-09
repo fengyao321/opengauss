@@ -3034,7 +3034,7 @@ static void InitSqlConfigureNamesReal()
             &u_sess->datavec_ctx.rbq_refinek,
             5.0,
             0,
-            2000000000,
+            1000,
             NULL,
             NULL,
             NULL},
