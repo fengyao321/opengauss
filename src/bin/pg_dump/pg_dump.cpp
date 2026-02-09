@@ -592,6 +592,8 @@ inline bool isDB4AIschema(const NamespaceInfo *nspinfo);
 static void setup_restrict_relation_kind(Archive* fout, const char* value);
 
 static void setupDumpWorker(Archive *AHX);
+static void bSetSqlModeQuote(Archive* fout, char** bSqlMode);
+static void bResetSqlModeQuote(Archive* fout, char** bSqlMode);
 
 #ifdef DUMPSYSLOG
 static void ReceiveSyslog(PGconn* conn, const char* current_path);
@@ -1085,7 +1087,8 @@ int main(int argc, char** argv)
     write_msg(NULL, "Begin scanning database. \n");
     pthread_t progressThread;
     pthread_create(&progressThread, NULL, ProgressReportScanDatabase, NULL);
-
+    char* bSqlMode = NULL;
+    bSetSqlModeQuote(fout, &bSqlMode);
     tblinfo = getSchemaData(fout, &numTables);
 
     g_progressFlagScan = true;
@@ -1200,7 +1203,7 @@ int main(int argc, char** argv)
     if (include_everything && !dataOnly) {
         dumpSynonym(fout);
     }
-
+    bResetSqlModeQuote(fout, &bSqlMode);
     /*
      * Set up options info to ensure we dump what we want.
      */
@@ -2748,6 +2751,8 @@ static int dumpTableDataSplit_copy(Archive* fout, void* dcontext) {
     int ret = 0;
     char* copybuf = NULL;
     const char* column_list = NULL;
+    char* bSqlMode = NULL;
+    bSetSqlModeQuote(fout, &bSqlMode);
 
     if (g_verbose)
         write_msg(NULL,
@@ -2908,8 +2913,8 @@ static int dumpTableDataSplit_copy(Archive* fout, void* dcontext) {
         exit_nicely(1);
     }
     PQclear(res);
-
     destroyPQExpBuffer(q);
+    bResetSqlModeQuote(fout, &bSqlMode);
     return 1;
 }
 /*
@@ -2931,7 +2936,8 @@ static int dumpTableData_copy(Archive* fout, void* dcontext)
     int ret = 0;
     char* copybuf = NULL;
     const char* column_list = NULL;
-
+    char* bSqlMode = NULL;
+    bSetSqlModeQuote(fout, &bSqlMode);
     if (g_verbose)
         write_msg(NULL,
             "dumping contents of table \"%s\"\n",
@@ -3081,9 +3087,8 @@ static int dumpTableData_copy(Archive* fout, void* dcontext)
         exit_nicely(1);
     }
     PQclear(res);
-
     destroyPQExpBuffer(q);
-
+    bResetSqlModeQuote(fout, &bSqlMode);
     /* Revert back the setting*/
     if (tbinfo->relkind == RELKIND_FOREIGN_TABLE) {
         setup_restrict_relation_kind(fout, "view, foreign-table");
@@ -7683,6 +7688,7 @@ TableInfo* getTables(Archive* fout, int* numTables)
     bool isHasRelbucket = false;
     /* This SQL must using enable_hashjoin */
     ExecuteSqlStatement(fout, "set enable_hashjoin=on");
+
     /*
      * if table_include_oids.head is null, it means that we do not use -t/--include-table-file options.
      */
@@ -8476,7 +8482,6 @@ TableInfo* getTables(Archive* fout, int* numTables)
     }
     /* other SQL should use enable_hashjoin false*/
     ExecuteSqlStatement(fout, "set enable_hashjoin=false");
-
     PQclear(res);
     destroyPQExpBuffer(query);
     return tblinfo;
@@ -25193,4 +25198,65 @@ setupDumpWorker(Archive *AH)
 	 * inherited encoding value back to a string to pass to setup_connection.
 	 */
 	setup_connection(AH);
+}
+
+static void bSetSqlModeQuote(Archive* fout, char** bSqlMode)
+{
+    if (fout == NULL) {
+        return;
+    }
+    if (!findDBCompatibility(fout, PQdb(GetConnection(fout)), "B")) {
+        return;
+    }
+    if (*bSqlMode != NULL) {
+        free(*bSqlMode);
+    }
+    PGresult* res = NULL;
+    PQExpBufferData buf;
+    initPQExpBuffer(&buf);
+    printfPQExpBuffer(&buf, "select setting from pg_settings where name = 'dolphin.sql_mode';");
+    res = PQexec(GetConnection(fout), buf.data);
+    if (res != NULL && PQntuples(res) == 1) {
+        char* sql_modes = PQgetvalue(res, 0, 0);
+        if (strstr(sql_modes, "ansi_quotes") != NULL) {
+            PQclear(res);
+            res = NULL;
+            return;
+        }
+        *bSqlMode = gs_strdup(sql_modes);
+        if (strlen(*bSqlMode) != 0) {
+            printfPQExpBuffer(&buf, "set dolphin.sql_mode = '%s,ansi_quotes';", *bSqlMode);
+        } else {
+            printfPQExpBuffer(&buf, "set dolphin.sql_mode = 'ansi_quotes';");
+        }
+        
+        res = PQexec(GetConnection(fout), buf.data);
+        PQclear(res);
+        res = NULL;
+        return;
+    }
+    PQclear(res);
+    res = NULL;
+    return;
+}
+
+static void bResetSqlModeQuote(Archive* fout, char** bSqlMode)
+{
+    if (!findDBCompatibility(fout, PQdb(GetConnection(fout)), "B")) {
+        return;
+    }
+    if (*bSqlMode == NULL) {
+        return;
+    }
+    PGresult* res = NULL;
+    PQExpBufferData buf;
+    initPQExpBuffer(&buf);
+    printfPQExpBuffer(&buf, "set dolphin.sql_mode = '%s';", *bSqlMode);
+    res = PQexec(GetConnection(fout), buf.data);
+    if (res != NULL) {
+        PQclear(res);
+        res = NULL;
+    }
+    free(*bSqlMode);
+    return;
 }
