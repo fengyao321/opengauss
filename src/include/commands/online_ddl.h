@@ -34,9 +34,10 @@
 
 #define ONLINE_DDL_DELTA_RELNAME "online_ddl_delta_log"
 
-extern bool OnlineDDLInstanceInit(List* wqueue, Relation* relation, List* cmds, LOCKMODE lockmode,
-                                  OnlineDDLType onlineDDLType);
-extern OnlineDDLType OnlineDDLCheckFeasible(List** wqueue, Relation relation, List* cmds, LOCKMODE lockmode);
+extern bool OnlineDDLInstanceInit(Relation* relation, LOCKMODE lockmode, OnlineDDLType onlineDDLType,
+                                  Oid partitionOid = InvalidOid);
+extern OnlineDDLType OnlineDDLCheckAlterFeasible(List** wqueue, Relation relation, List* cmds, LOCKMODE lockmode);
+extern OnlineDDLType OnlineDDLCheckVacuumFeasible(Relation relation, Oid indexOid);
 extern bool OnlineDDLInstanceFinish(Relation relation);
 extern void OnlineDDLinit();
 extern void OnlineDDLCleanup();

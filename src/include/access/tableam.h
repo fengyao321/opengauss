@@ -921,15 +921,18 @@ static inline TM_Result tableam_tuple_update(Relation relation, Relation parentR
     bool *update_indexes, Bitmapset **modifiedIdxAttrs, bool allow_update_self = false,
     bool allow_inplace_update = true, LockTupleMode *lockmode = NULL)
 {
+    OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(relation);
+    ItemPointerData oldCtid = {{0, 0}, 0};
+    oldCtid = operators != NULL ? *otid : oldCtid;
+
     TM_Result result = relation->rd_tam_ops->tuple_update(relation, parentRelation, otid, newtup, cid, crosscheck,
                                                           snapshot, wait, oldslot, tmfd, lockmode, update_indexes,
                                                           modifiedIdxAttrs, allow_update_self, allow_inplace_update);
-    OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(relation);
     if (operators != NULL && result == TM_Ok) {
         if (operators->getPartitionAppendMap() != NULL) {
-            operators->recordTupleDelete(relation, otid, relation->rd_id);
+            operators->recordTupleDelete(relation, &oldCtid, relation->rd_id);
         } else {
-            operators->recordTupleDelete(relation, otid);
+            operators->recordTupleDelete(relation, &oldCtid);
         }
     }
     return result;

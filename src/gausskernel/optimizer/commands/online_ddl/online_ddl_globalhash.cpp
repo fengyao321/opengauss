@@ -231,7 +231,9 @@ OnlineDDLRelOperators::OnlineDDLRelOperators(MemoryContext context, Relation rel
       isForPartition(RELATION_IS_PARTITIONED(relation)),
       partitionAppendMap(NULL),
       currentPartitionOid(0),
-      context(context)
+      partRelInfo({0, 0, 0, false}),
+      context(context),
+      startTime(GetCurrentTimestamp())
 {}
 
 OnlineDDLRelOperators::~OnlineDDLRelOperators()
@@ -245,6 +247,9 @@ OnlineDDLRelOperators::~OnlineDDLRelOperators()
     }
     if (deltaRelname != NULL) {
         DestroyStringInfo(deltaRelname);
+    }
+    if (partitionAppendMap != NULL) {
+        destroyPartitionAppendMap();
     }
 }
 
@@ -395,18 +400,23 @@ bool OnlineDDLRelOperators::enableTargetRelationAppendMode(ItemPointerData endCt
 
 void OnlineDDLRelOperators::createPartitionAppendMap()
 {
+    Assert(this->onlineDDLType != ONLINE_DDL_VACUUM);
     if (this->partitionAppendMap != NULL) {
         return;
     }
+    MemoryContext oldcxt = MemoryContextSwitchTo(this->context);
     HASHCTL hashCtrl;
     errno_t rc = memset_s(&hashCtrl, sizeof(hashCtrl), 0, sizeof(hashCtrl));
     securec_check(rc, "\0", "\0");
-
     hashCtrl.keysize = sizeof(Oid);
     hashCtrl.entrysize = sizeof(PartitionAppendEntry);
-    hashCtrl.hcxt = CurrentMemoryContext;
+    hashCtrl.hcxt = this->context;
+    StringInfo hashName = makeStringInfo();
+    appendStringInfo(hashName, "Online DDL Partition Append Map %u", this->startXid);
     this->partitionAppendMap =
-        hash_create("Online DDL Partition Append Map", PARTITION_APPEND_MAP_SIZE, &hashCtrl, HASH_ELEM | HASH_CONTEXT);
+        hash_create(hashName->data, PARTITION_APPEND_MAP_SIZE, &hashCtrl, HASH_ELEM | HASH_CONTEXT);
+    DestroyStringInfo(hashName);
+    MemoryContextSwitchTo(oldcxt);
 }
 
 void OnlineDDLRelOperators::destroyPartitionAppendMap()
@@ -489,17 +499,58 @@ void OnlineDDLRelOperators::OnlineDDLAppendIncrementalData(Relation oldRelation,
 
     if (onlineDDLType > ONLINE_DDL_CHECK) {
         this->appender = OnlineDDLInitAppender(oldRelation, newRelation, this->deltaRelation, this->ctidMapRelation,
-                                               ctidMapIndex, this->endCtidInternal, alterTableInfo);
+                                               ctidMapIndex, this->endCtidInternal, alterTableInfo, onlineDDLType);
         ereport(NOTICE, (errmodule(MOD_ONLINE_DDL),
                          errmsg("Online DDL baseline data copy completed, start to append incremental data.")));
         OnlineDDLAppend(this->appender, scenario);
+        CleanupAppender(this->appender);
+        this->appender = NULL;
     } else {
         this->appender = OnlineDDLInitAppender(oldRelation, NULL, this->deltaRelation, this->ctidMapRelation,
-                                               ctidMapIndex, this->endCtidInternal, alterTableInfo);
+                                               ctidMapIndex, this->endCtidInternal, alterTableInfo, onlineDDLType);
         ereport(NOTICE, (errmodule(MOD_ONLINE_DDL),
                          errmsg("Online DDL baseline data check completed, start to check incremental data.")));
         OnlineDDLOnlyCheck(this->appender);
+        CleanupAppender(this->appender);
+        this->appender = NULL;
     }
+    if (ctidMapIndex != NULL) {
+        index_close(ctidMapIndex, AccessShareLock);
+    }
+}
+
+/* for vacuum */
+void OnlineDDLRelOperators::OnlineDDLAppendIncrementalData(Relation oldRelation, Relation newRelation,
+                                                           TransactionId oldestXmin, TransactionId freezeXid,
+                                                           OnlineDDLScenario scenario)
+{
+    List* indexOidList = NIL;
+    Relation ctidMapIndex = NULL;
+
+    /* Get ctid map index */
+    indexOidList = RelationGetIndexList(this->ctidMapRelation);
+    if (list_length(indexOidList) != 1) {
+        ereport(ERROR,
+                (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                 errmsg("[Online-DDL] ctid map relation %u must have only one index.", this->ctidMapRelation->rd_id)));
+    }
+    Oid indexOid = (Oid)linitial_oid(indexOidList);
+    ctidMapIndex = index_open(indexOid, AccessShareLock);
+    list_free_ext(indexOidList);
+
+    Assert(onlineDDLType == ONLINE_DDL_VACUUM || onlineDDLType == ONLINE_DDL_CLUSTER);
+    this->appender = OnlineDDLInitAppender(oldRelation, newRelation, this->deltaRelation, this->ctidMapRelation,
+                                           ctidMapIndex, this->endCtidInternal, NULL, onlineDDLType);
+    ereport(NOTICE, (errmodule(MOD_ONLINE_DDL),
+                     errmsg("Online DDL baseline data copy completed, start to append incremental data.")));
+    OnlineDDLAppenderInitVacuumState(this->appender, freezeXid, oldestXmin);
+    if (this->partRelInfo.relId != InvalidOid) {
+        OnlineDDLInitPartRelInfo(this->appender, this->partRelInfo.relId, this->partRelInfo.subParentId,
+                                 this->partRelInfo.partOid, this->partRelInfo.isSubPartition);
+    }
+    OnlineDDLAppend(this->appender, scenario);
+    CleanupAppender(this->appender);
+    this->appender = NULL;
     if (ctidMapIndex != NULL) {
         index_close(ctidMapIndex, AccessShareLock);
     }
@@ -525,16 +576,55 @@ void OnlineDDLRelOperators::OnlineDDLAppendIncrementalData(List* oldPartRelList,
 
     if (onlineDDLType > ONLINE_DDL_CHECK) {
         this->appender = OnlineDDLInitAppender(oldPartRelList, newOidList, this->deltaRelation, this->ctidMapRelation,
-                                               ctidMapIndex, this->partitionAppendMap, alterTableInfo);
+                                               ctidMapIndex, this->partitionAppendMap, alterTableInfo, onlineDDLType);
         ereport(NOTICE, (errmodule(MOD_ONLINE_DDL),
                          errmsg("Online DDL baseline data copy completed, start to append incremental data.")));
         OnlineDDLAppend(this->appender, scenario);
+        CleanupAppender(this->appender);
+        this->appender = NULL;
     } else {
         this->appender = OnlineDDLInitAppender(oldPartRelList, NIL, this->deltaRelation, this->ctidMapRelation,
-                                               ctidMapIndex, this->partitionAppendMap, alterTableInfo);
+                                               ctidMapIndex, this->partitionAppendMap, alterTableInfo, onlineDDLType);
         ereport(NOTICE, (errmodule(MOD_ONLINE_DDL),
                          errmsg("Online DDL baseline data check completed, start to check incremental data.")));
         OnlineDDLOnlyCheck(this->appender);
+        CleanupAppender(this->appender);
+        this->appender = NULL;
+    }
+    if (ctidMapIndex != NULL) {
+        index_close(ctidMapIndex, AccessShareLock);
+    }
+}
+
+/* for partition vacuum */
+void OnlineDDLRelOperators::OnlineDDLAppendIncrementalData(List* oldPartRelList, List* newOidList,
+                                                           TransactionId oldestXmin, TransactionId freezeXid,
+                                                           OnlineDDLScenario scenario)
+{
+    List* indexOidList = NIL;
+    Relation ctidMapIndex = NULL;
+
+    /* Get ctid map index */
+    indexOidList = RelationGetIndexList(this->ctidMapRelation);
+    if (list_length(indexOidList) != 1) {
+        ereport(ERROR,
+                (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                 errmsg("[Online-DDL] ctid map relation %u must have only one index.", this->ctidMapRelation->rd_id)));
+    }
+    Oid indexOid = (Oid)linitial_oid(indexOidList);
+    ctidMapIndex = index_open(indexOid, AccessShareLock);
+    list_free_ext(indexOidList);
+
+    if (onlineDDLType > ONLINE_DDL_CHECK) {
+        this->appender = OnlineDDLInitAppender(oldPartRelList, newOidList, this->deltaRelation, this->ctidMapRelation,
+                                               ctidMapIndex, this->partitionAppendMap, NULL, onlineDDLType);
+
+        ereport(NOTICE, (errmodule(MOD_ONLINE_DDL),
+                         errmsg("Online DDL baseline data copy completed, start to append incremental data.")));
+        OnlineDDLAppenderInitVacuumState(this->appender, freezeXid, oldestXmin);
+        OnlineDDLAppend(this->appender, scenario);
+        CleanupAppender(this->appender);
+        this->appender = NULL;
     }
     if (ctidMapIndex != NULL) {
         index_close(ctidMapIndex, AccessShareLock);
@@ -560,14 +650,14 @@ void OnlineDDLRelOperators::OnlineDDLAppendIncrementalData(List* oldPartRelList,
 
     if (onlineDDLType > ONLINE_DDL_CHECK) {
         this->appender = OnlineDDLInitAppender(oldPartRelList, newRelation, this->deltaRelation, this->ctidMapRelation,
-                                               ctidMapIndex, this->partitionAppendMap, alterTableInfo);
+                                               ctidMapIndex, this->partitionAppendMap, alterTableInfo, onlineDDLType);
         ereport(NOTICE, (errmodule(MOD_ONLINE_DDL),
                          errmsg("Online DDL baseline data copy completed, start to append incremental data.")));
         OnlineDDLAppend(this->appender, scenario);
     } else {
         this->appender =
             OnlineDDLInitAppender(oldPartRelList, (Relation)NULL, this->deltaRelation, this->ctidMapRelation,
-                                  ctidMapIndex, this->partitionAppendMap, alterTableInfo);
+                                  ctidMapIndex, this->partitionAppendMap, alterTableInfo, onlineDDLType);
         ereport(NOTICE, (errmodule(MOD_ONLINE_DDL),
                          errmsg("Online DDL baseline data check completed, start to check incremental data.")));
         OnlineDDLOnlyCheck(this->appender);
@@ -623,6 +713,7 @@ DDLGlobalHashEntry* OnlineDDLGetHashEntry(DDLGlobalHashKey hashKey)
     }
     return entry;
 }
+
 void OnlineDDLRelationSetup(Relation relation)
 {
     if (RelationGetAppendMode(relation) != ONLINE_DDL_APPEND_MODE) {
@@ -634,6 +725,7 @@ void OnlineDDLRelationSetup(Relation relation)
         relation->rd_online_ddl_operators = (void*)hashEntry->operators;
     }
 }
+
 void OnlineDDLRelationSetup(Relation relation, Relation parentRelation, Partition partition)
 {
     if (RelationGetAppendMode(parentRelation) != ONLINE_DDL_APPEND_MODE) {

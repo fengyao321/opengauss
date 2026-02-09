@@ -44,12 +44,6 @@ enum OnlineDDLStatus {
     ONLINE_DDL_END
 };
 
-enum OnlineDDLType {
-    ONLINE_DDL_INVALID = 0,
-    ONLINE_DDL_CHECK = 1,
-    ONLINE_DDL_REWRITE = 2,
-};
-
 struct PartitionAppendEntry {
     Oid partOid; /* hash key */
     ItemPointerData endCtid;
@@ -93,7 +87,10 @@ private:
     /* current partition oid in append mode */
     Oid currentPartitionOid;
 
+    PartRelInfo partRelInfo;
+
     MemoryContext context; /* memory context for this object */
+    TimestampTz startTime;
 
 public:
     OnlineDDLRelOperators(MemoryContext context, Relation relation, bool appendMode, OnlineDDLType onlineDDLType);
@@ -121,8 +118,12 @@ public:
     /* catch up data */
     void OnlineDDLAppendIncrementalData(Relation oldRelation, Relation newRelation, AlteredTableInfo* alterTableInfo,
                                         OnlineDDLScenario scenario);
+    void OnlineDDLAppendIncrementalData(Relation oldRelation, Relation newRelation, TransactionId OldestXmin,
+                                        TransactionId FreezeXid, OnlineDDLScenario scenario);
     void OnlineDDLAppendIncrementalData(List* oldOidList, List* newOidList, AlteredTableInfo* alterTableInfo,
                                         OnlineDDLScenario scenario);
+    void OnlineDDLAppendIncrementalData(List* oldPartRelList, List* newOidList, TransactionId oldestXmin,
+                                        TransactionId freezeXid, OnlineDDLScenario scenario);
     void OnlineDDLAppendIncrementalData(List* oldOidList, Relation newRelation, AlteredTableInfo* alterTableInfo,
                                         OnlineDDLScenario scenario);
 
@@ -224,7 +225,7 @@ public:
         return this->appendMode;
     }
 
-    ItemPointerData getendCtidInternal()
+    ItemPointerData getEndCtidInternal()
     {
         return endCtidInternal;
     }
@@ -286,6 +287,25 @@ public:
     {
         isForPartition = isForPart;
     }
+
+    PartRelInfo getPartRelInfo()
+    {
+        return partRelInfo;
+    }
+
+    /* Used when vacuum/cluster single partition */
+    void setPartRelInfo(Oid relId, Oid subParentId, Oid partOid, bool isSubPartition)
+    {
+        partRelInfo.relId = relId;
+        partRelInfo.subParentId = subParentId;
+        partRelInfo.partOid = partOid;
+        partRelInfo.isSubPartition = isSubPartition;
+    }
+
+    TimestampTz getStartTime()
+    {
+        return startTime;
+    }
 };
 
 /*
@@ -308,6 +328,28 @@ inline DDLGlobalHashKey GetDDLGlobalHashKey(RelFileNode relfilenode, Oid relId)
 inline OnlineDDLRelOperators* RelationGetOnlineDDLOperators(Relation relation)
 {
     return (OnlineDDLRelOperators*)(relation->rd_online_ddl_operators);
+}
+
+inline bool OnlineDDLIsVacuumOrClusterMode(OnlineDDLRelOperators* operators)
+{
+    return (operators->getOnlineDDLType() == ONLINE_DDL_VACUUM || operators->getOnlineDDLType() == ONLINE_DDL_CLUSTER);
+}
+
+inline bool OnlineDDLIsClusterNormalTable(OnlineDDLRelOperators* operators)
+{
+    return (operators->getOnlineDDLType() == ONLINE_DDL_CLUSTER && !operators->getIsForPartition());
+}
+
+inline bool OnlineDDLisClusterSinglePartition(OnlineDDLRelOperators* operators)
+{
+    return (operators->getOnlineDDLType() == ONLINE_DDL_CLUSTER && operators->getIsForPartition() &&
+            operators->getCurrentPartitionOid() != InvalidOid);
+}
+
+inline bool OnlineDDLIsClusterAllPartition(OnlineDDLRelOperators* operators)
+{
+    return (operators->getOnlineDDLType() == ONLINE_DDL_CLUSTER && operators->getIsForPartition() &&
+            operators->getCurrentPartitionOid() == InvalidOid);
 }
 
 extern void initDDLGlobalHash(MemoryContext memctx);

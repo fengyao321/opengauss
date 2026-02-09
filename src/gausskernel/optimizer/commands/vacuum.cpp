@@ -2689,6 +2689,11 @@ static bool vacuum_rel(Oid relid, VacuumStmt* vacstmt, bool do_toast)
         vacstmt->issubpartition = false;
     }
 
+    if (!(vacstmt->options & VACOPT_FULL) && vacstmt->concurrent) {
+        ereport(NOTICE, (errmodule(MOD_ONLINE_DDL),
+                         errmsg("Online DDL only used in vacuum full.")));
+    }
+
     WaitState oldStatus = pgstat_report_waitstatus_relname(STATE_VACUUM, get_nsp_relname(relid));
 #ifdef ENABLE_MOT
     if (onerel->rd_rel->relkind == RELKIND_FOREIGN_TABLE) {
@@ -2736,7 +2741,8 @@ static bool vacuum_rel(Oid relid, VacuumStmt* vacstmt, bool do_toast)
             vacstmt->freeze_min_age,
             vacstmt->freeze_table_age,
             &vacstmt->memUsage,
-            vacstmt->relation != NULL);
+            vacstmt->relation != NULL,
+            vacstmt->concurrent);
         /* Record changecsn when VACUUM FULL occur */
         Relation rel = RelationIdGetRelation(relid);
         UpdatePgObjectChangecsn(relid, rel->rd_rel->relkind);
@@ -2770,7 +2776,7 @@ static bool vacuum_rel(Oid relid, VacuumStmt* vacstmt, bool do_toast)
 
         /* VACUUM FULL is now a variant of CLUSTER; see cluster.c */
         pgstat_report_waitstatus_relname(STATE_VACUUM_FULL, get_nsp_relname(relid));
-        vacuumFullPart(relid, vacstmt, vacstmt->freeze_min_age, vacstmt->freeze_table_age);
+        vacuumFullPart(relid, vacstmt, vacstmt->freeze_min_age, vacstmt->freeze_table_age, vacstmt->concurrent);
 
         /* Record changecsn when VACUUM FULL occur */
         Relation rel = RelationIdGetRelation(relationid);

@@ -18,9 +18,19 @@
 #include "utils/relcache.h"
 #include "commands/tablecmds.h"
 
+inline bool tuple_invisible_not_hotupdate(HeapTuple tuple, Relation relation, bool* have_invisible_tuple)
+{
+    if (HeapKeepInvisibleTuple(tuple, RelationGetDescr(relation)) && !HeapTupleIsHotUpdated(tuple)) {
+        *have_invisible_tuple = true;
+        return false;
+    } else {
+        return true;
+    }
+}
+
 extern void cluster(ClusterStmt* stmt, bool isTopLevel);
 extern void cluster_rel(Oid tableOid, Oid partitionOid, Oid indexOid, bool recheck, bool verbose, int freeze_min_age,
-    int freeze_table_age, void* mem_info, bool onerel);
+    int freeze_table_age, void* mem_info, bool onerel, bool concurrent = false);
 extern void check_index_is_clusterable(
     Relation OldHeap, Oid indexOid, bool recheck, LOCKMODE lockmode, Oid* amid = NULL);
 extern void mark_index_clustered(Relation rel, Oid indexOid);
@@ -44,7 +54,7 @@ extern void finish_heap_swap(Oid OIDOldHeap, Oid OIDNewHeap, bool is_system_cata
                              bool check_constraints, TransactionId frozenXid, MultiXactId frozenMulti,
                              AdaptMem* memInfo = NULL, AlteredTableInfo* tab = NULL, bool skipReindex = false);
 
-extern void vacuumFullPart(Oid partOid, VacuumStmt* vacstmt, int freeze_min_age, int freeze_table_age);
+extern void vacuumFullPart(Oid partOid, VacuumStmt* vacstmt, int freeze_min_age, int freeze_table_age, bool concurrent);
 extern void GpiVacuumFullMainPartiton(Oid parentOid);
 extern void CBIVacuumFullMainPartiton(Oid parentOid);
 extern void updateRelationName(Oid relOid, bool isPartition, const char* relNewName);

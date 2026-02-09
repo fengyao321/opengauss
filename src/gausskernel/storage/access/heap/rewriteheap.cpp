@@ -544,6 +544,8 @@ void rewrite_heap_tuple(RewriteState state, HeapTuple old_tuple, HeapTuple new_t
     TidHashKey hashkey;
     bool found = false;
     bool free_new = false;
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+    bool enableOnlineDDL = (operators != NULL && operators->getStatus() == ONLINE_DDL_STATUS_BASELINE_COPY);
 
     old_cxt = MemoryContextSwitchTo(state->rs_cxt);
 
@@ -574,6 +576,15 @@ void rewrite_heap_tuple(RewriteState state, HeapTuple old_tuple, HeapTuple new_t
         /* Insert the tuple and find out where it's put in new_heap */
         raw_heap_insert(state, new_tuple);
         new_tid = new_tuple->t_self;
+
+        if (new_tuple != NULL && enableOnlineDDL) {
+            Assert(operators->getOnlineDDLType() == ONLINE_DDL_VACUUM ||
+                   operators->getOnlineDDLType() == ONLINE_DDL_CLUSTER);
+            operators->insertCtidMap(&old_tid, state->rs_old_rel->rd_id, &new_tid);
+            ereport(ONLINE_DDL_LOG_LEVEL, (errmsg("rewrite_heap_tuple: old_tid = (%u, %u), new_tid = (%u, %u)",
+                                           ItemPointerGetBlockNumber(&old_tid), ItemPointerGetOffsetNumber(&old_tid),
+                                           ItemPointerGetBlockNumber(&new_tid), ItemPointerGetOffsetNumber(&new_tid))));
+        }
 
         /*
          * If the tuple is the updated version of a row, and the prior version
@@ -882,6 +893,8 @@ void RewriteAndCompressTup(RewriteState state, HeapTuple old_tuple, HeapTuple ne
     Assert(CurrentMemoryContext == state->rs_cxt);
     copyHeapTupleInfo(new_tuple, old_tuple, state->rs_freeze_xid, state->rs_freeze_multi);
 
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+    bool enableOnlineDDL = (operators != NULL && operators->getStatus() == ONLINE_DDL_STATUS_BASELINE_COPY);
     /*
      * Step 1: deal with updated tuples chain.
      * all the tuples within updated chains are neither buffered nor compressed;
@@ -903,6 +916,15 @@ void RewriteAndCompressTup(RewriteState state, HeapTuple old_tuple, HeapTuple ne
             /* Insert the tuple and find out where it's put in new_heap */
             raw_heap_insert(state, new_tuple);
             new_tid = new_tuple->t_self;
+
+            if (new_tuple != NULL && enableOnlineDDL) {
+                Assert(operators->getOnlineDDLType() == ONLINE_DDL_VACUUM ||
+                    operators->getOnlineDDLType() == ONLINE_DDL_CLUSTER);
+                operators->insertCtidMap(&old_tid, state->rs_old_rel->rd_id, &new_tid);
+                ereport(NOTICE, (errmsg("rewrite_heap_tuple: old_tid = (%u, %u), new_tid = (%u, %u)",
+                                        ItemPointerGetBlockNumber(&old_tid), ItemPointerGetOffsetNumber(&old_tid),
+                                        ItemPointerGetBlockNumber(&new_tid), ItemPointerGetOffsetNumber(&new_tid))));
+            }
 
             rc = memset_s(&hashkey, sizeof(hashkey), 0, sizeof(hashkey));
             securec_check(rc, "", "");

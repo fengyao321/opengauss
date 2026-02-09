@@ -73,6 +73,58 @@ void OnlineDDLDestroy()
     }
 }
 
+static bool OnlineDDLPreCheck(Relation relation)
+{
+    if (IsTransactionBlock() || IsSubTransaction()) {
+        ereport(NOTICE,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("Online DDL operation is not supported in transaction block, do it without online ddl.")));
+        return false;
+    }
+    if (RelationIsTsStore(relation) || RelationIsColStore(relation) || RelationIsUstoreFormat(relation)) {
+        const char* kind =
+            RelationIsTsStore(relation) ? "time series" : (RelationIsColStore(relation) ? "column-store" : "ustore");
+        ereport(NOTICE,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("Online DDL operation is not supported for %s tables, do it without online ddl.", kind)));
+        return false;
+    }
+    if (ENABLE_DMS) {
+        ereport(NOTICE, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                         errmsg("Online DDL operation is not supported for share storage, do it without online ddl.")));
+        return false;
+    }
+    if (IsSystemRelation(relation)) {
+        ereport(NOTICE,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("Online DDL operation is not supported for system relation %s, do it without online ddl.",
+                        relation->rd_rel->relname.data)));
+        return false;
+    }
+    /* Online DDL operation is not supported in partitioned table with global index. */
+    if (RelationIsPartitioned(relation)) {
+        List* indexOidlist = RelationGetIndexList(relation);
+        ListCell* l = NULL;
+        foreach (l, indexOidlist) {
+            Oid indexOid = lfirst_oid(l);
+            Relation indexRel = index_open(indexOid, AccessShareLock);
+            if (RelationIsGlobalIndex(indexRel)) {
+                ereport(NOTICE,
+                        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                         errmsg("Online DDL operation is not supported for partitioned table %s with global index %s, "
+                                "do it without online ddl.",
+                                relation->rd_rel->relname.data, indexRel->rd_rel->relname.data)));
+                index_close(indexRel, AccessShareLock);
+                list_free_ext(indexOidlist);
+                return ONLINE_DDL_INVALID;
+            }
+            index_close(indexRel, AccessShareLock);
+        }
+        list_free_ext(indexOidlist);
+    }
+    return true;
+}
+
 /**
  * Check if the online DDL operation is feasible.
  *
@@ -82,26 +134,9 @@ void OnlineDDLDestroy()
  * @param lockmode The lock mode required for the operation.
  * @return true if the operation is feasible, false otherwise.
  */
-OnlineDDLType OnlineDDLCheckFeasible(List** wqueue, Relation relation, List* cmds, LOCKMODE lockmode)
+OnlineDDLType OnlineDDLCheckAlterFeasible(List** wqueue, Relation relation, List* cmds, LOCKMODE lockmode)
 {
-    if (IsTransactionBlock() || IsSubTransaction()) {
-        ereport(NOTICE,
-                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                 errmsg("Online DDL operation is not supported in transaction block, do it without online ddl.")));
-        return ONLINE_DDL_INVALID;
-    }
-    if (RelationIsTsStore(relation) || RelationIsColStore(relation) || RelationIsUstoreFormat(relation)) {
-        const char* kind = RelationIsTsStore(relation) ? "time series" :
-                           (RelationIsColStore(relation) ? "column-store" : "ustore");
-        ereport(NOTICE,
-                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                 errmsg("Online DDL operation is not supported for %s tables, do it without online ddl.", kind)));
-        return ONLINE_DDL_INVALID;
-    }
-    if (ENABLE_DMS) {
-        ereport(NOTICE,
-                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                    errmsg("Online DDL operation is not supported for share storage, do it without online ddl.")));
+    if (!OnlineDDLPreCheck(relation)) {
         return ONLINE_DDL_INVALID;
     }
 
@@ -128,7 +163,6 @@ OnlineDDLType OnlineDDLCheckFeasible(List** wqueue, Relation relation, List* cmd
             if (subcmds == NIL) {
                 continue;
             }
-
             /*
              * Appropriate lock was obtained by phase 1, needn't get it again
              */
@@ -234,6 +268,39 @@ OnlineDDLType OnlineDDLCheckFeasible(List** wqueue, Relation relation, List* cmd
     }
     return rewriteOpt ? ONLINE_DDL_REWRITE : ONLINE_DDL_CHECK;
 }
+
+/**
+ * @brief Check if the online DDL vacuum full operation is feasible
+ *
+ * @param relation The relation on which the operation is to be performed.
+ * @return OnlineDDLType true if the operation is feasible, false otherwise.
+ */
+OnlineDDLType OnlineDDLCheckVacuumFeasible(Relation relation, Oid indexOid)
+{
+    if (!OnlineDDLPreCheck(relation)) {
+        return ONLINE_DDL_INVALID;
+    }
+
+    bool allowed = false;
+    for (int i = 0; i < ONLINE_DDL_RELATION_COUNT; i++) {
+        if (relation->rd_rel->relkind == online_ddl_relations[i]) {
+            allowed = true;
+            break;
+        }
+    }
+    if (!allowed) {
+        ereport(NOTICE, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                         errmsg("Online DDL operation is not supported for this relind, type: %c, "
+                                "do it without online ddl.",
+                                relation->rd_rel->relkind)));
+        return ONLINE_DDL_INVALID;
+    }
+    if (!allowed) {
+        return ONLINE_DDL_INVALID;
+    }
+    return indexOid == InvalidOid ? ONLINE_DDL_VACUUM : ONLINE_DDL_CLUSTER;
+}
+
 void OnlineDDLCreateTempSchema(Relation relation)
 {
     OnlineDDLRelOperators* operators = RelationGetOnlineDDLOperators(relation);
@@ -244,8 +311,8 @@ void OnlineDDLCreateTempSchema(Relation relation)
     Oid relId = relation->rd_id;
 
     char tempSchemaName[NAMEDATALEN] = {0};
-    errno_t rc = snprintf_s(tempSchemaName, NAMEDATALEN, NAMEDATALEN - 1, "online_ddl_temp_schema_%lu_%lu_%lu_%lu",
-                            xid, spcNode, dbNode, relId);
+    errno_t rc = snprintf_s(tempSchemaName, NAMEDATALEN, NAMEDATALEN - 1, "online_ddl_temp_schema_%lu_%lu_%lu_%lu", xid,
+                            spcNode, dbNode, relId);
 
     securec_check_ss(rc, "\0", "\0");
     operators->setStringInfoTempSchemaName(tempSchemaName);
@@ -265,7 +332,15 @@ void OnlineDDLCreateTempDelta(Relation relation)
 
     StringInfo query = makeStringInfo();
     appendStringInfo(query, "CREATE UNLOGGED TABLE %s.%s", tempSchemaName->data, ONLINE_DDL_DELTA_RELNAME);
-    if (RELATION_IS_PARTITIONED(relation)) {
+
+    /*
+     * Create delta table for partitioned table.
+     * For partitioned table, we need to record the partition number for each delta record.
+     * For non-partitioned table, we only record the operation type and old tuple ctid.
+     * If vacuuming partitioned table, we rewrite one partition at a time.
+     */
+    if (RELATION_IS_PARTITIONED(relation) &&
+        (!OnlineDDLIsVacuumOrClusterMode(operators) || OnlineDDLIsClusterAllPartition(operators))) {
         appendStringInfo(query, "("
                                 "operation TINYINT NOT NULL, "
                                 "old_tup_ctid TID NOT NULL, "
@@ -345,20 +420,36 @@ void OnlineDDLResetAppendMode(Relation* relation)
     }
 }
 
+void OnlineDDLSetTargetPartitionOid(OnlineDDLRelOperators* operators, Relation relation, Oid partitionOid)
+{
+    OnlineDDLType onlineDDLType = operators->getOnlineDDLType();
+    if (partitionOid != InvalidOid) {
+        /* Used only for partitioned table vacuum */
+        if (!RELATION_IS_PARTITIONED(relation)) {
+            ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                            errmsg("OnlineDDLInstanceInit failed, cannot perform partition-level operation on "
+                                   "non-partitioned table \"%s\"",
+                                   RelationGetRelationName(relation))));
+        }
+        operators->setCurrentPartitionOid(partitionOid);
+        ereport(NOTICE,
+                (errmsg("Online DDL start to vacuum for partition %u of relation %u.", partitionOid, relation->rd_id)));
+    }
+}
+
 /**
  * Initialize the online DDL instance.
  *
- * @param wqueue The work queue for online DDL operations.
  * @param relation The relation on which the operation is to be performed.
- * @param cmds The list of commands to be executed.
  * @param lockmode The lock mode required for the operation.
+ * @param partitionOid The OID of the partition, used when vacuum/cluster single partition.
  * @return true if the initialization is successful, false otherwise.
  */
-bool OnlineDDLInstanceInit(List* wqueue, Relation* relation, List* cmds, LOCKMODE lockmode, OnlineDDLType onlineDDLType)
+bool OnlineDDLInstanceInit(Relation* relation, LOCKMODE lockmode, OnlineDDLType onlineDDLType, Oid partitionOid)
 {
-#ifdef USE_ASSERTS
-    Assert(OnlineDDLCheckFeasible(&wqueue, *relation, cmds, lockmode) != ONLINE_DDL_INVALID);
-#endif
+    if (!CheckLockRelationOid((*relation)->rd_id, AccessExclusiveLock)) {
+        LockRelationOid((*relation)->rd_id, AccessExclusiveLock);
+    }
     /* init online ddl hash entry */
     DDLGlobalHashEntry* hashEntry = onlineDDLInitHashEntry(*relation, true, onlineDDLType);
     OnlineDDLRegisterGlobalHashEntry(hashEntry);
@@ -366,6 +457,9 @@ bool OnlineDDLInstanceInit(List* wqueue, Relation* relation, List* cmds, LOCKMOD
     (*relation)->rd_online_ddl_operators = (void*)hashEntry->operators;
     OnlineDDLRelOperators* operators = (OnlineDDLRelOperators*)(*relation)->rd_online_ddl_operators;
     operators->setStatus(ONLINE_DDL_STATUS_PREPARE);
+
+    /* Used when rewrite only on partition, if partitioned */
+    OnlineDDLSetTargetPartitionOid(operators, *relation, partitionOid);
 
     /* Set relation enable append mode. */
     OnlineDDLEnableRelationAppendMode(*relation);
@@ -375,6 +469,10 @@ bool OnlineDDLInstanceInit(List* wqueue, Relation* relation, List* cmds, LOCKMOD
     /* Get session AccessExclusiveLock lock, before finish xact. */
     LockRelId relLockRelId = (*relation)->rd_lockInfo.lockRelId;
     LockRelationIdForSession(&relLockRelId, AccessExclusiveLock);
+    /* release origin ExclusiveLock lock, hold AccessExclusiveLock lock for online ddl vacuum */
+    if (onlineDDLType == ONLINE_DDL_VACUUM || onlineDDLType == ONLINE_DDL_CLUSTER) {
+        UnlockRelationIdForSession(&relLockRelId, ExclusiveLock);
+    }
     operators->openDeltaRelation(AccessExclusiveLock);
     LockRelId deltaRelLockRelId = operators->getDeltaRelation()->rd_lockInfo.lockRelId;
     LockRelationIdForSession(&deltaRelLockRelId, ShareUpdateExclusiveLock);
@@ -413,7 +511,13 @@ bool OnlineDDLInstanceInit(List* wqueue, Relation* relation, List* cmds, LOCKMOD
     /* init ctid map */
     operators->initCtidMapRelation();
 
-    operators->setStatus(ONLINE_DDL_STATUS_REWRITE_CATALOG);
+    if (onlineDDLType == ONLINE_DDL_REWRITE || onlineDDLType == ONLINE_DDL_CHECK) {
+    /* Alter table mode: START->PREPARE->REWRITE_CATALOG->BASE_LINE_COPY->CATCHUP->COMMITING->END */
+        operators->setStatus(ONLINE_DDL_STATUS_REWRITE_CATALOG);
+    } else {
+        /* Vacuum full/ cluster mode: START->PREPARE->BASELINE_COPY->BASELINE_COPY->COMMITING->END */
+        operators->setStatus(ONLINE_DDL_STATUS_BASELINE_COPY);
+    }
     ereport(NOTICE, (errmsg("Online DDL instance init finish, start to copy baseline data.")));
     return true;
 }

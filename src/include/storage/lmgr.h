@@ -30,6 +30,7 @@ extern bool ConditionalLockRelationOid(Oid relid, LOCKMODE lockmode);
 extern void UnlockRelationId(LockRelId* relid, LOCKMODE lockmode);
 extern void UnlockRelationOid(Oid relid, LOCKMODE lockmode);
 extern bool CheckLockRelationOid(Oid relid, LOCKMODE lockmode);
+extern bool CheckLockPartitionOid(Oid relid, uint32 seq, LOCKMODE lockmode);
 
 extern void LockRelFileNode(const RelFileNode& rnode, LOCKMODE lockmode);
 extern void UnlockRelFileNode(const RelFileNode& rnode, LOCKMODE lockmode);

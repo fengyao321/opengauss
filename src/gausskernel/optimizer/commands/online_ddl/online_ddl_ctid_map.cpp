@@ -101,8 +101,16 @@ static Oid CreateCtidMapForPartitionedTable(char* schemaName)
 Oid OnlineDDLCreateCtidMap(StringInfo tempSchemaName)
 {
     Assert(tempSchemaName != NULL && tempSchemaName->len > 0);
-    bool isForPartition = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators)->getIsForPartition();
-    if (isForPartition) {
+    OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+    bool isForPartition = operators->getIsForPartition();
+    /*
+     * Create ctid map table for partitioned table.
+     * For partitioned table, we need to record the partition number for each delta record.
+     * For non-partitioned table, we only record the operation type and old tuple ctid.
+     * If vacuuming partitioned table, we rewrite one partition each time, no need to record partition number.
+     * If clustering partitioned table, we cluster all partition at once, no need to record partition number.
+     */
+    if (isForPartition && (!OnlineDDLIsVacuumOrClusterMode(operators) || OnlineDDLIsClusterAllPartition(operators))) {
         return CreateCtidMapForPartitionedTable(tempSchemaName->data);
     } else {
         return CreateCtidMap(tempSchemaName->data);
@@ -291,7 +299,6 @@ ItemPointerData OnlineDDLGetTargetCtid(ItemPointer oldTid, Oid* partOid, Relatio
     }
     pfree(scanState);
     scan_handler_idx_endscan(indexScanDesc);
-
     return result;
 }
 

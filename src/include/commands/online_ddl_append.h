@@ -26,7 +26,9 @@
 
 #include "postgres.h"
 #include "knl/knl_variable.h"
+#include "access/rewriteheap.h"
 #include "commands/tablecmds.h"
+#include "commands/online_ddl_util.h"
 
 extern const int ONLINE_DDL_APPENDER_MAX_SCAN_TIMES;
 extern const int ONLINE_DDL_APPENDER_MAX_FINISH_PAGES;
@@ -37,16 +39,39 @@ enum OnlineDDLScenario {
     ONLINE_DDL_SPLIT_PARTITION,
     ONLINE_DDL_SPLIT_SUBPARTITION,
     ONLINE_DDL_MERGE_PARTITION,
+    ONLINE_DDL_VACUUM_TABLE,      /* vacuum normal table */
+    ONLINE_DDL_VACUUM_PARTITION,  /* vacuum partition */
+    ONLINE_DDL_VACUUM_PARTITIONS, /* vacuum partitioned table (multi partitions) */
+    ONLINE_DDL_CLUSTER_PARTITIONS /* cluster partitioned table */
 };
 
-// mapping old partition Oid to temp table Oid
+/* mapping old partition Oid to temp table Oid */
 struct PartitionOidMapEntry {
     Oid oldPartOid;    // old partition Oid
     Oid tempTableOid;  // temp table Oid
 };
 
+/* vacuum state for appender */
+struct VacuumState {
+    TransactionId freezeXid;
+    TransactionId oldestXid;
+    int numTuples;
+    int tupsVacuumed;
+    int tupRecentlyDead;
+    RewriteState rwstate;
+};
+
+/* partition relation info */
+struct PartRelInfo {
+    Oid relId;
+    Oid subParentId;
+    Oid partOid;
+    bool isSubPartition;
+};
+
 struct OnlineDDLAppender {
     bool inAppendMode;
+    OnlineDDLType type;
     int deltaLogScanTimes;
     int oldTableScanTimes;
     Relation oldRelation;
@@ -62,6 +87,8 @@ struct OnlineDDLAppender {
     AlteredTableInfo* alterTableInfo;
     HTAB* PartitionOidMap;
     int indexNum;
+    VacuumState* vacuumState;
+    PartRelInfo partRelInfo;
 };
 
 /* return true if a < b, else return false */
@@ -80,18 +107,26 @@ inline bool CompareItemPointer(ItemPointer a, ItemPointer b)
 // for rewrite row table or split partition
 extern OnlineDDLAppender* OnlineDDLInitAppender(Relation oldRelation, Relation newRelation, Relation deltaRelation,
                                                 Relation ctidMapRelation, Relation ctidMapIndex,
-                                                ItemPointerData endCtid, AlteredTableInfo* alterTableInfo);
+                                                ItemPointerData endCtid, AlteredTableInfo* alterTableInfo,
+                                                OnlineDDLType type);
 // for rewrite row partitioned table
 extern OnlineDDLAppender* OnlineDDLInitAppender(List* oldPartitionList, List* newOidList, Relation deltaRelation,
                                                 Relation ctidMapRelation, Relation ctidMapIndex,
-                                                HTAB* partitionAppendMap, AlteredTableInfo* alterTableInfo);
+                                                HTAB* partitionAppendMap, AlteredTableInfo* alterTableInfo,
+                                                OnlineDDLType type);
 // for merge partition
 extern OnlineDDLAppender* OnlineDDLInitAppender(List* oldPartitionList, Relation newRelation, Relation deltaRelation,
                                                 Relation ctidMapRelation, Relation ctidMapIndex,
-                                                HTAB* partitionAppendMap, AlteredTableInfo* alterTableInfo);
+                                                HTAB* partitionAppendMap, AlteredTableInfo* alterTableInfo,
+                                                OnlineDDLType type);
+extern OnlineDDLAppender* OnlineDDLAppenderInitVacuumState(OnlineDDLAppender* appender, TransactionId freezeXid,
+                                                           TransactionId oldestXid);
+extern OnlineDDLAppender* OnlineDDLInitPartRelInfo(OnlineDDLAppender* appender, Oid relId, Oid subParentId, Oid partOid,
+                                                   bool isSubPartition);
 extern bool OnlineDDLAppend(OnlineDDLAppender* appender, OnlineDDLScenario scenario);
 extern bool OnlineDDLOnlyCheck(OnlineDDLAppender* appender);
 extern void AddPartitionOidMapping(OnlineDDLAppender* appender, Oid oldPartOid, Oid tempTableOid);
 extern Oid GetTempTableFromOldPartition(OnlineDDLAppender* appender, Oid oldPartOid);
+extern void CleanupAppender(OnlineDDLAppender* appender);
 
 #endif /* ONLINE_DDL_APPEND_H */
