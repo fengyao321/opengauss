@@ -4829,7 +4829,8 @@ bool SyncFlushOneBuffer(int buf_id, bool get_condition_lock)
 
     /* Only heap store requests launched by pagewriter should use adio. */
     bool useAdio = g_instance.attr.attr_storage.enable_adio_function &&
-        t_thrd.role == PAGEWRITER_THREAD && !IsSegmentFileNode(buf_desc->tag.rnode);
+        t_thrd.role == PAGEWRITER_THREAD && !IsSegmentFileNode(buf_desc->tag.rnode) &&
+        !IS_UNDO_RELFILENODE(buf_desc->tag.rnode);
 
     if (IsSegmentBufferID(buf_id)) {
         Assert(IsSegmentPhysicalRelNode(buf_desc->tag.rnode));
@@ -4907,7 +4908,8 @@ uint32 SyncOneBuffer(int buf_id, bool skip_recently_used, WritebackContext* wb_c
 
     /* Only heap store requests launched by pagewriter should use adio. */
     bool useAdio = g_instance.attr.attr_storage.enable_adio_function &&
-        t_thrd.role == PAGEWRITER_THREAD && !IsSegmentFileNode(buf_desc->tag.rnode);
+        t_thrd.role == PAGEWRITER_THREAD && !IsSegmentFileNode(buf_desc->tag.rnode) &&
+        !IS_UNDO_RELFILENODE(buf_desc->tag.rnode);
     if (!useAdio) {
         tag = buf_desc->tag;
         if (buf_desc->extra->seg_fileno != EXTENT_INVALID) {

@@ -2165,6 +2165,22 @@ static uint32 incre_ckpt_pgwr_flush_dirty_page(WritebackContext *wb_context,
         if ((buf_state & BM_CHECKPOINT_NEEDED) && (buf_state & BM_DIRTY)) {
             UnlockBufHdr(buf_desc, buf_state);
 
+            /*
+             * When ADIO is enabled for non-segment heap storage, skip flushing
+             * buffers whose relation has been dropped or replaced (e.g. by
+             * VACUUM FULL file swap). Without this check, the pagewriter could
+             * attempt an async write to a file that no longer exists, causing a
+             * PANIC in mdasyncwrite when the file size is found to be 0.
+             * The non-ADIO path (mdwrite) handles this gracefully on its own,
+             * so we only need this guard for the ADIO code path.
+             */
+            if (g_instance.attr.attr_storage.enable_adio_function &&
+                !IsSegmentFileNode(buf_desc->tag.rnode) &&
+                !IS_UNDO_RELFILENODE(buf_desc->tag.rnode) &&
+                check_unlink_rel_hashtbl(buf_desc->tag.rnode, buf_desc->tag.forkNum)) {
+                continue;
+            }
+
             sync_state = SyncOneBuffer(buf_id, false, wb_context, true);
             if ((sync_state & BUF_WRITTEN)) {
                 num_actual_flush++;
