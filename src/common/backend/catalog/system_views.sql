@@ -1668,7 +1668,7 @@ BEGIN
   show enable_thread_pool into enable_threadpool;
 
   IF enable_threadpool THEN
-    query_str := 'with SM AS
+    query_str := 'with sm AS
                    (SELECT
                       S.sessid AS sessid,
                       T.thrdtype AS sesstype,
@@ -1685,7 +1685,7 @@ BEGIN
                       FROM gs_thread_memory_context) T
                       on S.threadid = T.tid
                    ),
-                   TM AS
+                   tm AS
                    (SELECT
                       S.sessid AS Ssessid,
                       T.thrdtype AS sesstype,
@@ -1703,15 +1703,15 @@ BEGIN
                        FROM gs_session_memory_context) S
                       ON T.tid = S.threadid
                    )
-                   SELECT * from SM
+                   SELECT * from sm
                    UNION ALL
                    SELECT 
                      Ssessid AS sessid, sesstype, contextname, level, parent, totalsize, freesize, usedsize
-                   FROM TM WHERE Ssessid IS NOT NULL
+                   FROM tm WHERE Ssessid IS NOT NULL
                    UNION ALL
                    SELECT
                      Tsessid AS sessid, sesstype, contextname, level, parent, totalsize, freesize, usedsize
-                   FROM TM WHERE Ssessid IS NULL;';
+                   FROM tm WHERE Ssessid IS NULL;';
     FOR row_data IN EXECUTE(query_str) LOOP
       sessid = row_data.sessid;
       sesstype = row_data.sesstype;
@@ -1725,15 +1725,15 @@ BEGIN
     END LOOP;
   ELSE
     query_str := 'SELECT
-                    T.threadid AS sessid,
-                    T.thrdtype AS sesstype,
-                    T.contextname AS contextname,
-                    T.level AS level,
-                    T.parent AS parent,
-                    T.totalsize AS totalsize,
-                    T.freesize AS freesize,
-                    T.usedsize AS usedsize
-                  FROM pg_catalog.pv_thread_memory_detail() T;';
+                    t.threadid AS sessid,
+                    t.thrdtype AS sesstype,
+                    t.contextname AS contextname,
+                    t.level AS level,
+                    t.parent AS parent,
+                    t.totalsize AS totalsize,
+                    t.freesize AS freesize,
+                    t.usedsize AS usedsize
+                  FROM pg_catalog.pv_thread_memory_detail() t;';
     FOR row_data IN EXECUTE(query_str) LOOP
       sessid = row_data.sessid;
       sesstype = row_data.sesstype;
