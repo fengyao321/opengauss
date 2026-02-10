@@ -127,6 +127,26 @@ GRANT USAGE, SELECT ON SEQUENCE ogai.vectorize_queue_msg_id_seq TO PUBLIC;
 
 GRANT CREATE ON SCHEMA ogai TO PUBLIC;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ogai TO PUBLIC;
+
+-- Auto-encrypt api_key trigger function
+CREATE OR REPLACE FUNCTION ogai.encrypt_api_key_trigger()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Only encrypt when api_key is not null and not already encrypted
+    IF NEW.api_key IS NOT NULL AND NEW.api_key NOT LIKE 'encryptOpt%' THEN
+        NEW.api_key := pg_catalog.ogai_encrypt_api_key(NEW.api_key);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger for auto-encrypting api_key on INSERT or UPDATE
+DROP TRIGGER IF EXISTS model_sources_encrypt_api_key_trigger ON ogai.model_sources;
+CREATE TRIGGER model_sources_encrypt_api_key_trigger
+    BEFORE INSERT OR UPDATE OF api_key ON ogai.model_sources
+    FOR EACH ROW
+    EXECUTE FUNCTION ogai.encrypt_api_key_trigger();
+
 -- ========================================================================
 -- PART 2: Functions (from ogai_functions.sql)
 -- ========================================================================

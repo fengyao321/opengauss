@@ -25,9 +25,37 @@
 #include "executor/spi.h"
 #include "access/htup.h"
 #include "utils/builtins.h"
+#include "cipher.h"
 #include "access/datavec/ogai_model_framework.h"
 #include "access/datavec/ogai_onnx_embedding.h"
 #include "access/datavec/ogai_model_manager.h"
+
+/*
+ * DecryptApiKey - Decrypt api_key if it is encrypted
+ *
+ * @IN apiKey: api_key string from database (may be encrypted or plain text)
+ * @RETURN: decrypted api_key string (caller should free it), or NULL if input is NULL
+ */
+static char* DecryptApiKey(const char* apiKey)
+{
+    if (apiKey == NULL) {
+        return NULL;
+    }
+
+    /* Check if the api_key is encrypted */
+    if (IsECEncryptedString(apiKey)) {
+        char* plainApiKey = NULL;
+        if (!decryptECString(apiKey, &plainApiKey, OGAI_MODE)) {
+            ereport(ERROR,
+                    (errcode(ERRCODE_EXTERNAL_ROUTINE_INVOCATION_EXCEPTION),
+                     errmsg("Failed to decrypt api_key")));
+        }
+        return plainApiKey;
+    }
+
+    /* Return a copy of plain text api_key */
+    return pstrdup(apiKey);
+}
 
 static ProviderClientCreators providerCreators[] = {
     [PROVIDER_OPENAI] = {
@@ -137,7 +165,7 @@ static void SetModelConfigFromDB(ModelConfig* config, const char* modelKey)
                  errmsg("unknown provider: %s for model_key: %s", modelProvider, modelKey)));
     }
 	
-    config->apiKey = apiKey ? pstrdup(apiKey) : NULL;
+    config->apiKey = DecryptApiKey(apiKey);
     config->baseUrl = pstrdup(url);
     config->modelKey = pstrdup(modelKey);
     config->ownerName = pstrdup(GetUserNameFromId(GetUserId()));
@@ -227,7 +255,7 @@ static void AsyncSetModelConfigFromDB(
                  errmsg("unknown provider: %s for model_key: %s", modelProvider, modelKey)));
     }
 	
-    config->apiKey = apiKey ? pstrdup(apiKey) : NULL;
+    config->apiKey = DecryptApiKey(apiKey);
     config->baseUrl = pstrdup(url);
     MemoryContextSwitchTo(spiCtx);
 }
