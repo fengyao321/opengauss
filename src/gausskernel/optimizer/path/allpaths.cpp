@@ -2850,10 +2850,6 @@ static bool judge_predpush_subquery(PlannerInfo* root, bool safe_pushdown, RelOp
         return false;
     }
 
-    if (!check_stream_support()) {
-        return false;
-    }
-
     if (SUBQUERY_IS_SUBLINK(root) && rel->subplanrestrictinfo != NULL) {
         return false;
     }
