@@ -63,7 +63,7 @@ static inline NumUtilsConvertResult pg_strtoint64_internal(const char* s, int64*
     const char* ptr = s;
     uint64 tmp = 0;
     bool neg = false;
-
+    bool sign = 0;
     /* skip leading spaces */
     while (isspace(static_cast<unsigned char>(*ptr))) {
         ptr++;
@@ -73,10 +73,21 @@ static inline NumUtilsConvertResult pg_strtoint64_internal(const char* s, int64*
     if (*ptr == '-') {
         ptr++;
         neg = true;
+        sign = true;
     } else if (*ptr == '+') {
         ptr++;
+        sign = true;
     }
 
+    if (DB_IS_CMPT(D_FORMAT) && sign) {
+        const char* temp_ptr = ptr;
+        while (isspace(static_cast<unsigned char>(*temp_ptr))) {
+            temp_ptr++;
+        }
+        if (*temp_ptr == '\0') {
+            return RES_OK;
+        }
+    }
     /* require at least one digit */
     if (unlikely(!isdigit(static_cast<unsigned char>(*ptr)))) {
         return RES_NOT_A_NUMBER;
