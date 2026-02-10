@@ -331,7 +331,7 @@ CREATE TABLE test_index_table2 (
 );
 CREATE UNIQUE INDEX test_index_table2_idx1 ON test_index_table2 (id, user_id, role_id);
 CREATE INDEX test_index_table2_idx2 ON test_index_table2 (user_id, role_id, age) COMMENT 'test_index_table1_idx2_d';
-select * from INFORMATION_SCHEMA.STATISTICS where table_name = 'test_index_table2' order by 1,2,3,4;
+select * from INFORMATION_SCHEMA.STATISTICS where table_name = 'test_index_table2' order by 1,2,3,4,5,6,7,8,9,10;
 
 
 
@@ -342,7 +342,7 @@ CREATE TABLE test_index_table3 (
 );
 CREATE INDEX test_index_table3_idx1 ON test_index_table3 (trunc(id));
 CREATE UNIQUE INDEX test_index_table3_idx2 ON test_index_table3 (SUBSTR(role_id, 1, 4));
-select * from INFORMATION_SCHEMA.STATISTICS where table_name = 'test_index_table3' order by 1,2,3,4;
+select * from INFORMATION_SCHEMA.STATISTICS where table_name = 'test_index_table3' order by 1,2,3,4,5,6,7,8,9,10;
 
 drop table test_index_table1;
 drop table test_index_table2;
