@@ -69,6 +69,10 @@ static inline NumUtilsConvertResult pg_strtoint64_internal(const char* s, int64*
         ptr++;
     }
 
+    if (DB_IS_CMPT(D_FORMAT) && *ptr == '\0') {
+        return RES_OK;
+    }
+
     /* handle sign */
     if (*ptr == '-') {
         ptr++;
