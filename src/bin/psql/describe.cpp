@@ -53,7 +53,7 @@
 #define MOT_FDW_SERVER "mot_server"
 
 #define FirstBootstrapObjectId 10000
-
+#undef B_FORMAT
 static bool describeOneTableDetails(const char* schemaname, const char* relationname, const char* oid, bool verbose);
 static void add_tablespace_footer(printTableContent* const cont, char relkind, Oid tablespace, const bool newline);
 static void add_role_attribute(PQExpBuffer buf, const char* const str);
@@ -1143,15 +1143,19 @@ bool describeTableDetails(const char* pattern, bool verbose, bool showSystem)
     PQExpBufferData buf;
     PGresult* res = NULL;
     int i;
+    bool is_b_format = false;
 
-    PGresult* res_lower_case_table_names = NULL;
-    res_lower_case_table_names = PSQLexec("select setting from pg_settings where name = 'dolphin.lower_case_table_names';", false);
-    if (PQntuples(res_lower_case_table_names) == 1){
-        dolphin_lower_case_table_names = atoi(PQgetvalue(res_lower_case_table_names, 0, 0));
-    } else {
-        dolphin_lower_case_table_names = -1;
+    dolphin_lower_case_table_names = -1;
+    is_b_format = IS_CMPT(pset.dbType, B_FORMAT);
+    if (is_b_format) {
+        PGresult* res_lower_case_table_names = NULL;
+        res_lower_case_table_names =
+            PSQLexec("select setting from pg_settings where name = 'dolphin.lower_case_table_names';", false);
+        if (PQntuples(res_lower_case_table_names) == 1) {
+            dolphin_lower_case_table_names = atoi(PQgetvalue(res_lower_case_table_names, 0, 0));
+        }
+        PQclear(res_lower_case_table_names);
     }
-    PQclear(res_lower_case_table_names);
 
     initPQExpBuffer(&buf);
 
