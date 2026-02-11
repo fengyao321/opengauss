@@ -350,6 +350,9 @@ void GetPlanNodePlainText(
         case T_FunctionScan:
             *pname = *sname = *pt_operation = "Function Scan";
             break;
+        case T_TableFuncScan:
+            *pname = *sname = *pt_operation = "Table Function Scan";
+            break;
         case T_ValuesScan:
             *pname = *sname = *pt_operation = "Values Scan";
             break;

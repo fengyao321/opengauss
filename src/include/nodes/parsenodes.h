@@ -113,6 +113,39 @@ typedef uint32 AclMode; /* a bitmask of privilege bits */
  ****************************************************************************/
 
 /*
+ * RangeTableFunc - raw form of "table functions" such as XMLTABLE
+ */
+typedef struct RangeTableFunc
+{
+    NodeTag        type;
+    bool        lateral;        /* does it have LATERAL prefix? */
+    Node       *docexpr;        /* document expression */
+    Node       *rowexpr;        /* row generator expression */
+    List       *namespaces;        /* list of namespaces as ResTarget */
+    List       *columns;        /* list of RangeTableFuncCol */
+    Alias       *alias;            /* table alias & optional column aliases */
+    int            location;        /* token location, or -1 if unknown */
+} RangeTableFunc;
+
+/*
+ * RangeTableFuncCol - one column in a RangeTableFunc->columns
+ *
+ * If for_ordinality is true (FOR ORDINALITY), then the column is an int4
+ * column and the rest of the fields are ignored.
+ */
+typedef struct RangeTableFuncCol
+{
+    NodeTag        type;
+    char       *colname;        /* name of generated column */
+    TypeName   *typeName;        /* type of generated column */
+    bool        for_ordinality; /* does it have FOR ORDINALITY? */
+    bool        is_not_null;    /* does it have NOT NULL? */
+    Node       *colexpr;        /* column filter expression */
+    Node       *coldefexpr;        /* column default value expression */
+    int            location;        /* token location, or -1 if unknown */
+} RangeTableFuncCol;
+
+/*
  * TableSampleClause - TABLESAMPLE appearing in a transformed FROM clause
  *
  * Unlike RangeTableSample, this is a subnode of the relevant RangeTblEntry.
@@ -216,8 +249,9 @@ typedef enum RTEKind {
                       * present during parsing or rewriting */
 #ifdef USE_SPQ
     RTE_VOID, /* CDB: deleted RTE */
-    RTE_TABLEFUNCTION /* CDB: Functions over multiset input */
+    RTE_TABLEFUNCTION, /* CDB: Functions over multiset input */
 #endif
+    RTE_TABLEFUNC /* TableFunc(.., column list) */
 } RTEKind;
 
 typedef struct RangeTblEntry {
@@ -392,6 +426,10 @@ typedef struct RangeTblEntry {
                                  * Get names when partition tables deleted.
                                  */
     int cursorDop;              /* for functionscan with cursor param */
+
+    TableFunc  *tablefunc;          /*
+                                     * Fields valid for a TableFunc RTE (else NULL):
+                                     */
 } RangeTblEntry;
 
 /*
@@ -546,7 +584,7 @@ typedef struct StartWithTargetRelInfo {
     List *columns;
     Node *tblstmt;
 
-	/* fields to record origin RTE related info */
+    /* fields to record origin RTE related info */
     RTEKind rtekind;
     RangeTblEntry *rte;
     RangeTblRef* rtr;
@@ -1441,8 +1479,8 @@ typedef struct InlineCodeBlock {
 
 typedef struct CallContext
 {
-	NodeTag     type;
-	bool        atomic; /* Atomic execution context, does not allow transactions */
+    NodeTag     type;
+    bool        atomic; /* Atomic execution context, does not allow transactions */
 } CallContext;
 
 /* ----------------------

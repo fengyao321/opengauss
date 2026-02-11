@@ -20,6 +20,7 @@
 #define PRIMNODES_H
 
 #include "access/attnum.h"
+#include "nodes/bitmapset.h"
 #include "nodes/pg_list.h"
 #include "nodes/params.h"
 #include "db4ai/db4ai.h"
@@ -108,6 +109,26 @@ typedef struct RangeVar {
     List* partitionNameList; /* for FROM table PARTITION (p1, subp2, ...) clause */
     List* indexhints;        /* a list of b mode index hint indexHintDefinition members */
 } RangeVar;
+
+/*
+ * TableFunc - node for a table function, such as XMLTABLE.
+ */
+typedef struct TableFunc {
+    NodeTag        type;
+    List       *ns_uris;        /* list of namespace uri */
+    List       *ns_names;        /* list of namespace names */
+    Node       *docexpr;        /* input document expression */
+    Node       *rowexpr;        /* row filter expression */
+    List       *colnames;        /* column names (list of String) */
+    List       *coltypes;        /* OID list of column type OIDs */
+    List       *coltypmods;        /* integer list of column typmods */
+    List       *colcollations;    /* OID list of column collation OIDs */
+    List       *colexprs;        /* list of column filter expressions */
+    List       *coldefexprs;    /* list of column default expressions */
+    Bitmapset  *notnulls;        /* nullability flag for each output column */
+    int            ordinalitycol;    /* counts from 0; -1 if none specified */
+    int            location;        /* token location, or -1 if unknown */
+} TableFunc;
 
 /*
  * IntoClause - target information for SELECT INTO, CREATE TABLE AS, and

@@ -108,6 +108,7 @@
 #include "executor/node/nodeStub.h"
 #include "executor/node/nodeSubplan.h"
 #include "executor/node/nodeSubqueryscan.h"
+#include "executor/node/nodeTableFuncscan.h"
 #include "executor/node/nodeTidscan.h"
 #include "executor/node/nodeTidrangescan.h"
 #include "executor/node/nodeUnique.h"
@@ -308,8 +309,8 @@ PlanState* ExecInitNodeByType(Plan* node, EState* estate, int eflags)
                 ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
                     errmsg("spqscan hook init_spqscan_hook uninited.")));
             }
-	    case T_AssertOp:
- 		    return (PlanState *) ExecInitAssertOp((AssertOp *) node, estate, eflags);
+        case T_AssertOp:
+             return (PlanState *) ExecInitAssertOp((AssertOp *) node, estate, eflags);
         case T_ShareInputScan:
             return (PlanState *)ExecInitShareInputScan((ShareInputScan *)node, estate, eflags);
         case T_Sequence:
@@ -356,6 +357,8 @@ PlanState* ExecInitNodeByType(Plan* node, EState* estate, int eflags)
             return (PlanState*)ExecInitSubqueryScan((SubqueryScan*)node, estate, eflags);
         case T_FunctionScan:
             return (PlanState*)ExecInitFunctionScan((FunctionScan*)node, estate, eflags);
+        case T_TableFuncScan:
+            return (PlanState*)ExecInitTableFuncScan((TableFuncScan*) node, estate, eflags);
         case T_ValuesScan:
             return (PlanState*)ExecInitValuesScan((ValuesScan*)node, estate, eflags);
         case T_CteScan:
@@ -1226,6 +1229,10 @@ static void ExecEndNodeByType(PlanState* node)
 
         case T_FunctionScanState:
             ExecEndFunctionScan((FunctionScanState*)node);
+            break;
+
+        case T_TableFuncScanState:
+            ExecEndTableFuncScan((TableFuncScanState *) node);
             break;
 
         case T_ValuesScanState:

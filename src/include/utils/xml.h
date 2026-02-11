@@ -19,6 +19,7 @@
 #include "nodes/execnodes.h"
 #include "nodes/primnodes.h"
 #include "utils/xmltypes.h"
+#include "executor/tablefunc.h"
 
 #define DatumGetXmlP(X) ((xmltype*)PG_DETOAST_DATUM(X))
 #define XmlPGetDatum(X) PointerGetDatum(X)
@@ -92,5 +93,6 @@ extern Datum xmltype_xmlsequence_array(PG_FUNCTION_ARGS);
 extern Datum xmltype_appendchildxml(PG_FUNCTION_ARGS);
 
 extern THR_LOCAL int xmloption; /* XmlOptionType, but int for guc enum */
+extern const TableFuncRoutine XmlTableRoutine;
 
 #endif /* XML_H */

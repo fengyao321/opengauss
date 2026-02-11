@@ -1363,6 +1363,9 @@ static void JumbleRangeTable(pgssJumbleState* jstate, List* rtable)
             case RTE_FUNCTION:
                 JumbleExpr(jstate, rte->funcexpr);
                 break;
+            case RTE_TABLEFUNC:
+                JumbleExpr(jstate, (Node *) rte->tablefunc);
+                break;
             case RTE_VALUES:
                 JumbleExpr(jstate, (Node*)rte->values_lists);
                 break;
@@ -1581,6 +1584,15 @@ static void JumbleExpr(pgssJumbleState* jstate, Node* node)
             JumbleExpr(jstate, (Node*)rcexpr->largs);
             JumbleExpr(jstate, (Node*)rcexpr->rargs);
         } break;
+        case T_TableFunc:
+            {
+                TableFunc    *tablefunc = (TableFunc *) node;
+
+                JumbleExpr(jstate, tablefunc->docexpr);
+                JumbleExpr(jstate, tablefunc->rowexpr);
+                JumbleExpr(jstate, (Node *) tablefunc->colexprs);
+            }
+            break;
         case T_CoalesceExpr:
             JumbleExpr(jstate, (Node*)((CoalesceExpr*)node)->args);
             break;

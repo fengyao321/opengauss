@@ -2199,6 +2199,7 @@ static void ExplainNode(
         case T_SubqueryScan:
         case T_VecSubqueryScan:
         case T_FunctionScan:
+        case T_TableFuncScan:
         case T_ValuesScan:
         case T_CteScan:
         case T_WorkTableScan:
@@ -2891,6 +2892,19 @@ static void ExplainNode(
             show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
             if (plan->qual)
                 show_instrumentation_count("Rows Removed by Filter", 1, planstate, es);
+            break;
+        case T_TableFuncScan:
+            if (es->verbose) {
+                TableFunc  *tablefunc = ((TableFuncScan *) plan)->tablefunc;
+
+                show_expression((Node *) tablefunc,
+                                "Table Function Call", planstate, ancestors,
+                                es->verbose, es);
+            }
+            show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
+            if (plan->qual)
+                show_instrumentation_count("Rows Removed by Filter", 1,
+                                           planstate, es);
             break;
         case T_TidScan: {
             /*
@@ -8598,6 +8612,11 @@ static void ExplainTargetRel(Plan* plan, Index rti, ExplainState* es, bool multi
                     namespc = get_namespace_name(get_func_namespace(funcid));
             }
             objecttag = "Function Name";
+        } break;
+        case T_TableFuncScan: {
+            Assert(rte->rtekind == RTE_TABLEFUNC);
+            objectname = "xmltable";
+            objecttag = "Table Function Name";
         } break;
         case T_ValuesScan: {
             Assert(rte != NULL);

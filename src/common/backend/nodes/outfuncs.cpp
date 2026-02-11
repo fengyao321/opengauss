@@ -582,22 +582,22 @@ static void _outPlannedStmt(StringInfo str, PlannedStmt* node)
 
     if ((t_thrd.proc->workingVersionNum < 92097 || node->num_streams > 0 || IS_SPQ_RUNNING) &&
         node->nodesDefinition != NULL) {
-	    for (int i = 0; i < node->num_nodes; i++) {
-	        /* Write the field name only one time and just append the value of each field */
-	        appendStringInfo(str, " :nodesDefinition[%d]", i);
-	        appendStringInfo(str, " %u", node->nodesDefinition[i].nodeoid);
-	        appendStringInfo(str, " %s", node->nodesDefinition[i].nodename.data);
-	        appendStringInfo(str, " %s", node->nodesDefinition[i].nodehost.data);
-	        appendStringInfo(str, " %d", node->nodesDefinition[i].nodeport);
-	        appendStringInfo(str, " %d", node->nodesDefinition[i].nodectlport);
-	        appendStringInfo(str, " %d", node->nodesDefinition[i].nodesctpport);
-	        appendStringInfo(str, " %s", node->nodesDefinition[i].nodehost1.data);
-	        appendStringInfo(str, " %d", node->nodesDefinition[i].nodeport1);
-	        appendStringInfo(str, " %d", node->nodesDefinition[i].nodectlport1);
-	        appendStringInfo(str, " %d", node->nodesDefinition[i].nodesctpport1);
-	        appendStringInfo(str, " %s", booltostr(node->nodesDefinition[i].nodeisprimary));
-	        appendStringInfo(str, " %s", booltostr(node->nodesDefinition[i].nodeispreferred));
-	    }
+        for (int i = 0; i < node->num_nodes; i++) {
+            /* Write the field name only one time and just append the value of each field */
+            appendStringInfo(str, " :nodesDefinition[%d]", i);
+            appendStringInfo(str, " %u", node->nodesDefinition[i].nodeoid);
+            appendStringInfo(str, " %s", node->nodesDefinition[i].nodename.data);
+            appendStringInfo(str, " %s", node->nodesDefinition[i].nodehost.data);
+            appendStringInfo(str, " %d", node->nodesDefinition[i].nodeport);
+            appendStringInfo(str, " %d", node->nodesDefinition[i].nodectlport);
+            appendStringInfo(str, " %d", node->nodesDefinition[i].nodesctpport);
+            appendStringInfo(str, " %s", node->nodesDefinition[i].nodehost1.data);
+            appendStringInfo(str, " %d", node->nodesDefinition[i].nodeport1);
+            appendStringInfo(str, " %d", node->nodesDefinition[i].nodectlport1);
+            appendStringInfo(str, " %d", node->nodesDefinition[i].nodesctpport1);
+            appendStringInfo(str, " %s", booltostr(node->nodesDefinition[i].nodeisprimary));
+            appendStringInfo(str, " %s", booltostr(node->nodesDefinition[i].nodeispreferred));
+        }
     }
 
     WRITE_INT_FIELD(instrument_option);
@@ -1660,6 +1660,15 @@ static void _outFunctionScan(StringInfo str, FunctionScan* node)
     WRITE_TYPEINFO_LIST(funccoltypes);
 }
 
+static void _outTableFuncScan(StringInfo str, const TableFuncScan *node)
+{
+    WRITE_NODE_TYPE("TABLEFUNCSCAN");
+
+    _outScanInfo(str, (Scan*) node);
+
+    WRITE_NODE_FIELD(tablefunc);
+}
+
 static void _outValuesScan(StringInfo str, ValuesScan* node)
 {
     WRITE_NODE_TYPE("VALUESSCAN");
@@ -2431,6 +2440,25 @@ static void _outRangeVar(StringInfo str, RangeVar* node)
     if (t_thrd.proc->workingVersionNum >= INDEX_HINT_VERSION_NUM) {
         WRITE_NODE_FIELD(indexhints);
     }
+}
+
+static void _outTableFunc(StringInfo str, const TableFunc *node)
+{
+    WRITE_NODE_TYPE("TABLEFUNC");
+
+    WRITE_NODE_FIELD(ns_names);
+    WRITE_NODE_FIELD(ns_uris);
+    WRITE_NODE_FIELD(docexpr);
+    WRITE_NODE_FIELD(rowexpr);
+    WRITE_NODE_FIELD(colnames);
+    WRITE_NODE_FIELD(coltypes);
+    WRITE_NODE_FIELD(coltypmods);
+    WRITE_NODE_FIELD(colcollations);
+    WRITE_NODE_FIELD(colexprs);
+    WRITE_NODE_FIELD(coldefexprs);
+    WRITE_BITMAPSET_FIELD(notnulls);
+    WRITE_INT_FIELD(ordinalitycol);
+    WRITE_LOCATION_FIELD(location);
 }
 
 static void _outIntoClause(StringInfo str, IntoClause* node)
@@ -5509,6 +5537,11 @@ static void _outRangeTblEntry(StringInfo str, RangeTblEntry* node)
 
             WRITE_TYPEINFO_LIST(funccoltypes);
             break;
+        case RTE_TABLEFUNC:
+            if (t_thrd.proc->workingVersionNum >= TABLE_FUNC_VERSION_NUM) {
+                WRITE_NODE_FIELD(tablefunc);
+            }
+            break;
         case RTE_VALUES:
             WRITE_NODE_FIELD(values_lists);
             WRITE_NODE_FIELD(values_collations);
@@ -5917,6 +5950,32 @@ static void OutRangeTimeCapsule(StringInfo str, RangeTimeCapsule* node)
     WRITE_NODE_FIELD(relation);
     WRITE_ENUM_FIELD(tvtype, TvVersionType);
     WRITE_NODE_FIELD(tvver);
+    WRITE_LOCATION_FIELD(location);
+}
+
+static void _outRangeTableFunc(StringInfo str, const RangeTableFunc *node)
+{
+    WRITE_NODE_TYPE("RANGETABLEFUNC");
+
+    WRITE_BOOL_FIELD(lateral);
+    WRITE_NODE_FIELD(docexpr);
+    WRITE_NODE_FIELD(rowexpr);
+    WRITE_NODE_FIELD(namespaces);
+    WRITE_NODE_FIELD(columns);
+    WRITE_NODE_FIELD(alias);
+    WRITE_LOCATION_FIELD(location);
+}
+
+static void _outRangeTableFuncCol(StringInfo str, const RangeTableFuncCol *node)
+{
+    WRITE_NODE_TYPE("RANGETABLEFUNCCOL");
+
+    WRITE_STRING_FIELD(colname);
+    WRITE_NODE_FIELD(typeName);
+    WRITE_BOOL_FIELD(for_ordinality);
+    WRITE_BOOL_FIELD(is_not_null);
+    WRITE_NODE_FIELD(colexpr);
+    WRITE_NODE_FIELD(coldefexpr);
     WRITE_LOCATION_FIELD(location);
 }
 
@@ -6876,6 +6935,9 @@ static void _outNode(StringInfo str, const void* obj)
             case T_FunctionScan:
                 _outFunctionScan(str, (FunctionScan*)obj);
                 break;
+            case T_TableFuncScan:
+                _outTableFuncScan(str, (TableFuncScan*)obj);
+                break;
             case T_ValuesScan:
                 _outValuesScan(str, (ValuesScan*)obj);
                 break;
@@ -6953,6 +7015,9 @@ static void _outNode(StringInfo str, const void* obj)
                 break;
             case T_RangeVar:
                 _outRangeVar(str, (RangeVar*)obj);
+                break;
+            case T_TableFunc:
+                _outTableFunc(str, (TableFunc*)obj);
                 break;
             case T_IntoClause:
                 _outIntoClause(str, (IntoClause*)obj);
@@ -7431,6 +7496,12 @@ static void _outNode(StringInfo str, const void* obj)
                 break;
             case T_RangeTimeCapsule:
                 OutRangeTimeCapsule(str, (RangeTimeCapsule*)obj);
+                break;
+            case T_RangeTableFunc:
+                _outRangeTableFunc(str, (RangeTableFunc*)obj);
+                break;
+            case T_RangeTableFuncCol:
+                _outRangeTableFuncCol(str, (RangeTableFuncCol*)obj);
                 break;
             case T_Constraint:
                 _outConstraint(str, (Constraint*)obj);

@@ -3155,6 +3155,12 @@ static Bitmapset* finalize_plan(PlannerInfo* root, Plan* plan, Bitmapset* valid_
             context.paramids = bms_add_members(context.paramids, scan_params);
             break;
 
+        case T_TableFuncScan:
+            finalize_primnode((Node *) ((TableFuncScan *) plan)->tablefunc,
+                              &context);
+            context.paramids = bms_add_members(context.paramids, scan_params);
+            break;
+
         case T_ValuesScan:
             (void)finalize_primnode((Node*)((ValuesScan*)plan)->values_lists, &context);
             context.paramids = bms_add_members(context.paramids, scan_params);

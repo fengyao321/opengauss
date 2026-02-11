@@ -389,6 +389,10 @@ void print_rt(const List* rtable)
             case RTE_FUNCTION:
                 printf("%d\t%s\t[rangefunction]", i, rte->eref->aliasname);
                 break;
+            case RTE_TABLEFUNC:
+                printf("%d\t%s\t[table function]",
+                       i, rte->eref->aliasname);
+                break;
             case RTE_VALUES:
                 printf("%d\t%s\t[values list]", i, rte->eref->aliasname);
                 break;

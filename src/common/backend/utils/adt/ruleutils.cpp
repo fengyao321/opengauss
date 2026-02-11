@@ -325,6 +325,7 @@ static void get_const_expr(Const* constval, deparse_context* context, int showty
 static void get_const_collation(Const* constval, deparse_context* context);
 static void simple_quote_literal(StringInfo buf, const char* val);
 static void get_sublink_expr(SubLink* sublink, deparse_context* context);
+static void get_tablefunc(TableFunc *tf, deparse_context *context, bool showimplicit);
 static void get_from_clause(Query* query, const char* prefix, deparse_context* context, List* fromlist = NIL,
     bool isNeedError = true);
 static void get_from_clause_item(Node* jtnode, Query* query, deparse_context* context, bool isNeedError = true);
@@ -2227,7 +2228,7 @@ static void get_table_constraint_info(
         appendStringInfo(buf, "UNIQUE ");
     }
     if (DB_IS_CMPT(B_FORMAT)) {
-		/* Fetch and build target column list */
+        /* Fetch and build target column list */
         Oid indexrelid_con;
         indexrelid_con = conForm->conindid;
         HeapTuple ht_idxrel;
@@ -2406,7 +2407,7 @@ static void get_index_list_info(Oid tableoid, StringInfo buf, const char* relnam
                 }
                 /* Cleanup */
                 ReleaseSysCache(tup);
-    		}
+            }
         } else {
             appendStringInfo(buf, "\n%s;", pg_get_indexdef_worker(index->indexrelid, 0, NULL, false, true, 0, true));
 
@@ -7679,7 +7680,7 @@ static void get_insert_query_def(Query* query, deparse_context* context)
         foreach (l, query->rtable) {
             rte = (RangeTblEntry*)lfirst(l);
             if (rte->rtekind == RTE_SUBQUERY && !(rte->pulled_from_subquery)) {
-		/* subquery rte pulled up from nested subquery is ignored here */
+        /* subquery rte pulled up from nested subquery is ignored here */
                 is_fqs_inselect = true;
                 if (select_rte != NULL) {
                     ereport(ERROR, (errcode(ERRCODE_RESTRICT_VIOLATION), errmsg("too many subquery RTEs in INSERT")));
@@ -9416,6 +9417,7 @@ static const char* get_name_for_var_field(Var* var, int fieldno, int levelsup, d
             /* else fall through to inspect the expression */
             break;
         case RTE_FUNCTION:
+        case RTE_TABLEFUNC:
 
             /*
              * We couldn't get here unless a function is declared with one of
@@ -10792,6 +10794,10 @@ static void get_rule_expr(Node* node, deparse_context* context, bool showimplici
             get_rule_expr(prior_expr->node, context, showimplicit, no_alias);
         } break;
 
+        case T_TableFunc:
+            get_tablefunc((TableFunc *) node, context, showimplicit);
+            break;
+
         case T_NullTest: {
             NullTest* ntest = (NullTest*)node;
 
@@ -12030,6 +12036,112 @@ static void get_sublink_expr(SubLink* sublink, deparse_context* context)
 }
 
 /* ----------
+ * get_tablefunc            - Parse back a table function
+ * ----------
+ */
+static void get_tablefunc(TableFunc *tf, deparse_context *context, bool showimplicit)
+{
+    StringInfo    buf = context->buf;
+
+    /* XMLTABLE is the only existing implementation.  */
+
+    appendStringInfoString(buf, "XMLTABLE(");
+
+    if (tf->ns_uris != NIL) {
+        ListCell   *lc1,
+                   *lc2;
+        bool        first = true;
+
+        appendStringInfoString(buf, "XMLNAMESPACES (");
+        forboth(lc1, tf->ns_uris, lc2, tf->ns_names)
+        {
+            Node       *expr = (Node *) lfirst(lc1);
+            char       *name = strVal(lfirst(lc2));
+
+            if (!first)
+                appendStringInfoString(buf, ", ");
+            else
+                first = false;
+
+            if (name != NULL) {
+                get_rule_expr(expr, context, showimplicit);
+                appendStringInfo(buf, " AS %s", name);
+            }
+            else {
+                appendStringInfoString(buf, "DEFAULT ");
+                get_rule_expr(expr, context, showimplicit);
+            }
+        }
+        appendStringInfoString(buf, "), ");
+    }
+
+    appendStringInfoChar(buf, '(');
+    get_rule_expr((Node *) tf->rowexpr, context, showimplicit);
+    appendStringInfoString(buf, ") PASSING (");
+    get_rule_expr((Node *) tf->docexpr, context, showimplicit);
+    appendStringInfoChar(buf, ')');
+
+    if (tf->colexprs != NIL) {
+        ListCell   *l1;
+        ListCell   *l2;
+        ListCell   *l3;
+        ListCell   *l4;
+        ListCell   *l5;
+        int            colnum = 0;
+
+        l2 = list_head(tf->coltypes);
+        l3 = list_head(tf->coltypmods);
+        l4 = list_head(tf->colexprs);
+        l5 = list_head(tf->coldefexprs);
+
+        appendStringInfoString(buf, " COLUMNS ");
+        foreach(l1, tf->colnames) {
+            char       *colname = strVal(lfirst(l1));
+            Oid            typid;
+            int32        typmod;
+            Node       *colexpr;
+            Node       *coldefexpr;
+            bool        ordinality = tf->ordinalitycol == colnum;
+            bool        notnull = bms_is_member(colnum, tf->notnulls);
+
+            typid = lfirst_oid(l2);
+            l2 = lnext(l2);
+            typmod = lfirst_int(l3);
+            l3 = lnext(l3);
+            colexpr = (Node *) lfirst(l4);
+            l4 = lnext(l4);
+            coldefexpr = (Node *) lfirst(l5);
+            l5 = lnext(l5);
+
+            if (colnum > 0)
+                appendStringInfoString(buf, ", ");
+            colnum++;
+
+            appendStringInfo(buf, "%s %s", quote_identifier(colname),
+                             ordinality ? "FOR ORDINALITY" :
+                             format_type_with_typemod(typid, typmod));
+            if (ordinality)
+                continue;
+
+            if (coldefexpr != NULL) {
+                appendStringInfoString(buf, " DEFAULT (");
+                get_rule_expr((Node *) coldefexpr, context, showimplicit);
+                appendStringInfoChar(buf, ')');
+            }
+            if (colexpr != NULL) {
+                appendStringInfoString(buf, " PATH (");
+                get_rule_expr((Node *) colexpr, context, showimplicit);
+                appendStringInfoChar(buf, ')');
+            }
+            if (notnull)
+                appendStringInfoString(buf, " NOT NULL");
+        }
+    }
+
+    appendStringInfoChar(buf, ')');
+}
+
+/* ----------
  * get_from_clause			- Parse back a FROM clause
  *
  * "prefix" is the keyword that denotes the start of the list of FROM
@@ -12307,6 +12419,9 @@ static void get_from_clause_item(Node* jtnode, Query* query, deparse_context* co
                 /* Function RTE */
                 get_rule_expr_funccall(rte->funcexpr, context, true);
                 break;
+            case RTE_TABLEFUNC:
+                get_tablefunc(rte->tablefunc, context, true);
+                break;
             case RTE_VALUES:
                 /* Values list RTE */
                 appendStringInfoChar(buf, '(');
@@ -12370,6 +12485,9 @@ static void get_from_clause_item(Node* jtnode, Query* query, deparse_context* co
              */
             appendStringInfo(buf, " %s", quote_identifier(rte->eref->aliasname));
             gavealias = true;
+        } else if (rte->rtekind == RTE_TABLEFUNC) {
+            appendStringInfo(buf, " %s", quote_identifier(rte->eref->aliasname));
+            gavealias = false;
         } else if (rte->rtekind == RTE_VALUES) {
             /* Alias is syntactically required for VALUES */
             appendStringInfo(buf, " %s", quote_identifier(rte->eref->aliasname));

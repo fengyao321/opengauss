@@ -135,6 +135,25 @@ static bool _equalRangeVar(const RangeVar* a, const RangeVar* b)
     return true;
 }
 
+static bool _equalTableFunc(const TableFunc *a, const TableFunc *b)
+{
+    COMPARE_NODE_FIELD(ns_names);
+    COMPARE_NODE_FIELD(ns_uris);
+    COMPARE_NODE_FIELD(docexpr);
+    COMPARE_NODE_FIELD(rowexpr);
+    COMPARE_NODE_FIELD(colnames);
+    COMPARE_NODE_FIELD(coltypes);
+    COMPARE_NODE_FIELD(coltypes);
+    COMPARE_NODE_FIELD(colcollations);
+    COMPARE_NODE_FIELD(colexprs);
+    COMPARE_NODE_FIELD(coldefexprs);
+    COMPARE_BITMAPSET_FIELD(notnulls);
+    COMPARE_SCALAR_FIELD(ordinalitycol);
+    COMPARE_LOCATION_FIELD(location);
+
+    return true;
+}
+
 static bool _equalIntoClause(const IntoClause* a, const IntoClause* b)
 {
     COMPARE_NODE_FIELD(rel);
@@ -2970,6 +2989,33 @@ static bool EqualRangeTimeCapsule(const RangeTimeCapsule* a, const RangeTimeCaps
     return true;
 }
 
+static bool _equalRangeTableFunc(const RangeTableFunc *a, const RangeTableFunc *b)
+{
+    COMPARE_SCALAR_FIELD(lateral);
+    COMPARE_NODE_FIELD(docexpr);
+    COMPARE_NODE_FIELD(rowexpr);
+    COMPARE_NODE_FIELD(namespaces);
+    COMPARE_NODE_FIELD(columns);
+    COMPARE_NODE_FIELD(alias);
+    COMPARE_LOCATION_FIELD(location);
+
+    return true;
+}
+
+static bool _equalRangeTableFuncCol(const RangeTableFuncCol *a, const RangeTableFuncCol *b)
+{
+    COMPARE_STRING_FIELD(colname);
+    COMPARE_NODE_FIELD(typeName);
+    COMPARE_SCALAR_FIELD(for_ordinality);
+    COMPARE_NODE_FIELD(typeName);
+    COMPARE_SCALAR_FIELD(is_not_null);
+    COMPARE_NODE_FIELD(colexpr);
+    COMPARE_NODE_FIELD(coldefexpr);
+    COMPARE_LOCATION_FIELD(location);
+
+    return true;
+}
+
 static bool _equalIndexElem(const IndexElem* a, const IndexElem* b)
 {
     COMPARE_STRING_FIELD(name);
@@ -3116,6 +3162,7 @@ static bool _equalRangeTblEntry(const RangeTblEntry* a, const RangeTblEntry* b)
     COMPARE_NODE_FIELD(funccoltypes);
     COMPARE_NODE_FIELD(funccoltypmods);
     COMPARE_NODE_FIELD(funccolcollations);
+    COMPARE_NODE_FIELD(tablefunc);
     COMPARE_NODE_FIELD(values_lists);
     COMPARE_NODE_FIELD(values_collations);
     COMPARE_STRING_FIELD(ctename);
@@ -3784,7 +3831,7 @@ static bool _equalExtensibleNode(const ExtensibleNode *a, const ExtensibleNode *
     /* At this point, we know extnodename is the same for both nodes. */
     methods = GetExtensibleNodeMethods(a->extnodename, false);
 
-	/* compare the private fields */
+    /* compare the private fields */
     return methods->nodeEqual(a, b);
 }
 
@@ -3870,6 +3917,9 @@ bool equal(const void* a, const void* b)
             break;
         case T_RangeVar:
             retval = _equalRangeVar((RangeVar*)a, (RangeVar*)b);
+            break;
+        case T_TableFunc:
+            retval = _equalTableFunc((TableFunc*)a, (TableFunc*)b);
             break;
         case T_IntoClause:
             retval = _equalIntoClause((IntoClause*)a, (IntoClause*)b);
@@ -4642,6 +4692,12 @@ bool equal(const void* a, const void* b)
             break;
         case T_RangeTimeCapsule:
             retval = EqualRangeTimeCapsule((RangeTimeCapsule*)a, (RangeTimeCapsule*)b);
+            break;
+        case T_RangeTableFunc:
+            retval = _equalRangeTableFunc((RangeTableFunc*)a, (RangeTableFunc*)b);
+            break;
+        case T_RangeTableFuncCol:
+            retval = _equalRangeTableFuncCol((RangeTableFuncCol*)a, (RangeTableFuncCol*)b);
             break;
         case T_TypeName:
             retval = _equalTypeName((TypeName*)a, (TypeName*)b);

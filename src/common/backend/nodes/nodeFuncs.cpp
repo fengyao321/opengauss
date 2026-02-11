@@ -1343,6 +1343,9 @@ int exprLocation(const Node* expr)
         case T_RangeVar:
             loc = ((const RangeVar*)expr)->location;
             break;
+        case T_TableFunc:
+            loc = ((const TableFunc *) expr)->location;
+            break;
         case T_Var:
             loc = ((const Var*)expr)->location;
             break;
@@ -2045,7 +2048,7 @@ bool expression_tree_walker(Node* node, bool (*walker)(), void* context)
             }
             if (p2walker(from->quals, context)) {
                 return true;
-			}
+            }
         } break;
         case T_UpsertExpr: {
             UpsertExpr* upsertClause = (UpsertExpr*)node;
@@ -2134,6 +2137,47 @@ bool expression_tree_walker(Node* node, bool (*walker)(), void* context)
         case T_CursorExpression:
             return false;
 
+        case T_TableFunc: {
+            TableFunc* tf = (TableFunc*)node;
+
+            if (p2walker(tf->ns_uris, context)) {
+                return true;
+            }
+            if (p2walker(tf->docexpr, context)) {
+                return true;
+            }
+            if (p2walker(tf->rowexpr, context)) {
+                return true;
+            }
+            if (p2walker(tf->colexprs, context)) {
+                return true;
+            }
+            if (p2walker(tf->coldefexprs, context)) {
+                return true;
+            }
+        } break;
+
+        case T_TableFuncScan: {
+            TableFuncScan* tfs = (TableFuncScan*)node;
+            TableFunc* tf = tfs->tablefunc;
+
+            if (p2walker(tf->ns_uris, context)) {
+                return true;
+            }
+            if (p2walker(tf->docexpr, context)) {
+                return true;
+            }
+            if (p2walker(tf->rowexpr, context)) {
+                return true;
+            }
+            if (p2walker(tf->colexprs, context)) {
+                return true;
+            }
+            if (p2walker(tf->coldefexprs, context)) {
+                return true;
+            }
+        } break;
+
         default:
             ereport(ERROR, (errcode(ERRCODE_DATATYPE_MISMATCH),
                             errmsg("expression_tree_walker:unrecognized node type: %d", (int)nodeTag(node))));
@@ -2176,7 +2220,7 @@ bool query_tree_walker(Query* query, bool (*walker)(), void* context, int flags)
         return true;
     }
     if (p2walker((Node*)query->upsertClause, context)) {
-	return true;
+    return true;
     }
     if (p2walker((Node*)query->returningList, context)) {
         return true;
@@ -2258,6 +2302,10 @@ bool range_table_walker(List* rtable, bool (*walker)(), void* context, int flags
                 if (p2walker(rte->funcexpr, context)) {
                     return true;
                 }
+                break;
+            case RTE_TABLEFUNC:
+                if (p2walker((Node*)rte->tablefunc, context))
+                    return true;
                 break;
             case RTE_VALUES:
                 if (p2walker((Node*)rte->values_lists, context)) {
@@ -2741,6 +2789,31 @@ Node* expression_tree_mutator(Node* node, Node* (*mutator)(Node*, void*), void* 
             MUTATE(newnode->expr, targetentry->expr, Expr*);
             return (Node*)newnode;
         } break;
+        case T_TableFunc: {
+            TableFunc* tf = (TableFunc *) node;
+            TableFunc* newnode;
+
+            FLATCOPY(newnode, tf, TableFunc, isCopy);
+            MUTATE(newnode->ns_uris, tf->ns_uris, List *);
+            MUTATE(newnode->docexpr, tf->docexpr, Node *);
+            MUTATE(newnode->rowexpr, tf->rowexpr, Node *);
+            MUTATE(newnode->colexprs, tf->colexprs, List *);
+            MUTATE(newnode->coldefexprs, tf->coldefexprs, List *);
+            return (Node *) newnode;
+        } break;
+        case T_TableFuncScan: {
+            TableFuncScan* tfs = (TableFuncScan*)node;
+            TableFunc* tf = tfs->tablefunc;
+            TableFunc* newnode;
+
+            FLATCOPY(newnode, tf, TableFunc, isCopy);
+            MUTATE(newnode->ns_uris, tf->ns_uris, List *);
+            MUTATE(newnode->docexpr, tf->docexpr, Node *);
+            MUTATE(newnode->rowexpr, tf->rowexpr, Node *);
+            MUTATE(newnode->colexprs, tf->colexprs, List *);
+            MUTATE(newnode->coldefexprs, tf->coldefexprs, List *);
+            return (Node *) newnode;
+        } break;
         case T_Query:
             /* Do nothing with a sub-Query, per discussion above */
             return node;
@@ -3071,6 +3144,9 @@ List* range_table_mutator(List* rtable, Node* (*mutator)(Node*, void*), void* co
                 break;
             case RTE_VALUES:
                 MUTATE(newrte->values_lists, rte->values_lists, List*);
+                break;
+            case RTE_TABLEFUNC:
+                MUTATE(newrte->tablefunc, rte->tablefunc, TableFunc *);
                 break;
             default:
                 break;
@@ -3573,6 +3649,28 @@ bool raw_expression_tree_walker(Node* node, bool (*walker)(), void* context)
                 return true;
             }
         } break;
+        case T_RangeTableFunc: {
+                RangeTableFunc *rtf = (RangeTableFunc *) node;
+
+                if (p2walker(rtf->docexpr, context))
+                    return true;
+                if (p2walker(rtf->rowexpr, context))
+                    return true;
+                if (p2walker(rtf->namespaces, context))
+                    return true;
+                if (p2walker(rtf->columns, context))
+                    return true;
+                if (p2walker(rtf->alias, context))
+                    return true;
+            } break;
+        case T_RangeTableFuncCol: {
+                RangeTableFuncCol *rtfc = (RangeTableFuncCol *) node;
+
+                if (p2walker(rtfc->colexpr, context))
+                    return true;
+                if (p2walker(rtfc->coldefexpr, context))
+                    return true;
+            } break;
         case T_TypeName: {
             TypeName* tn = (TypeName*)node;
 

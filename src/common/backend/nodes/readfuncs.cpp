@@ -2081,6 +2081,30 @@ static RangeVar* _readRangeVar(void)
     READ_DONE();
 }
 
+/*
+ * _readTableFunc
+ */
+static TableFunc* _readTableFunc(void)
+{
+    READ_LOCALS(TableFunc);
+
+    READ_NODE_FIELD(ns_names);
+    READ_NODE_FIELD(ns_uris);
+    READ_NODE_FIELD(docexpr);
+    READ_NODE_FIELD(rowexpr);
+    READ_NODE_FIELD(colnames);
+    READ_NODE_FIELD(coltypes);
+    READ_NODE_FIELD(coltypmods);
+    READ_NODE_FIELD(colcollations);
+    READ_NODE_FIELD(colexprs);
+    READ_NODE_FIELD(coldefexprs);
+    READ_BITMAPSET_FIELD(notnulls);
+    READ_INT_FIELD(ordinalitycol);
+    READ_LOCATION_FIELD(location);
+
+    READ_DONE();
+}
+
 static IntoClause* _readIntoClause(void)
 {
     READ_LOCALS(IntoClause);
@@ -3483,6 +3507,11 @@ static RangeTblEntry* _readRangeTblEntry(void)
 
             READ_TYPEINFO_LIST(funccoltypes);
             break;
+        case RTE_TABLEFUNC:
+            IF_EXIST(tablefunc) {
+                READ_NODE_FIELD(tablefunc);
+            }
+            break;
         case RTE_VALUES:
             READ_NODE_FIELD(values_lists);
             READ_NODE_FIELD(values_collations);
@@ -3997,6 +4026,20 @@ static PartIteratorParam* _readPartIteratorParam(PartIteratorParam* local_node)
     IF_EXIST(subPartParamno) {
         READ_INT_FIELD(subPartParamno);
     }
+
+    READ_DONE();
+}
+
+/*
+ * _readTableFuncScan
+ */
+static TableFuncScan *_readTableFuncScan(void)
+{
+    READ_LOCALS(TableFuncScan);
+
+    _readScan(&local_node->scan);
+
+    READ_NODE_FIELD(tablefunc);
 
     READ_DONE();
 }
@@ -4705,7 +4748,7 @@ static ModifyTable* _readModifyTable(ModifyTable* local_node)
 #ifdef USE_SPQ
     IF_EXIST (isSplitUpdates) {
         READ_NODE_FIELD(isSplitUpdates);
-	}
+    }
 #endif
     READ_DONE();
 }
@@ -5023,22 +5066,22 @@ static PlannedStmt* _readPlannedStmt(void)
     READ_INT_FIELD(num_nodes);
 
     if (t_thrd.proc->workingVersionNum < 92097 || local_node->num_streams > 0 || IS_SPQ_RUNNING) {
-	    local_node->nodesDefinition = (NodeDefinition*)palloc0(sizeof(NodeDefinition) * local_node->num_nodes);
-	    for (int i = 0; i < local_node->num_nodes; i++) {
-	        READ_OID_FIELD(nodesDefinition[i].nodeoid);
-	        READCOPY_STRING_FIELD_DIRECT(nodesDefinition[i].nodename.data);
-	        READCOPY_STRING_FIELD_DIRECT(nodesDefinition[i].nodehost.data);
-	        READ_INT_FIELD_DIRECT(nodesDefinition[i].nodeport);
-	        READ_INT_FIELD_DIRECT(nodesDefinition[i].nodectlport);
-	        READ_INT_FIELD_DIRECT(nodesDefinition[i].nodesctpport);
-	        READCOPY_STRING_FIELD_DIRECT(nodesDefinition[i].nodehost1.data);
-	        READ_INT_FIELD_DIRECT(nodesDefinition[i].nodeport1);
-	        READ_INT_FIELD_DIRECT(nodesDefinition[i].nodectlport1);
-	        READ_INT_FIELD_DIRECT(nodesDefinition[i].nodesctpport1);
-	        READ_BOOL_FIELD_DIRECT(nodesDefinition[i].nodeisprimary);
-	        READ_BOOL_FIELD_DIRECT(nodesDefinition[i].nodeispreferred);
-	    }
-	}
+        local_node->nodesDefinition = (NodeDefinition*)palloc0(sizeof(NodeDefinition) * local_node->num_nodes);
+        for (int i = 0; i < local_node->num_nodes; i++) {
+            READ_OID_FIELD(nodesDefinition[i].nodeoid);
+            READCOPY_STRING_FIELD_DIRECT(nodesDefinition[i].nodename.data);
+            READCOPY_STRING_FIELD_DIRECT(nodesDefinition[i].nodehost.data);
+            READ_INT_FIELD_DIRECT(nodesDefinition[i].nodeport);
+            READ_INT_FIELD_DIRECT(nodesDefinition[i].nodectlport);
+            READ_INT_FIELD_DIRECT(nodesDefinition[i].nodesctpport);
+            READCOPY_STRING_FIELD_DIRECT(nodesDefinition[i].nodehost1.data);
+            READ_INT_FIELD_DIRECT(nodesDefinition[i].nodeport1);
+            READ_INT_FIELD_DIRECT(nodesDefinition[i].nodectlport1);
+            READ_INT_FIELD_DIRECT(nodesDefinition[i].nodesctpport1);
+            READ_BOOL_FIELD_DIRECT(nodesDefinition[i].nodeisprimary);
+            READ_BOOL_FIELD_DIRECT(nodesDefinition[i].nodeispreferred);
+        }
+    }
 
     READ_INT_FIELD(instrument_option);
     READ_INT_FIELD(num_plannodes);
@@ -6994,6 +7037,8 @@ Node* parseNodeString(void)
         return_value = _readRangeVar();
     } else if (MATCH("INTOCLAUSE", 10)) {
         return_value = _readIntoClause();
+    } else if (MATCH("TABLEFUNC", 9)) {
+        return_value = _readTableFunc();
     } else if (MATCH("VAR", 3)) {
         return_value = _readVar();
     } else if (MATCH("CONST", 5)) {
@@ -7216,6 +7261,8 @@ Node* parseNodeString(void)
         return_value = _readResult(NULL);
     } else if (MATCH("VALUESSCAN", 10)) {
         return_value = _readValuesScan(NULL);
+    } else if (MATCH("TABLEFUNCSCAN", 13)) {
+        return_value = _readTableFuncScan();
     } else if (MATCH("FUNCTIONSCAN", 12)) {
         return_value = _readFunctionScan(NULL);
     } else if (MATCH("RECURSIVEUNION", 14)) {

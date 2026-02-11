@@ -970,6 +970,16 @@ typedef struct FunctionScan {
 } FunctionScan;
 
 /* ----------------
+ *      TableFunc scan node
+ * ----------------
+ */
+typedef struct TableFuncScan
+{
+    Scan scan;
+    TableFunc *tablefunc;        /* table function node */
+} TableFuncScan;
+
+/* ----------------
  *		ValuesScan node
  * ----------------
  */
