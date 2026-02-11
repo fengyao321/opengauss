@@ -264,6 +264,11 @@ bool DBSD_open_dl(void **lib_handle, char * symbol)
     return true;
 }
 
+inline bool IsSupportEmptyStrType(Oid ptype)
+{
+    return ((ptype == VARCHAROID) || (ptype == TEXTOID) || (ptype == UNKNOWNOID));
+}
+
 void DBSD_load_symbol(char* symbol, void **sym_lib_handle)
 {
     const char* dlsym_err = NULL;
@@ -4436,8 +4441,9 @@ static int getSingleNodeIdx(StringInfo input_message, CachedPlanSource* psrc, co
             plength = pq_getmsgint(input_message, 4);
             isNull = (plength == -1);
             /* add null value process for date type */
-            if (((VARCHAROID == ptype  && !ACCEPT_EMPTY_STR) || TIMESTAMPOID == ptype || TIMESTAMPTZOID == ptype ||
-                    TIMEOID == ptype || TIMETZOID == ptype || INTERVALOID == ptype || SMALLDATETIMEOID == ptype) &&
+            if (((IsSupportEmptyStrType(ptype)  && !ACCEPT_EMPTY_STR) || TIMESTAMPOID == ptype ||
+                    TIMESTAMPTZOID == ptype || TIMEOID == ptype || TIMETZOID == ptype || INTERVALOID == ptype ||
+                    SMALLDATETIMEOID == ptype) &&
                 0 == plength && u_sess->attr.attr_sql.sql_compatibility == A_FORMAT)
                 isNull = true;
 
@@ -4907,8 +4913,9 @@ void get_param_list_info(BindMessage* pqBindMessage, CachedPlanSource* psrc, Par
         isNull = (plength == -1);
         /* add null value process for date type */
         if (0 == plength && u_sess->attr.attr_sql.sql_compatibility == A_FORMAT &&
-            ((VARCHAROID == ptype  && !ACCEPT_EMPTY_STR) || TIMESTAMPOID == ptype || TIMESTAMPTZOID == ptype ||
-                TIMEOID == ptype || TIMETZOID == ptype || INTERVALOID == ptype || SMALLDATETIMEOID == ptype)) {
+            ((IsSupportEmptyStrType(ptype)  && !ACCEPT_EMPTY_STR) || TIMESTAMPOID == ptype ||
+                TIMESTAMPTZOID == ptype || TIMEOID == ptype || TIMETZOID == ptype || INTERVALOID == ptype ||
+                SMALLDATETIMEOID == ptype)) {
             isNull = true;
         }
 
@@ -12323,7 +12330,7 @@ static void exec_batch_bind_execute(StringInfo input_message)
                 plength = pq_getmsgint(input_message, 4);
                 isNull = (plength == -1);
                 /* add null value process for date type */
-                if (((VARCHAROID == ptype  && !ACCEPT_EMPTY_STR) || TIMESTAMPOID == ptype ||
+                if (((IsSupportEmptyStrType(ptype)  && !ACCEPT_EMPTY_STR) || TIMESTAMPOID == ptype ||
                         TIMESTAMPTZOID == ptype || TIMEOID == ptype || TIMETZOID == ptype ||
                         INTERVALOID == ptype || SMALLDATETIMEOID == ptype) &&
                     0 == plength && u_sess->attr.attr_sql.sql_compatibility == A_FORMAT)
@@ -12972,8 +12979,9 @@ void exec_get_bind_message(StringInfo input_message, BindMessage *pqBindMessage,
             if (DB_IS_CMPT(A_FORMAT)) {
                 Oid ptype = (*psrc)->param_types[paramno];
                 /* add null value process for date type */
-                if (0 == plength[paramno] && ((VARCHAROID == ptype  && !ACCEPT_EMPTY_STR) || TIMESTAMPOID == ptype || TIMESTAMPTZOID == ptype ||
-                        TIMEOID == ptype || TIMETZOID == ptype || INTERVALOID == ptype || SMALLDATETIMEOID == ptype)) {
+                if (0 == plength[paramno] && ((IsSupportEmptyStrType(ptype)  && !ACCEPT_EMPTY_STR) ||
+                        TIMESTAMPOID == ptype || TIMESTAMPTZOID == ptype || TIMEOID == ptype || TIMETZOID == ptype ||
+                        INTERVALOID == ptype || SMALLDATETIMEOID == ptype)) {
                     isNull = true;
                 }
             }
