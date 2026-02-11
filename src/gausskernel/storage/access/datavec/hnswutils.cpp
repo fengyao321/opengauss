@@ -1088,11 +1088,15 @@ static float GetCandidateDistance(char *base, HnswElement element, Datum q, Fmgr
                                   bool enableRabitQ)
 {
     Datum value = HnswGetValue(base, element);
+    float realDis = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, q, value));
+
+    if (IS_SPARSEVEC(procinfo->fn_oid)) {
+        return realDis;
+    }
 
     float iso1 = Float16ToFloat32(((Vector *)q)->isoValue);
     float iso2 = Float16ToFloat32(((Vector *)value)->isoValue);
     float isoWeight = iso1 * iso2;
-    float realDis = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, q, value));
     return isoWeight * realDis;
 }
 
@@ -1673,12 +1677,16 @@ static float HnswGetDistance(char *base, HnswElement a, HnswElement b, FmgrInfo 
 {
     Datum aValue = HnswGetValue(base, a);
     Datum bValue = HnswGetValue(base, b);
+    float realDis = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, aValue, bValue));
+
+    if (IS_SPARSEVEC(procinfo->fn_oid)) {
+        return realDis;
+    }
 
     float iso1 = ((Vector*)aValue)->isoValue;
     float iso2 = ((Vector*)bValue)->isoValue;
 
     float isoWeight = iso1 * iso2;
-    float realDis = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, aValue, bValue));
 
     return isoWeight * realDis;
 }
