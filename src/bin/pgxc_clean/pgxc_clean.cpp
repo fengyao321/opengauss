@@ -2421,7 +2421,7 @@ static void getTempSchemaOnOneDN(PGconn* conn, int no)
     rc = snprintf_s(STMT_GET_DN_TEMP_SCHEMA,
         sizeof(STMT_GET_DN_TEMP_SCHEMA),
         sizeof(STMT_GET_DN_TEMP_SCHEMA) - 1,
-        "EXECUTE DIRECT on (%s) 'SELECT * FROM PG_NAMESPACE WHERE NSPNAME LIKE ''pg_temp_%%''';",
+        "EXECUTE DIRECT on (%s) 'SELECT * FROM pg_namespace WHERE nspname LIKE ''pg_temp_%%''';",
         pgxc_clean_node_info[no].node_name);
     securec_check_ss_c(rc, "\0", "\0");
 
@@ -2455,7 +2455,7 @@ static void getTempSchemaListOnCN(PGconn* conn)
     rc = snprintf_s(STMT_GET_TEMP_SCHEMA_LIST,
         sizeof(STMT_GET_TEMP_SCHEMA_LIST),
         sizeof(STMT_GET_TEMP_SCHEMA_LIST) - 1,
-        "SELECT NSPNAME FROM PG_NAMESPACE WHERE NSPNAME LIKE 'pg_temp_%s_%%'",
+        "SELECT nspname FROM pg_namespace WHERE nspname LIKE 'pg_temp_%s_%%'",
         my_nodename);
     securec_check_ss_c(rc, "\0", "\0");
 

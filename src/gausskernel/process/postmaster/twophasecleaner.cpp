@@ -612,7 +612,7 @@ static void GetTempSchemaList(PGconn* conn, TempSchemaInfo** tempSchemaList)
     rc = snprintf_s(STMT_GET_TEMP_SCHEMA_LIST,
         sizeof(STMT_GET_TEMP_SCHEMA_LIST),
         sizeof(STMT_GET_TEMP_SCHEMA_LIST) - 1,
-        "SELECT NSPNAME FROM PG_NAMESPACE WHERE NSPNAME LIKE 'pg_temp_%%'");
+        "SELECT nspname FROM pg_namespace WHERE nspname LIKE 'pg_temp_%%'");
     securec_check_ss_c(rc, "\0", "\0");
 
     /* Get temp schema list. */
@@ -1088,7 +1088,7 @@ void OnlineDDLGetTempSchemaList(PGconn* conn, TempSchemaInfo** tempSchemaList)
     rc = snprintf_s(STMT_GET_TEMP_SCHEMA_LIST,
         sizeof(STMT_GET_TEMP_SCHEMA_LIST),
         sizeof(STMT_GET_TEMP_SCHEMA_LIST) - 1,
-        "SELECT NSPNAME FROM PG_NAMESPACE WHERE NSPNAME LIKE 'online_ddl_temp_schema_%%'");
+        "SELECT nspname FROM pg_namespace WHERE nspname LIKE 'online_ddl_temp_schema_%%'");
     securec_check_ss_c(rc, "\0", "\0");
 
     /* Get temp schema list. */
