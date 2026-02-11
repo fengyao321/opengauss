@@ -8552,8 +8552,10 @@ static void ATController(AlterTableStmt *parsetree, Relation rel, List* cmds, bo
 
     /* Release AccessExclusiveLock which is locked when rewriting catalogs. */
     if (enableOnlineDDL) {
-        if (!relationIsPartitioned) {
+        if (!relationIsPartitioned && !CheckLockRelation(rel, ShareUpdateExclusiveLock)) {
             LockRelation(rel, ShareUpdateExclusiveLock);
+        }
+        if (!relationIsPartitioned && CheckLockRelation(rel, AccessExclusiveLock)) {
             UnlockRelation(rel, AccessExclusiveLock);
         }
         ereport(NOTICE, (errmsg("Online DDL rewrite catalogs finish, start to copy baseline data.")));
