@@ -28,6 +28,9 @@
 #define IP_FUNC_OID 8434
 #define HALF_L2_FUNC_OID 8644
 #define HALF_IP_FUNC_OID 8493
+#define SPARSE_L2_FUNC_OID 8470
+#define SPARSE_IP_FUNC_OID 8463
+#define SPARSE_L1_FUNC_OID 8467
 #define CHUNK_STORAGE_SIZE (uint16)(6 * 1024)
 #define LSGSAMPLE_STORAGE_SIZE (uint16)(6 * 1024)
 
@@ -36,6 +39,7 @@
 #define TUPLE_NUM 100
 
 #define IS_HALFVEC(oid) (oid == HALF_L2_FUNC_OID || oid == HALF_IP_FUNC_OID)
+#define IS_SPARSEVEC(oid) (oid == SPARSE_L2_FUNC_OID || oid == SPARSE_IP_FUNC_OID || oid == SPARSE_L1_FUNC_OID)
 
 enum RefineType {
     SQ8,

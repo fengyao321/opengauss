@@ -1059,11 +1059,13 @@ static bool InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
     HnswPtrStore(base, element->pqcodes, codePtr);
     HnswPtrStore(base, element->rbqcodes, rbqPtr);
 
-    Vector* currentVec = (Vector*)HnswGetValue(base, element);
-    if (buildstate->enableLsg) {
-        currentVec->isoValue = CalcIsoVal((float *)currentVec->x, buildstate->LocScalingParam);
-    } else {
-        currentVec->isoValue = 1.0;
+    if (!IS_SPARSEVEC(buildstate->procinfo->fn_oid)) {
+        Vector* currentVec = (Vector*)HnswGetValue(base, element);
+        if (buildstate->enableLsg) {
+            currentVec->isoValue = CalcIsoVal((float *)currentVec->x, buildstate->LocScalingParam);
+        } else {
+            currentVec->isoValue = 1.0;
+        }
     }
     /* Create a lock for the element */
     LWLockInitialize(&element->lock, hnsw_lock_tranche_id);
