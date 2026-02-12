@@ -206,13 +206,12 @@ MemoryContext opt_MemoryContextCreate(MemoryContext node, NodeTag tag,
     node->alloc_methods = &OptMcxtAllocMtd;
     node->mcxt_methods = &OptMcxtOpMtd;
     node->name = (char *)name;
+    node->resetCbs = NULL;
     node->cell.data.ptr_value = (void*)node;
     node->cell.next = NULL;
     node->thread_id = gs_thread_self();
     opt_TagMemoryContextSessionId(node, parent);
 
-    /* OK to link node to parent (if any) */
-    /* Could use MemoryContextSetParent here, but doesn't seem worthwhile */
     if (parent) {
         node->parent = parent;
         node->nextchild = parent->firstchild;
@@ -369,12 +368,10 @@ void opt_MemoryContextDelete(MemoryContext context)
 {
     AssertArg(IsOptAllocSetContext(context));
 
-    /* save a function call in common case where there are no children */
     if (context->firstchild != NULL)
         MemoryContextDeleteChildren(context, NULL);
 
-    MemoryContextSetParent(context, NULL);
-
+    /* opt_AllocSetDelete needs parent for cache */
     context->methods->delete_context(context);
 }
 
@@ -382,10 +379,6 @@ void opt_MemoryContextDeleteChildren(MemoryContext context, List* context_list)
 {
     AssertArg(MemoryContextIsValid(context));
 
-    /*
-     * opt_MemoryContextDelete will delink the child from me, so just iterate as
-     * long as there is a child.
-     */
     while (context->firstchild != NULL)
         MemoryContextDelete(context->firstchild); 
 }
@@ -394,11 +387,9 @@ void opt_MemoryContextReset(MemoryContext context)
 {
     AssertArg(IsOptAllocSetContext(context));
 
-    /* save a function call in common case where there are no children */
     if (context->firstchild != NULL)
         MemoryContextResetChildren(context);
 
-    /* Nothing to do if no pallocs since startup or last reset */
     if (!context->isReset) {
         (*context->methods->reset)(context);
         context->isReset = true;
@@ -407,11 +398,9 @@ void opt_MemoryContextReset(MemoryContext context)
 
 void opt_MemoryContextDestroyAtThreadExit(MemoryContext context)
 {
-    /* Delete all its decendents */
     if (context->firstchild != NULL)
         MemoryContextDeleteChildren(context, NULL);
 
-    /* Delete the top context itself */
     (*context->methods->delete_context)(context);
 }
 
@@ -428,10 +417,6 @@ void opt_MemoryContextCheck(MemoryContext context, bool own_by_session)
 }
 #endif
 
-/*
- * pfree
- *		Release an allocated chunk.
- */
 void
 opt_pfree(void *pointer)
 {
@@ -450,8 +435,6 @@ opt_repallocDebug(void* pointer, Size size, const char *file, int line)
     Assert(pointer == (void*)MAXALIGN(pointer));
 
     context = GetMemoryChunkContext(pointer);
-
-    /* isReset must be false already */
     Assert(!context->isReset);
 
     ret = (*context->methods->realloc)(context, pointer, 0, size, file, line);
@@ -478,8 +461,6 @@ opt_repalloc_noexcept_Debug(void* pointer, Size size, const char *file, int line
     Assert(pointer == (void*)MAXALIGN(pointer));
 
     context = GetMemoryChunkContext(pointer);
-
-    /* isReset must be false already */
     Assert(!context->isReset);
 
     ret = (*context->methods->realloc)(context, pointer, 0, size, file, line);
@@ -490,7 +471,6 @@ opt_repalloc_noexcept_Debug(void* pointer, Size size, const char *file, int line
 void* 
 opt_palloc_extended(Size size, int flags)
 {
-   /* duplicates MemoryContextAllocExtended to avoid increased overhead */
     void* ret = NULL;
 
     AssertArg(MemoryContextIsValid(CurrentMemoryContext));

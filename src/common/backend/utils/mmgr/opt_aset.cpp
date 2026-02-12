@@ -177,7 +177,10 @@ static const unsigned char LogTable256[256] = {0,
     LT16(8),
     LT16(8)};
 
-#define MAX_FREE_CONTEXTS 100	/* arbitrary limit on freelist length */
+static inline int GetFreelistMaxSize(void)
+{
+    return g_instance.attr.attr_memory.enable_cached_size;
+}
 
 typedef struct AllocSetFreeList
 {
@@ -188,13 +191,40 @@ typedef struct AllocSetFreeList
 /* context_freelists[0] is for default params, [1] for small params */
 THR_LOCAL AllocSetFreeList context_freelists[2] =
 {
-    {
-        0, NULL
-    },
-    {
-        0, NULL
-    }
+    { 0, NULL },
+    { 0, NULL }
 };
+
+THR_LOCAL MemoryContext CachedContext = NULL;
+THR_LOCAL MemoryContext DefaultCachedContext = NULL;
+THR_LOCAL MemoryContext SmallCachedContext = NULL;
+
+static inline MemoryContext GetCachedContextParent(int freeListIndex)
+{
+    if (freeListIndex == 0)
+        return DefaultCachedContext;
+    if (freeListIndex == 1)
+        return SmallCachedContext;
+    return NULL;
+}
+
+static void UnlinkFromCachedParent(AllocSetContext* context, MemoryContext cachedParent)
+{
+    if (cachedParent == NULL || context->header.parent != cachedParent) {
+        return;
+    }
+    if (context->header.prevchild != NULL) {
+        context->header.prevchild->nextchild = context->header.nextchild;
+    } else if (cachedParent->firstchild == (MemoryContext)context) {
+        cachedParent->firstchild = context->header.nextchild;
+    }
+    if (context->header.nextchild != NULL) {
+        context->header.nextchild->prevchild = context->header.prevchild;
+    }
+    context->header.parent = NULL;
+    context->header.prevchild = NULL;
+    context->header.nextchild = NULL;
+}
 
 /* ----------
  * opt_AllocSetFreeIndex -
@@ -211,8 +241,9 @@ static inline int opt_AllocSetFreeIndex(Size size)
     if (size > (1 << ALLOC_MINBITS)) {
         idx = 31 - __builtin_clz((uint32) size - 1) - ALLOC_MINBITS + 1;
         Assert(idx < ALLOCSET_NUM_FREELISTS);
-    } else
+    } else {
         idx = 0;
+    }
 
     return idx;
 }
@@ -269,16 +300,7 @@ sentinel_ok(const void *base, Size offset)
 }
 #endif
 
-/*
- * AllocSetContextCreate
- *		Create a new AllocSet context.
- *
- * parent: parent context, or NULL if top-level context
- * name: name of context (for debugging --- string will be copied)
- * minContextSize: minimum context size
- * initBlockSize: initial allocation block size
- * maxBlockSize: maximum allocation block size
- */
+/* Create AllocSet; may reuse from freelist */
 MemoryContext opt_AllocSetContextCreate(MemoryContext parent, const char* name, Size minContextSize,
     Size initBlockSize, Size maxBlockSize)
 {
@@ -287,48 +309,41 @@ MemoryContext opt_AllocSetContextCreate(MemoryContext parent, const char* name, 
     int freeListIndex;
     Size		firstBlockSize;
 
-    if (minContextSize == ALLOCSET_DEFAULT_MINSIZE &&
-        initBlockSize == ALLOCSET_DEFAULT_INITSIZE)
+    if (minContextSize == ALLOCSET_DEFAULT_MINSIZE && initBlockSize == ALLOCSET_DEFAULT_INITSIZE) {
         freeListIndex = 0;
-    else if (minContextSize == ALLOCSET_SMALL_MINSIZE &&
-             initBlockSize == ALLOCSET_SMALL_INITSIZE)
+    } else if (minContextSize == ALLOCSET_SMALL_MINSIZE && initBlockSize == ALLOCSET_SMALL_INITSIZE) {
         freeListIndex = 1;
-    else
+    } else {
         freeListIndex = -1;
+    }
 
-    if (freeListIndex >= 0)
-    {
+    if (freeListIndex >= 0 && GetFreelistMaxSize() == 0) {
+        freeListIndex = -1;
+    }
+    if (freeListIndex >= 0 && DefaultCachedContext == NULL) {
+        CachedContextInit();
+    }
+
+    if (freeListIndex >= 0) {
         AllocSetFreeList *freelist = &context_freelists[freeListIndex];
-
-        if (freelist->first_free != NULL)
-        {
-            /* Remove entry from freelist */
+        if (freelist->first_free != NULL) {
             context = freelist->first_free;
-            freelist->first_free = (AllocSet) context->header.nextchild;
+            freelist->first_free = (AllocSetContext*)context->header.nextchild;
             freelist->num_free--;
-
-            /* Update its maxBlockSize; everything else should be OK */
+            UnlinkFromCachedParent(context, GetCachedContextParent(freeListIndex));
             context->maxBlockSize = maxBlockSize;
-
-            /* Reinitialize its header, installing correct name and parent */
-            opt_MemoryContextCreate((MemoryContext) context,
-                                T_OptAllocSetContext,
-                                &AllocSetMethods,
-                                parent,
-                                name);
-
+            opt_MemoryContextCreate((MemoryContext)context, T_OptAllocSetContext, &AllocSetMethods, parent, name);
             context->maxSpaceSize = SELF_GENRIC_MEMCTX_LIMITATION;
-            return (MemoryContext) context;
+            return (MemoryContext)context;
         }
     }
 
-    /* Determine size of initial block */
-    firstBlockSize = MAXALIGN(sizeof(AllocSetContext)) +
-        ALLOC_BLOCKHDRSZ + ALLOC_CHUNKHDRSZ;
-    if (minContextSize != 0)
-        firstBlockSize = Max(firstBlockSize, minContextSize);
-    else
-        firstBlockSize = Max(firstBlockSize, initBlockSize);
+    if (freeListIndex >= 0) {
+        firstBlockSize = MAXALIGN(sizeof(AllocSetContext)) + initBlockSize;
+    } else {
+        firstBlockSize = MAXALIGN(sizeof(AllocSetContext)) + ALLOC_BLOCKHDRSZ + ALLOC_CHUNKHDRSZ;
+        firstBlockSize = Max(firstBlockSize, minContextSize != 0 ? minContextSize : initBlockSize);
+    }
 
     context = (AllocSet) malloc(firstBlockSize);
     if (context == NULL)
@@ -343,10 +358,10 @@ MemoryContext opt_AllocSetContextCreate(MemoryContext parent, const char* name, 
     block->freeptr = ((char*)block) + ALLOC_BLOCKHDRSZ;
     block->endptr = ((char*)context) + firstBlockSize;
     block->allocSize = firstBlockSize;
-    
-    context->totalSpace = firstBlockSize;
+
+    context->totalSpace = block->endptr - (char*)block;
     context->freeSpace = block->endptr - block->freeptr;
-    
+
     block->prev = NULL;
     block->next = NULL;
 
@@ -456,62 +471,78 @@ static void opt_AllocSetReset(MemoryContext context)
     }
 }
 
-/*
- * AllocSetDelete
- *		Frees all memory which is allocated in the given set,
- *		in preparation for deletion of the set.
- *
- * Unlike AllocSetReset, this *must* free all resources of the set.
- * But note we are not responsible for deleting the context node itself.
- */
+static void UnlinkFromParent(MemoryContext context)
+{
+    if (context->parent == NULL) {
+        return;
+    }
+    MemoryContext parent = context->parent;
+    if (context->prevchild != NULL) {
+        context->prevchild->nextchild = context->nextchild;
+    } else if (parent->firstchild == context) {
+        parent->firstchild = context->nextchild;
+    }
+    if (context->nextchild != NULL) {
+        context->nextchild->prevchild = context->prevchild;
+    }
+}
+
+static void ClearFullFreelist(AllocSetFreeList* freelist, MemoryContext cachedParent)
+{
+    while (freelist->first_free != NULL) {
+        AllocSetContext *oldset = freelist->first_free;
+        freelist->first_free = (AllocSetContext*)oldset->header.nextchild;
+        freelist->num_free--;
+        UnlinkFromCachedParent(oldset, cachedParent);
+        free(oldset);
+    }
+}
+
+static void LinkToCachedParent(MemoryContext context, MemoryContext cachedParent)
+{
+    context->parent = cachedParent;
+    context->prevchild = NULL;
+    context->nextchild = cachedParent->firstchild;
+    if (cachedParent->firstchild != NULL)
+        cachedParent->firstchild->prevchild = context;
+    cachedParent->firstchild = context;
+    context->level = cachedParent->level + 1;
+}
+
+/* Free or cache context */
 static void opt_AllocSetDelete(MemoryContext context)
 {
     AllocSet set = (AllocSet)context;
     AssertArg(AllocSetIsValid(set));
-
     AllocBlock block = set->blocks;
 
-    if (set->freeListIndex >= 0)
-    {
-        AllocSetFreeList *freelist = &context_freelists[set->freeListIndex];
-
-        if (!context->isReset) {
-            context->methods->reset(context);
-            context->isReset = true;
-        }
-
-        if (freelist->num_free >= MAX_FREE_CONTEXTS)
-        {
-            while (freelist->first_free != NULL)
-            {
-                AllocSetContext *oldset = freelist->first_free;
-
-                freelist->first_free = (AllocSetContext *) oldset->header.nextchild;
-                freelist->num_free--;
-
-                /* All that remains is to free the header/initial block */
-                free(oldset);
+    if (set->freeListIndex >= 0) {
+        MemoryContext cachedParent = GetCachedContextParent(set->freeListIndex);
+        if (cachedParent != NULL && context->parent != NULL) {
+            AllocSetFreeList *freelist = &context_freelists[set->freeListIndex];
+            if (!context->isReset) {
+                context->methods->reset(context);
+                context->isReset = true;
             }
-            Assert(freelist->num_free == 0);
+            if (freelist->num_free >= GetFreelistMaxSize()) {
+                ClearFullFreelist(freelist, cachedParent);
+            }
+            UnlinkFromParent(context);
+            context->name = (char*)"CachedContext";
+            LinkToCachedParent(context, cachedParent);
+            freelist->first_free = set;
+            freelist->num_free++;
+            return;
         }
-
-        /* Now add the just-deleted context to the freelist. */
-        set->header.nextchild = (MemoryContext) freelist->first_free;
-        freelist->first_free = set;
-        freelist->num_free++;
-
-        return;
     }
 
+    UnlinkFromParent(context);
     while (block != NULL) {
         AllocBlock next = block->next;
-
         if (block != set->keeper)
             free(block);
-
         block = next;
     }
-
     free(set);
 }
 
@@ -548,9 +579,8 @@ static void* opt_AllocSetAlloc(MemoryContext context, Size align, Size size, con
         blksize = chunk_size + ALLOC_BLOCKHDRSZ + ALLOC_CHUNKHDRSZ;
 
         block = (AllocBlock) malloc(blksize);
-        if (block == NULL) {
+        if (block == NULL)
             return NULL;
-        }
         block->aset = set;
         block->freeptr = block->endptr = ((char*)block) + blksize;
         block->allocSize = blksize;
@@ -718,9 +748,8 @@ static void* opt_AllocSetAlloc(MemoryContext context, Size align, Size size, con
 
         /* Try to allocate it */
         block = (AllocBlock) malloc(blksize);
-        if (block == NULL) {
+        if (block == NULL)
             return NULL;
-        }
 
         block->aset = set;
         block->freeptr = ((char*)block) + ALLOC_BLOCKHDRSZ;
@@ -802,7 +831,6 @@ static void opt_AllocSetFree(MemoryContext context, void* pointer)
          */
         AllocBlock block = (AllocBlock)(((char*)chunk) - ALLOC_BLOCKHDRSZ);
 
-
         /* OK, remove block from aset's list and free it */
         if (block->prev)
             block->prev->next = block->next;
@@ -871,9 +899,8 @@ static void* opt_AllocSetRealloc(MemoryContext context, void* pointer, Size alig
     }
 
 #ifndef ENABLE_MEMORY_CHECK
-    if (oldsize > set->allocChunkLimit)
+    if (oldsize > set->allocChunkLimit) {
 #endif
-    {
         /*
          * The chunk must have been allocated as a single-chunk block.	Find
          * the containing block and use realloc() to make it bigger with
@@ -897,9 +924,8 @@ static void* opt_AllocSetRealloc(MemoryContext context, void* pointer, Size alig
         oldsize = block->allocSize;
 
         block = (AllocBlock) realloc(block, blksize);
-        if (block == NULL) {
+        if (block == NULL)
             return NULL;
-        }
         block->freeptr = block->endptr = ((char*)block) + blksize;
         block->allocSize = blksize;
 
@@ -939,7 +965,6 @@ static void* opt_AllocSetRealloc(MemoryContext context, void* pointer, Size alig
         /* allocate new chunk */
         newPointer =
             opt_AllocSetAlloc((MemoryContext)set, align, size, __FILE__, __LINE__);
-
         /* leave immediately if request was not completed */
         if (newPointer == NULL)
             return NULL;
@@ -981,7 +1006,6 @@ static bool opt_AllocSetIsEmpty(MemoryContext context)
      */
     if (context->isReset)
         return true;
-
     return false;
 }
 
@@ -1026,8 +1050,74 @@ static void opt_AllocSetStats(MemoryContext context, int level)
         totalspace - freespace);
 }
 
-
 #ifdef MEMORY_CONTEXT_CHECKING
+static void opt_CheckChunk(AllocSet set, AllocBlock block, AllocChunk chunk,
+                           Size blk_used, const char* name)
+{
+    Size chsize = chunk->size;
+    Size dsize = chunk->requested_size;
+
+    /* Check chunk size */
+    if (dsize > chsize)
+        elog(WARNING, "problem in alloc set %s: req size > alloc size for chunk %p in block %p",
+             name, chunk, block);
+    if (chsize < (1 << ALLOC_MINBITS))
+        elog(WARNING, "problem in alloc set %s: bad size %zu for chunk %p in block %p",
+             name, chsize, chunk, block);
+
+    /* single-chunk block? */
+    if (chsize > set->allocChunkLimit &&
+        chsize + ALLOC_CHUNKHDRSZ != (Size)blk_used)
+        elog(WARNING, "problem in alloc set %s: bad single-chunk %p in block %p",
+             name, chunk, block);
+
+    /* Check aset pointer if chunk is allocated */
+    if (dsize > 0 && chunk->aset != (void *) set)
+        elog(WARNING, "problem in alloc set %s: bogus aset link in block %p, chunk %p",
+             name, block, chunk);
+
+    /* Check for overwrite of padding space */
+    if (chunk->aset == (void *) set && dsize < chsize &&
+        !sentinel_ok(chunk, ALLOC_CHUNKHDRSZ + dsize))
+        elog(WARNING, "problem in alloc set %s: detected write past chunk end in block %p, chunk %p",
+             name, block, chunk);
+}
+
+static void opt_CheckBlock(AllocSet set, AllocBlock block, AllocBlock prevblock,
+                           const char* name, long* blk_data, long* nchunks)
+{
+    char* bpoz = ((char *) block) + ALLOC_BLOCKHDRSZ;
+    long blk_used = block->freeptr - bpoz;
+
+    /* Check for empty block */
+    if (!blk_used) {
+        if (set->keeper != block)
+            elog(WARNING, "problem in alloc set %s: empty block %p", name, block);
+    }
+
+    /* Check block header fields */
+    if (block->aset != set ||
+        block->prev != prevblock ||
+        block->freeptr < bpoz ||
+        block->freeptr > block->endptr)
+        elog(WARNING, "problem in alloc set %s: corrupt header in block %p", name, block);
+
+    /* Walk through chunks */
+    *blk_data = 0;
+    *nchunks = 0;
+    while (bpoz < block->freeptr) {
+        AllocChunk chunk = (AllocChunk) bpoz;
+        opt_CheckChunk(set, block, chunk, blk_used, name);
+        *blk_data += chunk->size;
+        (*nchunks)++;
+        bpoz += ALLOC_CHUNKHDRSZ + chunk->size;
+    }
+
+    /* Verify block consistency */
+    if ((*blk_data + (*nchunks * (long)ALLOC_CHUNKHDRSZ)) != blk_used)
+        elog(WARNING, "problem in alloc set %s: found inconsistent memory block %p", name, block);
+}
+
 /*
  * opt_AllocSetCheck
  *		Walk through chunks and check consistency of memory.
@@ -1036,105 +1126,60 @@ static void opt_AllocSetStats(MemoryContext context, int level)
  * find yourself in an infinite loop when trouble occurs, because this
  * routine will be entered again when elog cleanup tries to release memory!
  */
-static void
-opt_AllocSetCheck(MemoryContext context)
+static void opt_AllocSetCheck(MemoryContext context)
 {
-    AllocSet	set = (AllocSet) context;
+    AllocSet set = (AllocSet) context;
     const char *name = set->header.name;
-    AllocBlock	prevblock;
-    AllocBlock	block;
-    Size		total_allocated = 0;
+    AllocBlock prevblock;
+    AllocBlock block;
+    Size total_allocated = 0;
 
     for (prevblock = NULL, block = set->blocks;
          block != NULL;
-         prevblock = block, block = block->next)
-    {
-        char	   *bpoz = ((char *) block) + ALLOC_BLOCKHDRSZ;
-        long		blk_used = block->freeptr - bpoz;
-        long		blk_data = 0;
-        long		nchunks = 0;
+         prevblock = block, block = block->next) {
+        long blk_data = 0;
+        long nchunks = 0;
 
-        if (set->keeper == block)
+        if (set->keeper == block) {
             total_allocated += block->endptr - ((char *) set);
-        else
+        } else {
             total_allocated += block->endptr - ((char *) block);
-
-        /*
-         * Empty block - empty can be keeper-block only
-         */
-        if (!blk_used)
-        {
-            if (set->keeper != block)
-                elog(WARNING, "problem in alloc set %s: empty block %p",
-                     name, block);
         }
 
-        /*
-         * Check block header fields
-         */
-        if (block->aset != set ||
-            block->prev != prevblock ||
-            block->freeptr < bpoz ||
-            block->freeptr > block->endptr)
-            elog(WARNING, "problem in alloc set %s: corrupt header in block %p",
-                 name, block);
-
-        /*
-         * Chunk walker
-         */
-        while (bpoz < block->freeptr)
-        {
-            AllocChunk	chunk = (AllocChunk) bpoz;
-            Size		chsize,
-                        dsize;
-
-            chsize = chunk->size;	/* aligned chunk size */
-            dsize = chunk->requested_size;	/* real data */
-
-            /*
-             * Check chunk size
-             */
-            if (dsize > chsize)
-                elog(WARNING, "problem in alloc set %s: req size > alloc size for chunk %p in block %p",
-                     name, chunk, block);
-            if (chsize < (1 << ALLOC_MINBITS))
-                elog(WARNING, "problem in alloc set %s: bad size %zu for chunk %p in block %p",
-                     name, chsize, chunk, block);
-
-            /* single-chunk block? */
-            if (chsize > set->allocChunkLimit &&
-                chsize + ALLOC_CHUNKHDRSZ != (Size)blk_used)
-                elog(WARNING, "problem in alloc set %s: bad single-chunk %p in block %p",
-                     name, chunk, block);
-
-            /*
-             * If chunk is allocated, check for correct aset pointer. (If it's
-             * free, the aset is the freelist pointer, which we can't check as
-             * easily...)  Note this is an incomplete test, since palloc(0)
-             * produces an allocated chunk with requested_size == 0.
-             */
-            if (dsize > 0 && chunk->aset != (void *) set)
-                elog(WARNING, "problem in alloc set %s: bogus aset link in block %p, chunk %p",
-                     name, block, chunk);
-
-            /*
-             * Check for overwrite of padding space in an allocated chunk.
-             */
-            if (chunk->aset == (void *) set && dsize < chsize &&
-                !sentinel_ok(chunk, ALLOC_CHUNKHDRSZ + dsize))
-                elog(WARNING, "problem in alloc set %s: detected write past chunk end in block %p, chunk %p",
-                     name, block, chunk);
-
-            blk_data += chsize;
-            nchunks++;
-
-            bpoz += ALLOC_CHUNKHDRSZ + chsize;
-        }
-
-        if ((blk_data + (nchunks * (long)ALLOC_CHUNKHDRSZ)) != blk_used)
-            elog(WARNING, "problem in alloc set %s: found inconsistent memory block %p",
-                 name, block);
+        opt_CheckBlock(set, block, prevblock, name, &blk_data, &nchunks);
     }
 }
 
 #endif							/* MEMORY_CONTEXT_CHECKING */
+
+/* Context Freelist Cache API */
+
+/*
+ * CachedContextInit - Initialize cached context containers.
+ * Creates DefaultCachedContext (8KB) and SmallCachedContext (1KB) under top_mem_cxt.
+ */
+void CachedContextInit(void)
+{
+    if (DefaultCachedContext != NULL || t_thrd.top_mem_cxt == NULL) {
+        return;
+    }
+
+    /* Only create when freelist cache is enabled */
+    if (!g_instance.attr.attr_memory.disable_memory_stats ||
+        g_instance.attr.attr_memory.enable_cached_size == 0) {
+        return;
+    }
+
+    /* Use GenericMemoryAllocator to bypass disable_memory_stats check */
+    DefaultCachedContext = GenericMemoryAllocator::AllocSetContextCreate(
+        t_thrd.top_mem_cxt, "DefaultCachedContext",
+        ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE,
+        DEFAULT_MEMORY_CONTEXT_MAX_SIZE, false, false);
+
+    SmallCachedContext = GenericMemoryAllocator::AllocSetContextCreate(
+        t_thrd.top_mem_cxt, "SmallCachedContext",
+        ALLOCSET_SMALL_INITSIZE, ALLOCSET_SMALL_INITSIZE, ALLOCSET_SMALL_MAXSIZE,
+        DEFAULT_MEMORY_CONTEXT_MAX_SIZE, false, false);
+
+    CachedContext = DefaultCachedContext;
+}

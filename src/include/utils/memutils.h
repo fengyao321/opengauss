@@ -100,6 +100,12 @@ extern MemoryContext DMSDrcContext;
 
 extern THR_LOCAL PGDLLIMPORT MemoryContext ErrorContext;
 
+/* Freelist cache parent contexts */
+extern THR_LOCAL MemoryContext CachedContext;
+extern THR_LOCAL MemoryContext DefaultCachedContext;
+extern THR_LOCAL MemoryContext SmallCachedContext;
+extern void CachedContextInit(void);
+
 /*
  * Memory-context-type-independent functions in mcxt.c
  */

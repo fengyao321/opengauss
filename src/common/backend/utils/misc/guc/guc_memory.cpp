@@ -511,6 +511,21 @@ static void InitMemoryConfigureNamesInt()
             NULL,
             NULL},
 #endif
+        {{"enable_cached_size",
+            PGC_POSTMASTER,
+            NODE_ALL,
+            RESOURCES_MEM,
+            gettext_noop("Sets the maximum number of memory contexts cached per freelist."),
+            gettext_noop("When disable_memory_stats is on, deleted memory contexts can be "
+                         "cached and reused. Set to 0 to disable caching entirely.")},
+            &g_instance.attr.attr_memory.enable_cached_size,
+            100,
+            0,
+            1024,
+            NULL,
+            NULL,
+            NULL},
+
         /* End-of-list marker */
         {{NULL,
             (GucContext)0,
