@@ -2337,7 +2337,7 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
             if (*oldTableScanTimes > 0 && oldTableScanFinished) {
                 HeapScanDesc heapScan = (HeapScanDesc)oldTableScan;
                 Assert(!heapScan->rs_base.rs_inited);
-                heapScan->rs_base.rs_cblock = ItemPointerGetBlockNumber(&appender->oldTableScanIdx);
+                heapScan->rs_base.rs_cblock = ItemPointerGetBlockNumberNoCheck(&appender->oldTableScanIdx);
                 heapgetpage((TableScanDesc)heapScan, heapScan->rs_base.rs_cblock);
                 heapScan->rs_base.rs_nblocks = RelationGetNumberOfBlocks(oldPartRelation);
                 heapScan->rs_base.rs_inited = true;
@@ -2412,8 +2412,10 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
         if (*oldTableScanTimes > 0 && oldTableScanFinished) {
             HeapScanDesc heapScan = (HeapScanDesc)oldTableScan;
             Assert(!heapScan->rs_base.rs_inited);
-            heapScan->rs_base.rs_cblock = ItemPointerGetBlockNumber(&appender->oldTableScanIdx);
-            heapgetpage((TableScanDesc)heapScan, heapScan->rs_base.rs_cblock);
+            heapScan->rs_base.rs_cblock = ItemPointerGetBlockNumberNoCheck(&appender->oldTableScanIdx);
+            if (heapScan->rs_base.rs_cblock != 0) {
+                heapgetpage((TableScanDesc)heapScan, heapScan->rs_base.rs_cblock);
+            }
             heapScan->rs_base.rs_nblocks = RelationGetNumberOfBlocks(oldPartRelation);
             heapScan->rs_base.rs_inited = true;
         }
