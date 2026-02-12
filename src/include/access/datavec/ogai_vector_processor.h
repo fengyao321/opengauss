@@ -28,27 +28,98 @@
 #include "utils/builtins.h"
 #include "fmgr.h"
 
-// Maximum number of retries
+/* Forward declaration for bgworker context */
+struct BgWorkerContext;
+
+/* Maximum number of retries */
 #define VECTOR_PROCESSOR_MAX_RETRY_COUNT 3
 
+/* Parallel vectorize configuration */
+#define OGAI_MAX_BATCH_TASKS 10   /* Max tasks per batch */
+#define OGAI_DEFAULT_WORKERS 3    /* Default number of parallel workers */
+
+/* Task result status (set by worker, read by leader) */
+#define TASK_RESULT_PENDING    0
+#define TASK_RESULT_SUCCESS    1
+#define TASK_RESULT_FAIL       2
+
+/* Fail reason buffer size */
+#define OGAI_FAIL_REASON_SIZE 1024
+
+/*
+ * Embedding chunk result for join mode.
+ * Each chunk has its own text and embedding vector.
+ * Memory allocated from INSTANCE_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_STORAGE),
+ * freed by the leader after DML processing.
+ */
+typedef struct OgaiEmbeddingChunk {
+    char *chunkText;      /* chunk text, allocated in instance memory */
+    void *vectorData;     /* serialized Vector datum copy, instance memory */
+    int vectorSize;       /* VARSIZE of the serialized Vector datum */
+} OgaiEmbeddingChunk;
+
+/*
+ * Per-task config needed by leader for DML writes.
+ * Populated by worker (read-only SPI), consumed by leader.
+ */
+typedef struct OgaiTaskConfigResult {
+    char srcSchema[64];
+    char srcTable[64];
+    char primaryKey[64];
+    char tableMethod[32];
+} OgaiTaskConfigResult;
+
+/*
+ * Per-task data in the shared context.
+ * The leader reads the output fields after workers finish, then does all
+ * DML (INSERT/UPDATE/DELETE) in its own transaction.
+ */
+typedef struct OgaiVectorizeTask {
+    /* ---- Input: set by leader in OgaiInitSharedContext ---- */
+    int64 msgId;
+    int taskId;
+    int pkValue;
+    int retryCount;
+
+    /* ---- Output: set by worker ---- */
+    volatile int resultStatus;    /* TASK_RESULT_PENDING / SUCCESS / FAIL */
+    int failType;                 /* OgaiFailType cast to int */
+    char failReason[OGAI_FAIL_REASON_SIZE];
+
+    /* Task config subset needed for leader DML */
+    OgaiTaskConfigResult config;
+
+    /* Append mode: single embedding result */
+    void *vectorData;             /* serialized Vector datum copy, instance memory */
+    int vectorSize;               /* VARSIZE of the serialized Vector datum */
+
+    /* Join mode: array of chunk embedding results */
+    int chunkCount;
+    OgaiEmbeddingChunk *chunks;   /* array allocated in instance memory */
+} OgaiVectorizeTask;
+
+/* Shared context passed to bgworkers for parallel vectorization. */
+typedef struct OgaiVectorizeSharedContext {
+    pg_atomic_uint32 nextTask;     /* Atomic counter for worker task assignment */
+    int taskCount;                  /* Total number of tasks in this batch */
+    OgaiVectorizeTask tasks[OGAI_MAX_BATCH_TASKS];
+} OgaiVectorizeSharedContext;
+
 /**
- * @brief Initialize the vector processor (sets up SPI connection, checks dependent tables, etc.)
- * @return true if initialization succeeds; false if it fails (failure reason will be logged)
+ * @brief Initialize the vector processor (checks dependent tables exist)
+ * @return true if initialization succeeds; false if it fails
  */
 bool OgaiVectorProcessorInit();
 
 /**
- * @brief Scan and process the vectorization queue (core business logic)
- * @note Each call processes up to 10 pending tasks to avoid blocking the worker thread.
- * @return void (errors are logged internally and do not propagate as exceptions,
- *              ensuring worker thread stability)
+ * @brief Launch bgworkers to process the vectorization queue in parallel.
  */
-void OgaiVectorProcessorScanAndProcess();
+void OgaiParallelVectorize(void);
 
 /**
- * @brief Destroy the vector processor (releases SPI resources, etc.)
- * @return void
+ * @brief Worker main function for bgworker-based parallel vectorization.
+ * @param bwc  Background worker context (contains bgshared pointer)
  */
-void OgaiVectorProcessorDestroy();
+void OgaiVectorizeWorkerMain(const BgWorkerContext *bwc);
 
 #endif // OGAI_VECTOR_PROCESSOR_H
