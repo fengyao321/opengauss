@@ -1,0 +1,78 @@
+trying dbname=postgres port=7780,7783,7786 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,127.0.0.1 connect_timeout=
+7780
+
+trying dbname=postgres port=7783,7786,7780 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,127.0.0.1 connect_timeout=
+7783
+
+trying dbname=postgres port=7780ab,7783,7780 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,127.0.0.1 connect_timeout=
+7783
+
+trying dbname=postgres port=7780ab,7783,7780 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,127.0.0.1 target_session_attrs=primary connect_timeout=
+7780
+
+trying dbname=postgres port=7780,7783,7786 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,127.0.0.1 target_session_attrs=standby connect_timeout=
+7783
+
+trying dbname=postgres port=7780ab,7783c,7780 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,127.0.0.1 target_session_attrs=primary connect_timeout=
+7780
+
+trying dbname=postgres port=7780ab,7783c,7780 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,127.0.0.1 target_session_attrs=standby connect_timeout=
+Connection to database failed: invalid integer value for connection option invalid integer value for connection option server is not in hot standby mode
+
+trying dbname=postgres port=7780ab,7783c,7780 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,127.0.0.1 target_session_attrs=prefer-standby connect_timeout=
+7780
+
+trying dbname=postgres port=7780ab,7783,7780 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,127.0.0.1 target_session_attrs=primary load_balance_hosts=random connect_timeout=
+7780
+
+trying dbname=postgres port=7780,7783,7786 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,127.0.0.1 target_session_attrs=standby load_balance_hosts=random connect_timeout=
+7783 7786
+
+trying dbname=postgres port=7780ab,7783c,7780 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,127.0.0.1 target_session_attrs=primary load_balance_hosts=random connect_timeout=
+7780
+
+trying dbname=postgres port=7780ab,7783c,7780 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,127.0.0.1 target_session_attrs=standby load_balance_hosts=random connect_timeout=
+Connection to database failed: invalid integer value for connection option invalid integer value for connection option server is not in hot standby mode
+
+trying dbname=postgres port=7780ab,7783c,7780 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,127.0.0.1 target_session_attrs=prefer-standby load_balance_hosts=random connect_timeout=
+7780
+
+trying dbname=postgres port=7780,7783,7786 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,127.0.0.1 target_session_attrs=prefer-standby load_balance_hosts=random connect_timeout=
+7783 7786
+
+trying dbname=postgres port=7780,7783,7786 user=ipv6_tmp password=Gauss@123 host=host_name,host_name,host_name target_session_attrs=prefer-standby load_balance_hosts=random connect_timeout=
+Connection to database failed: FATAL: no pg_hba.conf entry for host , user , database , SSL off FATAL: no pg_hba.conf entry for host , user , database , SSL off FATAL: no pg_hba.conf entry for host , user , database , SSL off FATAL: no pg_hba.conf entry for host , user , database , SSL off FATAL: no pg_hba.conf entry for host , user , database , SSL off FATAL: no pg_hba.conf entry for host , user , database , SSL off
+
+trying dbname=postgres port=7780,7783,7786 user=ipv6_tmp password=Gauss@123 host=/tmp,/tmp,/tmp target_session_attrs=prefer-standby load_balance_hosts=random connect_timeout=
+
+
+trying dbname=postgres port=7780,7783,7786 user=ipv6_tmp password=Gauss@123 host=host_name,host_name,host_name target_session_attrs=prefer-standby load_balance_hosts=enable connect_timeout=
+Connection to database failed: invalid load_balance_hosts value: 
+
+trying dbname=postgres port=7780,7783,7786 user=ipv6_tmp password=Gauss@123 host=,, target_session_attrs=prefer-standby load_balance_hosts=random connect_timeout=
+
+
+trying dbname=postgres port=7780,7783,7786 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,127.0.0.1,::1 target_session_attrs=prefer-standby load_balance_hosts=random connect_timeout=
+7783 7786
+
+trying dbname=postgres port=7780,7783,7786 user=ipv6_tmp password=Gauss@123 host=127.0.0.1,::1,::1 target_session_attrs=prefer-standby load_balance_hosts=random connect_timeout=
+7783 7786
+
+trying postgres://ipv6_tmp@127.0.0.1:7780,127.0.0.1:7783,127.0.0.1:7786/postgres?password=Gauss@123&target_session_attrs=standby&load_balance_hosts=random&connect_timeout=
+7783 7786
+
+trying postgres://ipv6_tmp@127.0.0.1:7780,127.0.0.1:7783,127.0.0.1:7786/postgres?password=Gauss@123&target_session_attrs=primary&load_balance_hosts=random&connect_timeout=
+7780
+
+trying postgres://ipv6_tmp@127.0.0.1:7780,127.0.0.1:7783,127.0.0.1:7786/postgres?password=Gauss@123&load_balance_hosts=random&connect_timeout=
+7780 7783 7786
+
+trying postgres://ipv6_tmp@[::1]:7780,127.0.0.1:7783,127.0.0.1:7786/postgres?password=Gauss@123&load_balance_hosts=random&connect_timeout=
+7780 7783 7786
+
+trying postgres://ipv6_tmp@[::1]:7780,127.0.0.1:7783,127.0.0.1:7786/postgres?password=Gauss@123&target_session_attrs=standby&load_balance_hosts=random&connect_timeout=
+7783 7786
+
+trying postgres://ipv6_tmp@127.0.0.1:7780,127.0.0.1:7783,127.0.0.1:7786/postgres?password=Gauss@123&target_session_attrs=prefer-standby&load_balance_hosts=random&connect_timeout=
+7783 7786
+

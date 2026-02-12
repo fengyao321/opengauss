@@ -50,8 +50,10 @@ execute_process(
     COMMAND ln -fs ${PROJECT_SRC_DIR}/common/backend/libpq/md5.cpp ${CMAKE_CURRENT_SOURCE_DIR}/md5.cpp
     COMMAND ln -fs ${PROJECT_SRC_DIR}/common/backend/libpq/sha2.cpp ${CMAKE_CURRENT_SOURCE_DIR}/sha2.cpp
     COMMAND ln -fs ${PROJECT_SRC_DIR}/common/port/pgstrcasecmp.cpp ${CMAKE_CURRENT_SOURCE_DIR}/pgstrcasecmp.cpp
+    COMMAND ln -fs ${PROJECT_SRC_DIR}/common/port/pg_bitutils.cpp ${CMAKE_CURRENT_SOURCE_DIR}/pg_bitutils.cpp
     COMMAND ln -fs ${PROJECT_SRC_DIR}/gausskernel/storage/file/fio_device.cpp ${CMAKE_CURRENT_SOURCE_DIR}/fio_device.cpp
     COMMAND ln -fs ${PROJECT_SRC_DIR}/gausskernel/storage/dss/fio_dss.cpp ${CMAKE_CURRENT_SOURCE_DIR}/fio_dss.cpp
+    COMMAND ln -fs ${PROJECT_SRC_DIR}/gausskernel/storage/access/datavec/pg_prng.cpp ${CMAKE_CURRENT_SOURCE_DIR}/pg_prng.cpp
 )
 
 # libpq.a
@@ -91,6 +93,8 @@ list(APPEND TGT_pq_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/frontend_parser/wstrncmp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/fio_device.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/fio_dss.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/pg_prng.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/pg_bitutils.cpp
 
 )
 
@@ -148,8 +152,10 @@ execute_process(
     COMMAND ln -fs ${PROJECT_SRC_DIR}/common/interfaces/libpq/fe-protocol2.cpp ${CMAKE_CURRENT_SOURCE_DIR}/libpq_ce/fe-protocol2.cpp
     COMMAND ln -fs ${PROJECT_SRC_DIR}/common/interfaces/libpq/fe-protocol3.cpp ${CMAKE_CURRENT_SOURCE_DIR}/libpq_ce/fe-protocol3.cpp
     COMMAND ln -fs ${PROJECT_SRC_DIR}/common/interfaces/libpq/fe-secure.cpp ${CMAKE_CURRENT_SOURCE_DIR}/libpq_ce/fe-secure.cpp
+    COMMAND ln -fs ${PROJECT_SRC_DIR}/common/port/pg_bitutils.cpp ${CMAKE_CURRENT_SOURCE_DIR}/pg_bitutils.cpp
     COMMAND ln -fs ${PROJECT_SRC_DIR}/gausskernel/storage/file/fio_device.cpp ${CMAKE_CURRENT_SOURCE_DIR}/fio_device.cpp
     COMMAND ln -fs ${PROJECT_SRC_DIR}/gausskernel/storage/dss/fio_dss.cpp ${CMAKE_CURRENT_SOURCE_DIR}/fio_dss.cpp
+    COMMAND ln -fs ${PROJECT_SRC_DIR}/gausskernel/storage/access/datavec/pg_prng.cpp ${CMAKE_CURRENT_SOURCE_DIR}/pg_prng.cpp
 )
 
 SET(TGT_pq_ce_INC
@@ -197,6 +203,8 @@ list(APPEND TGT_pq_ce_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/cl_state.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/fio_device.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/fio_dss.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/pg_prng.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/pg_bitutils.cpp
 
 )
 set(pq_ce_DEF_OPTIONS  ${MACRO_OPTIONS} -DFRONTEND -DFRONTEND_PARSER -DUNSAFE_STAT_OK -DHAVE_CE -DWORDS_BIGENDIAN -DSO_MAJOR_VERSION=5)

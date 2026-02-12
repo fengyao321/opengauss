@@ -21,9 +21,13 @@ ifneq "$(MAKECMDGOALS)" "clean"
   endif
 endif
 PROGS = testlibpq
+PROGS_b = testlibpq_balance
 
 check_mutilip: $(PROGS)
 	export prefix=$(prefix) && sh check_mutilip.sh
+
+check_mutilip_balance: $(PROGS_b)
+	export prefix=$(prefix) && sh check_mutilip.sh balance
 
 clean:
 	rm -f $(PROGS) *.depend
