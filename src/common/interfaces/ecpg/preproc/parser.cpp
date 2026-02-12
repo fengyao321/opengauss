@@ -75,6 +75,9 @@ int filtered_base_yylex(void)
                 case LAST_P:
                     cur_token = NULLS_LAST;
                     break;
+                case ORDINALITY:
+                    cur_token = WITH_ORDINALITY;
+                    break;
                 default:
                     /* save the lookahead token for next time */
                     lookahead_token = next_token;

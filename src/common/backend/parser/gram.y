@@ -686,6 +686,7 @@ static bool is_temp_table(const char relpst);
                                 a_expr b_expr c_expr c_expr_noparen AexprConst indirection_el siblings_clause
                                 columnref in_expr start_with_clause having_clause func_table array_expr xmltable set_ident_expr set_expr set_expr_extension
 				ExclusionWhereClause func_table_with_table default_on_err_expr
+%type <boolean> opt_ordinality
 %type <list>	ExclusionConstraintList ExclusionConstraintElem
 %type <list>	func_arg_list
 %type <node>	func_arg_expr on_error_clause opt_on_error_clause
@@ -1049,7 +1050,7 @@ static bool is_temp_table(const char relpst);
  * list and so can never be entered directly.  The filter in parser.c
  * creates these tokens when required.
  */
-%token		NULLS_FIRST NULLS_LAST WITH_TIME INCLUDING_ALL
+%token		NULLS_FIRST NULLS_LAST WITH_ORDINALITY WITH_TIME INCLUDING_ALL
 			RENAME_PARTITION
 			PARTITION_FOR
 			SUBPARTITION_FOR
@@ -26204,6 +26205,7 @@ table_ref:
 		{
 			RangeFunction *n = makeNode(RangeFunction);
 			n->funccallnode = $1;
+			n->ordinality = false;
 			n->coldeflist = NIL;
 			$$ = (Node *) n;
 		}
@@ -26211,6 +26213,7 @@ table_ref:
 		{
 			RangeFunction *n = makeNode(RangeFunction);
 			n->funccallnode = $1;
+			n->ordinality = false;
 			n->alias = $2;
 			n->coldeflist = NIL;
 			$$ = (Node *) n;
@@ -26219,6 +26222,7 @@ table_ref:
 		{
 			RangeFunction *n = makeNode(RangeFunction);
 			n->funccallnode = $1;
+			n->ordinality = false;
 			n->coldeflist = $4;
 			$$ = (Node *) n;
 		}
@@ -26227,6 +26231,7 @@ table_ref:
 			RangeFunction *n = makeNode(RangeFunction);
 			Alias *a = makeNode(Alias);
 			n->funccallnode = $1;
+			n->ordinality = false;
 			a->aliasname = $3;
 			n->alias = a;
 			n->coldeflist = $5;
@@ -26237,6 +26242,7 @@ table_ref:
 			RangeFunction *n = makeNode(RangeFunction);
 			Alias *a = makeNode(Alias);
 			n->funccallnode = $1;
+			n->ordinality = false;
 			a->aliasname = $2;
 			n->alias = a;
 			n->coldeflist = $4;
@@ -26283,21 +26289,21 @@ table_ref_for_no_table_function:	relation_expr		%prec UMINUS
 #endif
 					$$ = (Node *) $1;
 				}
+			| LATERAL_EXPR func_table opt_ordinality alias_clause
+				{
+					RangeFunction *n = makeNode(RangeFunction);
+					n->funccallnode = $2;
+					n->ordinality = $3;
+					n->alias = $4;
+					n->coldeflist = NIL;
+					n->lateral = true;
+					$$ = (Node *) n;
+				}
 			| relation_expr alias_clause opt_index_hint_list
 				{
 					$1->alias = $2;
 					$1->indexhints = $3;
 					$$ = (Node *) $1;
-				}
-			
-			| LATERAL_EXPR func_table alias_clause
-				{
-					RangeFunction *n = makeNode(RangeFunction);
-					n->funccallnode = $2;
-					n->alias = $3;
-					n->coldeflist = NIL;
-					n->lateral = true;
-					$$ = (Node *) n;
 				}
 			| relation_expr index_hint_list
 				{
@@ -26463,6 +26469,15 @@ table_ref_for_no_table_function:	relation_expr		%prec UMINUS
 				{
 					RangeFunction *n = makeNode(RangeFunction);
 					n->funccallnode = $1;
+					n->ordinality = false;
+					n->coldeflist = NIL;
+					$$ = (Node *) n;
+				}
+			| func_table WITH_ORDINALITY		%prec UMINUS
+				{
+					RangeFunction *n = makeNode(RangeFunction);
+					n->funccallnode = $1;
+					n->ordinality = true;
 					n->coldeflist = NIL;
 					$$ = (Node *) n;
 				}
@@ -26470,7 +26485,17 @@ table_ref_for_no_table_function:	relation_expr		%prec UMINUS
 				{
 					RangeFunction *n = makeNode(RangeFunction);
 					n->funccallnode = $1;
+					n->ordinality = false;
 					n->alias = $2;
+					n->coldeflist = NIL;
+					$$ = (Node *) n;
+				}
+			| func_table WITH_ORDINALITY alias_clause
+				{
+					RangeFunction *n = makeNode(RangeFunction);
+					n->funccallnode = $1;
+					n->ordinality = true;
+					n->alias = $3;
 					n->coldeflist = NIL;
 					$$ = (Node *) n;
 				}
@@ -26478,7 +26503,16 @@ table_ref_for_no_table_function:	relation_expr		%prec UMINUS
 				{
 					RangeFunction *n = makeNode(RangeFunction);
 					n->funccallnode = $1;
+					n->ordinality = false;
 					n->coldeflist = $4;
+					$$ = (Node *) n;
+				}
+			| func_table WITH_ORDINALITY AS '(' TableFuncElementList ')'
+				{
+					RangeFunction *n = makeNode(RangeFunction);
+					n->funccallnode = $1;
+					n->ordinality = true;
+					n->coldeflist = $5;
 					$$ = (Node *) n;
 				}
 			| func_table AS ColId '(' TableFuncElementList ')'
@@ -26486,9 +26520,21 @@ table_ref_for_no_table_function:	relation_expr		%prec UMINUS
 					RangeFunction *n = makeNode(RangeFunction);
 					Alias *a = makeNode(Alias);
 					n->funccallnode = $1;
+					n->ordinality = false;
 					a->aliasname = $3;
 					n->alias = a;
 					n->coldeflist = $5;
+					$$ = (Node *) n;
+				}
+			| func_table WITH_ORDINALITY AS ColId '(' TableFuncElementList ')'
+				{
+					RangeFunction *n = makeNode(RangeFunction);
+					Alias *a = makeNode(Alias);
+					n->funccallnode = $1;
+					n->ordinality = true;
+					a->aliasname = $4;
+					n->alias = a;
+					n->coldeflist = $6;
 					$$ = (Node *) n;
 				}
 			| func_table ColId '(' TableFuncElementList ')'
@@ -26496,9 +26542,21 @@ table_ref_for_no_table_function:	relation_expr		%prec UMINUS
 					RangeFunction *n = makeNode(RangeFunction);
 					Alias *a = makeNode(Alias);
 					n->funccallnode = $1;
+					n->ordinality = false;
 					a->aliasname = $2;
 					n->alias = a;
 					n->coldeflist = $4;
+					$$ = (Node *) n;
+				}
+			| func_table WITH_ORDINALITY ColId '(' TableFuncElementList ')'
+				{
+					RangeFunction *n = makeNode(RangeFunction);
+					Alias *a = makeNode(Alias);
+					n->funccallnode = $1;
+					n->ordinality = true;
+					a->aliasname = $3;
+					n->alias = a;
+					n->coldeflist = $5;
 					$$ = (Node *) n;
 				}
 			| inline_view		%prec UMINUS
@@ -27116,7 +27174,6 @@ unrotatein_alias:
 				}
 		;
 
-
 join_type:	FULL join_outer							{ $$ = JOIN_FULL; }
 			| LEFT join_outer						{ $$ = JOIN_LEFT; }
 			| RIGHT join_outer						{ $$ = JOIN_RIGHT; }
@@ -27487,6 +27544,9 @@ func_table: func_expr_windowless					{ $$ = $1; }
 		}
 		;
 
+opt_ordinality: WITH_ORDINALITY					{ $$ = true; }
+			| /*EMPTY*/								{ $$ = false; }
+		;
 
 where_clause:
 			WHERE a_expr							{ $$ = $2; }

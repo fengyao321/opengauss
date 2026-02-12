@@ -2943,6 +2943,7 @@ static bool _equalRangeSubselect(const RangeSubselect* a, const RangeSubselect* 
 
 static bool _equalRangeFunction(const RangeFunction* a, const RangeFunction* b)
 {
+    COMPARE_SCALAR_FIELD(ordinality);
     COMPARE_SCALAR_FIELD(lateral);
     COMPARE_NODE_FIELD(funccallnode);
     COMPARE_NODE_FIELD(alias);
@@ -3163,6 +3164,7 @@ static bool _equalRangeTblEntry(const RangeTblEntry* a, const RangeTblEntry* b)
     COMPARE_NODE_FIELD(funccoltypmods);
     COMPARE_NODE_FIELD(funccolcollations);
     COMPARE_NODE_FIELD(tablefunc);
+    COMPARE_SCALAR_FIELD(funcordinality);
     COMPARE_NODE_FIELD(values_lists);
     COMPARE_NODE_FIELD(values_collations);
     COMPARE_STRING_FIELD(ctename);

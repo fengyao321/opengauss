@@ -177,7 +177,7 @@ extern TupleDesc CreateTupleDesc(int natts, bool hasoid, Form_pg_attribute *attr
                                  const TableAmRoutine *tam_ops = TableAmHeap);
 
 extern TupleDesc CreateTupleDescCopy(TupleDesc tupdesc);
-
+extern TupleDesc CreateTupleDescCopyExtend(TupleDesc tupdesc, int moreatts);
 extern TupleDesc CreateTupleDescCopyConstr(TupleDesc tupdesc);
 
 extern void FreeTupleDesc(TupleDesc tupdesc, bool need_check = true);

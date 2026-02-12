@@ -12418,6 +12418,8 @@ static void get_from_clause_item(Node* jtnode, Query* query, deparse_context* co
             case RTE_FUNCTION:
                 /* Function RTE */
                 get_rule_expr_funccall(rte->funcexpr, context, true);
+                if (rte->funcordinality)
+                    appendStringInfoString(buf, " WITH ORDINALITY");
                 break;
             case RTE_TABLEFUNC:
                 get_tablefunc(rte->tablefunc, context, true);
