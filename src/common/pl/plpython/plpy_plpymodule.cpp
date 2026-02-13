@@ -37,6 +37,8 @@ static PyObject* PLy_quote_literal(PyObject* self, PyObject* args);
 static PyObject* PLy_quote_nullable(PyObject* self, PyObject* args);
 static PyObject* PLy_quote_ident(PyObject* self, PyObject* args);
 
+const int SPI_EXCEPTIONS_PART_NUMS = 512;
+
 /* A list of all known exceptions, generated from backend/utils/errcodes.txt */
 typedef struct ExceptionMap {
     char* name;
@@ -202,20 +204,20 @@ static void PLy_add_exceptions(PyObject* plpy)
         PLy_elog(ERROR, "could not add the spiexceptions module");
     }
 
-    g_plpy_t_context.PLy_exc_error = PyErr_NewException("plpy.Error", NULL, NULL);
-    g_plpy_t_context.PLy_exc_fatal = PyErr_NewException("plpy.Fatal", NULL, NULL);
-    g_plpy_t_context.PLy_exc_spi_error = PyErr_NewException("plpy.SPIError", NULL, NULL);
+    g_ply_ctx->PLy_exc_error = PyErr_NewException("plpy.Error", NULL, NULL);
+    g_ply_ctx->PLy_exc_fatal = PyErr_NewException("plpy.Fatal", NULL, NULL);
+    g_ply_ctx->PLy_exc_spi_error = PyErr_NewException("plpy.SPIError", NULL, NULL);
 
-    if (g_plpy_t_context.PLy_exc_error == NULL || g_plpy_t_context.PLy_exc_fatal == NULL ||
-        g_plpy_t_context.PLy_exc_spi_error == NULL)
+    if (g_ply_ctx->PLy_exc_error == NULL || g_ply_ctx->PLy_exc_fatal == NULL ||
+        g_ply_ctx->PLy_exc_spi_error == NULL)
         PLy_elog(ERROR, "could not create the base SPI exceptions");
 
-    Py_INCREF(g_plpy_t_context.PLy_exc_error);
-    PyModule_AddObject(plpy, "Error", g_plpy_t_context.PLy_exc_error);
-    Py_INCREF(g_plpy_t_context.PLy_exc_fatal);
-    PyModule_AddObject(plpy, "Fatal", g_plpy_t_context.PLy_exc_fatal);
-    Py_INCREF(g_plpy_t_context.PLy_exc_spi_error);
-    PyModule_AddObject(plpy, "SPIError", g_plpy_t_context.PLy_exc_spi_error);
+    Py_INCREF(g_ply_ctx->PLy_exc_error);
+    PyModule_AddObject(plpy, "Error", g_ply_ctx->PLy_exc_error);
+    Py_INCREF(g_ply_ctx->PLy_exc_fatal);
+    PyModule_AddObject(plpy, "Fatal", g_ply_ctx->PLy_exc_fatal);
+    Py_INCREF(g_ply_ctx->PLy_exc_spi_error);
+    PyModule_AddObject(plpy, "SPIError", g_ply_ctx->PLy_exc_spi_error);
 
     errno_t rc = EOK;
     rc = memset_s(&hash_ctl, sizeof(hash_ctl), 0, sizeof(hash_ctl));
@@ -224,9 +226,12 @@ static void PLy_add_exceptions(PyObject* plpy)
     hash_ctl.keysize = sizeof(int);
     hash_ctl.entrysize = sizeof(PLyExceptionEntry);
     hash_ctl.hash = tag_hash;
-    g_plpy_t_context.PLy_spi_exceptions = hash_create("Plpy SPI exceptions", 512, &hash_ctl, HASH_ELEM | HASH_FUNCTION);
+    /* spi exceptions, allocate in instance-level context to avoid PLy_spi_exceptions lifetime issue */
+    hash_ctl.hcxt = g_ply_ctx->ply_mctx;
 
-    PLy_generate_spi_exceptions(excmod, g_plpy_t_context.PLy_exc_spi_error);
+    g_ply_ctx->PLy_spi_exceptions = hash_create("Plpy SPI exceptions", SPI_EXCEPTIONS_PART_NUMS,
+        &hash_ctl, HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
+    PLy_generate_spi_exceptions(excmod, g_ply_ctx->PLy_exc_spi_error);
 }
 
 /*
@@ -258,9 +263,8 @@ static void PLy_generate_spi_exceptions(PyObject* mod, PyObject* base)
         Py_INCREF(exc);
         PyModule_AddObject(mod, exception_map[i].classname, exc);
         entry = (PLyExceptionEntry*)hash_search(
-            g_plpy_t_context.PLy_spi_exceptions, &exception_map[i].sqlstate, HASH_ENTER, &found);
+            g_ply_ctx->PLy_spi_exceptions, &exception_map[i].sqlstate, HASH_ENTER, &found);
         entry->exc = exc;
-        Assert(!found);
     }
 }
 
@@ -381,7 +385,7 @@ static PyObject* PLy_output(volatile int level, PyObject* self, PyObject* args)
     }
     if (so == NULL || ((sv = PyString_AsString(so)) == NULL)) {
         level = ERROR;
-        sv = dgettext(TEXTDOMAIN, "could not parse error message in plpy.elog");
+        sv = dgettext(PG_TEXTDOMAIN("plpython"), "could not parse error message in plpy.elog");
     }
 
     oldcontext = CurrentMemoryContext;
@@ -405,7 +409,7 @@ static PyObject* PLy_output(volatile int level, PyObject* self, PyObject* args)
         Py_XDECREF(so);
 
         /* Make Python raise the exception */
-        PLy_exception_set(g_plpy_t_context.PLy_exc_error, "%s", edata->message);
+        PLy_exception_set(g_ply_ctx->PLy_exc_error, "%s", edata->message);
         return NULL;
     }
     PG_END_TRY();
