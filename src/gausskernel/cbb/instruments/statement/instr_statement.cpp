@@ -2786,7 +2786,11 @@ void instr_stmt_diff_wait_events()
     int event_idx = -1;
     int handle_idx = 0;
     while ((event_idx = bms_next_member(CURRENT_STMT_METRIC_HANDLE->wait_events_bitmap, event_idx)) >= 0) {
-        Assert(handle_idx < count);
+        if (unlikely(handle_idx >= count)) {
+            ereport(WARNING, (errmodule(MOD_INSTR), errmsg("[Statement] diff BMS WARNNING because handle_idx(%d) "
+                "exceed count(%d) is empty.\n", handle_idx, count)));
+            break;
+        }
 
         int event_real_id = 0;
         uint8 event_type = 0;

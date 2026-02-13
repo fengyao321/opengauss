@@ -2010,6 +2010,9 @@ int PostmasterMain(int argc, char* argv[])
      */
     SetcbForGetLCName(GetLogicClusterForAlarm);
 
+    /* Make sure the environment variable GAUSSHOME is valid. */
+    (void)getGaussHome();
+
     optCtxt.opterr = 1;
 
     check_short_optOfVoid("A:B:bc:C:D:d:EeFf:h:ijk:lM:N:nOo:Pp:Rr:S:sTt:u:W:g:X:z:-:", argc, argv);

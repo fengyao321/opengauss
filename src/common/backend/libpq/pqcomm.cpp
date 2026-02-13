@@ -1260,8 +1260,12 @@ static int pq_recvbuf(void)
              * cause recursion to here, leading to stack overflow and core
              * dump!  This message must go *only* to the postmaster log.
              */
-            ereport(COMMERROR,
-                (errcode_for_socket_access(), errmsg("could not receive data from client: %s", gs_comm_strerror())));
+            if (t_thrd.int_cxt.ImmediateInterruptOK) {
+                write_stderr("could not receive data from client: %s", gs_comm_strerror());
+            } else {
+                ereport(COMMERROR,
+                    (errcode_for_socket_access(), errmsg("could not receive data from client: %s", gs_comm_strerror())));
+            }
             return EOF;
         }
         if (r == 0) {
