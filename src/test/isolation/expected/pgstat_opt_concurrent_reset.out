@@ -1,0 +1,11 @@
+Parsed test spec with 3 sessions
+
+starting permutation: s1i s2i s3call s3resetdb s3resettab s3resetfunc s1c s2c
+step s1i: INSERT INTO t_pgstat_iso VALUES (1,1);
+step s2i: INSERT INTO t_pgstat_iso VALUES (2,2);
+step s3call: DO $$ BEGIN PERFORM f_pgstat_iso(1); END $$;
+step s3resetdb: DO $$ BEGIN PERFORM pg_stat_reset(); END $$;
+step s3resettab: DO $$ BEGIN PERFORM pg_stat_reset_single_table_counters('t_pgstat_iso'::regclass); END $$;
+step s3resetfunc: DO $$ BEGIN PERFORM pg_stat_reset_single_function_counters('f_pgstat_iso(int)'::regprocedure); END $$;
+step s1c: COMMIT;
+step s2c: COMMIT;
