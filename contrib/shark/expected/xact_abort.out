@@ -1,0 +1,279 @@
+create schema d_dbproc;
+set current_schema = d_dbproc;
+set xact_abort to on;
+set xact_abort on;
+set xact_abort off;
+show xact_abort;--off
+ xact_abort 
+------------
+ off
+(1 row)
+
+create table t1(id int primary key, name VARCHAR(100));
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "t1_pkey" for table "t1"
+insert into t1 values(1, 'zhangsan');
+--xact_abort off
+begin;
+insert into t1 values(1, 'zhangsan');
+ERROR:  duplicate key value violates unique constraint "t1_pkey"
+DETAIL:  Key (id)=(1) already exists.
+insert into t1 values(2, 'lisi');
+end;
+select * from t1; --2row
+ id |   name   
+----+----------
+  1 | zhangsan
+  2 | lisi
+(2 rows)
+
+--savepoint
+begin;
+insert into t1 values(3, 'maliu');
+savepoint p1;
+insert into t1 values(4, 'wangwu');
+rollback to savepoint p1;
+insert into t1 values(5, 'liming');
+rollback;
+select * from t1;--2row
+ id |   name   
+----+----------
+  1 | zhangsan
+  2 | lisi
+(2 rows)
+
+begin;
+insert into t1 values(3, 'maliu');
+savepoint p1;
+insert into t1 values(4, 'wangwu');
+rollback to savepoint p1;
+insert into t1 values(5, 'liming');
+end;
+select * from t1;--4row
+ id |   name   
+----+----------
+  1 | zhangsan
+  2 | lisi
+  3 | maliu
+  5 | liming
+(4 rows)
+
+begin;
+insert into t1 values(1);
+ERROR:  duplicate key value violates unique constraint "t1_pkey"
+DETAIL:  Key (id)=(1) already exists.
+insert into t1 values(4, 'lisi');
+end;
+select * from t1; --5row
+ id |   name   
+----+----------
+  1 | zhangsan
+  2 | lisi
+  3 | maliu
+  5 | liming
+  4 | lisi
+(5 rows)
+
+--xact_abort on
+truncate t1;
+select * from t1;
+ id | name 
+----+------
+(0 rows)
+
+set xact_abort on;
+begin;
+insert into t1 values(1, 'zhangsan');
+insert into t1 values(1, 'zhangsan');
+ERROR:  duplicate key value violates unique constraint "t1_pkey"
+DETAIL:  Key (id)=(1) already exists.
+end;
+select * from t1;
+ id | name 
+----+------
+(0 rows)
+
+--savepoint
+begin;
+insert into t1 values(1, 'zhangsan');
+savepoint p1;
+insert into t1 values(2, 'lisi');
+rollback to savepoint p1;
+insert into t1 values(3, 'wanger');
+end;
+select * from t1;
+ id |   name   
+----+----------
+  1 | zhangsan
+  3 | wanger
+(2 rows)
+
+truncate t1;
+begin;
+insert into t1 values(1, 'zhangsan');
+savepoint p1;
+insert into t1 values(2, 'lisi');
+rollback to savepoint p1;
+insert into t1 values(1, 'wanger');
+ERROR:  duplicate key value violates unique constraint "t1_pkey"
+DETAIL:  Key (id)=(1) already exists.
+end;
+select * from t1;
+ id | name 
+----+------
+(0 rows)
+
+begin;
+insert into t1 values(1, 'zhangsan');
+savepoint p1;
+insert into t1 values(2, 'lisi');
+insert into t1 values(3, 'wanger');
+end;
+select * from t1;
+ id |   name   
+----+----------
+  1 | zhangsan
+  2 | lisi
+  3 | wanger
+(3 rows)
+
+--create procedure
+truncate t1;
+insert into t1 values(2, 'lisi');
+create or replace procedure d_dbproc.proc1()
+as
+begin
+    insert into t1 values(2, 'lisi');
+    insert into t1 values(1, 'wanger');
+end;
+/
+set xact_abort on;
+show xact_abort;
+ xact_abort 
+------------
+ on
+(1 row)
+
+call d_dbproc.proc1();
+ERROR:  duplicate key value violates unique constraint "t1_pkey"
+DETAIL:  Key (id)=(2) already exists.
+CONTEXT:  SQL statement "insert into t1 values(2, 'lisi')"
+PL/pgSQL function proc1() line 2 at SQL statement
+select * from t1;--1row
+ id | name 
+----+------
+  2 | lisi
+(1 row)
+
+truncate t1;
+insert into t1 values(2, 'lisi2');
+create or replace procedure d_dbproc.proc2()
+as
+begin
+    insert into t1 values(2, 'lisi');
+    insert into t1 values(3, 'wanger');
+end;
+/
+set xact_abort off;
+show xact_abort;
+ xact_abort 
+------------
+ off
+(1 row)
+
+call d_dbproc.proc2();
+ proc2 
+-------
+ 
+(1 row)
+
+select * from t1;--2row
+ id |  name  
+----+--------
+  2 | lisi2
+  3 | wanger
+(2 rows)
+
+truncate t1;
+insert into t1 values(2, 'lisi');
+create or replace procedure d_dbproc.proc3() as
+    
+begin
+    insert into t1 values(2, 'zhangsan');
+    insert into t1 values(3, 'zhangsan');
+end;
+/
+set xact_abort on;
+show xact_abort;
+ xact_abort 
+------------
+ on
+(1 row)
+
+call d_dbproc.proc3();
+ERROR:  duplicate key value violates unique constraint "t1_pkey"
+DETAIL:  Key (id)=(2) already exists.
+CONTEXT:  SQL statement "insert into t1 values(2, 'zhangsan')"
+PL/pgSQL function proc3() line 2 at SQL statement
+select * from t1;--3row
+ id | name 
+----+------
+  2 | lisi
+(1 row)
+
+truncate t1;
+insert into t1 values(1, 'zhangsan');
+CREATE OR replace PROCEDURE d_dbproc.proc4() AS
+BEGIN
+        RAISE EXCEPTION 'raise exception';
+        EXCEPTION
+        WHEN OTHERS THEN
+           insert into t1 values(1, 'lisi');
+           insert into t1 values(2, 'wanger');
+END;
+/
+CALL d_dbproc.proc4();
+ERROR:  duplicate key value violates unique constraint "t1_pkey"
+DETAIL:  Key (id)=(1) already exists.
+CONTEXT:  SQL statement "insert into t1 values(1, 'lisi')"
+PL/pgSQL function proc4() line 5 at SQL statement
+select * from t1;
+ id |   name   
+----+----------
+  1 | zhangsan
+(1 row)
+
+set xact_abort off;
+truncate t1;
+insert into t1 values(2, 'lisi');
+CREATE OR replace PROCEDURE d_dbproc.proc5() AS
+BEGIN
+        RAISE EXCEPTION 'raise exception';
+        EXCEPTION
+        WHEN OTHERS THEN
+           insert into t1 values(1, 'lisi');
+           insert into t1 values(2, 'wanger');
+END;
+/
+CALL d_dbproc.proc5();
+ proc5 
+-------
+ 
+(1 row)
+
+select * from t1;
+ id | name 
+----+------
+  2 | lisi
+  1 | lisi
+(2 rows)
+
+--dump
+drop schema d_dbproc cascade;
+NOTICE:  drop cascades to 6 other objects
+DETAIL:  drop cascades to table t1
+drop cascades to function proc1()
+drop cascades to function proc2()
+drop cascades to function proc3()
+drop cascades to function proc4()
+drop cascades to function proc5()
+alter user tester2 set xact_abort to on;

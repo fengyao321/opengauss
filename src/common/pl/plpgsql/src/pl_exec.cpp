@@ -5063,14 +5063,35 @@ static int exec_stmt(PLpgSQL_execstate* estate, PLpgSQL_stmt* stmt, bool resigna
         case PLPGSQL_STMT_EXECSQL: {
             INIT_UNIQUE_SQL_CXT();
             BACKUP_UNIQUE_SQL_CXT();
+            MemoryContext oldcontext = CurrentMemoryContext;
+            ResourceOwner oldowner = t_thrd.utils_cxt.CurrentResourceOwner;
+            if (DB_IS_CMPT(D_FORMAT) && !estate->func->xact_abort && IsTransactionOrTransactionBlock()) {
+                BeginInternalSubTransaction(NULL);
+                MemoryContextSwitchTo(oldcontext);
+            }
             PG_TRY();
             {
                 rc = exec_stmt_execsql(estate, (PLpgSQL_stmt_execsql*)stmt);
+                if (DB_IS_CMPT(D_FORMAT) && !estate->func->xact_abort && IsTransactionOrTransactionBlock()) {
+                    ReleaseCurrentSubTransaction();
+                    MemoryContextSwitchTo(oldcontext);
+                    t_thrd.utils_cxt.CurrentResourceOwner = oldowner;
+                }
             }
             PG_CATCH();
             {
-                RESTORE_UNIQUE_SQL_CXT();
-                PG_RE_THROW();
+                if (DB_IS_CMPT(D_FORMAT) && !estate->func->xact_abort && IsTransactionOrTransactionBlock()) {
+                    RollbackAndReleaseCurrentSubTransaction();
+                    MemoryContextSwitchTo(oldcontext);
+                    t_thrd.utils_cxt.CurrentResourceOwner = oldowner;
+                    FlushErrorState();
+                    SPI_STACK_LOG("end", ((PLpgSQL_stmt_execsql *)stmt)->sqlstmt->query, NULL);
+                    _SPI_end_call(true);
+                    rc = PLPGSQL_RC_OK;
+                } else {
+                    RESTORE_UNIQUE_SQL_CXT();
+                    PG_RE_THROW();
+                }
             }
             PG_END_TRY();
             RESTORE_UNIQUE_SQL_CXT();

@@ -3203,6 +3203,7 @@ typedef struct knl_session_context {
     bool need_report_top_xid;
 
     bool is_autonomous_session;
+    bool is_xact_abort_sub;
 
     uint64 autonomous_parent_sessionid;
 

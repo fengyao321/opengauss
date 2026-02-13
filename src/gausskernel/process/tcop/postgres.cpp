@@ -2896,6 +2896,18 @@ static void exec_simple_query(const char* query_string, MessageType messageType,
         /* Reset the single_shard_stmt flag */
         u_sess->exec_cxt.single_shard_stmt = false;
 
+        /* D_FORMAT xact_abort off ReleaseCurrentSubTransaction */
+        if (u_sess->is_xact_abort_sub) {
+            ReleaseCurrentSubTransaction();
+            u_sess->is_xact_abort_sub = false;
+        }
+        
+        /* D_FORMAT xact_abort off ReleaseCurrentSubTransaction */
+        if (DB_IS_CMPT(D_FORMAT) && !u_sess->attr.attr_common.enable_xact_abort &&
+            TransactionBlockStatusCode() == 'T' && !IsA(parsetree, TransactionStmt)) {
+            BeginInternalSubTransaction(NULL);
+            u_sess->is_xact_abort_sub = true;
+        }
         /*
          * When dealing with a multi-query, get the snippets of each single querys through
          * get_next_snippet which cut the multi-query by query_string_locationlist.
@@ -9140,7 +9152,13 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
         if (u_sess->is_autonomous_session) {
             AbortOutOfAnyTransaction();
         } else {
-            AbortCurrentTransaction();
+            if (u_sess->is_xact_abort_sub) {
+                RollbackAndReleaseCurrentSubTransaction();
+                u_sess->is_xact_abort_sub = false;
+                FlushErrorState();
+            } else {
+                AbortCurrentTransaction();
+            }
         }
 
         ReleaseResownerOutOfTransaction();

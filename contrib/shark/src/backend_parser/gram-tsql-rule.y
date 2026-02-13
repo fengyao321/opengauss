@@ -818,6 +818,17 @@ VariableSetStmt:
 				}
 		;
 
+generic_set:
+			XACT_ABORT var_list
+				{
+					VariableSetStmt *n = makeNode(VariableSetStmt);
+					n->kind = VAR_SET_VALUE;
+					n->name = "xact_abort";
+					n->args = $2;
+					$$ = n;
+				}
+		;
+
 unreserved_keyword:
 			CHECKIDENT
 			| DBCC
@@ -874,6 +885,7 @@ unreserved_keyword:
 			| TSQL_YYYY
 			| TSQL_YY
 			| TSQL_DD
+			| XACT_ABORT
 			| TSQL_NANOSECOND ;
 
 reserved_keyword:
@@ -2347,6 +2359,7 @@ direct_label_keyword: ABORT_P
 			| TSQL_DW
 			| TSQL_W
 			| TSQL_DD
+			| XACT_ABORT
 			| TSQL_D
 			| TSQL_HH
 			| TSQL_MI

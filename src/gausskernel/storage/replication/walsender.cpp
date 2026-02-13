@@ -1393,7 +1393,7 @@ static void CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
             if (u_sess->utils_cxt.FirstSnapshotSet) {
                 ereport(ERROR, (errmsg("CREATE_REPLICATION_SLOT ... USE_SNAPSHOT must be called before any query")));
             }
-            if (IsSubTransaction())
+            if (IsSubTransaction() && !u_sess->is_xact_abort_sub)
                 ereport(ERROR, (errmsg("CREATE_REPLICATION_SLOT ... USE_SNAPSHOT "
                                        "must not be called in a subtransaction")));
         }
