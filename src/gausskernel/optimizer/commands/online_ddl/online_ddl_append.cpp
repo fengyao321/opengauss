@@ -443,6 +443,7 @@ static bool OnlineDDLInsertOpt(OnlineDDLAppender* appender, HeapTuple oldTuple, 
     Assert(appender != NULL);
     bool result = false;
     switch (appender->type) {
+        case ONLINE_DDL_CHECK:
         case ONLINE_DDL_REWRITE: {
             result = OnlineDDLInsertIntoNewRelationAlterMode(appender, oldTuple, hiOptions);
             break;
@@ -453,7 +454,6 @@ static bool OnlineDDLInsertOpt(OnlineDDLAppender* appender, HeapTuple oldTuple, 
             break;
         }
         case ONLINE_DDL_INVALID:
-        case ONLINE_DDL_CHECK:
         default: {
             ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                             errmsg("OnlineDDLInsertOpt error: invalid ddl type %d.", appender->type)));
@@ -2560,29 +2560,18 @@ bool OnlineDDLOnlyCheckForPartitionedTable(OnlineDDLAppender* appender)
     // For partitioned tables, process all partitions together
     List* oldTableScanList = NIL;
     ListCell* oldCell = NULL;
-    ListCell* newCell = NULL;
     ListCell* cell = NULL;
     List* oldPartRelationList = NIL;
-    List* newPartRelationList = NIL;
+    ItemPointerData* partitionScanIndexes = NULL;
+    int partitionNum = list_length(appender->oldPartitionList);
+    partitionScanIndexes = (ItemPointerData*)palloc0(sizeof(ItemPointerData) * partitionNum);
+    int index = 0;
 
     // Open all partition relations
-    forboth(oldCell, appender->oldPartitionList, newCell, appender->newOidList)
+    foreach(oldCell, appender->oldPartitionList)
     {
         Relation oldPartRelation = (Relation)lfirst(oldCell);
-        Oid newPartOid = lfirst_oid(newCell);
-        // Attempt to open new partition table
-        Relation newPartRelation = heap_open(newPartOid, NoLock);
-        // Check if opening new partition table was successful
-        if (newPartRelation == NULL) {
-            // If opening fails, log a warning and skip this partition
-            ereport(WARNING, (errmsg("[Online-DDL] Failed to open new partition with OID %u", newPartOid),
-                              errhint("The partition may have been dropped or renamed during Online DDL process")));
-            continue;
-        }
         oldPartRelationList = lappend(oldPartRelationList, oldPartRelation);
-        newPartRelationList = lappend(newPartRelationList, newPartRelation);
-        // Store the mapping between old and new partition in the hash table
-        AddPartitionOidMapping(appender, RelationGetRelid(oldPartRelation), newPartOid);
     }
 
     foreach (cell, oldPartRelationList) {
@@ -2592,6 +2581,13 @@ bool OnlineDDLOnlyCheckForPartitionedTable(OnlineDDLAppender* appender)
     }
 
     bool firstScan = true;
+    // Maintain separate scan counter for each partition
+    List* oldTableScanTimesList = NIL;
+    foreach (cell, oldPartRelationList) {
+        int* scanTimes = (int*)palloc(sizeof(int));
+        *scanTimes = 0;
+        oldTableScanTimesList = lappend(oldTableScanTimesList, scanTimes);
+    }
 
     /* scan old tables for all partitions */
     while (true) {
@@ -2623,38 +2619,36 @@ bool OnlineDDLOnlyCheckForPartitionedTable(OnlineDDLAppender* appender)
 
         // Iterate through all partitions and scan data for each partition
         ListCell* oldPartRelCell = NULL;
-        ListCell* newPartRelCell = NULL;
         ListCell* oldPartScanCell = NULL;
+        ListCell* oldPartScanTimesCell = NULL;
 
         forthree(oldPartRelCell, oldPartRelationList,  // old partition
-                 newPartRelCell, newPartRelationList,  // temp relation
-                 oldPartScanCell, oldTableScanList)    // old table scan
+                 oldPartScanCell, oldTableScanList,    // old table scan
+                 oldPartScanTimesCell, oldTableScanTimesList)  // scan times for each partition
         {
             Relation oldPartRelation = (Relation)lfirst(oldPartRelCell);
-            Relation newPartRelation = (Relation)lfirst(newPartRelCell);
             TableScanDesc oldTableScan = (TableScanDesc)lfirst(oldPartScanCell);
+            int* oldTableScanTimes = (int*)lfirst(oldPartScanTimesCell);
 
             // Get the starting scan position for this partition from partitionAppendMap
             OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
             ItemPointerData partitionScanIdx = {{0, 0}, 0};
-            if (operators != NULL) {
+            if (firstScan) {
                 partitionScanIdx = operators->getEndCtidForPartition(oldPartRelation->rd_id);
             } else {
-                ItemPointerSet(&partitionScanIdx, 0, 1);
+                partitionScanIdx = partitionScanIndexes[index];
             }
 
             // Temporarily save and replace the relation and scan index in appender
             Relation savedOldRelation = appender->oldRelation;
-            Relation savedNewRelation = appender->newRelation;
             ItemPointerData savedOldTableScanIdx = appender->oldTableScanIdx;
 
             appender->oldRelation = oldPartRelation;
-            appender->newRelation = newPartRelation;
             appender->oldTableScanIdx = partitionScanIdx;
 
             bool oldTableScanFinished = true;
 
-            if (appender->oldTableScanTimes > 0 && oldTableScanFinished) {
+            if (*oldTableScanTimes > 0 && oldTableScanFinished) {
                 HeapScanDesc heapScan = (HeapScanDesc)oldTableScan;
                 Assert(!heapScan->rs_base.rs_inited);
                 heapScan->rs_base.rs_cblock = ItemPointerGetBlockNumberNoCheck(&appender->oldTableScanIdx);
@@ -2666,12 +2660,13 @@ bool OnlineDDLOnlyCheckForPartitionedTable(OnlineDDLAppender* appender)
             }
 
             oldTableScanFinished = OnlineDDLAppendScanOldTable(appender, oldTableScan);
-            appender->oldTableScanTimes += (oldTableScanFinished ? 1 : 0);
+            *oldTableScanTimes += (oldTableScanFinished ? 1 : 0);
 
             // Restore the relation and scan index in appender
+            partitionScanIndexes[index] = appender->oldTableScanIdx;
             appender->oldRelation = savedOldRelation;
-            appender->newRelation = savedNewRelation;
             appender->oldTableScanIdx = savedOldTableScanIdx;
+            index++;
         }
 
         firstScan = false;
@@ -2688,32 +2683,28 @@ bool OnlineDDLOnlyCheckForPartitionedTable(OnlineDDLAppender* appender)
 
     // Append for the last time for each partition - using same structure as main loop
     ListCell* oldPartRelCell = NULL;
-    ListCell* newPartRelCell = NULL;
     ListCell* oldPartScanCell = NULL;
-    forthree(oldPartRelCell, oldPartRelationList,  // old partition
-             newPartRelCell, newPartRelationList,  // temp relation
+    index = 0;
+    forboth(oldPartRelCell, oldPartRelationList,  // old partition
              oldPartScanCell, oldTableScanList)    // old table scan
     {
         Relation oldPartRelation = (Relation)lfirst(oldPartRelCell);
-        Relation newPartRelation = (Relation)lfirst(newPartRelCell);
         TableScanDesc oldTableScan = (TableScanDesc)lfirst(oldPartScanCell);
 
         // Get the starting scan position for this partition from partitionAppendMap
         OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
         ItemPointerData partitionScanIdx = {{0, 0}, 0};
-        if (operators != NULL) {
+        if (firstScan) {
             partitionScanIdx = operators->getEndCtidForPartition(oldPartRelation->rd_id);
         } else {
-            ItemPointerSet(&partitionScanIdx, 0, 1);
+            partitionScanIdx = partitionScanIndexes[index];
         }
 
         // Temporarily save and replace the relation and scan index in appender
         Relation savedOldRelation = appender->oldRelation;
-        Relation savedNewRelation = appender->newRelation;
         ItemPointerData savedOldTableScanIdx = appender->oldTableScanIdx;
 
         appender->oldRelation = oldPartRelation;
-        appender->newRelation = newPartRelation;
         appender->oldTableScanIdx = partitionScanIdx;
 
         // Reinit scanDesc for final scan
@@ -2732,9 +2723,10 @@ bool OnlineDDLOnlyCheckForPartitionedTable(OnlineDDLAppender* appender)
         OnlineDDLAppendScanOldTable(appender, oldTableScan);
 
         // Restore the relation and scan index in appender
+        partitionScanIndexes[index] = appender->oldTableScanIdx;
         appender->oldRelation = savedOldRelation;
-        appender->newRelation = savedNewRelation;
         appender->oldTableScanIdx = savedOldTableScanIdx;
+        index++;
     }
 
     // Clean up old table scanners
@@ -2743,29 +2735,35 @@ bool OnlineDDLOnlyCheckForPartitionedTable(OnlineDDLAppender* appender)
         tableam_scan_end(oldTableScan);
     }
 
+    // Free scan counter
+    foreach (cell, oldTableScanTimesList) {
+        int* scanTimes = (int*)lfirst(cell);
+        pfree(scanTimes);
+    }
+    list_free(oldTableScanTimesList);
+
     // Close partition relations
     foreach (cell, oldPartRelationList) {
         Relation oldPartRelation = (Relation)lfirst(cell);
         heap_close(oldPartRelation, NoLock);
     }
-    foreach (cell, newPartRelationList) {
-        Relation newPartRelation = (Relation)lfirst(cell);
-        heap_close(newPartRelation, NoLock);
-    }
-
+    pfree(partitionScanIndexes);
+    partitionScanIndexes = NULL;
     return true;
 }
 
 bool OnlineDDLOnlyCheck(OnlineDDLAppender* appender)
 {
     bool isPartitioned = appender->oldRelation == NULL && appender->newRelation == NULL &&
-                         appender->oldPartitionList != NIL && appender->newOidList != NIL;
+                         appender->oldPartitionList != NIL && appender->newOidList == NIL;
     if (isPartitioned) {
         Assert(appender->oldRelation == NULL && appender->oldPartitionList != NIL);
-        Assert(appender->newRelation == NULL && appender->newOidList != NIL);
+        Assert(appender->newRelation == NULL && appender->newOidList == NIL);
         return OnlineDDLOnlyCheckForPartitionedTable(appender);
     } else {
-        Assert(appender->oldRelation != NULL && appender->newRelation != NULL);
+        Assert(appender->oldRelation != NULL);
+        ereport(WARNING, (errmsg("Online DDL only check for normal table, oldRelation: %d, newRelation: %d",
+                                  appender->oldRelation != NULL, appender->newRelation != NULL)));
         Assert(appender->oldPartitionList == NIL && appender->newOidList == NIL);
         return OnlineDDLOnlyCheckForNormalTable(appender);
     }
