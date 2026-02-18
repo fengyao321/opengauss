@@ -4061,6 +4061,7 @@ void RelationClearRelation(Relation relation, bool rebuild)
                     errmsg("relation %u deleted while still in use", save_relid)));
         }
 
+        OnlineDDLRelationSetup(newrel);
         newrel->rd_isnailed = relation->rd_isnailed;
         keep_tupdesc = equalTupleDescs(relation->rd_att, newrel->rd_att);
         keep_rules = equalRuleLocks(relation->rd_rules, newrel->rd_rules);
