@@ -809,6 +809,7 @@ test: plpgsql_reset_session plpgsql_nested_array_and_record
 #test: plpgsql_depend
 test: plpgsql_depend/plpgsql_depend_type  plpgsql_depend/plpgsql_pkg_dependency plpgsql_depend/plpgsql_recompile plpgsql_depend/plpgsql_pkg_variable_dependency plpgsql_depend/plpgsql_depend_reftype
 #test: plancache limit rangefuncs prepare
+test: rangefuncs_with_ordinality
 test: returning largeobject
 test: hw_explain_pretty1 hw_explain_pretty2 hw_explain_pretty3
 test: goto
