@@ -319,7 +319,7 @@ insert into test_index_table1 values (2, 2, 2, 2);
 insert into test_index_table1 values (3, 3, 3, 3);
 insert into test_index_table1 values (4, 4, 4, 4);
 analyze test_index_table1;
-select * from INFORMATION_SCHEMA.STATISTICS where table_name = 'test_index_table1' order by 1,2,3,4;
+select * from INFORMATION_SCHEMA.STATISTICS where table_name = 'test_index_table1' order by 1,2,3,4,5,6,7,8,9,10;
 
 
 

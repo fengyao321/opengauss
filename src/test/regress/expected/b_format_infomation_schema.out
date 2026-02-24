@@ -552,26 +552,26 @@ insert into test_index_table1 values (2, 2, 2, 2);
 insert into test_index_table1 values (3, 3, 3, 3);
 insert into test_index_table1 values (4, 4, 4, 4);
 analyze test_index_table1;
-select * from INFORMATION_SCHEMA.STATISTICS where table_name = 'test_index_table1' order by 1,2,3,4;
+select * from INFORMATION_SCHEMA.STATISTICS where table_name = 'test_index_table1' order by 1,2,3,4,5,6,7,8,9,10;
  table_catalog | table_schema |    table_name     | non_unique | index_schema |       index_name       | seq_in_index | column_name | collation | cardinality | sub_part | packed | nullable | index_type | comment | index_comment | is_visible | expression 
 ---------------+--------------+-------------------+------------+--------------+------------------------+--------------+-------------+-----------+-------------+----------+--------+----------+------------+---------+---------------+------------+------------
+ test_b1       | public       | test_index_table1 |          0 | public       | test_index_table1_idx1 |            1 | user_id     | A         |           4 |          |        |          | BTREE      |         |               | YES        | 
  test_b1       | public       | test_index_table1 |          0 | public       | test_index_table1_idx1 |            2 | role_id     | A         |           4 |          |        |          | BTREE      |         |               | YES        | 
  test_b1       | public       | test_index_table1 |          0 | public       | test_index_table1_pkey |            1 | id          | A         |           4 |          |        |          | BTREE      |         |               | YES        | 
- test_b1       | public       | test_index_table1 |          0 | public       | test_index_table1_idx1 |            1 | user_id     | A         |           4 |          |        |          | BTREE      |         |               | YES        | 
- test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx3 |            1 | age         | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
- test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx5 |            1 | age         | A         |           0 |          |        |          | BTREE      |         |               | YES        | 
- test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx7 |            3 | user_id     | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
- test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx7 |            2 | role_id     | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
- test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx7 |            1 | age         | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
  test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx2 |            1 | user_id     | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
  test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx2 |            2 | role_id     | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
  test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx2 |            3 | age         | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx3 |            1 | age         | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx3 |            2 | role_id     | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx3 |            3 | user_id     | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
  test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx4 |            1 | age         | A         |           0 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx5 |            1 | age         | A         |           0 |          |        |          | BTREE      |         |               | YES        | 
  test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx6 |            1 | user_id     | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
  test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx6 |            2 | role_id     | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
  test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx6 |            3 | age         | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
- test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx3 |            3 | user_id     | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
- test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx3 |            2 | role_id     | A         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx7 |            1 | age         | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx7 |            2 | role_id     | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
+ test_b1       | public       | test_index_table1 |          1 | public       | test_index_table1_idx7 |            3 | user_id     | D         |           3 |          |        |          | BTREE      |         |               | YES        | 
 (17 rows)
 
 CREATE TABLE test_index_table2 (
