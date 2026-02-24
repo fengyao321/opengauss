@@ -590,7 +590,7 @@ bool check_XactIsoLevel(char** newval, void** extra, GucSource source)
             return false;
         }
         /* We ignore a subtransaction setting it to the existing value. */
-        if (IsSubTransaction()) {
+        if (IsSubTransaction() && !u_sess->is_xact_abort_sub) {
             GUC_check_errcode(ERRCODE_ACTIVE_SQL_TRANSACTION);
             GUC_check_errmsg("SET TRANSACTION ISOLATION LEVEL must not be called in a subtransaction");
             return false;

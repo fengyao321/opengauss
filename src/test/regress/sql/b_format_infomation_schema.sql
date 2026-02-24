@@ -433,7 +433,7 @@ SUBPARTITION BY RANGE (abs(c2)) (
   )
 );
 
-select table_catalog,table_schema,table_name,partition_name,subpartition_name,partition_ordinal_position,subpartition_ordinal_position,partition_method, subpartition_method,partition_expression,subpartition_expression,partition_description,table_rows,avg_row_length,data_length,max_data_length, index_length, data_free,check_time, partition_comment,nodegroup,tablespace_name  from INFORMATION_SCHEMA.PARTITIONS where table_name = 'partition_table_test4' order by 1,2,3,4;
+select table_catalog,table_schema,table_name,partition_name,subpartition_name,partition_ordinal_position,subpartition_ordinal_position,partition_method, subpartition_method,partition_expression,subpartition_expression,partition_description,table_rows,avg_row_length,data_length,max_data_length, index_length, data_free,check_time, partition_comment,nodegroup,tablespace_name  from INFORMATION_SCHEMA.PARTITIONS where table_name = 'partition_table_test4' order by 1,4,6,7;
 
 drop table partition_table_test1;
 drop table partition_table_test2;
