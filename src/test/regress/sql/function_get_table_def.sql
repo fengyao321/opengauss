@@ -1,3 +1,4 @@
+set b_format_behavior_compat_options = '';
 create schema test_get_table_def;
 set current_schema=test_get_table_def;
 
@@ -229,7 +230,7 @@ drop database if exists b1;
 create database b1 dbcompatibility 'b';
  
 \c b1
-
+set b_format_behavior_compat_options = '';
 CREATE TABLE range_list
 (
     month_code VARCHAR2 ( 30 ) NOT NULL ,
@@ -313,6 +314,7 @@ drop table test_us;
 drop database if exists mysql;
 create database mysql dbcompatibility 'B';
 \c mysql
+set b_format_behavior_compat_options = '';
 create table if not exists test(
     a int,
     b timestamp default now() on update current_timestamp,

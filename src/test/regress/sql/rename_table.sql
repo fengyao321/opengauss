@@ -2,6 +2,7 @@ drop database if exists mysql;
 
 create database mysql dbcompatibility 'B';
 \c mysql
+set b_format_behavior_compat_options = '';
 
 create schema test;
 create schema tbinfo;

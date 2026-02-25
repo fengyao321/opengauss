@@ -3,6 +3,7 @@ SET GLOBAL TRANSACTION READ ONLY;
 SET SESSION TRANSACTION READ ONLY;
 create database test_set_tran dbcompatibility 'b';
 \c test_set_tran
+set b_format_behavior_compat_options = '';
 SET SESSION TRANSACTION READ ONLY;
 CREATE DATABASE test_set_tran1;
 set b_format_behavior_compat_options = 'set_session_transaction';

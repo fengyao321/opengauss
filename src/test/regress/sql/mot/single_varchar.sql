@@ -69,6 +69,7 @@ DROP FOREIGN TABLE VARCHAR_TBL;
 
 CREATE DATABASE db_varchar DBCOMPATIBILITY 'B' ENCODING 'UTF8';
 \c db_varchar
+set b_format_behavior_compat_options = '';
 create Foreign table t_foreign1 (c1 int not null, c2 numeric, c3 char(30));
 insert into t_foreign1 values (1, 50, '嘿嘿');
 insert into t_foreign1 values (1, 50, '嘿嘿嘿嘿嘿嘿嘿嘿嘿嘿');

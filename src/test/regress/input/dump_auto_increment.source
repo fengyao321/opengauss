@@ -5,6 +5,7 @@ create database dump_autoinc_db with dbcompatibility = 'B';
 create database restore_autoinc_db with dbcompatibility = 'B';
 
 \c dump_autoinc_db
+set b_format_behavior_compat_options = '';
 
 -- test rename schema
 create schema gs_dump_test_tmp;
@@ -104,6 +105,7 @@ create table "t_dump007"("c1 &*^@~!%#$+-=/.><[{}]() colmun" int not null primary
 \! @abs_bindir@/gs_restore -d restore_autoinc_db -p @portstring@ @abs_bindir@/dump_autoinc_test.tar >/dev/null 2>&1; echo $?
 
 \c restore_autoinc_db
+set b_format_behavior_compat_options = '';
 -- TEST_DUMP_autoinc_word
 \d "TEST_DUMP_autoinc_word"
 SELECT pg_get_tabledef('"TEST_DUMP_autoinc_word"'::regclass);

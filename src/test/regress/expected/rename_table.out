@@ -2,6 +2,7 @@ drop database if exists mysql;
 NOTICE:  database "mysql" does not exist, skipping
 create database mysql dbcompatibility 'B';
 \c mysql
+set b_format_behavior_compat_options = '';
 create schema test;
 create schema tbinfo;
 create table test.t1(id int);

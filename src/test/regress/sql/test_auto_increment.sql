@@ -5,6 +5,7 @@ ALTER TABLE test_create_autoinc_err AUTO_INCREMENT=100;
 -- create b db
 create database autoinc_b_db with dbcompatibility = 'B';
 \c autoinc_b_db
+set b_format_behavior_compat_options = '';
 -- test CREATE TABLE with AUTO_INCREMENT
 -- test create table
 CREATE TABLE test_create_autoinc(

@@ -102,6 +102,7 @@ drop table test_limit_table;
 -- timestamp with time zone
 -- timestamp1 > timestamp2
 \c B_db
+set b_format_behavior_compat_options = '';
 select timestampdiff(year, '2018-01-01 01:01:01.000001', '2019-02-02 02:02:02.000002');
 select timestampdiff(quarter, '2018-01-01 01:01:01.000001', '2019-02-02 02:02:02.000002');
 select timestampdiff(week, '2018-01-01 01:01:01.000001', '2019-02-02 02:02:02.000002');

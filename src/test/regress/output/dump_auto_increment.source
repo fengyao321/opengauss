@@ -5,6 +5,7 @@ NOTICE:  database "restore_autoinc_db" does not exist, skipping
 create database dump_autoinc_db with dbcompatibility = 'B';
 create database restore_autoinc_db with dbcompatibility = 'B';
 \c dump_autoinc_db
+set b_format_behavior_compat_options = '';
 -- test rename schema
 create schema gs_dump_test_tmp;
 set search_path to gs_dump_test_tmp;
@@ -195,6 +196,7 @@ Options: orientation=row, compression=no
 \! @abs_bindir@/gs_restore -d restore_autoinc_db -p @portstring@ @abs_bindir@/dump_autoinc_test.tar >/dev/null 2>&1; echo $?
 0
 \c restore_autoinc_db
+set b_format_behavior_compat_options = '';
 -- TEST_DUMP_autoinc_word
 \d "TEST_DUMP_autoinc_word"
    Table "public.TEST_DUMP_autoinc_word"
@@ -214,6 +216,7 @@ SELECT pg_get_tabledef('"TEST_DUMP_autoinc_word"'::regclass);
      col2 integer DEFAULT 1,                                     +
      CONSTRAINT "TEST_DUMP_autoinc_word_Col1_key" UNIQUE ("Col1")+
  ) AUTO_INCREMENT = 10                                           +
+ CHARACTER SET = "UTF8" COLLATE = "utf8mb4_general_ci"           +
  WITH (orientation=row, compression=no);
 (1 row)
 
@@ -229,7 +232,9 @@ SELECT pg_get_tabledef('"TEST_DUMP_autoinc_word"'::regclass);
 Indexes:
     "test_dump_autoinc_pk_pkey" PRIMARY KEY, btree (col1) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 INSERT INTO test_dump_autoinc_pk VALUES(0,0);
 select col1,col2 from test_dump_autoinc_pk order by 1,2;
@@ -249,7 +254,9 @@ select col1,col2 from test_dump_autoinc_pk order by 1,2;
 Indexes:
     "test_dump_autoinc_null_col1_key" UNIQUE CONSTRAINT, btree (col1) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 INSERT INTO test_dump_autoinc_null VALUES(0,0);
 select col1,col2 from test_dump_autoinc_null order by 1,2;
@@ -269,7 +276,9 @@ select col1,col2 from test_dump_autoinc_null order by 1,2;
 Indexes:
     "test_dump_autoinc_gtmp_pkey" PRIMARY KEY, btree (col2) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no, on_commit_delete_rows=false
+Options: orientation=row, compression=no, on_commit_delete_rows=false, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 INSERT INTO test_dump_autoinc_gtmp VALUES(0,0);
 select col1,col2 from test_dump_autoinc_gtmp order by 1,2;
@@ -287,7 +296,9 @@ select col1,col2 from test_dump_autoinc_gtmp order by 1,2;
 Indexes:
     "test_dump_autoinc_unlog_col1_key" UNIQUE CONSTRAINT, btree (col1) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 INSERT INTO test_dump_autoinc_unlog VALUES(0,0);
 select col1,col2 from test_dump_autoinc_unlog order by 1,2;
@@ -299,13 +310,13 @@ select col1,col2 from test_dump_autoinc_unlog order by 1,2;
 (3 rows)
 
 \d+ test_dump_autoinc_range_list
-                                    Table "public.test_dump_autoinc_range_list"
- Column |         Type          |                Modifiers                 | Storage  | Stats target | Description 
---------+-----------------------+------------------------------------------+----------+--------------+-------------
- col_1  | integer               | not null AUTO_INCREMENT                  | plain    |              | 
- col_2  | integer               | not null                                 | plain    |              | 
- col_3  | character varying(30) | not null                                 | extended |              | 
- col_4  | integer               | generated always as ((2 * col_2)) stored | plain    |              | 
+                                           Table "public.test_dump_autoinc_range_list"
+ Column |         Type          |                       Modifiers                        | Storage  | Stats target | Description 
+--------+-----------------------+--------------------------------------------------------+----------+--------------+-------------
+ col_1  | integer               | not null AUTO_INCREMENT                                | plain    |              | 
+ col_2  | integer               | not null                                               | plain    |              | 
+ col_3  | character varying(30) | character set UTF8 collate utf8mb4_general_ci not null | extended |              | 
+ col_4  | integer               | generated always as ((2 * col_2)) stored               | plain    |              | 
 Indexes:
     "test_dump_autoinc_range_list_pkey" PRIMARY KEY, btree (col_1) TABLESPACE pg_default
 Check constraints:
@@ -314,7 +325,9 @@ Partition By RANGE(col_1) Subpartition By LIST(col_2)
 Number of partitions: 7 (View pg_partition to check each partition range.)
 Number of subpartitions: 15 (View pg_partition to check each subpartition range.)
 Has OIDs: no
-Options: orientation=row, fillfactor=80, compression=no
+Options: orientation=row, fillfactor=80, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 INSERT INTO test_dump_autoinc_range_list VALUES(0,16,'16');
 select col_1,col_2,col_3,col_4 from test_dump_autoinc_range_list order by 1,2,3,4;
@@ -333,7 +346,9 @@ select col_1,col_2,col_3,col_4 from test_dump_autoinc_range_list order by 1,2,3,
 Indexes:
     "t_dump001_pkey" PRIMARY KEY, btree ("c1 colmun") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 \d+ t_dump002
                                 Table "public.t_dump002"
@@ -343,7 +358,9 @@ Options: orientation=row, compression=no
 Indexes:
     "t_dump002_pkey" PRIMARY KEY, btree ("c1 \ colmun") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 \d+ t_dump003
                                 Table "public.t_dump003"
@@ -353,7 +370,9 @@ Options: orientation=row, compression=no
 Indexes:
     "t_dump003_pkey" PRIMARY KEY, btree ("c1 ? colmun") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 \d+ t_dump004
                                 Table "public.t_dump004"
@@ -363,7 +382,9 @@ Options: orientation=row, compression=no
 Indexes:
     "t_dump004_pkey" PRIMARY KEY, btree ("c1 \? colmun") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 \d+ t_dump005
                                  Table "public.t_dump005"
@@ -373,7 +394,9 @@ Options: orientation=row, compression=no
 Indexes:
     "t_dump005_pkey" PRIMARY KEY, btree ("c1 \ \ colmun") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 \d+ t_dump006
                                  Table "public.t_dump006"
@@ -383,7 +406,9 @@ Options: orientation=row, compression=no
 Indexes:
     "t_dump006_pkey" PRIMARY KEY, btree ("c1 \\\ colmun") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 \d+ t_dump007
                                           Table "public.t_dump007"
@@ -393,7 +418,9 @@ Options: orientation=row, compression=no
 Indexes:
     "t_dump007_pkey" PRIMARY KEY, btree ("c1 &*^@~!%#$+-=/.><[{}]() colmun") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 \c regression
 drop database if exists restore_autoinc_db;

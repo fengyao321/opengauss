@@ -1,6 +1,7 @@
 create database test_charset dbcompatibility='D';
 \c test_charset
 create extension shark;
+set b_format_behavior_compat_options = '';
 --支持排序规则
 create schema sch_ddl_0078 character set = utf8 collate utf8_unicode_ci;
 drop schema sch_ddl_0078;

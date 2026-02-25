@@ -1,3 +1,4 @@
+set b_format_behavior_compat_options = '';
 CREATE SCHEMA partition_a_db_schema;
 SET CURRENT_SCHEMA TO partition_a_db_schema;
 -- -----------------------------------test partitions clause with A compatibility
@@ -611,6 +612,7 @@ DROP SCHEMA partition_a_db_schema CASCADE;
 -- -----------------------------------test with B compatibility
 create database part_bdb WITH ENCODING 'UTF-8' dbcompatibility 'B';
 \c part_bdb
+set b_format_behavior_compat_options = '';
 CREATE SCHEMA partition_b_db_schema;
 SET CURRENT_SCHEMA TO partition_b_db_schema;
 
