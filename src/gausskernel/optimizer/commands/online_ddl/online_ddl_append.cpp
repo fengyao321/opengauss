@@ -2673,6 +2673,7 @@ bool OnlineDDLOnlyCheckForPartitionedTable(OnlineDDLAppender* appender)
         }
 
         // Iterate through all partitions and scan data for each partition
+        index = 0;
         ListCell* oldPartRelCell = NULL;
         ListCell* oldPartScanCell = NULL;
         ListCell* oldPartScanTimesCell = NULL;
@@ -2723,7 +2724,7 @@ bool OnlineDDLOnlyCheckForPartitionedTable(OnlineDDLAppender* appender)
             appender->oldTableScanIdx = savedOldTableScanIdx;
             index++;
         }
-
+        appender->oldTableScanTimes += 1;  // Increment overall scan times after scanning all partitions
         firstScan = false;
         CHECK_FOR_INTERRUPTS();
     }
