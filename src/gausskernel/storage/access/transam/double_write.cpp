@@ -774,9 +774,9 @@ static bool dw_batch_file_recycle(dw_batch_file_context *cxt, uint16 pages_to_wr
     volatile uint16 org_start = file_head->start;
     volatile uint16 org_dwn = file_head->head.dwn;
     uint16 last_flush_page;
-    uint16 dw_batch_page_num;
+    uint32 dw_batch_page_num;
 
-    dw_batch_page_num = (uint16)(cxt->file_size / BLCKSZ);
+    dw_batch_page_num = (uint32)(cxt->file_size / BLCKSZ);
     file_full = (file_head->start + cxt->flush_page + pages_to_write >= dw_batch_page_num);
 
     Assert(!(file_full && trunc_file));
@@ -857,7 +857,7 @@ static bool dw_batch_file_recycle(dw_batch_file_context *cxt, uint16 pages_to_wr
     return true;
 }
 
-static void dw_read_pages(dw_read_asst_t *read_asst, uint16 reading_pages)
+static void dw_read_pages(dw_read_asst_t *read_asst, uint32 reading_pages)
 {
     if (reading_pages > 0) {
         Assert(read_asst->buf_end + reading_pages <= read_asst->buf_capacity);
@@ -882,11 +882,13 @@ static inline void dw_discard_pages(dw_read_asst_t *read_asst, uint16 page_num)
 static uint16 dw_calc_reading_pages(dw_read_asst_t *read_asst, uint64 file_size)
 {
     dw_batch_t *curr_head;
-    uint16 remain_pages, batch_pages, reading_pages;
+    uint32 remain_pages;
+    uint32 batch_pages;
+    uint32 reading_pages;
     errno_t rc;
-    uint16 dw_batch_page_num;
+    uint32 dw_batch_page_num;
 
-    dw_batch_page_num = (uint16) (file_size / BLCKSZ);
+    dw_batch_page_num = (uint32) (file_size / BLCKSZ);
     remain_pages = read_asst->buf_end - read_asst->buf_start;
     curr_head = (dw_batch_t *)(read_asst->buf + read_asst->buf_start * BLCKSZ);
     batch_pages = (GET_REL_PGAENUM(curr_head->page_num) + DW_EXTRA_FOR_ONE_BATCH);
@@ -1029,12 +1031,12 @@ static void dw_recover_partial_write_batch(dw_batch_file_context *cxt)
 {
     dw_read_asst_t read_asst;
     dw_batch_t *curr_head = NULL;
-    uint16 reading_pages;
-    uint16 remain_pages;
+    uint32 reading_pages;
+    uint32 remain_pages;
     bool dw_file_broken = false;
     bool is_new_relfilenode;
     char *data_page = NULL;
-    uint16 dw_batch_page_num = (uint16) (cxt->file_size / BLCKSZ);
+    uint32 dw_batch_page_num = (uint32) (cxt->file_size / BLCKSZ);
 
     read_asst.fd = cxt->fd;
     read_asst.file_start = cxt->file_head->start;

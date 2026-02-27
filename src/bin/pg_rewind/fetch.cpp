@@ -41,7 +41,7 @@ char log_directory[MAXPGPATH] = {0};
  * blocks that need to be fetched, are fetched in BLCKSZ chunks.)
  */
 #define CHUNKSIZE (1024 * 1024)
-#define BLOCKSIZE (8 * 1024)
+#define BLOCKSIZE (BLCKSZ)
 const uint64 MAX_FILE_SIZE = 0xFFFFFFFF;
 #ifndef WIN32
 #define _atoi64(val) strtol(val, NULL, 10)

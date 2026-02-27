@@ -78,6 +78,7 @@ declare version_number=''
 declare make_check='off'
 declare zip_package='on'
 declare extra_config_opt=''
+declare block_size='8192'
 
 #######################################################################
 ##putout the version of mppdb
@@ -107,6 +108,7 @@ function print_help()
     -cv|--gcc_version      gcc-version option: 7.3.0.
     -nopkg|--no_package    don't zip binaries into packages
     -co|--config_opt       more config options
+    -bs|--block_size       support set block size value, only 4096 or 8192, default: 8192
     -S|--show_pkg          show server package name and Bin name base on current configuration.
 "
 }
@@ -259,6 +261,14 @@ while [ $# -gt 0 ]; do
             extra_config_opt=$2
             shift 2
             ;;
+	-bs|--block_size)
+            if [ "$2"X = X ]; then
+                echo "no given block size values"
+                exit 1
+            fi
+            block_size=$2
+            shift 2
+            ;;
         -S|--show_pkg)
             show_package=true
             shift
@@ -286,6 +296,11 @@ elif [ "$gcc_version" == "10.3.0" ] || [ "$gcc_version" == "10.3.1" ]; then
     gcc_version=${gcc_version:0:4}
 else
     echo "Unknown gcc version $gcc_version"
+    exit 1
+fi
+
+if [ "$block_size" != "4096" ] && [ "$block_size" != "8192" ]; then
+    echo "Unsupport block_size: $block_size"
     exit 1
 fi
 
@@ -471,10 +486,14 @@ function install_gaussdb()
     fi
 
     if [ "${PLATFORM_ARCH}"x == "loongarch64"x ]; then
-       CMAKE_OPT="$CMAKE_OPT -DENABLE_BBOX=OFF -DENABLE_JEMALLOC=OFF"
+        CMAKE_OPT="$CMAKE_OPT -DENABLE_BBOX=OFF -DENABLE_JEMALLOC=OFF"
     fi
     CMAKE_OPT="$CMAKE_OPT -DENABLE_OBS=OFF -DENABLE_OPENSSL3=ON"
     
+    if [ "$block_size" == "4096" ]; then
+        CMAKE_OPT="$CMAKE_OPT -DENABLE_BLCKSZ_4K=ON"
+    fi
+
     echo "CMAKE_OPT----> $CMAKE_OPT"
     echo "Begin run cmake for gaussdb server" >> "$LOG_FILE" 2>&1
     echo "CMake options: ${CMAKE_OPT}" >> "$LOG_FILE" 2>&1
