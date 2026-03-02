@@ -275,27 +275,13 @@ NON_EXEC_STATIC void OgaiWorkerMain()
         if (!databaseExists) {
             goto shutdown;
         }
-        OgaiVectorProcessorScanAndProcess();
+
+        OgaiParallelVectorize();
 
         pg_usleep(SCAN_INTERVAL);
     }
-    OgaiVectorProcessorDestroy();
-    ogaiVectorProcessorInited = false;
 
 shutdown:
-
-    if (ogaiVectorProcessorInited) { 
-        OgaiVectorProcessorDestroy();
-        ogaiVectorProcessorInited = false;
-    }
-    pg_atomic_sub_fetch_u32(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->active_ogai_workers, 1);
-    for (int i = 0; i < actualOgaiWorkers; i++) {
-        if (t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].pid == gs_thread_self()) {
-            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].pid = INVALID_PID;
-            t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[i].dbid = InvalidOid;
-            break;
-        }
-    }
-    ereport(LOG, (errmsg("Worker: shutting down")));
+    ereport(LOG, (errmsg("OgaiWorker: shutting down")));
     proc_exit(0);
 }
