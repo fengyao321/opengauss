@@ -30,6 +30,8 @@
 
 constexpr int EXT_RATIO = 4;
 constexpr int HASH_TABLE_ROW_NUM = 65536;
+constexpr int HASH_TABLE_ROW_NUM_MAX = 16777216;  // 16M max entries to prevent OOM
+constexpr double HASH_TABLE_LOAD_FACTOR = 1.5;    // Over-provision by 50% to avoid rehash
 constexpr int MAX_KEY_COLS_NUM = 16;
 constexpr int MAX_AGG_COLS_NUM = 16;
 constexpr int CHAR_BITS = 8;
@@ -46,6 +48,7 @@ constexpr int DPA_MAX_OUTPUT_COLS = 9;
 constexpr int DPA_MAX_CHAR_COL_NUM = 5;
 constexpr int DPA_MAX_CHAR_SIZE = 32;
 constexpr int DPA_MAX_VCHAR_SIZE = 30;
+constexpr int DPA_DEFAULT_NUMERIC_SCALE = 10;  // Default scale for NUMERIC without explicit precision
 
 struct AggStateLog {
     bool restore;
@@ -106,7 +109,8 @@ private:
     void DaeSessionCleanup();
     bool DaeIsSessionReady();
     
-    void DaeAllocHTBL(struct wd_dae_hash_table *table_, struct wd_dae_hash_table *new_table, __u32 row_size);
+    void DaeAllocHTBL(struct wd_dae_hash_table *table_, struct wd_dae_hash_table *new_table,
+		__u32 row_size);
     void DaeFreeHTBL(struct wd_dae_hash_table *table);
     
     bool DaeCollectKeyCollInfo(struct wd_key_col_info *key_cols_info, const Oid colType, int idx, int4 typeMod);
@@ -174,6 +178,16 @@ private:
     Oid* daeKeyColTypes_ = nullptr;
     /* Array of key column typeMods */
     int4* daeKeyColTypeMods_ = nullptr;
+    /* Array of aggregation column input typeMods */
+    int4* daeAggColTypeMods_ = nullptr;
+    /* Array of actual scales extracted from input data (for NUMERIC without typeMod) */
+    int* daeAggColActualScales_ = nullptr;
+    bool* daeAggColScaleSet_ = nullptr;  // Whether actual scale has been set from data
+    
+    /* DPA output batch processing: Handle output larger than BatchMaxSize */
+    int daeProbeOutputOffset_ = 0;       // Current offset in DPA output buffer
+    int daeProbeOutputTotalRows_ = 0;    // Total rows returned by DPA
+    bool daeProbeHasPendingRows_ = false; // Whether there are unprocessed rows
 };
 
 #endif

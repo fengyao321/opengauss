@@ -16,6 +16,8 @@
 #define ENABLE_UADK_AGG false
 #endif
 
+#define DPA_MAX_PRECISION 38
+
 constexpr auto UADK_AGG_SUCCESS = 0;
 constexpr auto UADK_AGG_ERROR = -1;
 

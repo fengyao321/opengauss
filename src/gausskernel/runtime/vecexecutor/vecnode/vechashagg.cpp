@@ -66,6 +66,16 @@ typedef void (*vecbatchagg_func)(HashAggRunner* tbl, hashCell** Loc, VectorBatch
 extern bool anls_opt_is_on(AnalysisOpt dfx_opt);
 
 /*
+ * Transfer/internal function OIDs for aggregation operations.
+ * These OIDs are from pg_proc but lack macro definitions.
+ */
+#define INT4_SUM_TRANSFUNC_OID      1841    /* int4_sum transfer function */
+#define INT8_SUM_TRANSFUNC_OID      1842    /* int8_sum transfer function */
+#define NUMERIC_ADD_TRANSFUNC_OID   1724    /* numeric_add transfer function */
+#define COUNT_INT4_FUNCOID          2804    /* count(int4) -> int8 */
+#define INT8INC_FUNCOID             1219    /* int8inc count transfer function */
+
+/*
  * @Description: constructed function of hash agg. Init information for the hash agg node.
  */
 HashAggRunner::HashAggRunner(VecAggState* runtime) : BaseAggRunner(runtime, true)
@@ -1077,21 +1087,63 @@ void HashAggRunner::HashTableGrowUp()
     }
 }
 
-void HashAggRunner::DaeAllocHTBL(struct wd_dae_hash_table *table_, struct wd_dae_hash_table *new_table, __u32 row_size)
+// Common constants for DPA numeric precision handling
+static const int DPA_NUMERIC_PRECISION_SHIFT = 16;
+static const int DPA_NUMERIC_SCALE_MASK = 0xffff;
+
+static void DaeCalcHTBLRows(struct wd_dae_hash_table *table, struct wd_dae_hash_table *newTable)
 {
-    __u64 size;
-    if (table_) {
-        new_table->std_table_row_num = EXT_RATIO * table_->std_table_row_num;
-        new_table->ext_table_row_num = EXT_RATIO * table_->ext_table_row_num;
+    if (table) {
+        newTable->std_table_row_num = EXT_RATIO * table->std_table_row_num;
+        newTable->ext_table_row_num = EXT_RATIO * table->ext_table_row_num;
     } else {
-        new_table->std_table_row_num = HASH_TABLE_ROW_NUM;
-        new_table->ext_table_row_num = HASH_TABLE_ROW_NUM;
+        newTable->std_table_row_num = HASH_TABLE_ROW_NUM;
+        newTable->ext_table_row_num = HASH_TABLE_ROW_NUM;
+    }
+}
+
+static bool DaeCapHTBLRows(struct wd_dae_hash_table *newTable, __u32 row_size)
+{
+    const __u32 MIN_EXT_ROWS = 1;
+
+    if (row_size == 0) {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                        errmsg("DPA: row_size cannot be zero in DaeAllocHTBL")));
+        return false;
+    }
+    __u32 ext_extra_rows = (row_size == EXT_ROW_SIZE1) ? (__u32)EXT_ROW_BYTES1 :
+                           (row_size == EXT_ROW_SIZE2) ? (__u32)EXT_ROW_BYTES2 : 0;
+    __u32 max_std_rows = (__u32)(MaxAllocSize / row_size);
+    __u32 max_ext_rows = (max_std_rows > ext_extra_rows) ? (max_std_rows - ext_extra_rows) : MIN_EXT_ROWS;
+    
+    if (newTable->std_table_row_num > max_std_rows) {
+        ereport(DEBUG1, (errmsg("DPA: capping std_table_row_num from %u to %u (MaxAllocSize constraint)",
+                                newTable->std_table_row_num, max_std_rows)));
+        newTable->std_table_row_num = max_std_rows;
+    }
+    if (newTable->ext_table_row_num > max_ext_rows) {
+        ereport(DEBUG1, (errmsg("DPA: capping ext_table_row_num from %u to %u (MaxAllocSize constraint)",
+                                newTable->ext_table_row_num, max_ext_rows)));
+        newTable->ext_table_row_num = max_ext_rows;
+    }
+    return true;
+}
+
+void HashAggRunner::DaeAllocHTBL(struct wd_dae_hash_table *table_, struct wd_dae_hash_table *new_table,
+	__u32 row_size)
+{
+    DaeCalcHTBLRows(table_, new_table);
+    new_table->table_row_size = row_size;
+
+    if (!DaeCapHTBLRows(new_table, row_size)) {
+        return;
     }
 
-    new_table->table_row_size = row_size;
 	/* Use DPA context for DPA hash table memory */
     MemoryContext oldContext = MemoryContextSwitchTo(m_dpaContext);
     new_table->std_table = palloc(row_size * new_table->std_table_row_num);
+    
+    __u64 size;
     if (row_size == EXT_ROW_SIZE1) {
         size = (__u64)row_size * (new_table->ext_table_row_num + EXT_ROW_BYTES1);
     } else if (row_size == EXT_ROW_SIZE2) {
@@ -1121,6 +1173,12 @@ static wd_dae_data_type MapOidToDAEType(Oid oid)
             return WD_DAE_CHAR;
         case VARCHAROID:
             return WD_DAE_VARCHAR;
+        case NUMERICOID:
+            return WD_DAE_LONG_DECIMAL;
+        case DATEOID:
+            return WD_DAE_DATE;
+        case TIMESTAMPOID:
+            return WD_DAE_LONG;  // Timestamp stored as int64
         default:
             return WD_DAE_DATA_TYPE_MAX;
     }
@@ -1129,42 +1187,71 @@ static wd_dae_data_type MapOidToDAEType(Oid oid)
 static wd_agg_alg MapAggFuncOidToAlg(Oid aggFuncOid)
 {
     switch (aggFuncOid) {
-        case 2108:  // sum(int8) -> numeric (agg func OID)
-        case 1842:  // int8_sum (transfer OID, sum(int8))
+        case INT4SUMFUNCOID:
+        case INT4_SUM_TRANSFUNC_OID:
+        case INT8_SUM_TRANSFUNC_OID:
+        case NUMERICSUMFUNCOID:
+        case NUMERIC_ADD_TRANSFUNC_OID:
             return WD_AGG_SUM;
-        case 2147:  // count(any) -> int8
-        case 2804:  // count(int4) -> int8
+        case ANYCOUNTOID:
+        case COUNT_INT4_FUNCOID:
+        case COUNTOID:
+        case INT8INC_FUNCOID:
             return WD_AGG_COUNT;
-        case 2109:  // sum(int4) -> int8
-        case 2110:  // sum(int2) -> int8
-        case 2111:  // sum(float4) -> float4
-        case 2112:  // sum(float8) -> float8
-        case 2114:  // sum(numeric) -> numeric
-        case 2803:  // count(*) -> int8
-            return WD_AGG_ALG_TYPE_MAX;
         default:
             return WD_AGG_ALG_TYPE_MAX;
     }
 }
 
-static bool DaeSetupBpcharKeyType(struct wd_key_col_info *col_info, int4 typeMod)
+static bool DaeSetupBpcharKeyType(struct wd_key_col_info *colInfo, int4 typeMod)
 {
-    col_info->input_data_type = WD_DAE_CHAR;
+    colInfo->input_data_type = WD_DAE_CHAR;
     
     if (typeMod <= (int32)VARHDRSZ) {
         ereport(WARNING, (errmsg("DPA: Invalid BPCHAR typeMod: %d", typeMod)));
         return false;
     }
     
-    int char_len = typeMod - VARHDRSZ;
-    if (char_len > DPA_MAX_CHAR_SIZE) {
+    int charLen = typeMod - VARHDRSZ;
+    if (charLen > DPA_MAX_CHAR_SIZE) {
         ereport(WARNING,
             (errmsg("DPA: CHAR(%d) length exceeds hardware limit %d",
-                    char_len, DPA_MAX_CHAR_SIZE)));
+                    charLen, DPA_MAX_CHAR_SIZE)));
         return false;
     }
     
-    col_info->col_data_info = char_len;
+    colInfo->col_data_info = charLen;
+    return true;
+}
+
+static bool DaeCheckNumericPrecision(int4 typeMod, uint16 *precision, uint16 *scale, const char *context)
+{
+    if (typeMod >= (int32)VARHDRSZ) {
+        int32 tmp_typmod = typeMod - VARHDRSZ;
+        *precision = (uint16)((tmp_typmod >> DPA_NUMERIC_PRECISION_SHIFT) & DPA_NUMERIC_SCALE_MASK);
+        if (*precision > DPA_MAX_PRECISION) {
+            ereport(WARNING,
+                (errmsg("DPA: NUMERIC precision %d exceeds UADK 128-bit limit (38) for %s. "
+                        "Falling back to native implementation.",
+                        *precision, context)));
+            return false;
+        }
+        *scale = (uint16)(tmp_typmod & DPA_NUMERIC_SCALE_MASK);
+    } else {
+        /*
+         * NUMERIC without explicit precision (e.g., from expression like a * b)
+         * Use default precision/scale that fits within int128 (38 digits max).
+         *
+         * Default: precision=38 (max for int128), scale=DPA_DEFAULT_NUMERIC_SCALE
+         * This allows expressions like "price * (1 - discount)" to be accelerated.
+         */
+        *precision = DPA_MAX_PRECISION;
+        *scale = DPA_DEFAULT_NUMERIC_SCALE;
+        ereport(DEBUG1,
+            (errmsg("DPA: NUMERIC without explicit precision for %s, using default (precision=%d, scale=%d)",
+                    context, *precision, *scale)));
+    }
+
     return true;
 }
 
@@ -1174,23 +1261,42 @@ bool HashAggRunner::DaeCollectKeyCollInfo(struct wd_key_col_info *key_cols_info,
     if (colType == BPCHAROID) {
         return DaeSetupBpcharKeyType(&key_cols_info[idx], typeMod);
     } else if (colType == VARCHAROID) {
-        int varchar_len = (typeMod > (int32)VARHDRSZ) ? (typeMod - VARHDRSZ) : 0;
-        
-        if (varchar_len > DPA_MAX_VCHAR_SIZE) {
+        if (typeMod <= (int32)VARHDRSZ) {
             ereport(WARNING,
-                (errmsg("DPA: Key VARCHAR(%d) exceeds hardware limit %d bytes, fallback to CPU",
-                        varchar_len, DPA_MAX_VCHAR_SIZE)));
+                (errmsg("DPA: VARCHAR without explicit length not supported for key column %d (UADK limit: %d bytes). "
+                        "Please use VARCHAR(n) with n <= %d. Falling back to native implementation.",
+                        idx, DPA_MAX_VCHAR_SIZE, DPA_MAX_VCHAR_SIZE)));
             return false;
         }
-        
+        int varcharLen = typeMod - VARHDRSZ;
+        if (varcharLen > DPA_MAX_VCHAR_SIZE) {
+            ereport(WARNING,
+                (errmsg("DPA: Key VARCHAR(%d) exceeds hardware limit %d bytes, fallback to CPU",
+                        varcharLen, DPA_MAX_VCHAR_SIZE)));
+            return false;
+        }
         key_cols_info[idx].input_data_type = WD_DAE_VARCHAR;
-        key_cols_info[idx].col_data_info = (varchar_len > 0) ? varchar_len : 0;
+        key_cols_info[idx].col_data_info = varcharLen;
     } else if (colType == INT8OID) {
         key_cols_info[idx].input_data_type = WD_DAE_LONG;
         key_cols_info[idx].col_data_info = sizeof(int64);
     } else if (colType == INT4OID) {
         key_cols_info[idx].input_data_type = WD_DAE_INT;
         key_cols_info[idx].col_data_info = sizeof(int32);
+    } else if (colType == NUMERICOID) {
+        uint16 precision = 0;
+        uint16 scale = 0;
+        if (!DaeCheckNumericPrecision(typeMod, &precision, &scale, "key column")) {
+            return false;
+        }
+        key_cols_info[idx].input_data_type = WD_DAE_LONG_DECIMAL;
+        key_cols_info[idx].col_data_info = (scale << CHAR_BITS) | precision;
+    } else if (colType == DATEOID) {
+        key_cols_info[idx].input_data_type = WD_DAE_DATE;
+        key_cols_info[idx].col_data_info = sizeof(int32);
+    } else if (colType == TIMESTAMPOID) {
+        key_cols_info[idx].input_data_type = WD_DAE_LONG;
+        key_cols_info[idx].col_data_info = sizeof(int64);
     } else {
         ereport(WARNING, (errmsg("DPA: Unsupported key column type OID: %u", colType)));
         return false;
@@ -1198,49 +1304,179 @@ bool HashAggRunner::DaeCollectKeyCollInfo(struct wd_key_col_info *key_cols_info,
     return true;
 }
 
-static bool DaeSetupSumInputType(struct wd_agg_col_info *col_info, Oid inputColType)
+static bool DaeSetupSumInputType(struct wd_agg_col_info *colInfo, Oid inputColType, int4 typeMod)
 {
-    if (inputColType != INT8OID) {
-        ereport(WARNING, (errmsg("DPA: SUM aggregation only supports INT8, got type OID: %u", inputColType)));
+    if (inputColType == INT8OID) {
+        colInfo->input_data_type = WD_DAE_LONG;
+        colInfo->col_data_info = sizeof(int64);
+    } else if (inputColType == INT4OID) {
+        colInfo->input_data_type = WD_DAE_LONG;
+        colInfo->col_data_info = sizeof(int64);
+    } else if (inputColType == NUMERICOID) {
+        uint16 precision = 0;
+        uint16 scale = 0;
+        if (!DaeCheckNumericPrecision(typeMod, &precision, &scale, "SUM aggregation")) {
+            return false;
+        }
+        colInfo->input_data_type = WD_DAE_LONG_DECIMAL;
+        colInfo->col_data_info = (scale << CHAR_BITS) | precision;
+    } else {
+        ereport(WARNING,
+			(errmsg("DPA: SUM aggregation only supports INT8/NUMERIC/int4, got type OID: %u", inputColType)));
         return false;
     }
-    
-    col_info->input_data_type = WD_DAE_LONG;
-    col_info->col_data_info = sizeof(int64);
     return true;
 }
 
-static bool DaeSetupCountBpcharType(struct wd_agg_col_info *col_info, int4 typeMod)
+static bool DaeSetupCountBpcharType(struct wd_agg_col_info *colInfo, int4 typeMod)
 {
-    col_info->input_data_type = WD_DAE_CHAR;
+    colInfo->input_data_type = WD_DAE_CHAR;
     
     if (typeMod <= (int32)VARHDRSZ) {
         ereport(WARNING, (errmsg("DPA: Invalid BPCHAR typeMod: %d for COUNT aggregation", typeMod)));
         return false;
     }
     
-    int char_len = typeMod - VARHDRSZ;
-    col_info->col_data_info = char_len;
+    int charLen = typeMod - VARHDRSZ;
+    colInfo->col_data_info = charLen;
     return true;
 }
 
-static bool DaeSetupCountInputType(struct wd_agg_col_info *col_info, Oid inputColType, int4 typeMod)
+template<typename DestType, typename ConvertFunc>
+static void DaeBuildColBasicType(
+    struct wd_dae_col_addr *col,
+    ScalarValue* vals,
+    uint8* flags,
+    int32 rows,
+    ConvertFunc convert)
+{
+    DestType *dest = (DestType *)col->value;
+    uint8 *empty = col->empty;
+    
+    for (int32 j = 0; j < rows; j++) {
+        if (likely(NOT_NULL(flags[j]))) {
+            dest[j] = convert(vals[j]);
+            empty[j] = 0;
+        } else {
+            dest[j] = 0;
+            empty[j] = 1;
+        }
+    }
+    
+    col->value_size = rows * sizeof(DestType);
+    col->empty_size = rows * sizeof(__u8);
+}
+
+static inline int32 ConvertInt32(ScalarValue val) { return (int32)val; }
+static inline int64 ConvertInt64(ScalarValue val) { return (int64)val; }
+static inline int64 ConvertInt32ToInt64(ScalarValue val) { return (int64)(int32)val; }
+static inline int32 ConvertDate(ScalarValue val) { return DatumGetDateADT(val); }
+static inline int64 ConvertTimestamp(ScalarValue val) { return DatumGetTimestamp(val); }
+
+static inline void DaeTryCaptureNumericScale(Numeric num, int scale, bool *scaleFound, int *outActualScale)
+{
+    if (*scaleFound || outActualScale == nullptr) {
+        return;
+    }
+    *outActualScale = scale;
+    *scaleFound = true;
+}
+
+/*
+ * DaeBuildColNumeric - Build NUMERIC column for DAE input
+ *
+ * Following openGauss native approach: extract scale from actual data values
+ * rather than relying on typeMod (which is often invalid for expressions).
+ *
+ * outActualScale: if not NULL, stores the scale extracted from first non-null value
+ * scaleAlreadySet: if true, outActualScale is not modified (already captured earlier)
+ */
+static void DaeBuildColNumeric(struct wd_dae_col_addr *col, ScalarValue* vals, uint8* flags, int32 rows,
+                               int* outActualScale = nullptr, bool scaleAlreadySet = false)
+{
+    __int128 *dest = (__int128 *)col->value;
+    uint8 *empty = col->empty;
+    bool scaleFound = scaleAlreadySet;
+    
+    for (int32 j = 0; j < rows; j++) {
+        if (!NOT_NULL(flags[j])) {
+            dest[j] = 0;
+            empty[j] = 1;
+            continue;
+        }
+
+        Numeric num = DatumGetNumeric(vals[j]);
+        if (likely(NUMERIC_IS_BI64(num))) {
+            dest[j] = (__int128)NUMERIC_64VALUE(num);
+            empty[j] = 0;
+            DaeTryCaptureNumericScale(num, NUMERIC_BI_SCALE(num), &scaleFound, outActualScale);
+        } else if (NUMERIC_IS_BI128(num)) {
+            int128 result;
+            errno_t rc = memcpy_s(&result, sizeof(int128), num->choice.n_bi.n_data, sizeof(int128));
+            securec_check(rc, "\0", "\0");
+            dest[j] = result;
+            empty[j] = 0;
+            DaeTryCaptureNumericScale(num, NUMERIC_BI_SCALE(num), &scaleFound, outActualScale);
+        } else if (NUMERIC_IS_SHORT(num)) {
+            int scale = NUMERIC_DSCALE(num);
+            int128 result = 0;
+            convert_short_numeric_to_int128_byscale(num, scale, result);
+            dest[j] = result;
+            empty[j] = 0;
+            DaeTryCaptureNumericScale(num, scale, &scaleFound, outActualScale);
+        } else {
+            dest[j] = 0;
+            empty[j] = 1;
+        }
+    }
+    
+    col->value_size = rows * sizeof(__int128);
+    col->empty_size = rows * sizeof(__u8);
+}
+
+static bool DaeSetupCountInputType(struct wd_agg_col_info *colInfo, Oid inputColType, int4 typeMod)
 {
     if (inputColType == BPCHAROID) {
-        return DaeSetupCountBpcharType(col_info, typeMod);
+        return DaeSetupCountBpcharType(colInfo, typeMod);
     } else if (inputColType == VARCHAROID) {
-        col_info->input_data_type = WD_DAE_VARCHAR;
-        col_info->col_data_info = 0;
+        if (typeMod <= (int32)VARHDRSZ) {
+            ereport(WARNING, (errmsg(
+                "DPA: VARCHAR without explicit length not supported for COUNT aggregation (UADK limit: %d bytes). "
+                "Please use VARCHAR(n) with n <= %d. Falling back to native implementation.",
+                DPA_MAX_VCHAR_SIZE, DPA_MAX_VCHAR_SIZE)));
+            return false;
+        }
+        int varcharLen = typeMod - VARHDRSZ;
+        if (varcharLen > DPA_MAX_VCHAR_SIZE) {
+            ereport(WARNING, (errmsg("DPA: COUNT VARCHAR(%d) exceeds hardware limit %d bytes, fallback to CPU",
+                varcharLen, DPA_MAX_VCHAR_SIZE)));
+            return false;
+        }
+        colInfo->input_data_type = WD_DAE_VARCHAR;
+        colInfo->col_data_info = varcharLen;
     } else if (inputColType == INT8OID) {
-        col_info->input_data_type = WD_DAE_LONG;
-        col_info->col_data_info = sizeof(int64);
+        colInfo->input_data_type = WD_DAE_LONG;
+        colInfo->col_data_info = sizeof(int64);
     } else if (inputColType == INT4OID) {
-        col_info->input_data_type = WD_DAE_INT;
-        col_info->col_data_info = sizeof(int32);
+        colInfo->input_data_type = WD_DAE_INT;
+        colInfo->col_data_info = sizeof(int32);
+    } else if (inputColType == NUMERICOID) {
+        uint16 precision = 0;
+        uint16 scale = 0;
+        if (!DaeCheckNumericPrecision(typeMod, &precision, &scale, "COUNT aggregation")) {
+            return false;
+        }
+        colInfo->input_data_type = WD_DAE_LONG_DECIMAL;
+        colInfo->col_data_info = (scale << CHAR_BITS) | precision;
+    } else if (inputColType == DATEOID) {
+        colInfo->input_data_type = WD_DAE_DATE;
+        colInfo->col_data_info = sizeof(int32);
+    } else if (inputColType == TIMESTAMPOID) {
+        colInfo->input_data_type = WD_DAE_LONG;
+        colInfo->col_data_info = sizeof(int64);
     } else {
-        ereport(WARNING,
-            (errmsg("DPA: COUNT aggregation only supports INT4/INT8/VARCHAR/CHAR, got type OID: %u",
-                    inputColType)));
+        ereport(WARNING, (errmsg("DPA: COUNT aggregation only supports INT4/INT8/VARCHAR/CHAR/NUMERIC/DATE/TIMESTAMP, "
+            "got type OID: %u", inputColType)));
         return false;
     }
     return true;
@@ -1257,17 +1493,17 @@ static enum wd_dae_data_type DaeGetOutputDataType(wd_agg_alg aggAlg, Oid inputCo
 bool HashAggRunner::DaeCollectAggCollInfo(struct wd_agg_col_info *agg_cols_info, Oid inputColType, Oid outputColType,
     int idx, int4 typeMod, Oid aggFuncOid)
 {
-    agg_cols_info[idx].col_alg_num = 1;
-    
     wd_agg_alg aggAlg = MapAggFuncOidToAlg(aggFuncOid);
     if (aggAlg == WD_AGG_ALG_TYPE_MAX) {
         ereport(WARNING, (errmsg("DPA: Unsupported aggregation function OID: %u", aggFuncOid)));
         return false;
     }
     
+    agg_cols_info[idx].col_alg_num = 1;
+    
     bool setup_ok = false;
     if (aggAlg == WD_AGG_SUM) {
-        setup_ok = DaeSetupSumInputType(&agg_cols_info[idx], inputColType);
+        setup_ok = DaeSetupSumInputType(&agg_cols_info[idx], inputColType, typeMod);
     } else if (aggAlg == WD_AGG_COUNT) {
         setup_ok = DaeSetupCountInputType(&agg_cols_info[idx], inputColType, typeMod);
     } else {
@@ -1372,6 +1608,12 @@ static bool DaeAllocValueAddr(struct wd_dae_col_addr *col, __u32 row_num, enum w
             col[index].value = palloc(sizeof(long long) * row_num);
             col[index].value_size = sizeof(long long) * row_num;
             break;
+        case WD_DAE_LONG_DECIMAL:
+            // NUMERIC type: use fixed-size allocation (16 bytes per value)
+            // This is sufficient for most NUMERIC(precision, scale) values
+            col[index].value = palloc(sizeof(__int128) * row_num);
+            col[index].value_size = sizeof(__int128) * row_num;
+            break;
         case WD_DAE_CHAR:
             col[index].value = palloc(data_info * row_num);
             col[index].value_size = data_info * row_num;
@@ -1388,6 +1630,8 @@ static bool DaeAllocValueAddr(struct wd_dae_col_addr *col, __u32 row_num, enum w
             col[index].value_size = MAX_CHAR_SIZE * row_num;
             break;
         default:
+            ereport(WARNING,
+                (errmsg("DPA: Unsupported data type %d in DaeAllocValueAddr", type)));
             return true;
     }
 
@@ -1514,6 +1758,8 @@ bool HashAggRunner::DaeInitAggOutputAddress(struct wd_agg_sess_setup *setup)
             return true;
         }
     }
+
+    ereport(DEBUG1, (errmsg("DPA: Total allocated output columns: %d", k)));
     daeReq_.out_agg_cols = agg_out_cols;
     return false;
 }
@@ -1544,33 +1790,39 @@ bool HashAggRunner::DaeInitInputOutputMem(struct wd_agg_sess_setup *setup, Vecto
 }
 
 static void DaeBuildColBpchar(struct wd_dae_col_addr *col, ScalarValue* vals, uint8* flags,
-    int32 rows, int data_len)
+    int32 rows, int dataLen)
 {
     char *dest = (char *)col->value;
     uint8 *empty = col->empty;
-    bool has_null_flag = (flags != NULL);
+    char *destPtr = dest;
     
     for (int32 j = 0; j < rows; j++) {
-        bool is_not_null = !has_null_flag || NOT_NULL(flags[j]);
-        if (is_not_null) {
+        if (likely(NOT_NULL(flags[j]))) {
+            // Non-NULL value: copy and pad
             int actual_len = VARSIZE_ANY_EXHDR(vals[j]);
-            int copy_len = (actual_len < data_len) ? actual_len : data_len;
+            int copy_len = (actual_len < dataLen) ? actual_len : dataLen;
             
-            errno_t rc = memcpy_s(dest + j * data_len, data_len, VARDATA_ANY(vals[j]), copy_len);
+            errno_t rc = memcpy_s(destPtr, dataLen, VARDATA_ANY(vals[j]), copy_len);
             securec_check(rc, "\0", "\0");
             
-            if (actual_len < data_len) {
-                rc = memset_s(dest + j * data_len + copy_len, data_len - copy_len, ' ', data_len - copy_len);
+            // Pad with spaces if needed (BPCHAR requirement)
+            if (actual_len < dataLen) {
+                rc = memset_s(destPtr + copy_len, dataLen - copy_len, ' ', dataLen - copy_len);
                 securec_check(rc, "\0", "\0");
             }
+            
             empty[j] = 0;
         } else {
-            errno_t rc = memset_s(dest + j * data_len, data_len, 0, data_len);
+            // NULL value: fill with spaces
+            errno_t rc = memset_s(destPtr, dataLen, ' ', dataLen);
             securec_check(rc, "\0", "\0");
             empty[j] = 1;
         }
+        
+        destPtr += dataLen;
     }
-    col->value_size = rows * data_len;
+    
+    col->value_size = rows * dataLen;
     col->empty_size = rows * sizeof(__u8);
 }
 
@@ -1579,21 +1831,21 @@ static void DaeBuildColVarchar(struct wd_dae_col_addr *col, ScalarValue* vals, u
     __u32 *offset = col->offset;
     char *dest = (char *)col->value;
     uint8 *empty = col->empty;
-    bool has_null_flag = (flags != NULL);
     __u32 total_size = 0;
     
     offset[0] = 0;
     for (int32 j = 0; j < rows; j++) {
-        bool is_not_null = !has_null_flag || NOT_NULL(flags[j]);
-        if (is_not_null) {
-            int data_len = VARSIZE_ANY_EXHDR(vals[j]);
-            if (data_len > 0) {
-                errno_t rc = memcpy_s(dest + total_size, data_len, VARDATA_ANY(vals[j]), data_len);
+        if (likely(NOT_NULL(flags[j]))) {
+            // Non-NULL value: copy variable-length data
+            int dataLen = VARSIZE_ANY_EXHDR(vals[j]);
+            if (dataLen > 0) {
+                errno_t rc = memcpy_s(dest + total_size, dataLen, VARDATA_ANY(vals[j]), dataLen);
                 securec_check(rc, "\0", "\0");
             }
-            total_size += data_len;
+            total_size += dataLen;
             empty[j] = 0;
         } else {
+            // NULL value: no data to copy
             empty[j] = 1;
         }
         offset[j + 1] = total_size;
@@ -1614,43 +1866,25 @@ bool HashAggRunner::ParallelBuildKeyValue(VectorBatch* batch)
         uint8* flags = tile.m_flag;
 
         if (colType == BPCHAROID) {
-            int data_len = (tile.m_desc.typeMod > (int32)VARHDRSZ) ?
+            int dataLen = (tile.m_desc.typeMod > (int32)VARHDRSZ) ?
                            (tile.m_desc.typeMod - VARHDRSZ) : 0;
-            if (data_len <= 0) {
+            if (dataLen <= 0) {
                 elog(WARNING, "Invalid BPCHAR typeMod: %d in key column", tile.m_desc.typeMod);
                 return false;
             }
-            DaeBuildColBpchar(&daeReq_.key_cols[i], vals, flags, rows, data_len);
+            DaeBuildColBpchar(&daeReq_.key_cols[i], vals, flags, rows, dataLen);
         } else if (colType == VARCHAROID) {
             DaeBuildColVarchar(&daeReq_.key_cols[i], vals, flags, rows);
         } else if (colType == INT4OID) {
-            int32 *dest = (int32 *)daeReq_.key_cols[i].value;
-            uint8 *empty = daeReq_.key_cols[i].empty;
-            for (int32 j = 0; j < rows; j++) {
-                if (NOT_NULL(flags[j])) {
-                    dest[j] = (int32)vals[j];
-                    empty[j] = 0;
-                } else {
-                    dest[j] = 0;
-                    empty[j] = 1;
-                }
-            }
-            daeReq_.key_cols[i].value_size = rows * sizeof(int32);
-            daeReq_.key_cols[i].empty_size = rows * sizeof(__u8);
+            DaeBuildColBasicType<int32>(&daeReq_.key_cols[i], vals, flags, rows, ConvertInt32);
         } else if (colType == INT8OID) {
-            int64 *dest = (int64 *)daeReq_.key_cols[i].value;
-            uint8 *empty = daeReq_.key_cols[i].empty;
-            for (int32 j = 0; j < rows; j++) {
-                if (NOT_NULL(flags[j])) {
-                    dest[j] = vals[j];
-                    empty[j] = 0;
-                } else {
-                    dest[j] = 0;
-                    empty[j] = 1;
-                }
-            }
-            daeReq_.key_cols[i].value_size = rows * sizeof(int64);
-            daeReq_.key_cols[i].empty_size = rows * sizeof(__u8);
+            DaeBuildColBasicType<int64>(&daeReq_.key_cols[i], vals, flags, rows, ConvertInt64);
+        } else if (colType == NUMERICOID) {
+            DaeBuildColNumeric(&daeReq_.key_cols[i], vals, flags, rows);
+        } else if (colType == DATEOID) {
+            DaeBuildColBasicType<int32>(&daeReq_.key_cols[i], vals, flags, rows, ConvertDate);
+        } else if (colType == TIMESTAMPOID) {
+            DaeBuildColBasicType<int64>(&daeReq_.key_cols[i], vals, flags, rows, ConvertTimestamp);
         } else {
             elog(WARNING, "unsupported type %d", colType);
             return false;
@@ -1664,6 +1898,7 @@ bool HashAggRunner::ParallelBuildAggValue(VectorBatch* batch)
     int32 rows = batch->m_rows;
 
     for (int i = 0; i < m_aggNum; i++) {
+        int setupIdx = i;
         VecAggStatePerAgg per_agg_state = &m_runtime->pervecagg[i];
         VectorBatch* agg_batch = NULL;
         ScalarVector* p_vector = NULL;
@@ -1683,48 +1918,39 @@ bool HashAggRunner::ParallelBuildAggValue(VectorBatch* batch)
         const Oid colType = tile.m_desc.typeId;
         ScalarValue* vals = tile.m_vals;
         uint8* flags = tile.m_flag;
-        bool has_null_flag = (flags != NULL);
 
         if (colType == BPCHAROID) {
-            int data_len = (tile.m_desc.typeMod > (int32)VARHDRSZ) ?
+            int dataLen = (tile.m_desc.typeMod > (int32)VARHDRSZ) ?
                            (tile.m_desc.typeMod - VARHDRSZ) : 0;
-            if (data_len <= 0) {
+            if (dataLen <= 0) {
                 elog(WARNING, "Invalid BPCHAR typeMod: %d in agg column", tile.m_desc.typeMod);
                 return false;
             }
-            DaeBuildColBpchar(&daeReq_.agg_cols[i], vals, flags, rows, data_len);
+            DaeBuildColBpchar(&daeReq_.agg_cols[setupIdx], vals, flags, rows, dataLen);
         } else if (colType == VARCHAROID) {
-            DaeBuildColVarchar(&daeReq_.agg_cols[i], vals, flags, rows);
+            DaeBuildColVarchar(&daeReq_.agg_cols[setupIdx], vals, flags, rows);
         } else if (colType == INT4OID) {
-            int32 *dest = (int32 *)daeReq_.agg_cols[i].value;
-            uint8 *empty = daeReq_.agg_cols[i].empty;
-            for (int32 j = 0; j < rows; j++) {
-                bool is_not_null = !has_null_flag || NOT_NULL(flags[j]);
-                if (is_not_null) {
-                    dest[j] = (int32)vals[j];
-                    empty[j] = 0;
-                } else {
-                    dest[j] = 0;
-                    empty[j] = 1;
-                }
+            // For SUM aggregation, INT4 is auto-converted to INT8
+            // Check if this column was set up as INT8 (for SUM)
+            if (daeAggCols_[setupIdx].input_data_type == WD_DAE_LONG) {
+                // Convert INT4 to INT8 for SUM aggregation
+                DaeBuildColBasicType<int64>(&daeReq_.agg_cols[setupIdx], vals, flags, rows, ConvertInt32ToInt64);
+            } else {
+                // For COUNT or other operations, keep as INT4
+                DaeBuildColBasicType<int32>(&daeReq_.agg_cols[setupIdx], vals, flags, rows, ConvertInt32);
             }
-            daeReq_.agg_cols[i].value_size = rows * sizeof(int32);
-            daeReq_.agg_cols[i].empty_size = rows * sizeof(__u8);
         } else if (colType == INT8OID) {
-            int64 *dest = (int64 *)daeReq_.agg_cols[i].value;
-            uint8 *empty = daeReq_.agg_cols[i].empty;
-            for (int32 j = 0; j < rows; j++) {
-                bool is_not_null = !has_null_flag || NOT_NULL(flags[j]);
-                if (is_not_null) {
-                    dest[j] = vals[j];
-                    empty[j] = 0;
-                } else {
-                    dest[j] = 0;
-                    empty[j] = 1;
-                }
-            }
-            daeReq_.agg_cols[i].value_size = rows * sizeof(int64);
-            daeReq_.agg_cols[i].empty_size = rows * sizeof(__u8);
+            DaeBuildColBasicType<int64>(&daeReq_.agg_cols[setupIdx], vals, flags, rows, ConvertInt64);
+        } else if (colType == NUMERICOID) {
+            // Capture actual scale from data (openGauss native approach)
+            // This handles expressions like l_extendedprice * (1 - l_discount) where typeMod is invalid
+            DaeBuildColNumeric(&daeReq_.agg_cols[setupIdx], vals, flags, rows,
+                              &daeAggColActualScales_[i], daeAggColScaleSet_[i]);
+            daeAggColScaleSet_[i] = true;  // Mark as set for subsequent batches
+        } else if (colType == DATEOID) {
+            DaeBuildColBasicType<int32>(&daeReq_.agg_cols[setupIdx], vals, flags, rows, ConvertDate);
+        } else if (colType == TIMESTAMPOID) {
+            DaeBuildColBasicType<int64>(&daeReq_.agg_cols[setupIdx], vals, flags, rows, ConvertTimestamp);
         } else {
             elog(WARNING, "unsupported type %d", colType);
             return false;
@@ -1745,24 +1971,23 @@ void HashAggRunner::DaeParallelBuild(VectorBatch* batch)
              	errmsg("DPA: Session not ready for build operation")));
         return;
     }
-    
-    /* Check for empty input batch */
+
     if (batch->m_rows == 0) {
         ereport(DEBUG1, (errmsg("DPA: Empty input batch (0 rows), skipping")));
         return;
     }
-    
+
     daeReq_.in_row_count = batch->m_rows;
     if (!ParallelBuildKeyValue(batch)) {
         ereport(ERROR, (errmsg("DPA: Failed to build key values")));
         return;
     }
-    
+
     if (!ParallelBuildAggValue(batch)) {
         ereport(ERROR, (errmsg("DPA: Failed to build agg values")));
         return;
     }
-    
+
     int ret = UadkAggAddInputSync(daeSess_, &daeReq_);
     if (ret != 0) {
         ereport(ERROR,
@@ -1771,7 +1996,7 @@ void HashAggRunner::DaeParallelBuild(VectorBatch* batch)
                     ret, daeReq_.state)));
         return;
     }
-    
+
     if (daeReq_.state != WD_AGG_TASK_DONE && daeReq_.state != WD_AGG_SUM_OVERFLOW) {
         ereport(WARNING,
             (errmsg("DPA: Aggregation task returned state: %u, processed rows: %u",
@@ -1780,67 +2005,76 @@ void HashAggRunner::DaeParallelBuild(VectorBatch* batch)
     m_rows += daeReq_.real_in_row_count;
 }
 
-static void DaeProbeOutputBpchar(ScalarValue* vals, uint8* flags, char* src_data, uint8* empty,
-    int out_rows, int data_len, bool force_not_null)
+static void DaeProbeOutputBpchar(ScalarValue* vals, uint8* flags, char* srcData, uint8* empty,
+    int outRows, int dataLen, bool forceNotNull)
 {
-    int total_len = data_len + VARHDRSZ;
-    char *bulk_mem = (char *)palloc(total_len * out_rows);
+    int totalLen = dataLen + VARHDRSZ;
+    char *bulkMem = (char *)palloc(totalLen * outRows);
     
-    for (int j = 0; j < out_rows; j++) {
-        char *dest = bulk_mem + j * total_len;
-        SET_VARSIZE(dest, total_len);
-        errno_t rc = memcpy_s(VARDATA(dest), data_len, src_data + j * data_len, data_len);
+    for (int j = 0; j < outRows; j++) {
+        char *dest = bulkMem + j * totalLen;
+        SET_VARSIZE(dest, totalLen);
+        errno_t rc = memcpy_s(VARDATA(dest), dataLen, srcData + j * dataLen, dataLen);
         securec_check(rc, "\0", "\0");
         vals[j] = PointerGetDatum(dest);
-        flags[j] = force_not_null ? 0 : empty[j];
+        flags[j] = forceNotNull ? 0 : empty[j];
     }
 }
 
-static void DaeProbeOutputVarchar(ScalarValue* vals, uint8* flags, char* src_data, __u32* offset,
-    uint8* empty, int out_rows, bool force_not_null)
+static void DaeProbeOutputVarchar(ScalarValue* vals, uint8* flags, char* srcData, __u32* offset,
+    uint8* empty, int outRows, bool forceNotNull)
 {
-    __u32 total_data_size = offset[out_rows];
-    char *bulk_mem = (char *)palloc(total_data_size + out_rows * VARHDRSZ);
-    char *dest_ptr = bulk_mem;
+    __u32 total_data_size = offset[outRows];
+    char *bulkMem = (char *)palloc(total_data_size + outRows * VARHDRSZ);
+    char *destPtr = bulkMem;
     
-    for (int j = 0; j < out_rows; j++) {
-        int data_len = offset[j + 1] - offset[j];
-        int total_len = data_len + VARHDRSZ;
-        SET_VARSIZE(dest_ptr, total_len);
-        if (data_len > 0) {
-            errno_t rc = memcpy_s(VARDATA(dest_ptr), data_len, src_data + offset[j], data_len);
+    for (int j = 0; j < outRows; j++) {
+        int dataLen = offset[j + 1] - offset[j];
+        int totalLen = dataLen + VARHDRSZ;
+        SET_VARSIZE(destPtr, totalLen);
+        if (dataLen > 0) {
+            errno_t rc = memcpy_s(VARDATA(destPtr), dataLen, srcData + offset[j], dataLen);
             securec_check(rc, "\0", "\0");
         }
-        vals[j] = PointerGetDatum(dest_ptr);
-        flags[j] = force_not_null ? 0 : empty[j];
-        dest_ptr += total_len;
+        vals[j] = PointerGetDatum(destPtr);
+        flags[j] = forceNotNull ? 0 : empty[j];
+        destPtr += totalLen;
     }
 }
 
-static void DaeProbeOutputInt4(ScalarValue* vals, uint8* flags, int32* src_data, uint8* empty,
-    int out_rows, bool force_not_null)
+static void DaeProbeOutputInt4(ScalarValue* vals, uint8* flags, int32* srcData, uint8* empty,
+    int outRows, bool forceNotNull)
 {
-    for (int j = 0; j < out_rows; j++) {
-        vals[j] = Int32GetDatum(src_data[j]);
-        flags[j] = force_not_null ? 0 : empty[j];
+    for (int j = 0; j < outRows; j++) {
+        vals[j] = Int32GetDatum(srcData[j]);
+        flags[j] = forceNotNull ? 0 : empty[j];
     }
 }
 
-static void DaeProbeOutputInt8(ScalarValue* vals, uint8* flags, int64* src_data, uint8* empty,
-    int out_rows, bool force_not_null)
+static void DaeProbeOutputInt8(ScalarValue* vals, uint8* flags, int64* srcData, uint8* empty,
+    int outRows, bool forceNotNull)
 {
-    for (int j = 0; j < out_rows; j++) {
-        vals[j] = Int64GetDatum(src_data[j]);
-        flags[j] = force_not_null ? 0 : empty[j];
+    for (int j = 0; j < outRows; j++) {
+        vals[j] = Int64GetDatum(srcData[j]);
+        flags[j] = forceNotNull ? 0 : empty[j];
     }
 }
 
-static void DaeProbeOutputNumeric(ScalarValue* vals, uint8* flags, int64* src_data, uint8* empty,
-    int out_rows, bool force_not_null)
+static void DaeProbeOutputNumeric(ScalarValue* vals, uint8* flags, __int128* srcData, uint8* empty,
+    int outRows, bool forceNotNull, int scale)
 {
-    for (int j = 0; j < out_rows; j++) {
-        vals[j] = DirectFunctionCall1(int8_numeric, Int64GetDatum(src_data[j]));
-        flags[j] = force_not_null ? 0 : empty[j];
+    for (int j = 0; j < outRows; j++) {
+        if (!forceNotNull && empty[j]) {
+            // NULL value
+            vals[j] = 0;
+            flags[j] = 1;
+        } else {
+            // Convert int128 back to Numeric using the saved scale
+            int128 val = srcData[j];
+            Numeric num = convert_int128_to_numeric(val, scale);
+            vals[j] = NumericGetDatum(num);
+            flags[j] = 0;
+        }
     }
 }
 
@@ -1853,25 +2087,62 @@ void HashAggRunner::DaeParallelProbe()
         return;
     }
 
-    int ret = UadkAggGetOutputSync(daeSess_, &daeReq_);
-    if (ret != 0) {
-        ereport(ERROR,
-            (errcode(ERRCODE_INTERNAL_ERROR),
-             errmsg("DPA: UadkAggGetOutputSync failed, ret = %d", ret)));
-        return;
-    }
-
-    int out_rows = daeReq_.real_out_row_count;
-    if (out_rows <= 0) {
-        if (daeReq_.output_done) {
-            ereport(DEBUG1, (errmsg("DPA: All output data retrieved")));
+    /*
+     * Batch processing logic:
+     * DPA may return more rows than BatchMaxSize (e.g., 11620 rows),
+     * but m_scanBatch arrays are limited to BatchMaxSize (1000).
+     * We process output in batches, tracking our offset in the DPA buffer.
+     */
+    
+    if (!daeProbeHasPendingRows_) {
+        /* No pending rows, fetch new data from DPA */
+        int ret = UadkAggGetOutputSync(daeSess_, &daeReq_);
+        if (ret != 0) {
+            ereport(ERROR,
+                (errcode(ERRCODE_INTERNAL_ERROR),
+                 errmsg("DPA: UadkAggGetOutputSync failed, ret = %d", ret)));
+            return;
         }
-        return;
+        
+        daeProbeOutputTotalRows_ = daeReq_.real_out_row_count;
+        daeProbeOutputOffset_ = 0;
+        
+        if (daeProbeOutputTotalRows_ <= 0) {
+            if (daeReq_.output_done) {
+                ereport(DEBUG1, (errmsg("DPA: All output data retrieved")));
+            }
+            return;
+        }
+        
+        ereport(DEBUG1, (errmsg("DPA: Fetched %d rows from DPA, will process in batches",
+                               daeProbeOutputTotalRows_)));
     }
+    
+    /* Calculate how many rows to process this batch */
+    int remaining_rows = daeProbeOutputTotalRows_ - daeProbeOutputOffset_;
+    int outRows = (remaining_rows > BatchMaxSize) ? BatchMaxSize : remaining_rows;
+    int offset = daeProbeOutputOffset_;
+    
+    ereport(DEBUG1, (errmsg("DPA: Processing batch: offset=%d, outRows=%d, total=%d",
+                           offset, outRows, daeProbeOutputTotalRows_)));
+    
+    /* Update offset for next batch */
+    daeProbeOutputOffset_ += outRows;
+    daeProbeHasPendingRows_ = (daeProbeOutputOffset_ < daeProbeOutputTotalRows_);
 
     for (uint32 i = 0; i < daeReq_.out_key_cols_num; i++) {
         /* Use m_keyIdxInCell to get the correct index in m_scanBatch */
         int scanBatchIdx = m_keyIdxInCell[i];
+        
+        /* Bounds check for m_scanBatch */
+        if (scanBatchIdx < 0 || scanBatchIdx >= m_scanBatch->m_cols) {
+            ereport(ERROR,
+                (errcode(ERRCODE_INTERNAL_ERROR),
+                 errmsg("DPA Probe: key scanBatchIdx=%d out of bounds (m_scanBatch->m_cols=%d, i=%u)",
+                        scanBatchIdx, m_scanBatch->m_cols, i)));
+            return;
+        }
+        
         ScalarVector* p_vector = &m_scanBatch->m_arr[scanBatchIdx];
         
         /* Update column descriptor with saved type information */
@@ -1883,28 +2154,46 @@ void HashAggRunner::DaeParallelProbe()
         
         ScalarValue* vals = p_vector->m_vals;
         uint8* flags = p_vector->m_flag;
-        uint8* empty = daeReq_.out_key_cols[i].empty;
+        /* Apply offset to read from correct position in DPA buffer */
+        uint8* empty = daeReq_.out_key_cols[i].empty + offset;
         
         if (colType == BPCHAROID) {
-            int data_len = (typeMod > (int32)VARHDRSZ) ?
+            int dataLen = (typeMod > (int32)VARHDRSZ) ?
                            (typeMod - VARHDRSZ) : 0;
-            if (data_len <= 0) {
+            if (dataLen <= 0) {
                 ereport(ERROR, (errmsg("DPA: Invalid BPCHAR typeMod: %d", typeMod)));
                 return;
             }
-            DaeProbeOutputBpchar(vals, flags, (char *)daeReq_.out_key_cols[i].value, empty,
-                out_rows, data_len, false);
+            char* srcData = (char *)daeReq_.out_key_cols[i].value + offset * dataLen;
+            DaeProbeOutputBpchar(vals, flags, srcData, empty, outRows, dataLen, false);
         } else if (colType == VARCHAROID) {
-            DaeProbeOutputVarchar(vals, flags, (char *)daeReq_.out_key_cols[i].value,
-                daeReq_.out_key_cols[i].offset, empty, out_rows, false);
+            /* VARCHAR with offset needs special handling due to variable length */
+            char* base_value = (char *)daeReq_.out_key_cols[i].value;
+            __u32* base_offset = daeReq_.out_key_cols[i].offset;
+            char* srcData = base_value + base_offset[offset];
+            __u32* src_offset = base_offset + offset;
+            DaeProbeOutputVarchar(vals, flags, srcData, src_offset, empty, outRows, false);
         } else if (colType == INT4OID) {
-            DaeProbeOutputInt4(vals, flags, (int32 *)daeReq_.out_key_cols[i].value, empty, out_rows, false);
+            int32* srcData = (int32 *)daeReq_.out_key_cols[i].value + offset;
+            DaeProbeOutputInt4(vals, flags, srcData, empty, outRows, false);
         } else if (colType == INT8OID) {
-            DaeProbeOutputInt8(vals, flags, (int64 *)daeReq_.out_key_cols[i].value, empty, out_rows, false);
+            int64* srcData = (int64 *)daeReq_.out_key_cols[i].value + offset;
+            DaeProbeOutputInt8(vals, flags, srcData, empty, outRows, false);
+        } else if (colType == NUMERICOID) {
+            // Extract scale from typeMod: typmod = ((precision << 16) | scale) + VARHDRSZ
+            int scale = (typeMod > (int32)VARHDRSZ) ? ((typeMod - VARHDRSZ) & DPA_NUMERIC_SCALE_MASK) : 0;
+            __int128* srcData = (__int128 *)daeReq_.out_key_cols[i].value + offset;
+            DaeProbeOutputNumeric(vals, flags, srcData, empty, outRows, false, scale);
+        } else if (colType == DATEOID) {
+            int32* srcData = (int32 *)daeReq_.out_key_cols[i].value + offset;
+            DaeProbeOutputInt4(vals, flags, srcData, empty, outRows, false);
+        } else if (colType == TIMESTAMPOID) {
+            int64* srcData = (int64 *)daeReq_.out_key_cols[i].value + offset;
+            DaeProbeOutputInt8(vals, flags, srcData, empty, outRows, false);
         } else {
-            elog(ERROR, "unsupported type %d", colType);
+            elog(ERROR, "DPA: unsupported key column type %u", colType);
         }
-        p_vector->m_rows = out_rows;
+        p_vector->m_rows = outRows;
     }
 
     for (uint32 i = 0; i < daeReq_.out_agg_cols_num; i++) {
@@ -1913,52 +2202,94 @@ void HashAggRunner::DaeParallelProbe()
          * out_agg_cols[0] (pervecagg[0]) fills m_scanBatch[m_cellVarLen + m_aggNum - 1]
          * out_agg_cols[1] (pervecagg[1]) fills m_scanBatch[m_cellVarLen + m_aggNum - 2]
          */
+        int aggInfo_idx = m_aggNum - 1 - i;
         int scanBatchIdx = m_cellVarLen + m_aggNum - 1 - i;
+        
+        if (scanBatchIdx < 0 || scanBatchIdx >= m_scanBatch->m_cols) {
+            ereport(ERROR,
+                (errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("DPA Probe: agg scanBatchIdx=%d out of bounds "
+						"(m_scanBatch->m_cols=%d, m_cellVarLen=%d, m_aggNum=%u, i=%u)",
+                       	scanBatchIdx, m_scanBatch->m_cols, m_cellVarLen, m_aggNum, i)));
+            return;
+        }
+        
         ScalarVector* p_vector = &m_scanBatch->m_arr[scanBatchIdx];
         
-        /*
-         * Get the actual output type from aggInfo (which is in SELECT order)
-         * aggInfo[aggInfo_idx] corresponds to pervecagg[i] based on the mapping
-         */
-        int aggInfo_idx = m_aggNum - 1 - i;
         const Oid colType = m_runtime->aggInfo[aggInfo_idx].vec_agg_function.flinfo->fn_rettype;
-        
-        /* Update type descriptor to match actual data type */
         p_vector->m_desc.typeId = colType;
         p_vector->m_desc.encoded = COL_IS_ENCODE(colType);
         
         ScalarValue* vals = p_vector->m_vals;
         uint8* flags = p_vector->m_flag;
-        uint8* empty = daeReq_.out_agg_cols[i].empty;
-
-        bool is_count = (daeAggCols_ && i < daeAggColsNum_ &&
+        uint8* empty = daeReq_.out_agg_cols[i].empty + offset;
+        
+        bool is_count = (daeAggCols_ && i < daeReq_.out_agg_cols_num &&
                         daeAggCols_[i].output_col_algs[0] == WD_AGG_COUNT);
 
         if (colType == BPCHAROID) {
-            int data_len = (p_vector->m_desc.typeMod > (int32)VARHDRSZ) ?
+            int dataLen = (p_vector->m_desc.typeMod > (int32)VARHDRSZ) ?
                            (p_vector->m_desc.typeMod - VARHDRSZ) : 0;
-            if (data_len <= 0) {
+            if (dataLen <= 0) {
                 ereport(ERROR, (errmsg("DPA: Invalid BPCHAR typeMod: %d", p_vector->m_desc.typeMod)));
                 return;
             }
-            DaeProbeOutputBpchar(vals, flags, (char *)daeReq_.out_agg_cols[i].value, empty,
-                out_rows, data_len, is_count);
+            char* srcData = (char *)daeReq_.out_agg_cols[i].value + offset * dataLen;
+            DaeProbeOutputBpchar(vals, flags, srcData, empty, outRows, dataLen, is_count);
         } else if (colType == VARCHAROID) {
-            DaeProbeOutputVarchar(vals, flags, (char *)daeReq_.out_agg_cols[i].value,
-                daeReq_.out_agg_cols[i].offset, empty, out_rows, is_count);
+            char* base_value = (char *)daeReq_.out_agg_cols[i].value;
+            __u32* base_offset = daeReq_.out_agg_cols[i].offset;
+            char* srcData = base_value + base_offset[offset];
+            __u32* src_offset = base_offset + offset;
+            DaeProbeOutputVarchar(vals, flags, srcData, src_offset, empty, outRows, is_count);
         } else if (colType == INT4OID) {
-            DaeProbeOutputInt4(vals, flags, (int32 *)daeReq_.out_agg_cols[i].value, empty, out_rows, is_count);
+            int32* srcData = (int32 *)daeReq_.out_agg_cols[i].value + offset;
+            DaeProbeOutputInt4(vals, flags, srcData, empty, outRows, is_count);
         } else if (colType == INT8OID) {
-            DaeProbeOutputInt8(vals, flags, (int64 *)daeReq_.out_agg_cols[i].value, empty, out_rows, is_count);
+            int64* srcData = (int64 *)daeReq_.out_agg_cols[i].value + offset;
+            DaeProbeOutputInt8(vals, flags, srcData, empty, outRows, is_count);
         } else if (colType == NUMERICOID) {
-            DaeProbeOutputNumeric(vals, flags, (int64 *)daeReq_.out_agg_cols[i].value, empty, out_rows, is_count);
+            wd_dae_data_type actualType = daeAggCols_[i].output_data_types[0];
+            
+            if (actualType == WD_DAE_LONG) {
+                int64* srcData = (int64 *)daeReq_.out_agg_cols[i].value + offset;
+                for (int j = 0; j < outRows; j++) {
+                    if (!is_count && empty[j]) {
+                        vals[j] = 0;
+                        flags[j] = 1;
+                    } else {
+                        int64 val = srcData[j];
+                        vals[j] = DirectFunctionCall1(int8_numeric, Int64GetDatum(val));
+                        flags[j] = 0;
+                    }
+                }
+            } else if (actualType == WD_DAE_LONG_DECIMAL) {
+                int scale;
+                if (daeAggColScaleSet_[i] && daeAggColActualScales_[i] > 0) {
+                    scale = daeAggColActualScales_[i];
+                } else if (daeAggColTypeMods_[i] > (int32)VARHDRSZ) {
+                    scale = (daeAggColTypeMods_[i] - VARHDRSZ) & DPA_NUMERIC_SCALE_MASK;
+                } else {
+                    scale = DPA_DEFAULT_NUMERIC_SCALE;
+                }
+                __int128* srcData = (__int128 *)daeReq_.out_agg_cols[i].value + offset;
+                DaeProbeOutputNumeric(vals, flags, srcData, empty, outRows, is_count, scale);
+            } else {
+                elog(ERROR, "DPA: Unexpected NUMERIC storage type: %u", actualType);
+            }
+        } else if (colType == DATEOID) {
+            int32* srcData = (int32 *)daeReq_.out_agg_cols[i].value + offset;
+            DaeProbeOutputInt4(vals, flags, srcData, empty, outRows, is_count);
+        } else if (colType == TIMESTAMPOID) {
+            int64* srcData = (int64 *)daeReq_.out_agg_cols[i].value + offset;
+            DaeProbeOutputInt8(vals, flags, srcData, empty, outRows, is_count);
         } else {
-            elog(ERROR, "unsupported type %d", colType);
+            elog(ERROR, "DPA: unsupported aggregation column type %u", colType);
         }
-        p_vector->m_rows = out_rows;
+        p_vector->m_rows = outRows;
     }
 
-    m_scanBatch->m_rows = out_rows;
+    m_scanBatch->m_rows = outRows;
 }
 
 bool HashAggRunner::DaeIsSessionReady()
@@ -1968,6 +2299,7 @@ bool HashAggRunner::DaeIsSessionReady()
 
 bool HashAggRunner::DaeSessionInit(VectorBatch* batch)
 {
+    /* 1. basic check */
     if (daeSessionState_ == DAE_SESS_READY) {
         ereport(WARNING, (errmsg("DPA: Session already initialized")));
         return true;
@@ -2003,26 +2335,25 @@ bool HashAggRunner::DaeSessionInit(VectorBatch* batch)
         daeSessionState_ = DAE_SESS_UNINIT;
         return false;
     }
-    
+
+    /* 2. allocate arrays */
     MemoryContext oldContext = MemoryContextSwitchTo(m_dpaContext);
     daeKeyCols_ = (struct wd_key_col_info*)palloc0(daeKeyColsNum_ * sizeof(struct wd_key_col_info));
     daeAggCols_ = (struct wd_agg_col_info*)palloc0(daeAggColsNum_ * sizeof(struct wd_agg_col_info));
     daeKeyColTypes_ = (Oid*)palloc0(daeKeyColsNum_ * sizeof(Oid));
     daeKeyColTypeMods_ = (int4*)palloc0(daeKeyColsNum_ * sizeof(int4));
+    daeAggColTypeMods_ = (int4*)palloc0(daeAggColsNum_ * sizeof(int4));
+    daeAggColActualScales_ = (int*)palloc0(daeAggColsNum_ * sizeof(int));
+    daeAggColScaleSet_ = (bool*)palloc0(daeAggColsNum_ * sizeof(bool));
     (void)MemoryContextSwitchTo(oldContext);
-    
-    if (daeKeyColTypes_ == nullptr || daeKeyColTypeMods_ == nullptr) {
-        ereport(WARNING, (errmsg("DPA: Failed to allocate memory for key column type arrays")));
-        daeSessionState_ = DAE_SESS_ERROR;
-        return false;
-    }
-    
+
     struct wd_agg_sess_setup setup;
     setup.key_cols_num = daeKeyColsNum_;
     setup.key_cols_info = daeKeyCols_;
     setup.agg_cols_num = daeAggColsNum_;
     setup.agg_cols_info = daeAggCols_;
-    
+
+    /* 3. collect key col info */
     uint32 char_col_count = 0;
     for (uint32 i = 0; i < setup.key_cols_num; i++) {
         const Oid colType = batch->m_arr[m_keyIdx[i]].m_desc.typeId;
@@ -2049,36 +2380,34 @@ bool HashAggRunner::DaeSessionInit(VectorBatch* batch)
             return false;
         }
     }
-    
-    for (uint32 i = 0; i < setup.agg_cols_num; i++) {
+
+    /* 3. collect agg col info */
+    for (uint32 i = 0; i < m_aggNum; i++) {
+        const Oid aggFuncOid = m_runtime->aggInfo[i].vec_agg_function.flinfo->fn_oid;
+        int pervecagg_idx = m_aggNum - 1 - i;
+        
         /*
          * aggInfo[i] corresponds to pervecagg[m_aggNum - 1 - i] as per vecagg.cpp:686-691
-         * We need to fill agg_cols_info in pervecagg order to match ParallelBuildAggValue
          */
-        int pervecagg_idx = m_aggNum - 1 - i;
-        const Oid aggFuncOid = m_runtime->aggInfo[i].vec_agg_function.flinfo->fn_oid;
-        
-        wd_agg_alg aggAlg = MapAggFuncOidToAlg(aggFuncOid);
-        if (aggAlg == WD_AGG_ALG_TYPE_MAX) {
-            DaeSessionCleanup();
-            ereport(WARNING, (errmsg("DPA: Unsupported agg function OID: %u, fallback to CPU", aggFuncOid)));
-            return false;
-        }
-        
         const Oid inputColType = m_runtime->pervecagg[pervecagg_idx].evalproj->pi_batch->m_arr->m_desc.typeId;
         const int4 inputTypeMod = m_runtime->pervecagg[pervecagg_idx].evalproj->pi_batch->m_arr->m_desc.typeMod;
         const Oid outputColType = m_runtime->aggInfo[i].vec_agg_function.flinfo->fn_rettype;
+        
         if (!DaeCollectAggCollInfo(setup.agg_cols_info, inputColType, outputColType, pervecagg_idx, inputTypeMod,
             aggFuncOid)) {
             DaeSessionCleanup();
             ereport(WARNING, (errmsg("DPA: Failed to collect agg column info, index: %u", pervecagg_idx)));
             return false;
         }
+        
+        /* Store typeMod indexed by pervecagg order for probe output processing */
+        daeAggColTypeMods_[pervecagg_idx] = inputTypeMod;
     }
     
     setup.sched_param = nullptr;
     setup.is_count_all = false;
     setup.count_all_data_type = WD_DAE_LONG;
+    
     daeSess_ = UadkAggAllocSess(&setup);
     if (!daeSess_) {
         DaeSessionCleanup();
@@ -2099,6 +2428,10 @@ bool HashAggRunner::DaeSessionInit(VectorBatch* batch)
         ereport(WARNING, (errmsg("DPA: Failed to allocate hash table")));
         return false;
     }
+    
+    ereport(DEBUG1,
+        (errmsg("DPA: Hash table allocated: std_rows=%u, ext_rows=%u",
+                daeHashTable_.std_table_row_num, daeHashTable_.ext_table_row_num)));
     
     int ret = UadkAggSetHashTable(daeSess_, &daeHashTable_);
     if (ret != 0) {
@@ -2151,7 +2484,31 @@ void HashAggRunner::DaeSessionCleanup()
         daeAggCols_ = nullptr;
     }
     
+    if (daeKeyColTypes_) {
+        pfree(daeKeyColTypes_);
+        daeKeyColTypes_ = nullptr;
+    }
+    if (daeKeyColTypeMods_) {
+        pfree(daeKeyColTypeMods_);
+        daeKeyColTypeMods_ = nullptr;
+    }
+    if (daeAggColTypeMods_) {
+        pfree(daeAggColTypeMods_);
+        daeAggColTypeMods_ = nullptr;
+    }
+    if (daeAggColActualScales_) {
+        pfree(daeAggColActualScales_);
+        daeAggColActualScales_ = nullptr;
+    }
+    if (daeAggColScaleSet_) {
+        pfree(daeAggColScaleSet_);
+        daeAggColScaleSet_ = nullptr;
+    }
+    
     daeKeyColsNum_ = 0;
     daeAggColsNum_ = 0;
+    daeProbeOutputOffset_ = 0;
+    daeProbeOutputTotalRows_ = 0;
+    daeProbeHasPendingRows_ = false;
     daeSessionState_ = DAE_SESS_UNINIT;
 }
