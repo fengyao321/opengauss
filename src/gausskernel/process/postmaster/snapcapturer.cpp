@@ -547,6 +547,7 @@ NON_EXEC_STATIC void TxnSnapWorkerMain()
     /* Set lockwait_timeout/update_lockwait_timeout to 30s avoid unexpected suspend. */
     SetConfigOption("lockwait_timeout", "30s", PGC_SUSET, PGC_S_OVERRIDE);
     SetConfigOption("update_lockwait_timeout", "30s", PGC_SUSET, PGC_S_OVERRIDE);
+    SetConfigOption("synchronous_commit", "local", PGC_SUSET, PGC_S_OVERRIDE);
 
     /* Do the hard work */
     if (TcapFeatureAvail()) {
