@@ -110,7 +110,7 @@ private:
     bool DaeIsSessionReady();
     
     void DaeAllocHTBL(struct wd_dae_hash_table *table_, struct wd_dae_hash_table *new_table,
-		__u32 row_size);
+		__u32 row_size, __u32 estimated_groups = 0);
     void DaeFreeHTBL(struct wd_dae_hash_table *table);
     
     bool DaeCollectKeyCollInfo(struct wd_key_col_info *key_cols_info, const Oid colType, int idx, int4 typeMod);
@@ -122,11 +122,14 @@ private:
     bool DaeInitKeyOutputAddress(struct wd_agg_sess_setup *setup);
     bool DaeInitKeyInputAddress(struct wd_agg_sess_setup *setup, VectorBatch* batch);
     bool DaeInitAggOutputAddress(struct wd_agg_sess_setup *setup);
+    void DaeMapAvgOutputIdx(int setupIdx, int subIdx, int outColIdx);
     bool DaeInitAggInputAddress(struct wd_agg_sess_setup *setup, VectorBatch* batch);
     void DaeFreeInputOutputMem();
     
     bool ParallelBuildKeyValue(VectorBatch* batch);
     bool ParallelBuildAggValue(VectorBatch* batch);
+    bool DaeHandleRehash(int rehashCount);
+    void DaeAddInputWithRetry();
     void DaeParallelBuild(VectorBatch* batch);
     void DaeParallelProbe();
 
@@ -183,6 +186,18 @@ private:
     /* Array of actual scales extracted from input data (for NUMERIC without typeMod) */
     int* daeAggColActualScales_ = nullptr;
     bool* daeAggColScaleSet_ = nullptr;  // Whether actual scale has been set from data
+    
+    /* COUNT(*) support */
+    bool hasCountStar_ = false;
+    int countStarAggInfoIdx_ = -1;  // Index of COUNT(*) in aggInfo, -1 if not present
+    
+    /* Mapping from pervecagg index to regular agg index (for setup.agg_cols_info) */
+    int* pervecaggToRegularIdx_ = nullptr;  // -1 for COUNT(*), otherwise 0,1,2...
+    
+    /* AVG support: track which aggregation columns are AVG operations */
+    bool* isAvgOperation_ = nullptr;  // Array marking AVG operations, indexed by aggInfo index
+    int* avgSumOutputIdx_ = nullptr;  // Array storing SUM output index for each AVG
+    int* avgCountOutputIdx_ = nullptr;  // Array storing COUNT output index for each AVG
     
     /* DPA output batch processing: Handle output larger than BatchMaxSize */
     int daeProbeOutputOffset_ = 0;       // Current offset in DPA output buffer

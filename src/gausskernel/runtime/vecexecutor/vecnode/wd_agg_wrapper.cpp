@@ -66,7 +66,8 @@ void UadkAggFuncInit(char* wdDaePath)
         {"wd_agg_set_hash_table", (void **)&g_uadkAggFunc.wd_agg_set_hash_table},
         {"wd_agg_add_input_sync", (void **)&g_uadkAggFunc.wd_agg_add_input_sync},
         {"wd_agg_get_output_sync", (void **)&g_uadkAggFunc.wd_agg_get_output_sync},
-        {"wd_agg_get_table_rowsize", (void **)&g_uadkAggFunc.wd_agg_get_table_rowsize}
+        {"wd_agg_get_table_rowsize", (void **)&g_uadkAggFunc.wd_agg_get_table_rowsize},
+        {"wd_agg_rehash_sync", (void **)&g_uadkAggFunc.wd_agg_rehash_sync}
     };
 
     if (UadkAggOpenDl(&g_uadkAggFunc.handle, wdDaePath) != UADK_AGG_SUCCESS) {
@@ -133,4 +134,9 @@ int UadkAggGetTableRowsize(handle_t h_sess)
 int UadkAggSetHashTable(handle_t h_sess, struct wd_dae_hash_table *info)
 {
     return g_uadkAggFunc.wd_agg_set_hash_table(h_sess, info);
+}
+
+int UadkAggRehashSync(handle_t h_sess, struct wd_agg_req *req)
+{
+    return g_uadkAggFunc.wd_agg_rehash_sync(h_sess, req);
 }

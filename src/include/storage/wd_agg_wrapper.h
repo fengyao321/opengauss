@@ -127,6 +127,7 @@ typedef struct UadkAggFunc {
     int (*wd_agg_add_input_sync)(handle_t h_sess, struct wd_agg_req *req);
     int (*wd_agg_get_output_sync)(handle_t h_sess, struct wd_agg_req *req);
     int (*wd_agg_get_table_rowsize)(handle_t h_sess);
+    int (*wd_agg_rehash_sync)(handle_t h_sess, struct wd_agg_req *req);
 } UadkAggFunc;
 
 extern UadkAggFunc g_uadkAggFunc;
@@ -142,6 +143,7 @@ int UadkAggSetHashTable(handle_t h_sess, struct wd_dae_hash_table *info);
 int UadkAggAddInputSync(handle_t h_sess, struct wd_agg_req *req);
 int UadkAggGetOutputSync(handle_t h_sess, struct wd_agg_req *req);
 int UadkAggGetTableRowsize(handle_t h_sess);
+int UadkAggRehashSync(handle_t h_sess, struct wd_agg_req *req);
 
 #endif // WD_AGG_WRAPPER_H
 
