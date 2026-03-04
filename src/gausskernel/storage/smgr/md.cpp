@@ -145,6 +145,48 @@ bool check_unlink_rel_hashtbl(RelFileNode rnode, ForkNumber forknum)
 }
 
 /*
+ * Local fallback for read ADIO requests that fail before io_submit().
+ * We must clear BM_IO_IN_PROGRESS and release held resources here,
+ * otherwise waiters can block forever in WaitIO().
+ */
+static void MdFinishLocalAsyncRead(AioDispatchDesc_t *desc)
+{
+    Assert(desc != NULL);
+    Assert(desc->blockDesc.descType == AioRead);
+    Assert(desc->blockDesc.bufHdr != NULL);
+
+    START_CRIT_SECTION();
+    AsyncTerminateBufferIO(desc->blockDesc.bufHdr, false, BM_IO_ERROR, desc);
+    AsyncUnpinBuffer((volatile void *)desc->blockDesc.bufHdr, true);
+    END_CRIT_SECTION();
+
+    adio_share_free(desc);
+}
+
+/*
+ * Local fallback for write/vacuum-full ADIO requests that fail before io_submit().
+ * We must release local lock/pin state here, otherwise shutdown/restart paths can hang.
+ */
+static void MdFinishLocalAsyncWrite(AioDispatchDesc_t *desc, bool clearDirty)
+{
+    Assert(desc != NULL);
+    Assert(desc->blockDesc.bufHdr != NULL);
+
+    START_CRIT_SECTION();
+    if (desc->blockDesc.descType == AioWrite) {
+        AsyncTerminateBufferIO(desc->blockDesc.bufHdr, clearDirty, 0, desc);
+        AdioLWLockRelease(desc->blockDesc.bufHdr->content_lock, desc->blockDesc.lockThreadMask);
+        AsyncUnpinBuffer((volatile void *)desc->blockDesc.bufHdr, true);
+    } else {
+        Assert(desc->blockDesc.descType == AioVacummFull);
+        AsyncTerminateBufferIOByVacuum(desc->blockDesc.bufHdr);
+    }
+    END_CRIT_SECTION();
+
+    adio_share_free(desc);
+}
+
+/*
  * register_dirty_segment() -- Mark a relation segment as needing fsync
  *
  * If there is a local pending-ops table, just make an entry in it for
@@ -961,6 +1003,7 @@ void mdasyncread(SMgrRelation reln, ForkNumber forkNum, AioDispatchDesc_t **dLis
         return;
     }
 
+    int submitCount = 0;
     for (int i = 0; i < dn; i++) {
         off_t offset;
         MdfdVec *v = NULL;
@@ -977,7 +1020,9 @@ void mdasyncread(SMgrRelation reln, ForkNumber forkNum, AioDispatchDesc_t **dLis
          */
         v = _mdfd_getseg(dList[i]->blockDesc.smgrReln, dList[i]->blockDesc.forkNum, block_num, false, EXTENSION_FAIL);
         if (v == NULL) {
-            return;
+            MdFinishLocalAsyncRead(dList[i]);
+            dList[i] = NULL;
+            continue;
         }
 
         offset = (off_t)BLCKSZ * (block_num % ((BlockNumber)RELSEG_SIZE));
@@ -1003,10 +1048,23 @@ void mdasyncread(SMgrRelation reln, ForkNumber forkNum, AioDispatchDesc_t **dLis
         /* Unpin the buffer and drop the buffer ownership */
         AsyncUnpinBuffer((volatile void *)dList[i]->blockDesc.bufHdr, true);
         END_CRIT_SECTION();
+
+        if (submitCount != i) {
+            dList[submitCount] = dList[i];
+            dList[i] = NULL;
+        }
+        submitCount++;
+    }
+
+    /* Redundant defensive cleanup: keep tail slots NULL to avoid stale-pointer scans during abort cleanup. */
+    for (int i = submitCount; i < dn; i++) {
+        dList[i] = NULL;
     }
 
     /* Dispatch the I/O */
-    (void)FileAsyncRead(dList, dn);
+    if (submitCount > 0) {
+        (void)FileAsyncRead(dList, submitCount);
+    }
 #endif
 }
 
@@ -1076,6 +1134,7 @@ void mdasyncwrite(SMgrRelation reln, ForkNumber forkNumber, AioDispatchDesc_t **
         return;
     }
 
+    int submitCount = 0;
     for (int i = 0; i < dn; i++) {
         off_t offset;
         MdfdVec *v = NULL;
@@ -1096,7 +1155,9 @@ void mdasyncwrite(SMgrRelation reln, ForkNumber forkNumber, AioDispatchDesc_t **
          */
         v = _mdfd_getseg(smgr_rel, fork_num, block_num, false, EXTENSION_FAIL);
         if (v == NULL) {
-            return;
+            MdFinishLocalAsyncWrite(dList[i], true);
+            dList[i] = NULL;
+            continue;
         }
 
         offset = (off_t)BLCKSZ * (block_num % ((BlockNumber)RELSEG_SIZE));
@@ -1119,7 +1180,9 @@ void mdasyncwrite(SMgrRelation reln, ForkNumber forkNumber, AioDispatchDesc_t **
                             smgr_rel->smgr_rnode.node.dbNode,
                             smgr_rel->smgr_rnode.node.relNode,
                             fork_num, block_num)));
-                return;
+                MdFinishLocalAsyncWrite(dList[i], true);
+                dList[i] = NULL;
+                continue;
             }
             /* Not an unlinked relation - this is a real data integrity issue */
             ereport(PANIC, (errmsg("md async write error, write offset(%ld), "
@@ -1166,10 +1229,23 @@ void mdasyncwrite(SMgrRelation reln, ForkNumber forkNumber, AioDispatchDesc_t **
             }
         }
         END_CRIT_SECTION();
+
+        if (submitCount != i) {
+            dList[submitCount] = dList[i];
+            dList[i] = NULL;
+        }
+        submitCount++;
+    }
+
+    /* Redundant defensive cleanup: keep tail slots NULL to avoid stale-pointer scans during abort cleanup. */
+    for (int i = submitCount; i < dn; i++) {
+        dList[i] = NULL;
     }
 
     /* Dispatch the I/O */
-    (void)FileAsyncWrite(dList, dn);
+    if (submitCount > 0) {
+        (void)FileAsyncWrite(dList, submitCount);
+    }
 #endif
 }
 
