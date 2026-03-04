@@ -74,6 +74,11 @@ extern bool anls_opt_is_on(AnalysisOpt dfx_opt);
 #define NUMERIC_ADD_TRANSFUNC_OID   1724    /* numeric_add transfer function */
 #define COUNT_INT4_FUNCOID          2804    /* count(int4) -> int8 */
 #define INT8INC_FUNCOID             1219    /* int8inc count transfer function */
+#define INT8_AVG_ACCUM_FUNCOID      2746    /* int8_avg_accum transfer function */
+#define INT4_AVG_ACCUM_FUNCOID      1963    /* int4_avg_accum transfer function */
+#define INT2_AVG_ACCUM_FUNCOID      1962    /* int2_avg_accum transfer function */
+#define NUMERIC_AVG_ACCUM_FUNCOID   2858    /* numeric_avg_accum transfer function */
+#define INT1_AVG_ACCUM_FUNCOID      5548    /* int1_avg_accum transfer function */
 
 /*
  * @Description: constructed function of hash agg. Init information for the hash agg node.
@@ -213,6 +218,12 @@ bool HashAggRunner::ResetNecessary(VecAggState* node)
     }
 
     m_runState = AGG_PREPARE;
+
+    /* Clean up DPA session so Build() will re-initialize from scratch */
+    if (use_dpa && DaeIsSessionReady()) {
+        DaeSessionCleanup();
+    }
+
     /* Reset context */
     MemoryContextResetAndDeleteChildren(m_hashContext);
 
@@ -422,11 +433,22 @@ void HashAggRunner::Build()
     if (use_dpa && !DaeIsSessionReady()) {
         outer_batch = m_hashSource->getBatch();
         if (unlikely(BatchIsNull(outer_batch))) {
+            use_dpa = false;
             (void)pgstat_report_waitstatus(old_status);
             return;
         }
         
-        if (!DaeSessionInit(outer_batch)) {
+        /*
+         * m_aggNum == 0: VecHashAgg node used only for dedup/distinct
+         * (e.g. the EXISTS semi-join processing in Q4).  DPA handles
+         * aggregation, not dedup; skip it silently at DEBUG1 level so
+         * we don't emit a spurious WARNING for every EXISTS query.
+         */
+        if (m_aggNum == 0) {
+            ereport(DEBUG1, (errmsg("DPA: No aggregation functions (dedup node), skipping DPA")));
+            use_dpa = false;
+            (this->*m_buildFun)(outer_batch);
+        } else if (!DaeSessionInit(outer_batch)) {
             ereport(WARNING,
                 (errmsg("DPA: Failed to initialize DAE session, fallback to CPU aggregation")));
             use_dpa = false;
@@ -482,8 +504,13 @@ VectorBatch* HashAggRunner::Probe()
 
     if (use_dpa) {
         DaeParallelProbe();
-        if (m_scanBatch->m_rows > 0) {
-            return ProducerBatch();
+        while (m_scanBatch->m_rows > 0) {
+            p_res = ProducerBatch();
+            if (p_res != NULL) {
+                return p_res;
+            }
+            m_scanBatch->Reset();
+            DaeParallelProbe();
         }
         return NULL;
     }
@@ -1090,12 +1117,28 @@ void HashAggRunner::HashTableGrowUp()
 // Common constants for DPA numeric precision handling
 static const int DPA_NUMERIC_PRECISION_SHIFT = 16;
 static const int DPA_NUMERIC_SCALE_MASK = 0xffff;
+// AVG aggregation produces 2 outputs (COUNT and SUM)
+static const int DPA_AVG_ALG_NUM = 2;
 
-static void DaeCalcHTBLRows(struct wd_dae_hash_table *table, struct wd_dae_hash_table *newTable)
+static void DaeCalcHTBLRows(struct wd_dae_hash_table *table, struct wd_dae_hash_table *newTable,
+    __u32 estimated_groups)
 {
+    const __u32 HASH_TABLE_GROWTH_FACTOR = 2;
+
     if (table) {
         newTable->std_table_row_num = EXT_RATIO * table->std_table_row_num;
         newTable->ext_table_row_num = EXT_RATIO * table->ext_table_row_num;
+    } else if (estimated_groups > 0) {
+        __u32 required_rows = (__u32)(estimated_groups * HASH_TABLE_LOAD_FACTOR);
+        __u32 target_rows = HASH_TABLE_ROW_NUM;
+        while (target_rows < required_rows && target_rows < HASH_TABLE_ROW_NUM_MAX) {
+            target_rows *= HASH_TABLE_GROWTH_FACTOR;
+        }
+        newTable->std_table_row_num = target_rows;
+        newTable->ext_table_row_num = target_rows;
+        ereport(DEBUG1,
+            (errmsg("DPA: Hash table sized based on estimated groups: %u -> %u rows (load factor %.1f)",
+                    estimated_groups, target_rows, HASH_TABLE_LOAD_FACTOR)));
     } else {
         newTable->std_table_row_num = HASH_TABLE_ROW_NUM;
         newTable->ext_table_row_num = HASH_TABLE_ROW_NUM;
@@ -1130,9 +1173,9 @@ static bool DaeCapHTBLRows(struct wd_dae_hash_table *newTable, __u32 row_size)
 }
 
 void HashAggRunner::DaeAllocHTBL(struct wd_dae_hash_table *table_, struct wd_dae_hash_table *new_table,
-	__u32 row_size)
+	__u32 row_size, __u32 estimated_groups)
 {
-    DaeCalcHTBLRows(table_, new_table);
+    DaeCalcHTBLRows(table_, new_table, estimated_groups);
     new_table->table_row_size = row_size;
 
     if (!DaeCapHTBLRows(new_table, row_size)) {
@@ -1184,8 +1227,13 @@ static wd_dae_data_type MapOidToDAEType(Oid oid)
     }
 }
 
-static wd_agg_alg MapAggFuncOidToAlg(Oid aggFuncOid)
+static wd_agg_alg MapAggFuncOidToAlg(Oid aggFuncOid, bool *isAvg = nullptr)
 {
+    // Initialize isAvg to false by default
+    if (isAvg != nullptr) {
+        *isAvg = false;
+    }
+    
     switch (aggFuncOid) {
         case INT4SUMFUNCOID:
         case INT4_SUM_TRANSFUNC_OID:
@@ -1198,6 +1246,20 @@ static wd_agg_alg MapAggFuncOidToAlg(Oid aggFuncOid)
         case COUNTOID:
         case INT8INC_FUNCOID:
             return WD_AGG_COUNT;
+        case INT8AVGFUNCOID:
+        case INT4AVGFUNCOID:
+        case INT2AVGFUNCOID:
+        case NUMERICAVGFUNCOID:
+        case INT1AVGFUNCOID:
+        case INT8_AVG_ACCUM_FUNCOID:
+        case INT4_AVG_ACCUM_FUNCOID:
+        case INT2_AVG_ACCUM_FUNCOID:
+        case NUMERIC_AVG_ACCUM_FUNCOID:
+        case INT1_AVG_ACCUM_FUNCOID:
+            if (isAvg != nullptr) {
+                *isAvg = true;
+            }
+            return WD_AGG_SUM;
         default:
             return WD_AGG_ALG_TYPE_MAX;
     }
@@ -1373,6 +1435,68 @@ static inline int64 ConvertInt32ToInt64(ScalarValue val) { return (int64)(int32)
 static inline int32 ConvertDate(ScalarValue val) { return DatumGetDateADT(val); }
 static inline int64 ConvertTimestamp(ScalarValue val) { return DatumGetTimestamp(val); }
 
+/*
+ * DetectCountStarResult - Result of COUNT(*) detection
+ */
+struct DetectCountStarResult {
+    uint32 countStarCount;        // Number of COUNT(*) found
+    uint32 regularAggCount;       // Number of regular aggregations
+    int countStarAggInfoIdx;      // Index of first COUNT(*) in aggInfo (-1 if none)
+};
+
+/*
+ * Check if an aggregation is COUNT(*)
+ *
+ * COUNT(*) is distinguished from COUNT(column) by:
+ * 1. Function OID is count function (COUNTOID or INT8INC_FUNCOID)
+ * 2. evalproj is NULL (no input column to evaluate)
+ *
+ * COUNT(column) has the same OID but evalproj != NULL
+ */
+static inline bool IsCountStar(Oid aggFuncOid, VecAggStatePerAgg per_agg_state)
+{
+    bool isCountOid = (aggFuncOid == COUNTOID || aggFuncOid == INT8INC_FUNCOID);
+    bool hasNoInput = (per_agg_state->evalproj == NULL);
+    return isCountOid && hasNoInput;
+}
+
+/*
+ * DetectCountStarInAggregations - Detect COUNT(*) in aggregations
+ *
+ * Scans all aggregation functions to identify COUNT(*) operations.
+ * UADK hardware only supports a single COUNT(*).
+ *
+ * @param aggNum: Total number of aggregations
+ * @param runtime: Runtime information containing aggInfo and pervecagg
+ * @return DetectCountStarResult containing detection statistics
+ */
+static DetectCountStarResult DetectCountStarInAggregations(uint32 aggNum, VecAggState* runtime)
+{
+    DetectCountStarResult result = {0, 0, -1};
+    
+    ereport(DEBUG1, (errmsg("DPA: Phase 1 - Detecting COUNT(*), m_aggNum=%u", aggNum)));
+    
+    for (uint32 i = 0; i < aggNum; i++) {
+        const Oid aggFuncOid = runtime->aggInfo[i].vec_agg_function.flinfo->fn_oid;
+        int pervecagg_idx = aggNum - 1 - i;
+        
+        if (IsCountStar(aggFuncOid, &runtime->pervecagg[pervecagg_idx])) {
+            result.countStarCount++;
+            if (result.countStarAggInfoIdx < 0) {
+                result.countStarAggInfoIdx = i; // Record first COUNT(*)
+            }
+            ereport(DEBUG1,
+				(errmsg("DPA: Phase 1 - Found COUNT(*) #%u at aggInfo[%u]", result.countStarCount, i)));
+        } else {
+            result.regularAggCount++;
+            ereport(DEBUG1,
+				(errmsg("DPA: Phase 1 - Regular agg at aggInfo[%u], count=%u", i, result.regularAggCount)));
+        }
+    }
+    
+    return result;
+}
+
 static inline void DaeTryCaptureNumericScale(Numeric num, int scale, bool *scaleFound, int *outActualScale)
 {
     if (*scaleFound || outActualScale == nullptr) {
@@ -1493,12 +1617,52 @@ static enum wd_dae_data_type DaeGetOutputDataType(wd_agg_alg aggAlg, Oid inputCo
 bool HashAggRunner::DaeCollectAggCollInfo(struct wd_agg_col_info *agg_cols_info, Oid inputColType, Oid outputColType,
     int idx, int4 typeMod, Oid aggFuncOid)
 {
-    wd_agg_alg aggAlg = MapAggFuncOidToAlg(aggFuncOid);
+    bool isAvg = false;
+    wd_agg_alg aggAlg = MapAggFuncOidToAlg(aggFuncOid, &isAvg);
     if (aggAlg == WD_AGG_ALG_TYPE_MAX) {
         ereport(WARNING, (errmsg("DPA: Unsupported aggregation function OID: %u", aggFuncOid)));
         return false;
     }
     
+    // For AVG operations, we need both COUNT and SUM
+    // Note: openGauss stores AVG state as {COUNT, SUM}, not {SUM, COUNT}!
+    if (isAvg) {
+        agg_cols_info[idx].col_alg_num = DPA_AVG_ALG_NUM;
+        
+        // Setup input type (same for both COUNT and SUM)
+        bool setup_ok = DaeSetupSumInputType(&agg_cols_info[idx], inputColType, typeMod);
+        if (!setup_ok) {
+            return false;
+        }
+        
+        // Configure first output: COUNT (must be first to match openGauss order!)
+        // COUNT always outputs WD_DAE_LONG (int64)
+        agg_cols_info[idx].output_data_types[0] = WD_DAE_LONG;
+        agg_cols_info[idx].output_col_algs[0] = WD_AGG_COUNT;
+        
+        // Configure second output: SUM (must be second to match openGauss order!)
+        // For AVG, outputColType might be numeric[] (1231), but we need the actual SUM output type
+        // We determine it based on the input type:
+        // - INT8 input -> INT8 output (WD_DAE_LONG) for intermediate sum
+        // - NUMERIC input -> NUMERIC output (WD_DAE_LONG_DECIMAL)
+        wd_dae_data_type sumOutputType;
+        if (inputColType == INT8OID || inputColType == INT4OID || inputColType == INT2OID) {
+            // Integer types: SUM outputs INT8 (which will be converted to NUMERIC later)
+            sumOutputType = WD_DAE_LONG;
+        } else if (inputColType == NUMERICOID) {
+            // NUMERIC type: SUM outputs NUMERIC (stored as int128)
+            sumOutputType = WD_DAE_LONG_DECIMAL;
+        } else {
+            ereport(WARNING, (errmsg("DPA: Unsupported AVG input type OID: %u", inputColType)));
+            return false;
+        }
+        
+        agg_cols_info[idx].output_data_types[1] = sumOutputType;
+        agg_cols_info[idx].output_col_algs[1] = WD_AGG_SUM;
+        return true;
+    }
+    
+    // Regular aggregation (SUM or COUNT only)
     agg_cols_info[idx].col_alg_num = 1;
     
     bool setup_ok = false;
@@ -1726,15 +1890,49 @@ bool HashAggRunner::DaeInitAggInputAddress(struct wd_agg_sess_setup *setup, Vect
     return false;
 }
 
+/*
+ * Map AVG sub-algorithm output indices (COUNT/SUM) back to aggInfo entries.
+ * For AVG, col_alg_num==2: j==0 is COUNT, j==1 is SUM.
+ */
+void HashAggRunner::DaeMapAvgOutputIdx(int setupIdx, int subIdx, int outColIdx)
+{
+    for (uint32 aggInfoIdx = 0; aggInfoIdx < m_aggNum; aggInfoIdx++) {
+        if (hasCountStar_ && aggInfoIdx == countStarAggInfoIdx_)
+            continue;
+        int pervecaggIdx = m_aggNum - 1 - aggInfoIdx;
+        if (pervecaggIdx >= 0 &&
+            pervecaggToRegularIdx_[pervecaggIdx] == setupIdx) {
+            if (subIdx == 0) {
+                avgCountOutputIdx_[aggInfoIdx] = outColIdx;
+                ereport(DEBUG1,
+                    (errmsg("DPA: AVG aggInfo[%u] COUNT output at dae_out[%d]", aggInfoIdx, outColIdx)));
+            } else if (subIdx == 1) {
+                avgSumOutputIdx_[aggInfoIdx] = outColIdx;
+                ereport(DEBUG1,
+                    (errmsg("DPA: AVG aggInfo[%u] SUM output at dae_out[%d]", aggInfoIdx, outColIdx)));
+            }
+            break;
+        }
+    }
+}
+
 bool HashAggRunner::DaeInitAggOutputAddress(struct wd_agg_sess_setup *setup)
 {
-    struct wd_dae_col_addr *agg_out_cols;
-    int i;
-    bool ret;
-    int j;
+    int i = 0;
+    int j = 0;
     int k = 0;
+    bool ret;
 
-    agg_out_cols = (wd_dae_col_addr*)palloc(setup->agg_cols_num * sizeof(struct wd_dae_col_addr));
+    int total_out_cols = 0;
+    for (i = 0; i < setup->agg_cols_num; i++) {
+        total_out_cols += setup->agg_cols_info[i].col_alg_num;
+    }
+    if (setup->is_count_all) {
+        total_out_cols++;
+    }
+
+    struct wd_dae_col_addr *agg_out_cols =
+        (wd_dae_col_addr*)palloc(total_out_cols * sizeof(struct wd_dae_col_addr));
     if (!agg_out_cols) {
         return true;
     }
@@ -1747,6 +1945,9 @@ bool HashAggRunner::DaeInitAggOutputAddress(struct wd_agg_sess_setup *setup)
                 DaeFreeValueAddr(agg_out_cols, k);
                 return true;
             }
+            if (setup->agg_cols_info[i].col_alg_num == DPA_AVG_ALG_NUM) {
+                DaeMapAvgOutputIdx(i, j, k);
+            }
             ++k;
         }
     }
@@ -1757,6 +1958,9 @@ bool HashAggRunner::DaeInitAggOutputAddress(struct wd_agg_sess_setup *setup)
             DaeFreeValueAddr(agg_out_cols, k);
             return true;
         }
+        ++k;
+        ereport(DEBUG1, (errmsg("DPA: Allocated COUNT(*) output at index %d, total_out_cols=%d", k - 1,
+            total_out_cols)));
     }
 
     ereport(DEBUG1, (errmsg("DPA: Total allocated output columns: %d", k)));
@@ -1782,9 +1986,25 @@ bool HashAggRunner::DaeInitInputOutputMem(struct wd_agg_sess_setup *setup, Vecto
     daeReq_.out_row_count = DEFAULT_ROW_NUM;
     daeReq_.in_row_count = batch->m_rows;
     daeReq_.out_key_cols_num = setup->key_cols_num;
-    daeReq_.out_agg_cols_num = setup->agg_cols_num;
+    
+    // Calculate out_agg_cols_num by summing up col_alg_num for each agg column
+    // This is important for AVG which has col_alg_num=2 (COUNT+SUM)
+    __u32 calculated_out_agg_cols = 0;
+    for (__u32 i = 0; i < setup->agg_cols_num; i++) {
+        calculated_out_agg_cols += setup->agg_cols_info[i].col_alg_num;
+    }
+    // Add COUNT(*) if present
+    if (setup->is_count_all) {
+        calculated_out_agg_cols += 1;
+    }
+    
+    daeReq_.out_agg_cols_num = calculated_out_agg_cols;
     daeReq_.key_cols_num = setup->key_cols_num;
     daeReq_.agg_cols_num = setup->agg_cols_num;
+    
+    ereport(DEBUG1,
+		(errmsg("DPA: DaeInitInputOutputMem - agg_cols_num=%u, out_agg_cols_num=%u (calculated), is_count_all=%d",
+        	daeReq_.agg_cols_num, daeReq_.out_agg_cols_num, setup->is_count_all)));
 
     return false;
 }
@@ -1898,7 +2118,26 @@ bool HashAggRunner::ParallelBuildAggValue(VectorBatch* batch)
     int32 rows = batch->m_rows;
 
     for (int i = 0; i < m_aggNum; i++) {
-        int setupIdx = i;
+        /*
+         * Skip COUNT(*) - it has no input column
+         *
+         * COUNT(*) is handled by hardware directly, doesn't need input data
+         * Note: pervecagg[i] corresponds to aggInfo[m_aggNum - 1 - i]
+         */
+        int aggInfoIdx = m_aggNum - 1 - i;
+        if (hasCountStar_ && aggInfoIdx == countStarAggInfoIdx_) {
+            ereport(DEBUG1, (errmsg("DPA: Skipping COUNT(*) (no input column)")));
+            continue;
+        }
+        
+        // Use mapping to get DPA setup index (pervecagg_idx → setup_idx)
+        // This directly gives us the index in daeReq_.agg_cols and daeAggCols_
+        int setupIdx = pervecaggToRegularIdx_[i];
+        if (setupIdx < 0) {
+            elog(WARNING, "Invalid mapping for pervecagg[%d]", i);
+            return false;
+        }
+        
         VecAggStatePerAgg per_agg_state = &m_runtime->pervecagg[i];
         VectorBatch* agg_batch = NULL;
         ScalarVector* p_vector = NULL;
@@ -1963,6 +2202,122 @@ bool HashAggRunner::ParallelBuildAggValue(VectorBatch* batch)
     return true;
 }
 
+/*
+ * DaeHandleRehash - Expand hash table and migrate data when UADK signals NEED_REHASH.
+ *
+ * Allocates a new table (4x current size), sets it via UADK, migrates data from
+ * the old table, then replaces the old table with the new one.
+ * Returns true on success, false on failure (after reporting ERROR).
+ */
+bool HashAggRunner::DaeHandleRehash(int rehashCount)
+{
+    ereport(DEBUG1,
+        (errmsg("DPA: Hash table needs rehash (attempt %d), current rows: std=%u, ext=%u",
+                rehashCount + 1,
+                daeHashTable_.std_table_row_num,
+                daeHashTable_.ext_table_row_num)));
+
+    struct wd_dae_hash_table new_table;
+    errno_t rc = memset_s(&new_table, sizeof(new_table), 0, sizeof(new_table));
+    securec_check(rc, "\0", "\0");
+
+    DaeAllocHTBL(&daeHashTable_, &new_table, daeHashTable_.table_row_size, 0);
+
+    int set_ret = UadkAggSetHashTable(daeSess_, &new_table);
+    if (set_ret != 0) {
+        DaeFreeHTBL(&new_table);
+        ereport(ERROR,
+            (errcode(ERRCODE_INTERNAL_ERROR),
+             errmsg("DPA: wd_agg_set_hash_table failed during rehash (ret=%d). "
+                    "Current table: std=%u, ext=%u rows.",
+                    set_ret,
+                    daeHashTable_.std_table_row_num,
+                    daeHashTable_.ext_table_row_num)));
+        return false;
+    }
+
+    int rehash_ret = UadkAggRehashSync(daeSess_, &daeReq_);
+    if (rehash_ret != 0) {
+        ereport(ERROR,
+            (errcode(ERRCODE_INTERNAL_ERROR),
+             errmsg("DPA: wd_agg_rehash_sync failed (ret=%d). "
+                    "Estimated groups: %u, new table: std=%u, ext=%u rows.",
+                    rehash_ret,
+                    (unsigned int)(((VecAgg*)m_runtime->ss.ps.plan)->numGroups),
+                    new_table.std_table_row_num,
+                    new_table.ext_table_row_num)));
+        return false;
+    }
+
+    DaeFreeHTBL(&daeHashTable_);
+    daeHashTable_ = new_table;
+
+    ereport(DEBUG1,
+        (errmsg("DPA: Hash table rehash completed, new rows: std=%u, ext=%u",
+                daeHashTable_.std_table_row_num,
+                daeHashTable_.ext_table_row_num)));
+    return true;
+}
+
+/*
+ * DaeAddInputWithRetry - Submit aggregation input to UADK with automatic rehash retry.
+ *
+ * UADK may return WD_AGG_NEED_REHASH (possibly alongside a non-zero ret code)
+ * when the hash table is full. State is checked before ret to handle this correctly.
+ */
+void HashAggRunner::DaeAddInputWithRetry()
+{
+    const int MAX_REHASH_RETRIES = 5;
+    int rehash_count = 0;
+
+    while (true) {
+        int ret = UadkAggAddInputSync(daeSess_, &daeReq_);
+
+        ereport(DEBUG1,
+            (errmsg("DPA: UadkAggAddInputSync returned ret=%d, state=%u",
+                    ret, daeReq_.state)));
+
+        if (daeReq_.state == WD_AGG_NEED_REHASH) {
+            if (rehash_count >= MAX_REHASH_RETRIES) {
+                ereport(ERROR,
+                    (errcode(ERRCODE_INTERNAL_ERROR),
+                     errmsg("DPA: Too many rehash attempts (%d), giving up", rehash_count)));
+                return;
+            }
+            if (!DaeHandleRehash(rehash_count)) {
+                return;
+            }
+            rehash_count++;
+            continue;
+        }
+
+        if (ret != 0 && daeReq_.state != WD_AGG_TASK_DONE && daeReq_.state != WD_AGG_SUM_OVERFLOW) {
+            ereport(ERROR,
+                (errcode(ERRCODE_INTERNAL_ERROR),
+                 errmsg("DPA: UadkAggAddInputSync failed, ret = %d, state = %u",
+                        ret, daeReq_.state)));
+            return;
+        }
+
+        if (daeReq_.state == WD_AGG_TASK_DONE || daeReq_.state == WD_AGG_SUM_OVERFLOW) {
+            break;
+        }
+
+        if (daeReq_.state == WD_AGG_INVALID_HASH_TABLE) {
+            ereport(ERROR,
+                (errcode(ERRCODE_INTERNAL_ERROR),
+                 errmsg("DPA: Invalid hash table state (state=%u). Hash table may be corrupted.",
+                        daeReq_.state)));
+            return;
+        }
+
+        ereport(WARNING,
+            (errmsg("DPA: Aggregation task returned unexpected state: %u, processed rows: %u",
+                    daeReq_.state, daeReq_.real_in_row_count)));
+        break;
+    }
+}
+
 void HashAggRunner::DaeParallelBuild(VectorBatch* batch)
 {
     if (!DaeIsSessionReady()) {
@@ -1988,20 +2343,7 @@ void HashAggRunner::DaeParallelBuild(VectorBatch* batch)
         return;
     }
 
-    int ret = UadkAggAddInputSync(daeSess_, &daeReq_);
-    if (ret != 0) {
-        ereport(ERROR,
-            (errcode(ERRCODE_INTERNAL_ERROR),
-             errmsg("DPA: UadkAggAddInputSync failed, ret = %d, state = %u",
-                    ret, daeReq_.state)));
-        return;
-    }
-
-    if (daeReq_.state != WD_AGG_TASK_DONE && daeReq_.state != WD_AGG_SUM_OVERFLOW) {
-        ereport(WARNING,
-            (errmsg("DPA: Aggregation task returned state: %u, processed rows: %u",
-                    daeReq_.state, daeReq_.real_in_row_count)));
-    }
+    DaeAddInputWithRetry();
     m_rows += daeReq_.real_in_row_count;
 }
 
@@ -2021,10 +2363,11 @@ static void DaeProbeOutputBpchar(ScalarValue* vals, uint8* flags, char* srcData,
     }
 }
 
-static void DaeProbeOutputVarchar(ScalarValue* vals, uint8* flags, char* srcData, __u32* offset,
+static void DaeProbeOutputVarchar(ScalarValue* vals, uint8* flags, char* baseValue, __u32* offset,
     uint8* empty, int outRows, bool forceNotNull)
 {
-    __u32 total_data_size = offset[outRows];
+    __u32 baseOff = offset[0];
+    __u32 total_data_size = offset[outRows] - baseOff;
     char *bulkMem = (char *)palloc(total_data_size + outRows * VARHDRSZ);
     char *destPtr = bulkMem;
     
@@ -2033,7 +2376,7 @@ static void DaeProbeOutputVarchar(ScalarValue* vals, uint8* flags, char* srcData
         int totalLen = dataLen + VARHDRSZ;
         SET_VARSIZE(destPtr, totalLen);
         if (dataLen > 0) {
-            errno_t rc = memcpy_s(VARDATA(destPtr), dataLen, srcData + offset[j], dataLen);
+            errno_t rc = memcpy_s(VARDATA(destPtr), dataLen, baseValue + offset[j], dataLen);
             securec_check(rc, "\0", "\0");
         }
         vals[j] = PointerGetDatum(destPtr);
@@ -2060,6 +2403,20 @@ static void DaeProbeOutputInt8(ScalarValue* vals, uint8* flags, int64* srcData, 
     }
 }
 
+static void DaeProbeOutputInt8AsNumeric(ScalarValue* vals, uint8* flags, int64* srcData, uint8* empty,
+    int outRows, bool forceNotNull)
+{
+    for (int j = 0; j < outRows; j++) {
+        if (!forceNotNull && empty[j]) {
+            vals[j] = 0;
+            flags[j] = 1;
+        } else {
+            vals[j] = DirectFunctionCall1(int8_numeric, Int64GetDatum(srcData[j]));
+            flags[j] = 0;
+        }
+    }
+}
+
 static void DaeProbeOutputNumeric(ScalarValue* vals, uint8* flags, __int128* srcData, uint8* empty,
     int outRows, bool forceNotNull, int scale)
 {
@@ -2076,6 +2433,69 @@ static void DaeProbeOutputNumeric(ScalarValue* vals, uint8* flags, __int128* src
             flags[j] = 0;
         }
     }
+}
+
+static inline int DaeResolveNumericScale(const bool *scaleSet, const int *actualScales,
+                                         const int4 *typeMods, uint32 idx)
+{
+    if (scaleSet[idx] && actualScales[idx] > 0) {
+        return actualScales[idx];
+    }
+    if (typeMods[idx] > (int32)VARHDRSZ) {
+        return (typeMods[idx] - VARHDRSZ) & DPA_NUMERIC_SCALE_MASK;
+    }
+    return DPA_DEFAULT_NUMERIC_SCALE;
+}
+
+/*
+ * Compute a single SUM datum for AVG division based on the DPA storage type.
+ * Returns true on success, false on unsupported type (caller should ereport).
+ */
+static bool DaeComputeSumDatum(wd_dae_data_type sumDataType,
+                               struct wd_dae_col_addr *sumCol, int offset, int j,
+                               int scale, Datum *outDatum)
+{
+    if (sumDataType == WD_DAE_LONG) {
+        int64 sumVal = ((int64 *)sumCol->value + offset)[j];
+        *outDatum = DirectFunctionCall1(int8_numeric, Int64GetDatum(sumVal));
+        return true;
+    }
+    if (sumDataType == WD_DAE_LONG_DECIMAL) {
+        __int128 sumVal = ((__int128 *)sumCol->value + offset)[j];
+        Numeric num = convert_int128_to_numeric(sumVal, scale);
+        *outDatum = NumericGetDatum(num);
+        return true;
+    }
+    return false;
+}
+
+/*
+ * Compute AVG = SUM / COUNT for each row and write results to vals/flags.
+ * Returns false if an unsupported sumDataType is encountered.
+ */
+static bool DaeProbeComputeAvgRows(ScalarValue *vals, uint8 *flags, int outRows,
+                                   int64 *countValues, uint8 *countEmpty,
+                                   wd_dae_data_type sumDataType,
+                                   struct wd_dae_col_addr *sumCol, int offset, int scale)
+{
+    for (int j = 0; j < outRows; j++) {
+        int64 countVal = countValues[j];
+        if (countVal == 0 || countEmpty[j]) {
+            vals[j] = 0;
+            flags[j] = 1;
+            continue;
+        }
+
+        Datum sumDatum;
+        if (!DaeComputeSumDatum(sumDataType, sumCol, offset, j, scale, &sumDatum)) {
+            return false;
+        }
+
+        Datum countDatum = DirectFunctionCall1(int8_numeric, Int64GetDatum(countVal));
+        vals[j] = DirectFunctionCall2(numeric_div, sumDatum, countDatum);
+        flags[j] = 0;
+    }
+    return true;
 }
 
 void HashAggRunner::DaeParallelProbe()
@@ -2167,12 +2587,9 @@ void HashAggRunner::DaeParallelProbe()
             char* srcData = (char *)daeReq_.out_key_cols[i].value + offset * dataLen;
             DaeProbeOutputBpchar(vals, flags, srcData, empty, outRows, dataLen, false);
         } else if (colType == VARCHAROID) {
-            /* VARCHAR with offset needs special handling due to variable length */
             char* base_value = (char *)daeReq_.out_key_cols[i].value;
-            __u32* base_offset = daeReq_.out_key_cols[i].offset;
-            char* srcData = base_value + base_offset[offset];
-            __u32* src_offset = base_offset + offset;
-            DaeProbeOutputVarchar(vals, flags, srcData, src_offset, empty, outRows, false);
+            __u32* src_offset = daeReq_.out_key_cols[i].offset + offset;
+            DaeProbeOutputVarchar(vals, flags, base_value, src_offset, empty, outRows, false);
         } else if (colType == INT4OID) {
             int32* srcData = (int32 *)daeReq_.out_key_cols[i].value + offset;
             DaeProbeOutputInt4(vals, flags, srcData, empty, outRows, false);
@@ -2196,15 +2613,27 @@ void HashAggRunner::DaeParallelProbe()
         p_vector->m_rows = outRows;
     }
 
-    for (uint32 i = 0; i < daeReq_.out_agg_cols_num; i++) {
+    // Process regular aggregation columns (excluding COUNT(*) if present)
+    uint32 regular_agg_out_count = daeReq_.out_agg_cols_num - (hasCountStar_ ? 1 : 0);
+    
+    for (uint32 i = 0; i < m_aggNum; i++) {
+        // pervecagg[i] corresponds to aggInfo[m_aggNum - 1 - i]
+        int aggInfo_idx = m_aggNum - 1 - i;
+        
+        // Skip COUNT(*) in regular processing - will handle it separately
+        if (hasCountStar_ && aggInfo_idx == countStarAggInfoIdx_) {
+            ereport(DEBUG1, (errmsg("DPA: Skipping COUNT(*) at pervecagg[%d] in probe", i)));
+            continue;
+        }
+        
         /*
          * Agg columns: reverse order to match ProducerBatch projection expectations
          * out_agg_cols[0] (pervecagg[0]) fills m_scanBatch[m_cellVarLen + m_aggNum - 1]
          * out_agg_cols[1] (pervecagg[1]) fills m_scanBatch[m_cellVarLen + m_aggNum - 2]
          */
-        int aggInfo_idx = m_aggNum - 1 - i;
         int scanBatchIdx = m_cellVarLen + m_aggNum - 1 - i;
         
+        /* Bounds check for m_scanBatch agg column */
         if (scanBatchIdx < 0 || scanBatchIdx >= m_scanBatch->m_cols) {
             ereport(ERROR,
                 (errcode(ERRCODE_INTERNAL_ERROR),
@@ -2216,16 +2645,83 @@ void HashAggRunner::DaeParallelProbe()
         
         ScalarVector* p_vector = &m_scanBatch->m_arr[scanBatchIdx];
         
+        /*
+         * Get the actual output type from aggInfo (which is in SELECT order)
+         */
         const Oid colType = m_runtime->aggInfo[aggInfo_idx].vec_agg_function.flinfo->fn_rettype;
+        
+        /* Update type descriptor to match actual data type */
         p_vector->m_desc.typeId = colType;
         p_vector->m_desc.encoded = COL_IS_ENCODE(colType);
         
         ScalarValue* vals = p_vector->m_vals;
         uint8* flags = p_vector->m_flag;
-        uint8* empty = daeReq_.out_agg_cols[i].empty + offset;
         
-        bool is_count = (daeAggCols_ && i < daeReq_.out_agg_cols_num &&
-                        daeAggCols_[i].output_col_algs[0] == WD_AGG_COUNT);
+        // Check if this is an AVG operation
+        bool isAvg = (isAvgOperation_ != nullptr && aggInfo_idx < m_aggNum && isAvgOperation_[aggInfo_idx]);
+
+        if (isAvg) {
+            // AVG operation: compute SUM / COUNT from DPA outputs
+            // Note: openGauss stores AVG state as {COUNT, SUM}
+            ereport(DEBUG1, (errmsg("DPA: Processing AVG for aggInfo[%u]", aggInfo_idx)));
+            
+            int countIdx = avgCountOutputIdx_[aggInfo_idx];
+            int sumIdx = avgSumOutputIdx_[aggInfo_idx];
+            
+            if (sumIdx < 0 || countIdx < 0) {
+                ereport(ERROR, (errmsg("DPA: Invalid AVG output indices for aggInfo[%u]: count=%d, sum=%d",
+                                      aggInfo_idx, countIdx, sumIdx)));
+                return;
+            }
+            
+            /* Apply offset to read from correct position in DPA buffer */
+            uint8* count_empty = daeReq_.out_agg_cols[countIdx].empty + offset;
+            uint8* sum_empty = daeReq_.out_agg_cols[sumIdx].empty + offset;
+            
+            // Get the SUM data type to determine how to read it
+            // SUM is at index 1 in output_data_types (COUNT at 0, SUM at 1)
+            // Use mapping to access setup.agg_cols_info with correct index
+            int setupIdx = pervecaggToRegularIdx_[i];
+            if (setupIdx < 0) {
+                ereport(ERROR, (errmsg("DPA: Invalid mapping for pervecagg[%u] in AVG processing", i)));
+                return;
+            }
+            wd_dae_data_type sumDataType = daeAggCols_[setupIdx].output_data_types[1];
+            
+            /* Get base pointers with offset applied */
+            int64* count_values = (int64 *)daeReq_.out_agg_cols[countIdx].value + offset;
+            
+            int scale = DaeResolveNumericScale(daeAggColScaleSet_, daeAggColActualScales_,
+                                                daeAggColTypeMods_, i);
+            if (!DaeProbeComputeAvgRows(vals, flags, outRows, count_values, count_empty,
+                                         sumDataType, &daeReq_.out_agg_cols[sumIdx], offset, scale)) {
+                ereport(ERROR, (errmsg("DPA: Unsupported SUM data type %u for AVG", sumDataType)));
+                return;
+            }
+            
+            p_vector->m_rows = outRows;
+
+            ereport(DEBUG1, (errmsg("DPA: AVG computed for %d rows", outRows)));
+            continue;
+        }
+        
+        // Normal (non-AVG) aggregation processing
+        int setupIdx = pervecaggToRegularIdx_[i];
+        if (setupIdx < 0) {
+            ereport(ERROR, (errmsg("DPA: Invalid mapping for pervecagg[%u] in normal agg processing", i)));
+            return;
+        }
+        
+        int daeAggIdx = 0;
+        for (int s = 0; s < setupIdx; s++) {
+            daeAggIdx += daeAggCols_[s].col_alg_num;
+        }
+        
+        /* Apply offset to read from correct position in DPA buffer */
+        uint8* empty = daeReq_.out_agg_cols[daeAggIdx].empty + offset;
+        
+        bool is_count = (daeAggCols_ && (uint32)setupIdx < regular_agg_out_count &&
+                        daeAggCols_[setupIdx].output_col_algs[0] == WD_AGG_COUNT);
 
         if (colType == BPCHAROID) {
             int dataLen = (p_vector->m_desc.typeMod > (int32)VARHDRSZ) ?
@@ -2234,58 +2730,95 @@ void HashAggRunner::DaeParallelProbe()
                 ereport(ERROR, (errmsg("DPA: Invalid BPCHAR typeMod: %d", p_vector->m_desc.typeMod)));
                 return;
             }
-            char* srcData = (char *)daeReq_.out_agg_cols[i].value + offset * dataLen;
+            char* srcData = (char *)daeReq_.out_agg_cols[daeAggIdx].value + offset * dataLen;
             DaeProbeOutputBpchar(vals, flags, srcData, empty, outRows, dataLen, is_count);
         } else if (colType == VARCHAROID) {
-            char* base_value = (char *)daeReq_.out_agg_cols[i].value;
-            __u32* base_offset = daeReq_.out_agg_cols[i].offset;
-            char* srcData = base_value + base_offset[offset];
-            __u32* src_offset = base_offset + offset;
-            DaeProbeOutputVarchar(vals, flags, srcData, src_offset, empty, outRows, is_count);
+            char* base_value = (char *)daeReq_.out_agg_cols[daeAggIdx].value;
+            __u32* src_offset = daeReq_.out_agg_cols[daeAggIdx].offset + offset;
+            DaeProbeOutputVarchar(vals, flags, base_value, src_offset, empty, outRows, is_count);
         } else if (colType == INT4OID) {
-            int32* srcData = (int32 *)daeReq_.out_agg_cols[i].value + offset;
+            int32* srcData = (int32 *)daeReq_.out_agg_cols[daeAggIdx].value + offset;
             DaeProbeOutputInt4(vals, flags, srcData, empty, outRows, is_count);
         } else if (colType == INT8OID) {
-            int64* srcData = (int64 *)daeReq_.out_agg_cols[i].value + offset;
+            int64* srcData = (int64 *)daeReq_.out_agg_cols[daeAggIdx].value + offset;
             DaeProbeOutputInt8(vals, flags, srcData, empty, outRows, is_count);
         } else if (colType == NUMERICOID) {
-            wd_dae_data_type actualType = daeAggCols_[i].output_data_types[0];
+            // Check actual storage type in UADK
+            // SUM(INT8) outputs NUMERIC but stores as WD_DAE_LONG (int64)
+            // SUM(NUMERIC) outputs NUMERIC and stores as WD_DAE_LONG_DECIMAL (int128)
+            // Use mapping to access setup.agg_cols_info with correct index
+            wd_dae_data_type actualType = daeAggCols_[setupIdx].output_data_types[0];
             
             if (actualType == WD_DAE_LONG) {
-                int64* srcData = (int64 *)daeReq_.out_agg_cols[i].value + offset;
-                for (int j = 0; j < outRows; j++) {
-                    if (!is_count && empty[j]) {
-                        vals[j] = 0;
-                        flags[j] = 1;
-                    } else {
-                        int64 val = srcData[j];
-                        vals[j] = DirectFunctionCall1(int8_numeric, Int64GetDatum(val));
-                        flags[j] = 0;
-                    }
-                }
+                int64* srcData = (int64 *)daeReq_.out_agg_cols[daeAggIdx].value + offset;
+                DaeProbeOutputInt8AsNumeric(vals, flags, srcData, empty, outRows, is_count);
             } else if (actualType == WD_DAE_LONG_DECIMAL) {
-                int scale;
-                if (daeAggColScaleSet_[i] && daeAggColActualScales_[i] > 0) {
-                    scale = daeAggColActualScales_[i];
-                } else if (daeAggColTypeMods_[i] > (int32)VARHDRSZ) {
-                    scale = (daeAggColTypeMods_[i] - VARHDRSZ) & DPA_NUMERIC_SCALE_MASK;
-                } else {
-                    scale = DPA_DEFAULT_NUMERIC_SCALE;
-                }
-                __int128* srcData = (__int128 *)daeReq_.out_agg_cols[i].value + offset;
+                int scale = DaeResolveNumericScale(daeAggColScaleSet_, daeAggColActualScales_,
+                                                   daeAggColTypeMods_, i);
+                __int128* srcData = (__int128 *)daeReq_.out_agg_cols[daeAggIdx].value + offset;
                 DaeProbeOutputNumeric(vals, flags, srcData, empty, outRows, is_count, scale);
             } else {
                 elog(ERROR, "DPA: Unexpected NUMERIC storage type: %u", actualType);
             }
         } else if (colType == DATEOID) {
-            int32* srcData = (int32 *)daeReq_.out_agg_cols[i].value + offset;
+            int32* srcData = (int32 *)daeReq_.out_agg_cols[daeAggIdx].value + offset;
             DaeProbeOutputInt4(vals, flags, srcData, empty, outRows, is_count);
         } else if (colType == TIMESTAMPOID) {
-            int64* srcData = (int64 *)daeReq_.out_agg_cols[i].value + offset;
+            int64* srcData = (int64 *)daeReq_.out_agg_cols[daeAggIdx].value + offset;
             DaeProbeOutputInt8(vals, flags, srcData, empty, outRows, is_count);
         } else {
             elog(ERROR, "DPA: unsupported aggregation column type %u", colType);
         }
+        p_vector->m_rows = outRows;
+    }
+    
+    /*
+     * Handle COUNT(*) separately if present
+     *
+     * COUNT(*) characteristics:
+     * 1. No input column (not processed in ParallelBuildAggValue)
+     * 2. DPA output is at the last position in out_agg_cols
+     * 3. Result fills m_scanBatch at its original aggInfo position
+     * 4. Always returns INT8, never NULL
+     */
+    if (hasCountStar_) {
+        // DPA output index: COUNT(*) is always at the end
+        uint32 countStarDpaIdx = daeReq_.out_agg_cols_num - 1;
+        
+        // scanBatch index: direct calculation from aggInfo index
+        // Aggregation columns: scanBatch[m_cellVarLen + aggInfo_idx]
+        int scanBatchIdx = m_cellVarLen + countStarAggInfoIdx_;
+        
+        /* Bounds check for COUNT(*) scanBatchIdx */
+        if (scanBatchIdx < 0 || scanBatchIdx >= m_scanBatch->m_cols) {
+            ereport(ERROR,
+                (errcode(ERRCODE_INTERNAL_ERROR),
+                 	errmsg("DPA Probe: COUNT(*) scanBatchIdx=%d out of bounds "
+						"(m_scanBatch->m_cols=%d, m_cellVarLen=%d, countStarAggInfoIdx_=%d)",
+                        	scanBatchIdx, m_scanBatch->m_cols, m_cellVarLen, countStarAggInfoIdx_)));
+            return;
+        }
+        
+        ereport(DEBUG1,
+            (errmsg("DPA: COUNT(*) - aggInfo[%d] → scanBatch[%d], DPA out[%u]",
+                    countStarAggInfoIdx_, scanBatchIdx, countStarDpaIdx)));
+        
+        // Setup output vector
+        ScalarVector* p_vector = &m_scanBatch->m_arr[scanBatchIdx];
+        p_vector->m_desc.typeId = INT8OID;  // COUNT(*) always returns INT8
+        p_vector->m_desc.encoded = COL_IS_ENCODE(INT8OID);
+        
+        ScalarValue* vals = p_vector->m_vals;
+        uint8* flags = p_vector->m_flag;
+        
+        /* Apply offset to read from correct position in DPA buffer */
+        int64* srcData = (int64 *)daeReq_.out_agg_cols[countStarDpaIdx].value + offset;
+        uint8* src_empty = daeReq_.out_agg_cols[countStarDpaIdx].empty + offset;
+        
+        // Output COUNT(*) result (always non-NULL)
+        DaeProbeOutputInt8(vals, flags, srcData, src_empty, outRows,
+                          true);  // forceNotNull = true (COUNT(*) never returns NULL)
+        
         p_vector->m_rows = outRows;
     }
 
@@ -2330,6 +2863,19 @@ bool HashAggRunner::DaeSessionInit(VectorBatch* batch)
         return false;
     }
 
+    /*
+     * daeAggColsNum_ == 0 means this VecHashAgg has no aggregation functions
+     * at all (e.g. a dedup/distinct node generated for EXISTS subquery processing).
+     * DPA is designed for aggregation; without any agg functions (not even COUNT(*)),
+     * passing agg_cols_num=0 and is_count_all=0 to UadkAggAllocSess causes UADK
+     * to log "invalid: agg input cols is NULL, num: 0".  Fall back to CPU early.
+     */
+    if (daeAggColsNum_ == 0) {
+        ereport(DEBUG1, (errmsg("DPA: No aggregation functions (dedup/distinct node), fallback to CPU")));
+        daeSessionState_ = DAE_SESS_UNINIT;
+        return false;
+    }
+
     if (daeKeyColsNum_ == 0) {
         ereport(WARNING, (errmsg("DPA: No key columns for GROUP BY, fallback to CPU")));
         daeSessionState_ = DAE_SESS_UNINIT;
@@ -2343,9 +2889,23 @@ bool HashAggRunner::DaeSessionInit(VectorBatch* batch)
     daeKeyColTypes_ = (Oid*)palloc0(daeKeyColsNum_ * sizeof(Oid));
     daeKeyColTypeMods_ = (int4*)palloc0(daeKeyColsNum_ * sizeof(int4));
     daeAggColTypeMods_ = (int4*)palloc0(daeAggColsNum_ * sizeof(int4));
+    // Allocate arrays for tracking actual scales from input data
     daeAggColActualScales_ = (int*)palloc0(daeAggColsNum_ * sizeof(int));
     daeAggColScaleSet_ = (bool*)palloc0(daeAggColsNum_ * sizeof(bool));
+    // Allocate AVG tracking arrays
+    isAvgOperation_ = (bool*)palloc0(daeAggColsNum_ * sizeof(bool));
+    avgSumOutputIdx_ = (int*)palloc0(daeAggColsNum_ * sizeof(int));
+    avgCountOutputIdx_ = (int*)palloc0(daeAggColsNum_ * sizeof(int));
+    pervecaggToRegularIdx_ = (int*)palloc0(daeAggColsNum_ * sizeof(int));
     (void)MemoryContextSwitchTo(oldContext);
+
+    errno_t rc;
+    rc = memset_s(avgSumOutputIdx_, daeAggColsNum_ * sizeof(int), 0xFF, daeAggColsNum_ * sizeof(int));
+    securec_check(rc, "\0", "\0");
+    rc = memset_s(avgCountOutputIdx_, daeAggColsNum_ * sizeof(int), 0xFF, daeAggColsNum_ * sizeof(int));
+    securec_check(rc, "\0", "\0");
+    rc = memset_s(pervecaggToRegularIdx_, daeAggColsNum_ * sizeof(int), 0xFF, daeAggColsNum_ * sizeof(int));
+    securec_check(rc, "\0", "\0");
 
     struct wd_agg_sess_setup setup;
     setup.key_cols_num = daeKeyColsNum_;
@@ -2381,32 +2941,127 @@ bool HashAggRunner::DaeSessionInit(VectorBatch* batch)
         }
     }
 
-    /* 3. collect agg col info */
+    /*
+     * 3. collect agg col info
+     * Phase 1: Detect COUNT(*) and count regular aggregations
+     *
+     * Why we need this pass:
+     * 1. UADK requires accurate agg_cols_num (excluding COUNT(*))
+     * 2. COUNT(*) is handled separately by is_count_all flag
+     * 3. Regular aggregations need contiguous indices (0, 1, 2, ...)
+     *
+     * COUNT(*) is special because:
+     * - No input column (evalproj = NULL)
+     * - Hardware directly counts rows, doesn't need input data
+     * - Output is always at the last position in out_agg_cols
+     */
+    DetectCountStarResult detectResult = DetectCountStarInAggregations(m_aggNum, m_runtime);
+    if (detectResult.countStarCount > 1) {
+        DaeSessionCleanup();
+        ereport(WARNING,
+            (errmsg("DPA: Multiple COUNT(*) (%u occurrences) detected. "
+                    "UADK hardware only supports single COUNT(*). "
+                    "Falling back to native implementation.", detectResult.countStarCount)));
+        return false;
+    }
+    
+    hasCountStar_ = (detectResult.countStarCount == 1);
+    countStarAggInfoIdx_ = detectResult.countStarAggInfoIdx;
+    uint32 regular_agg_count = detectResult.regularAggCount;
+    if (hasCountStar_) {
+        setup.agg_cols_num = regular_agg_count;
+        if (regular_agg_count == 0) {
+            /*
+             * Pure COUNT(*) with no regular aggregations (e.g. Q4).
+             * Keep setup.agg_cols_info pointing to the already-allocated daeAggCols_
+             * buffer (palloc0'd above). UADK validates that agg_cols_info != NULL
+             * unconditionally — passing NULL here causes:
+             *   "invalid: agg input cols is NULL, num: 0"
+             * agg_cols_num=0 ensures the library will not dereference the pointer.
+             */
+            ereport(DEBUG1, (errmsg("DPA: Only COUNT(*), no regular aggregations")));
+        }
+        ereport(DEBUG1, (errmsg("DPA: COUNT(*) detected, %u regular aggregations", regular_agg_count)));
+    }
+    
+    /*
+     * 3. collect agg col info
+     * Phase 2: Process regular aggregations (skip COUNT(*))
+     *
+     * Build mapping: pervecagg index → regular index
+     * This mapping is used in ParallelBuildAggValue and DaeParallelProbe
+     *
+     * Note: COUNT(*) has no input column and doesn't need setup
+     */
+    ereport(DEBUG1, (errmsg("DPA: Phase 2 - Processing %u regular aggregations", regular_agg_count)));
+
+    uint32 regular_idx = 0;  // Contiguous index for regular aggregations (0, 1, 2, ...)
     for (uint32 i = 0; i < m_aggNum; i++) {
         const Oid aggFuncOid = m_runtime->aggInfo[i].vec_agg_function.flinfo->fn_oid;
         int pervecagg_idx = m_aggNum - 1 - i;
         
+        if (IsCountStar(aggFuncOid, &m_runtime->pervecagg[pervecagg_idx])) {
+            ereport(DEBUG1, (errmsg("DPA: Phase 2 - Skipping COUNT(*) at aggInfo[%u]", i)));
+            continue;
+        }
+        
         /*
          * aggInfo[i] corresponds to pervecagg[m_aggNum - 1 - i] as per vecagg.cpp:686-691
+         * We need to fill agg_cols_info in pervecagg order to match ParallelBuildAggValue
+         * Note: pervecagg_idx already calculated above
          */
+        
+        // Check if this is an AVG operation
+        bool isAvg = false;
+        wd_agg_alg aggAlg = MapAggFuncOidToAlg(aggFuncOid, &isAvg);
+        if (aggAlg == WD_AGG_ALG_TYPE_MAX) {
+            DaeSessionCleanup();
+            ereport(WARNING, (errmsg("DPA: Unsupported agg function OID: %u, fallback to CPU", aggFuncOid)));
+            return false;
+        }
+        
+        isAvgOperation_[i] = isAvg;
+        if (m_runtime->pervecagg[pervecagg_idx].evalproj == NULL) {
+            DaeSessionCleanup();
+            ereport(WARNING, (errmsg("DPA: evalproj is NULL for pervecagg[%d], aggInfo[%u], OID %u",
+                pervecagg_idx, i, aggFuncOid)));
+            return false;
+        }
+        
         const Oid inputColType = m_runtime->pervecagg[pervecagg_idx].evalproj->pi_batch->m_arr->m_desc.typeId;
         const int4 inputTypeMod = m_runtime->pervecagg[pervecagg_idx].evalproj->pi_batch->m_arr->m_desc.typeMod;
         const Oid outputColType = m_runtime->aggInfo[i].vec_agg_function.flinfo->fn_rettype;
         
-        if (!DaeCollectAggCollInfo(setup.agg_cols_info, inputColType, outputColType, pervecagg_idx, inputTypeMod,
+        // CRITICAL FIX: Use regular_idx for setup.agg_cols_info (UADK expects contiguous 0,1,2...)
+        // But use pervecagg_idx for daeAggColTypeMods_ (Probe uses pervecagg order)
+        if (!DaeCollectAggCollInfo(setup.agg_cols_info, inputColType, outputColType, regular_idx, inputTypeMod,
             aggFuncOid)) {
             DaeSessionCleanup();
-            ereport(WARNING, (errmsg("DPA: Failed to collect agg column info, index: %u", pervecagg_idx)));
+            ereport(WARNING, (errmsg("DPA: Failed to collect agg column info, regular_idx: %u, pervecagg_idx: %u",
+                regular_idx, pervecagg_idx)));
             return false;
         }
         
-        /* Store typeMod indexed by pervecagg order for probe output processing */
+        // Store typeMod in pervecagg order to match DaeParallelProbe loop
+        // DaeParallelProbe iterates in pervecagg order (i=0 is pervecagg[0])
         daeAggColTypeMods_[pervecagg_idx] = inputTypeMod;
+        
+        // Store mapping: pervecagg_idx → regular_idx
+        pervecaggToRegularIdx_[pervecagg_idx] = regular_idx;
+        
+        ereport(DEBUG1,
+            (errmsg("DPA: Second pass[%u] - regular_idx=%u, pervecagg_idx=%d, OID=%u, inputType=%u, mapping[%d]=%u",
+                i, regular_idx, pervecagg_idx, aggFuncOid, inputColType, pervecagg_idx, regular_idx)));
+        regular_idx++;
     }
     
     setup.sched_param = nullptr;
-    setup.is_count_all = false;
+    setup.is_count_all = hasCountStar_;
     setup.count_all_data_type = WD_DAE_LONG;
+    
+    ereport(DEBUG1, (errmsg(
+            "DPA: Before UadkAggAllocSess - agg_cols_num=%u, agg_cols_info=%p, is_count_all=%d, key_cols_num=%u",
+            setup.agg_cols_num, setup.agg_cols_info, setup.is_count_all, setup.key_cols_num)));
     
     daeSess_ = UadkAggAllocSess(&setup);
     if (!daeSess_) {
@@ -2422,7 +3077,14 @@ bool HashAggRunner::DaeSessionInit(VectorBatch* batch)
         return false;
     }
     
-    DaeAllocHTBL(NULL, &daeHashTable_, row_size);
+    /* Get estimated number of groups from optimizer for hash table sizing */
+    VecAgg* agg_plan = (VecAgg*)m_runtime->ss.ps.plan;
+    __u32 estimated_groups = (agg_plan && agg_plan->numGroups > 0) ? (__u32)agg_plan->numGroups : 0;
+    
+    ereport(DEBUG1,
+        (errmsg("DPA: Allocating hash table with estimated_groups=%u from optimizer", estimated_groups)));
+    
+    DaeAllocHTBL(NULL, &daeHashTable_, row_size, estimated_groups);
     if (!daeHashTable_.std_table || !daeHashTable_.ext_table) {
         DaeSessionCleanup();
         ereport(WARNING, (errmsg("DPA: Failed to allocate hash table")));
@@ -2483,32 +3145,53 @@ void HashAggRunner::DaeSessionCleanup()
         pfree(daeAggCols_);
         daeAggCols_ = nullptr;
     }
-    
+
     if (daeKeyColTypes_) {
         pfree(daeKeyColTypes_);
         daeKeyColTypes_ = nullptr;
     }
+
     if (daeKeyColTypeMods_) {
         pfree(daeKeyColTypeMods_);
         daeKeyColTypeMods_ = nullptr;
     }
+
     if (daeAggColTypeMods_) {
         pfree(daeAggColTypeMods_);
         daeAggColTypeMods_ = nullptr;
     }
+
     if (daeAggColActualScales_) {
         pfree(daeAggColActualScales_);
         daeAggColActualScales_ = nullptr;
     }
+
     if (daeAggColScaleSet_) {
         pfree(daeAggColScaleSet_);
         daeAggColScaleSet_ = nullptr;
     }
-    
+
+    if (isAvgOperation_) {
+        pfree(isAvgOperation_);
+        isAvgOperation_ = nullptr;
+    }
+
+    if (avgSumOutputIdx_) {
+        pfree(avgSumOutputIdx_);
+        avgSumOutputIdx_ = nullptr;
+    }
+
+    if (avgCountOutputIdx_) {
+        pfree(avgCountOutputIdx_);
+        avgCountOutputIdx_ = nullptr;
+    }
+
+    if (pervecaggToRegularIdx_) {
+        pfree(pervecaggToRegularIdx_);
+        pervecaggToRegularIdx_ = nullptr;
+    }
+
     daeKeyColsNum_ = 0;
     daeAggColsNum_ = 0;
-    daeProbeOutputOffset_ = 0;
-    daeProbeOutputTotalRows_ = 0;
-    daeProbeHasPendingRows_ = false;
     daeSessionState_ = DAE_SESS_UNINIT;
 }
