@@ -2904,7 +2904,8 @@ static void exec_simple_query(const char* query_string, MessageType messageType,
         
         /* D_FORMAT xact_abort off ReleaseCurrentSubTransaction */
         if (DB_IS_CMPT(D_FORMAT) && !u_sess->attr.attr_common.enable_xact_abort &&
-            TransactionBlockStatusCode() == 'T' && !IsA(parsetree, TransactionStmt)) {
+            TransactionBlockStatusCode() == 'T' && !IsA(parsetree, TransactionStmt) &&
+            !u_sess->attr.attr_common.IsInplaceUpgrade) {
             BeginInternalSubTransaction(NULL);
             u_sess->is_xact_abort_sub = true;
         }

@@ -5065,14 +5065,16 @@ static int exec_stmt(PLpgSQL_execstate* estate, PLpgSQL_stmt* stmt, bool resigna
             BACKUP_UNIQUE_SQL_CXT();
             MemoryContext oldcontext = CurrentMemoryContext;
             ResourceOwner oldowner = t_thrd.utils_cxt.CurrentResourceOwner;
-            if (DB_IS_CMPT(D_FORMAT) && !estate->func->xact_abort && IsTransactionOrTransactionBlock()) {
+            if (DB_IS_CMPT(D_FORMAT) && !estate->func->xact_abort && IsTransactionOrTransactionBlock() &&
+                !u_sess->attr.attr_common.IsInplaceUpgrade) {
                 BeginInternalSubTransaction(NULL);
                 MemoryContextSwitchTo(oldcontext);
             }
             PG_TRY();
             {
                 rc = exec_stmt_execsql(estate, (PLpgSQL_stmt_execsql*)stmt);
-                if (DB_IS_CMPT(D_FORMAT) && !estate->func->xact_abort && IsTransactionOrTransactionBlock()) {
+                if (DB_IS_CMPT(D_FORMAT) && !estate->func->xact_abort && IsTransactionOrTransactionBlock() &&
+                    !u_sess->attr.attr_common.IsInplaceUpgrade) {
                     ReleaseCurrentSubTransaction();
                     MemoryContextSwitchTo(oldcontext);
                     t_thrd.utils_cxt.CurrentResourceOwner = oldowner;
@@ -5080,7 +5082,8 @@ static int exec_stmt(PLpgSQL_execstate* estate, PLpgSQL_stmt* stmt, bool resigna
             }
             PG_CATCH();
             {
-                if (DB_IS_CMPT(D_FORMAT) && !estate->func->xact_abort && IsTransactionOrTransactionBlock()) {
+                if (DB_IS_CMPT(D_FORMAT) && !estate->func->xact_abort && IsTransactionOrTransactionBlock() &&
+                    !u_sess->attr.attr_common.IsInplaceUpgrade) {
                     RollbackAndReleaseCurrentSubTransaction();
                     MemoryContextSwitchTo(oldcontext);
                     t_thrd.utils_cxt.CurrentResourceOwner = oldowner;
