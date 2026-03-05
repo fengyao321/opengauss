@@ -20,6 +20,7 @@
 extern ThreadId pgarch_start();
 #ifdef EXEC_BACKEND
 extern void PgArchiverMain(knl_thread_arg* arg);
+extern void InitArchiveCmdExecuter();
 #endif
 
 #endif /* _PGARCH_H */

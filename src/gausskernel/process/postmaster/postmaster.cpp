@@ -2381,6 +2381,10 @@ int PostmasterMain(int argc, char* argv[])
         }
     }
 
+    if (XLogArchivingActive() && XLogArchiveCommandSet() && !XLogArchiveDestSet()) {
+        InitArchiveCmdExecuter();
+    }
+
     CalcMaxBackends();
 
     /* init thread args pool for ever sub threads except signal moniter */
