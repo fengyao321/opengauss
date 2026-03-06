@@ -40,7 +40,7 @@
 #include "commands/user.h"
 #include "access/datavec/ogai_model_manager.h"
 #include "access/datavec/ogai_model_framework.h"
-#include "access/datavec/ogai_textsplitter_wrapper.h"
+#include "access/datavec/ogai_text_splitter.h"
 #include "access/datavec/ogai_vector_processor.h"
 
 /* Internal configuration parameters */
@@ -696,26 +696,27 @@ static void WorkerGenerateJoinEmbeddings(OgaiVectorizeTask *task,
                                          EmbeddingClient *client, const char *content,
                                          const OgaiTaskConfig *taskConfig)
 {
-    TextSplitterWrapper splitter(taskConfig->maxChunkSize, taskConfig->maxChunkOverlap);
-    ChunkResult *chunks = splitter.split(content);
+    TextSplitConfig split_config = BuildDefaultTextSplitConfig(taskConfig->maxChunkSize,
+                                                               taskConfig->maxChunkOverlap);
 
-    if (chunks == NULL || chunks->chunkNum == 0) {
-        task->resultStatus = TASK_RESULT_FAIL;
-        task->failType = (int)FAIL_TYPE_SPI_ERROR;
-        errno_t nRet = snprintf_s(task->failReason, sizeof(task->failReason),
-                                  sizeof(task->failReason) - 1, "Failed to split document into chunks");
-        securec_check_ss_c(nRet, "", "");
+    TextSplitResult split_result;
+    SplitTextByConfig(content, &split_config, &split_result);
+
+    int chunkCount = split_result.chunkCount;
+    if (chunkCount == 0) {
+        task->chunkCount = 0;
+        task->chunks = NULL;
+        task->resultStatus = TASK_RESULT_SUCCESS;
         return;
     }
 
-    int chunkCount = chunks->chunkNum;
     OgaiEmbeddingChunk *chunkResults = (OgaiEmbeddingChunk *)MemoryContextAllocZero(
         INSTANCE_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_STORAGE),
         sizeof(OgaiEmbeddingChunk) * chunkCount);
 
     bool allOk = true;
     for (int i = 0; i < chunkCount; i++) {
-        char *chunkText = chunks->chunks[i].chunk;
+        char *chunkText = split_result.chunks[i].chunk;
         int dim = taskConfig->dim;
         Vector **vectors = client->BatchEmbed(&chunkText, 1, &dim);
         if (!vectors || !vectors[0]) {
@@ -742,6 +743,11 @@ static void WorkerGenerateJoinEmbeddings(OgaiVectorizeTask *task,
         }
         pfree_ext(chunkResults);
     }
+
+    for (int k = 0; k < chunkCount; k++) {
+        pfree_ext(split_result.chunks[k].chunk);
+    }
+    pfree_ext(split_result.chunks);
 }
 
 /* Copy config subset from full OgaiTaskConfig to the task's OgaiTaskConfigResult for leader DML. */
@@ -890,11 +896,25 @@ static void WorkerGenerateEmbedding(OgaiVectorizeTask *task, WorkerEmbeddingCach
 
     if (!GetDocumentContent(&taskConfig, task->pkValue, &content,
                             &failType, failReason, sizeof(failReason))) {
+        if (failType == FAIL_TYPE_DOCUMENT_CONTENT_NULL &&
+            strcmp(taskConfig.tableMethod, "join") == 0) {
+            task->chunkCount = 0;
+            task->chunks = NULL;
+            task->resultStatus = TASK_RESULT_SUCCESS;
+            return;
+        }
         SetTaskFail(task, failType, failReason);
         return;
     }
 
     if (content == NULL || content[0] == '\0') {
+        if (strcmp(taskConfig.tableMethod, "join") == 0) {
+            task->chunkCount = 0;
+            task->chunks = NULL;
+            task->resultStatus = TASK_RESULT_SUCCESS;
+            pfree_ext(content);
+            return;
+        }
         task->resultStatus = TASK_RESULT_FAIL;
         task->failType = (int)FAIL_TYPE_DOCUMENT_CONTENT_NULL;
         errno_t nRet = snprintf_s(task->failReason, sizeof(task->failReason),
@@ -973,6 +993,10 @@ static bool LeaderWriteJoinResults(OgaiVectorizeTask *task)
     SPI_freeplan(delPlan);
     if (delRc != SPI_OK_DELETE) {
         return false;
+    }
+
+    if (task->chunkCount == 0 || task->chunks == NULL) {
+        return true;
     }
 
     nRet = snprintf_s(sql, sizeof(sql), sizeof(sql) - 1,

@@ -956,7 +956,6 @@
 ./lib/libstdc++.so.6
 ./lib/libz.so*
 ./lib/libcjson.so*
-./lib/libtext_splitter_ffi.so*
 ./lib/libonnx*.so*
 ./lib/libtokenizers.so*
 ./lib/libconfig.so*
@@ -1420,7 +1419,6 @@
 ./lib/libkrb5_gauss.so*
 ./lib/libcom_err_gauss.so*
 ./lib/libcjson.so*
-./lib/libtext_splitter_ffi.so*
 ./lib/libonnx*.so*
 ./lib/libtokenizers.so*
 [libpq]
@@ -1445,7 +1443,6 @@
 ./lib/libkrb5_gauss.so*
 ./lib/libcom_err_gauss.so*
 ./lib/libcjson.so*
-./lib/libtext_splitter_ffi.so*
 ./lib/libonnx*.so*
 ./lib/libtokenizers.so*
 ./include/gs_thread.h

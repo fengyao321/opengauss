@@ -26,10 +26,11 @@
 #include "utils/memutils.h"
 #include "utils/elog.h"
 #include "utils/builtins.h"
+#include "catalog/pg_type.h"
 #include "cipher.h"
 #include "access/datavec/ogai_model_framework.h"
 #include "access/datavec/ogai_model_manager.h"
-#include "access/datavec/ogai_textsplitter_wrapper.h"
+#include "access/datavec/ogai_text_splitter.h"
 #include "access/datavec/ogai_onnx_mgr.h"
 #include "access/datavec/vector.h"
 #include "access/datavec/ogai_worker.h"
@@ -209,18 +210,13 @@ Datum ogai_chunk(PG_FUNCTION_ARGS)
                  errmsg("maxChunkOverlap must be between 0 and maxChunkSize")));
         }
 
-        TextSplitterWrapper splitter(maxChunkSize, maxChunkOverlap);
-        ChunkResult* returnChunksResult = splitter.split(document);
+        TextSplitConfig split_config = BuildDefaultTextSplitConfig(maxChunkSize, maxChunkOverlap);
 
-        if (returnChunksResult == NULL || returnChunksResult->chunkNum == 0) {
-            MemoryContextSwitchTo(oldcontext);
-            ereport(ERROR,
-                (errcode(ERRCODE_EXTERNAL_ROUTINE_EXCEPTION),
-                 errmsg("failed to split document into chunks")));
-        }
+        TextSplitResult split_result;
+        SplitTextByConfig(document, &split_config, &split_result);
 
-        funcctx->user_fctx = returnChunksResult;
-        funcctx->max_calls = returnChunksResult->chunkNum;
+        funcctx->user_fctx = split_result.chunks;
+        funcctx->max_calls = split_result.chunkCount;
         funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
         MemoryContextSwitchTo(oldcontext);
@@ -231,8 +227,8 @@ Datum ogai_chunk(PG_FUNCTION_ARGS)
         Datum values[2];
         bool nulls[2] = {false, false};
 
-        ChunkResult* ctx = (ChunkResult*) funcctx->user_fctx;
-        Chunk* chunk = &ctx->chunks[funcctx->call_cntr];
+        TextSplitChunk* chunks = (TextSplitChunk*) funcctx->user_fctx;
+        TextSplitChunk* chunk = &chunks[funcctx->call_cntr];
 
         values[0] = Int32GetDatum(funcctx->call_cntr);
         values[1] = CStringGetTextDatum(chunk->chunk);
