@@ -11,6 +11,7 @@
 
 #include "pgstat_shmem.h"
 #include "storage/shmem.h"
+#include "utils/atomic.h"
 #include "utils/dynahash.h"
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
@@ -155,6 +156,22 @@ void PgStatShmemInit(void)
     securec_check(rc, "\0", "\0");
     s->global_stats.stat_reset_timestamp = GetCurrentTimestamp();
     s->stats_file_load_attempted = false;
+    s->stats_epoch = 0;
+}
+
+uint64 pgstat_shared_get_epoch(void)
+{
+    PgStatSharedState* s = pgstat_get_shared_state();
+    if (s == NULL)
+        return 0;
+    return pg_atomic_read_u64((volatile uint64*)&s->stats_epoch);
+}
+
+void pgstat_shared_bump_epoch(void)
+{
+    PgStatSharedState* s = pgstat_get_shared_state();
+    if (s != NULL)
+        (void)pg_atomic_fetch_add_u64((volatile uint64*)&s->stats_epoch, 1);
 }
 
 PgStatSharedDBEntry* pgstat_shared_get_db_entry(Oid dbid, bool create, LWLockMode mode, LWLock** lock, bool* found)
@@ -382,6 +399,7 @@ void pgstat_shared_reset_db(Oid dbid)
 
     pgstat_shared_remove_tab_by_dbid(dbid);
     pgstat_shared_remove_func_by_dbid(dbid);
+    pgstat_shared_bump_epoch();
 }
 
 void pgstat_shared_reset_sharedcounter(PgStat_Shared_Reset_Target target)
@@ -414,6 +432,7 @@ void pgstat_shared_drop_db(Oid dbid)
 
     pgstat_shared_remove_tab_by_dbid(dbid);
     pgstat_shared_remove_func_by_dbid(dbid);
+    pgstat_shared_bump_epoch();
 }
 
 static PgStat_StatDBEntry* snapshot_get_db_entry(HTAB* dbhash, MemoryContext mcxt, Oid dbid, bool create)

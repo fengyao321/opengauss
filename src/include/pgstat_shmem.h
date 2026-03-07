@@ -123,7 +123,12 @@ typedef struct PgStatSharedState {
     PgStat_GlobalStats global_stats;
     /* true after first attempt to load permanent stats file into shmem (used for lazy load in backend). */
     bool stats_file_load_attempted;
+    /* Bumped on reset_db/drop_db/resetsinglecounter; backends discard pending when epoch changes. */
+    uint64 stats_epoch;
 } PgStatSharedState;
+
+extern uint64 pgstat_shared_get_epoch(void);
+extern void pgstat_shared_bump_epoch(void);
 
 /* Accessor: pgstat shared state is stored in g_instance.stat_cxt.pgstat_shared. */
 static inline PgStatSharedState* pgstat_get_shared_state(void)

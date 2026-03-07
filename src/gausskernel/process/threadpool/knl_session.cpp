@@ -946,6 +946,16 @@ static void knl_u_stat_init(knl_u_stat_context* stat_cxt)
     stat_cxt->pgStatRunningInCollector = false;
 
     stat_cxt->last_report = 0;
+    stat_cxt->pgStatPendingDeadlocks = 0;
+    stat_cxt->pgStatPendingTempFiles = 0;
+    stat_cxt->pgStatPendingTempBytes = 0;
+    stat_cxt->pgStatPendingMemReserved = 0;
+    stat_cxt->pgStatPendingConflictTablespace = 0;
+    stat_cxt->pgStatPendingConflictLock = 0;
+    stat_cxt->pgStatPendingConflictSnapshot = 0;
+    stat_cxt->pgStatPendingConflictBufferpin = 0;
+    stat_cxt->pgStatPendingConflictStartupDeadlock = 0;
+    stat_cxt->pgStatPendingEpoch = 0;
     stat_cxt->isTopLevelPlSql = true;
 
     stat_cxt->pgStatCollectThdStatusContext = NULL;

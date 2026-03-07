@@ -1865,6 +1865,17 @@ typedef struct knl_u_stat_context {
     union NumericValue* osStatDataArray;
     struct OSRunInfoDesc* osStatDescArray;
     TimestampTz last_report;
+    /* High-frequency DB stats: accumulate locally, flush at xact end or in pgstat_report_stat */
+    int64 pgStatPendingDeadlocks;
+    int64 pgStatPendingTempFiles;
+    int64 pgStatPendingTempBytes;
+    int64 pgStatPendingMemReserved;
+    int64 pgStatPendingConflictTablespace;
+    int64 pgStatPendingConflictLock;
+    int64 pgStatPendingConflictSnapshot;
+    int64 pgStatPendingConflictBufferpin;
+    int64 pgStatPendingConflictStartupDeadlock;
+    uint64 pgStatPendingEpoch;
     bool isTopLevelPlSql;
     int64* localTimeInfoArray;
     uint64* localNetInfo;

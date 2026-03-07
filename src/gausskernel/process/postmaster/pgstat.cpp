@@ -367,6 +367,10 @@ static void pgstat_write_statsfile(bool permanent);
 static HTAB* pgstat_read_statsfile(Oid onlydb, bool permanent);
 static void backend_read_statsfile(void);
 static void pgstat_load_statsfile_into_shmem(void);
+static bool pgstat_pending_have_updates(void);
+static void pgstat_pending_clear(void);
+static void pgstat_pending_epoch_ensure(void);
+static void pgstat_flush_pending(bool force);
 
 static void pgstat_send_tabstat(PgStat_MsgTabstat* tsmsg);
 static void pgstat_send_funcstats(void);
@@ -481,6 +485,95 @@ static void pgstat_load_statsfile_into_shmem(void)
     u_sess->stat_cxt.pgStatDBHash = oldhash;
 }
 
+/* ----------
+ * Pending high-frequency DB stats: accumulate locally, flush at xact end or in pgstat_report_stat.
+ * Reduces shmem lock traffic for deadlock/tempfile/conflict/mem_reserved.
+ * ---------- */
+static bool pgstat_pending_have_updates(void)
+{
+    if (u_sess == NULL)
+        return false;
+    return (u_sess->stat_cxt.pgStatPendingDeadlocks != 0 || u_sess->stat_cxt.pgStatPendingTempFiles != 0 ||
+            u_sess->stat_cxt.pgStatPendingTempBytes != 0 || u_sess->stat_cxt.pgStatPendingMemReserved != 0 ||
+            u_sess->stat_cxt.pgStatPendingConflictTablespace != 0 ||
+            u_sess->stat_cxt.pgStatPendingConflictLock != 0 ||
+            u_sess->stat_cxt.pgStatPendingConflictSnapshot != 0 ||
+            u_sess->stat_cxt.pgStatPendingConflictBufferpin != 0 ||
+            u_sess->stat_cxt.pgStatPendingConflictStartupDeadlock != 0);
+}
+
+static void pgstat_pending_clear(void)
+{
+    if (u_sess == NULL)
+        return;
+    u_sess->stat_cxt.pgStatPendingDeadlocks = 0;
+    u_sess->stat_cxt.pgStatPendingTempFiles = 0;
+    u_sess->stat_cxt.pgStatPendingTempBytes = 0;
+    u_sess->stat_cxt.pgStatPendingMemReserved = 0;
+    u_sess->stat_cxt.pgStatPendingConflictTablespace = 0;
+    u_sess->stat_cxt.pgStatPendingConflictLock = 0;
+    u_sess->stat_cxt.pgStatPendingConflictSnapshot = 0;
+    u_sess->stat_cxt.pgStatPendingConflictBufferpin = 0;
+    u_sess->stat_cxt.pgStatPendingConflictStartupDeadlock = 0;
+}
+
+static void pgstat_pending_epoch_ensure(void)
+{
+    if (u_sess == NULL)
+        return;
+    uint64 epoch = pgstat_shared_get_epoch();
+    if (u_sess->stat_cxt.pgStatPendingEpoch != epoch) {
+        pgstat_pending_clear();
+        u_sess->stat_cxt.pgStatPendingEpoch = epoch;
+    }
+}
+
+static void pgstat_flush_pending(bool force)
+{
+    if (u_sess == NULL)
+        return;
+    if (!force && !pgstat_pending_have_updates())
+        return;
+    if (!u_sess->attr.attr_common.pgstat_track_counts)
+        return;
+    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId))
+        return;
+
+    pgstat_pending_epoch_ensure();
+    if (!pgstat_pending_have_updates())
+        return;
+    if (u_sess->stat_cxt.pgStatPendingEpoch != pgstat_shared_get_epoch()) {
+        pgstat_pending_clear();
+        return;
+    }
+
+    LWLock* db_lock = NULL;
+    PgStatSharedDBEntry* dbentry = pgstat_get_db_entry(u_sess->proc_cxt.MyDatabaseId, true, LW_EXCLUSIVE, &db_lock);
+    if (dbentry == NULL) {
+        pgstat_pending_clear();
+        return;
+    }
+
+    dbentry->n_deadlocks += u_sess->stat_cxt.pgStatPendingDeadlocks;
+    dbentry->n_temp_files += u_sess->stat_cxt.pgStatPendingTempFiles;
+    dbentry->n_temp_bytes += u_sess->stat_cxt.pgStatPendingTempBytes;
+    dbentry->n_conflict_tablespace += u_sess->stat_cxt.pgStatPendingConflictTablespace;
+    dbentry->n_conflict_lock += u_sess->stat_cxt.pgStatPendingConflictLock;
+    dbentry->n_conflict_snapshot += u_sess->stat_cxt.pgStatPendingConflictSnapshot;
+    dbentry->n_conflict_bufferpin += u_sess->stat_cxt.pgStatPendingConflictBufferpin;
+    dbentry->n_conflict_startup_deadlock += u_sess->stat_cxt.pgStatPendingConflictStartupDeadlock;
+
+    if (u_sess->stat_cxt.pgStatPendingMemReserved != 0) {
+        int64 new_val = (int64)dbentry->n_mem_mbytes_reserved + (int64)u_sess->stat_cxt.pgStatPendingMemReserved;
+        if (new_val < 0)
+            new_val = 0;
+        dbentry->n_mem_mbytes_reserved = (PgStat_Counter)new_val;
+    }
+
+    pgstat_shared_release_lock(db_lock);
+    pgstat_pending_clear();
+}
+
 /*
  * pgstat_reset_all() -
  *
@@ -574,9 +667,10 @@ void pgstat_report_stat(bool force)
     bool force_to_destory = false;
     errno_t rc = EOK;
 
+    bool have_pending = pgstat_pending_have_updates();
     /* Don't expend a clock check if nothing to do */
     bool stat_no_change = ((u_sess->stat_cxt.pgStatTabList == NULL || u_sess->stat_cxt.pgStatTabList->tsa_used == 0) &&
-                           !u_sess->stat_cxt.have_function_stats && !force);
+                           !u_sess->stat_cxt.have_function_stats && !force && !have_pending);
     if (stat_no_change) {
         return;
     }
@@ -687,6 +781,9 @@ void pgstat_report_stat(bool force)
 
     /* Now, send function statistics */
     pgstat_send_funcstats();
+
+    /* Flush pending high-frequency DB stats into shmem */
+    pgstat_flush_pending(force);
 
     /* send badblock statistics */
     pgstat_send_badblock_stat();
@@ -1416,15 +1513,38 @@ void pgstat_report_analyze(Relation rel, PgStat_Counter livetuples, PgStat_Count
  */
 void pgstat_report_recovery_conflict(int reason)
 {
-    PgStat_MsgRecoveryConflict msg;
-
-    if (g_instance.stat_cxt.pgStatSock == PGINVALID_SOCKET || !u_sess->attr.attr_common.pgstat_track_counts)
+    if (u_sess == NULL)
+        return;
+    if (!u_sess->attr.attr_common.pgstat_track_counts)
+        return;
+    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId))
         return;
 
-    pgstat_setheader(&msg.m_hdr, PGSTAT_MTYPE_RECOVERYCONFLICT);
-    msg.m_databaseid = u_sess->proc_cxt.MyDatabaseId;
-    msg.m_reason = reason;
-    pgstat_send(&msg, sizeof(msg));
+    pgstat_pending_epoch_ensure();
+
+    switch (reason) {
+        case PROCSIG_RECOVERY_CONFLICT_DATABASE:
+            break;
+        case PROCSIG_RECOVERY_CONFLICT_TABLESPACE:
+            u_sess->stat_cxt.pgStatPendingConflictTablespace++;
+            break;
+        case PROCSIG_RECOVERY_CONFLICT_LOCK:
+            u_sess->stat_cxt.pgStatPendingConflictLock++;
+            break;
+        case PROCSIG_RECOVERY_CONFLICT_SNAPSHOT:
+            u_sess->stat_cxt.pgStatPendingConflictSnapshot++;
+            break;
+        case PROCSIG_RECOVERY_CONFLICT_BUFFERPIN:
+            u_sess->stat_cxt.pgStatPendingConflictBufferpin++;
+            break;
+        case PROCSIG_RECOVERY_CONFLICT_STARTUP_DEADLOCK:
+            u_sess->stat_cxt.pgStatPendingConflictStartupDeadlock++;
+            break;
+        default:
+            ereport(ERROR,
+                (errcode(ERRCODE_CASE_NOT_FOUND),
+                    errmsg("unrecognized recovery conflict reason: %d", reason)));
+    }
 }
 
 /* --------
@@ -1435,14 +1555,15 @@ void pgstat_report_recovery_conflict(int reason)
  */
 void pgstat_report_deadlock(void)
 {
-    PgStat_MsgDeadlock msg;
-
-    if (g_instance.stat_cxt.pgStatSock == PGINVALID_SOCKET || !u_sess->attr.attr_common.pgstat_track_counts)
+    if (u_sess == NULL)
+        return;
+    if (!u_sess->attr.attr_common.pgstat_track_counts)
+        return;
+    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId))
         return;
 
-    pgstat_setheader(&msg.m_hdr, PGSTAT_MTYPE_DEADLOCK);
-    msg.m_databaseid = u_sess->proc_cxt.MyDatabaseId;
-    pgstat_send(&msg, sizeof(msg));
+    pgstat_pending_epoch_ensure();
+    u_sess->stat_cxt.pgStatPendingDeadlocks++;
 }
 
 /* --------
@@ -1453,15 +1574,16 @@ void pgstat_report_deadlock(void)
  */
 void pgstat_report_tempfile(size_t filesize)
 {
-    PgStat_MsgTempFile msg;
-
-    if (g_instance.stat_cxt.pgStatSock == PGINVALID_SOCKET || !u_sess->attr.attr_common.pgstat_track_counts)
+    if (u_sess == NULL)
+        return;
+    if (!u_sess->attr.attr_common.pgstat_track_counts)
+        return;
+    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId))
         return;
 
-    pgstat_setheader(&msg.m_hdr, PGSTAT_MTYPE_TEMPFILE);
-    msg.m_databaseid = u_sess->proc_cxt.MyDatabaseId;
-    msg.m_filesize = filesize;
-    pgstat_send(&msg, sizeof(msg));
+    pgstat_pending_epoch_ensure();
+    u_sess->stat_cxt.pgStatPendingTempFiles++;
+    u_sess->stat_cxt.pgStatPendingTempBytes += (PgStat_Counter)filesize;
 }
 
 /* ----------
@@ -1472,16 +1594,19 @@ void pgstat_report_tempfile(size_t filesize)
  */
 void pgstat_report_memReserved(int4 memReserved, int reserve_or_release)
 {
-    PgStat_MsgMemReserved msg;
-
-    if (g_instance.stat_cxt.pgStatSock == PGINVALID_SOCKET || !u_sess->attr.attr_common.pgstat_track_counts)
+    if (u_sess == NULL)
+        return;
+    if (!u_sess->attr.attr_common.pgstat_track_counts)
+        return;
+    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId))
         return;
 
-    pgstat_setheader(&msg.m_hdr, PGSTAT_MTYPE_MEMRESERVED);
-    msg.m_databaseid = u_sess->proc_cxt.MyDatabaseId;
-    msg.m_memMbytes = memReserved;
-    msg.m_reserve_or_release = reserve_or_release;
-    pgstat_send(&msg, sizeof(msg));
+    pgstat_pending_epoch_ensure();
+
+    if (reserve_or_release == 1)
+        u_sess->stat_cxt.pgStatPendingMemReserved += memReserved;
+    else if (reserve_or_release == -1)
+        u_sess->stat_cxt.pgStatPendingMemReserved -= memReserved;
 }
 
 /* ----------
@@ -2123,6 +2248,9 @@ void AtEOXact_PgStat(bool isCommit)
         }
     }
     u_sess->stat_cxt.pgStatXactStack = NULL;
+
+    /* Flush pending high-frequency DB stats at transaction end */
+    pgstat_flush_pending(true);
 
     /* Make sure any stats snapshot is thrown away */
     pgstat_clear_snapshot();
@@ -6460,6 +6588,7 @@ static void pgstat_recv_resetsinglecounter(PgStat_MsgResetsinglecounter* msg, in
     } else if (msg->m_resettype == RESET_FUNCTION) {
         (void)pgstat_shared_remove_func_entry(msg->m_databaseid, msg->m_objectid);
     }
+    /* Do not bump_epoch here: only single table/func was reset; DB-level stats (deadlock/tempfile/etc.) are unchanged. */
 }
 
 
