@@ -321,9 +321,14 @@ typedef struct knl_g_advisor_conntext {
     MemoryContext SQLAdvisorContext;
 } knl_g_advisor_conntext;
 
+struct PgStatSharedState;
+
 typedef struct knl_g_stat_context {
     /* Every  cell is a array size of 128 and the list stores all users` sql count results */
     struct List* WaitCountStatusList;
+
+    /* Shared-memory pgstat state (see pgstat_shmem.h); set by PgStatShmemInit(). */
+    struct PgStatSharedState* pgstat_shared;
 
     /* Shared hashtable used to mapping user and g_instance.stat.WaitCountStatusList index for QPS */
     struct HTAB* WaitCountHashTbl;

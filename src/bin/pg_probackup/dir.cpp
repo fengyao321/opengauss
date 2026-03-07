@@ -36,12 +36,6 @@
 const char *pgdata_exclude_dir[] =
 {
     (const char *)PG_XLOG_DIR,
-    /*
-    * Skip temporary statistics files. PG_STAT_TMP_DIR must be skipped even
-    * when stats_temp_directory is set because PGSS_TEXT_FILE is always created
-    * there.
-    */
-    (const char *)"pg_stat_tmp",
     (const char *)"base/pgsql_tmp",
 
     /* Contents removed on startup, see dsm_cleanup_for_mmap(). */

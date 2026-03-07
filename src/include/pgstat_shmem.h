@@ -121,9 +121,15 @@ typedef struct PgStatSharedState {
     HTAB* func_hash;
 
     PgStat_GlobalStats global_stats;
+    /* true after first attempt to load permanent stats file into shmem (used for lazy load in backend). */
+    bool stats_file_load_attempted;
 } PgStatSharedState;
 
-extern PgStatSharedState* g_pgstat_shared;
+/* Accessor: pgstat shared state is stored in g_instance.stat_cxt.pgstat_shared. */
+static inline PgStatSharedState* pgstat_get_shared_state(void)
+{
+    return (PgStatSharedState*)g_instance.stat_cxt.pgstat_shared;
+}
 
 extern Size PgStatShmemSize(void);
 extern void PgStatShmemInit(void);
@@ -150,12 +156,14 @@ extern void pgstat_shared_import_snapshot(HTAB* dbhash, const PgStat_GlobalStats
 
 static inline LWLock* pgstat_shared_global_lock(void)
 {
-    return (g_pgstat_shared == NULL) ? NULL : &g_pgstat_shared->global_lock.lock;
+    PgStatSharedState* s = pgstat_get_shared_state();
+    return (s == NULL) ? NULL : &s->global_lock.lock;
 }
 
 static inline PgStat_GlobalStats* pgstat_shared_global_stats(void)
 {
-    return (g_pgstat_shared == NULL) ? NULL : &g_pgstat_shared->global_stats;
+    PgStatSharedState* s = pgstat_get_shared_state();
+    return (s == NULL) ? NULL : &s->global_stats;
 }
 
 #endif /* PGSTAT_SHMEM_H */

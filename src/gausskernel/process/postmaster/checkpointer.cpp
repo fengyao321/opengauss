@@ -445,8 +445,8 @@ void CheckpointerMain(void)
              * control back to the sigsetjmp block above
              */
             u_sess->attr.attr_common.ExitOnAnyError = true;
-            
-            /* Close down the database */
+
+            /* Persist shared-memory stats to permanent file before shutdown (skipped if never loaded). */
             pgstat_write_statsfile_permanent();
             ShutdownXLOG(0, 0);
 

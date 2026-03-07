@@ -45,6 +45,9 @@ typedef enum TrackFunctionsLevel { TRACK_FUNC_OFF, TRACK_FUNC_PL, TRACK_FUNC_ALL
 #define PGSTAT_STAT_PERMANENT_FILENAME "global/pgstat.stat"
 #define PGSTAT_STAT_PERMANENT_TMPFILE "global/pgstat.tmp"
 
+/* When using shared-memory stats, pgStatSock is set to this instead of a real fd. */
+#define PGSTAT_SHMEM_FAKE_SOCKET 1
+
 /* ----------
  * The types of backend -> collector messages
  * ----------

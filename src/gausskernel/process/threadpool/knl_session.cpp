@@ -926,8 +926,6 @@ static void knl_u_stat_init(knl_u_stat_context* stat_cxt)
     Size size = 0;
     errno_t rc = EOK;
 
-    stat_cxt->pgstat_stat_filename = NULL;
-    stat_cxt->pgstat_stat_tmpname = NULL;
     stat_cxt->pgStatDBHash = NULL;
     stat_cxt->pgStatTabList = NULL;
 

@@ -442,16 +442,25 @@ static void DetachMySessionTimeEntry(volatile SessionTimeEntry* pEntry);
  */
 void pgstat_init(void)
 {
-    g_instance.stat_cxt.pgStatSock = 1;
+    g_instance.stat_cxt.pgStatSock = PGSTAT_SHMEM_FAKE_SOCKET;
     g_instance.stat_cxt.last_pgstat_start_time = 0;
     g_instance.stat_cxt.last_statwrite = 0;
     g_instance.stat_cxt.last_statrequest = 0;
-    pgstat_load_statsfile_into_shmem();
+    /*
+     * Do not load stats file here: postmaster may not have u_sess.  Loading
+     * is done lazily in backend_read_statsfile() when the first backend needs stats.
+     */
+    initGlobalBadBlockStat();
 }
 
+/*
+ * Load the permanent stats file into shared memory.  Must be called from a
+ * process that has u_sess (e.g. a backend).  Used for lazy load on first
+ * backend_read_statsfile().
+ */
 static void pgstat_load_statsfile_into_shmem(void)
 {
-    if (g_pgstat_shared == NULL)
+    if (pgstat_get_shared_state() == NULL || u_sess == NULL)
         return;
 
     MemoryContext oldctx = u_sess->stat_cxt.pgStatLocalContext;
@@ -472,7 +481,6 @@ static void pgstat_load_statsfile_into_shmem(void)
     u_sess->stat_cxt.pgStatDBHash = oldhash;
 }
 
-
 /*
  * pgstat_reset_all() -
  *
@@ -481,11 +489,7 @@ static void pgstat_load_statsfile_into_shmem(void)
  */
 void pgstat_reset_all(void)
 {
-    elog(LOG,
-        "[Pgstat] remove statfiles in %s, %s",
-        u_sess->stat_cxt.pgstat_stat_filename,
-        PGSTAT_STAT_PERMANENT_FILENAME);
-    unlink(u_sess->stat_cxt.pgstat_stat_filename);
+    elog(LOG, "[Pgstat] remove permanent stat file: %s", PGSTAT_STAT_PERMANENT_FILENAME);
     unlink(PGSTAT_STAT_PERMANENT_FILENAME);
 }
 
@@ -5437,8 +5441,9 @@ static void pgstat_write_statsfile(bool permanent)
     PgStat_StatFuncEntry* funcentry = NULL;
     FILE* fpout = NULL;
     int32 format_id;
-    const char* tmpfile = permanent ? PGSTAT_STAT_PERMANENT_TMPFILE : u_sess->stat_cxt.pgstat_stat_tmpname;
-    const char* statfile = permanent ? PGSTAT_STAT_PERMANENT_FILENAME : u_sess->stat_cxt.pgstat_stat_filename;
+    /* permanent stats file only, session-level temp file is deprecated (stats in shmem). */
+    const char* tmpfile = PGSTAT_STAT_PERMANENT_TMPFILE;
+    const char* statfile = PGSTAT_STAT_PERMANENT_FILENAME;
     int rc;
 
     HTAB* saved_dbhash = u_sess->stat_cxt.pgStatDBHash;
@@ -5591,7 +5596,7 @@ static void pgstat_write_statsfile(bool permanent)
         LWLock* glock = pgstat_shared_global_lock();
         if (glock != NULL) {
             LWLockAcquire(glock, LW_EXCLUSIVE);
-            g_pgstat_shared->global_stats.stats_timestamp = u_sess->stat_cxt.globalStats->stats_timestamp;
+            pgstat_get_shared_state()->global_stats.stats_timestamp = u_sess->stat_cxt.globalStats->stats_timestamp;
             LWLockRelease(glock);
         }
 
@@ -5621,13 +5626,15 @@ static void pgstat_write_statsfile(bool permanent)
 
     u_sess->stat_cxt.pgStatLocalContext = saved_ctx;
     u_sess->stat_cxt.pgStatDBHash = saved_dbhash;
-
-    if (permanent)
-        unlink(u_sess->stat_cxt.pgstat_stat_filename);
 }
 
 void pgstat_write_statsfile_permanent(void)
 {
+    /* if never loaded from file, don't write, avoid overwriting the old file on disk with empty shmem. */
+    if (pgstat_get_shared_state() == NULL || !pgstat_get_shared_state()->stats_file_load_attempted) {
+        elog(DEBUG1, "[Pgstat] skip writing permanent stats file (stats were never loaded from file).");
+        return;
+    }
     pgstat_write_statsfile<true>(true);
 }
 
@@ -5666,7 +5673,8 @@ static HTAB* pgstat_read_statsfile(Oid onlydb, bool permanent)
     FILE* fpin = NULL;
     int32 format_id;
     bool found = false;
-    const char* statfile = permanent ? PGSTAT_STAT_PERMANENT_FILENAME : u_sess->stat_cxt.pgstat_stat_filename;
+    /* permanent stats file only, session-level temp file is deprecated. */
+    const char* statfile = PGSTAT_STAT_PERMANENT_FILENAME;
     errno_t rc = EOK;
     size_t statTabEntrySize = sizeof(PgStat_StatTabEntry);
     size_t statTabEntryMoveLen = 0;
@@ -5945,20 +5953,20 @@ done:
 /* ----------
  * pgstat_read_statsfile_timestamp() -
  *
- *	Attempt to fetch the timestamp of an existing stats file.
+ *	Fetch the stats timestamp (from shared memory; no file read).
  *	Returns TRUE if successful (timestamp is stored at *ts).
  * ----------
  */
 static bool pgstat_read_statsfile_timestamp(bool permanent, TimestampTz* ts)
 {
-    if (g_pgstat_shared == NULL || ts == NULL)
+    if (pgstat_get_shared_state() == NULL || ts == NULL)
         return false;
 
     LWLock* lock = pgstat_shared_global_lock();
     if (lock != NULL)
         LWLockAcquire(lock, LW_SHARED);
 
-    *ts = g_pgstat_shared->global_stats.stats_timestamp;
+    *ts = pgstat_get_shared_state()->global_stats.stats_timestamp;
 
     if (lock != NULL)
         LWLockRelease(lock);
@@ -5971,12 +5979,31 @@ static bool pgstat_read_statsfile_timestamp(bool permanent, TimestampTz* ts)
  * If not already done, read the statistics collector stats file into
  * some hash tables.  The results will be kept until pgstat_clear_snapshot()
  * is called (typically, at end of transaction).
+ *
+ * On first use we load the permanent stats file into shmem (once per process
+ * lifetime), so that restarts recover previous stats; this is done here rather
+ * than in pgstat_init() because postmaster may not have u_sess.
  */
 static void backend_read_statsfile(void)
 {
     if (u_sess->stat_cxt.pgStatDBHash)
         return;
     Assert(!u_sess->stat_cxt.pgStatRunningInCollector);
+
+    /* Lazy load from permanent file into shmem once (only backends have u_sess). */
+    if (pgstat_get_shared_state() != NULL && !pgstat_get_shared_state()->stats_file_load_attempted) {
+        LWLock* glock = pgstat_shared_global_lock();
+        if (glock != NULL) {
+            LWLockAcquire(glock, LW_EXCLUSIVE);
+            if (!pgstat_get_shared_state()->stats_file_load_attempted) {
+                pgstat_get_shared_state()->stats_file_load_attempted = true;
+                LWLockRelease(glock);
+                pgstat_load_statsfile_into_shmem();
+            } else {
+                LWLockRelease(glock);
+            }
+        }
+    }
 
     pgstat_setup_memcxt();
 
@@ -6238,19 +6265,7 @@ static void pgstat_recv_tabstat(PgStat_MsgTabstat* msg, int len)
             tabentry->cu_mem_hit = tabmsg->t_counts.t_cu_mem_hit;
             tabentry->cu_hdd_sync = tabmsg->t_counts.t_cu_hdd_sync;
             tabentry->cu_hdd_asyn = tabmsg->t_counts.t_cu_hdd_asyn;
-
-            tabentry->vacuum_timestamp = 0;
-            tabentry->vacuum_count = 0;
-            tabentry->autovac_vacuum_timestamp = 0;
-            tabentry->autovac_vacuum_count = 0;
-            tabentry->analyze_timestamp = 0;
-            tabentry->analyze_count = 0;
-            tabentry->autovac_analyze_timestamp = 0;
-            tabentry->autovac_analyze_count = 0;
-            tabentry->autovac_status = 0;
-            tabentry->data_changed_timestamp = 0;
-            tabentry->success_prune_cnt = 0;
-            tabentry->total_prune_cnt = 0;
+            /* vacuum/analyze/prune all fields are memset to 0 in pgstat_shared_init_tab_entry, no need to assign again. */
         } else {
             tabentry->numscans += tabmsg->t_counts.t_numscans;
             tabentry->tuples_returned += tabmsg->t_counts.t_tuples_returned;
@@ -6314,19 +6329,7 @@ static void pgstat_recv_tabstat(PgStat_MsgTabstat* msg, int len)
             parent_entry->cu_mem_hit = tabmsg->t_counts.t_cu_mem_hit;
             parent_entry->cu_hdd_sync = tabmsg->t_counts.t_cu_hdd_sync;
             parent_entry->cu_hdd_asyn = tabmsg->t_counts.t_cu_hdd_asyn;
-
-            parent_entry->vacuum_timestamp = 0;
-            parent_entry->vacuum_count = 0;
-            parent_entry->autovac_vacuum_timestamp = 0;
-            parent_entry->autovac_vacuum_count = 0;
-            parent_entry->analyze_timestamp = 0;
-            parent_entry->analyze_count = 0;
-            parent_entry->autovac_analyze_timestamp = 0;
-            parent_entry->autovac_analyze_count = 0;
-            parent_entry->autovac_status = 0;
-            parent_entry->data_changed_timestamp = 0;
-            parent_entry->success_prune_cnt = 0;
-            parent_entry->total_prune_cnt = 0;
+            /* vacuum/analyze/prune all fields are memset to 0 in pgstat_shared_init_tab_entry, no need to assign again. */
         } else {
             parent_entry->numscans += tabmsg->t_counts.t_numscans;
             parent_entry->tuples_returned += tabmsg->t_counts.t_tuples_returned;
@@ -6615,7 +6618,8 @@ static void pgstat_recv_truncate(PgStat_MsgTruncate* msg, int len)
 
     if (msg->m_statFlag) {
         LWLock* parent_lock = NULL;
-        PgStatSharedTabEntry* parent_entry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_statFlag, InvalidOid, true,
+        /* Only update parent if it already exists (same as original HASH_FIND). */
+        PgStatSharedTabEntry* parent_entry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_statFlag, InvalidOid, false,
             LW_EXCLUSIVE, &parent_lock, &found);
         if (parent_entry != NULL) {
             parent_entry->n_dead_tuples = Max(0, parent_entry->n_dead_tuples - dead);
@@ -7022,12 +7026,10 @@ static void pgstat_recv_funcstat(PgStat_MsgFuncstat* msg, int len)
 {
     PgStat_FunctionEntry* funcmsg = &(msg->m_entry[0]);
     int i;
-    LWLock* db_lock = NULL;
-    (void)pgstat_get_db_entry(msg->m_databaseid, true, LW_EXCLUSIVE, &db_lock);
-    pgstat_shared_release_lock(db_lock);
 
     /*
-     * Process all function entries in the message.
+     * Process all function entries in the message.  (Func hash is global;
+     * no need to ensure db entry exists first.)
      */
     for (i = 0; i < msg->m_nentries; i++, funcmsg++) {
         LWLock* func_lock = NULL;

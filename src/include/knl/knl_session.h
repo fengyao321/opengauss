@@ -1801,9 +1801,6 @@ typedef struct knl_u_postgres_context {
 } knl_u_postgres_context;
 
 typedef struct knl_u_stat_context {
-    char* pgstat_stat_filename;
-    char* pgstat_stat_tmpname;
-
     struct HTAB* pgStatDBHash;
     struct TabStatusArray* pgStatTabList;
 
