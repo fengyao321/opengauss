@@ -55,9 +55,9 @@ ERROR:  syntax error at or near "$"
 LINE 1: create table t18(id int) on $[default];
                                     ^
 create table t18(id int) on [default; -- d database error
-ERROR:  syntax error at or near ";"
+ERROR:  syntax error at end of input
 LINE 1: create table t18(id int) on [default;
-                                            ^
+                                             ^
 create table t18(id int) on default]; -- d database error
 ERROR:  syntax error at or near "]"
 LINE 1: create table t18(id int) on default];
@@ -70,10 +70,9 @@ create table t23(id int) on "table";
 create table t24(id int) on [table];
 create table t25(id int) on 'New FileGroup';
 create table t26(id int) on [New FileGroup]; --og error
-ERROR:  syntax error at or near "FileGroup"
-LINE 1: create table t26(id int) on [New FileGroup];
-                                         ^
 create table t26(id int) on [NewFileGroup];
+ERROR:  relation "t26" already exists in schema "test_table_filegroup"
+DETAIL:  creating new table with existing name in the same schema
 create table test_with_1(a int, CONSTRAINT PK_test_with_1 PRIMARY KEY(a) WITH (PAD_INDEX = OFF) on [primary22]) on [primary22];
 NOTICE:  parameter "pad_index" is currently ignored.
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pk_test_with_1" for table "test_with_1"
@@ -99,7 +98,9 @@ NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pk_test_with_2" 
 Indexes:
     "pk_test_with_2" PRIMARY KEY, btree (a) WITH (fillfactor=10) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 create table test_with_3(a int, CONSTRAINT PK_test_with_3 PRIMARY KEY(a)
 WITH (PAD_INDEX = OFF, FILLFACTOR = 50, IGNORE_DUP_KEY = off, STATISTICS_NORECOMPUTE = off, STATISTICS_INCREMENTAL = off,
@@ -228,7 +229,9 @@ NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "test_with_27_pke
 Indexes:
     "test_with_27_pkey" PRIMARY KEY, btree (a) WITH (fillfactor=10) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 create table test_with_28(a int, PRIMARY KEY(a) with (pad_index = on, fillfactor = 50));
 NOTICE:  parameter "pad_index" is currently ignored.

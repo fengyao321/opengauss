@@ -3303,7 +3303,7 @@ static void InitSqlConfigureNamesString()
             NULL,
             GUC_LIST_INPUT | GUC_REPORT},
             &u_sess->attr.attr_sql.d_format_behavior_compat_string,
-            "",
+            "enable_sbr_identifier, default_collation",
             check_d_format_behavior_compat_options,
             assign_d_format_behavior_compat_options,
             NULL},

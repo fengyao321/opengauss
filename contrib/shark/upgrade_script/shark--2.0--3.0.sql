@@ -1,3 +1,5 @@
+SET LOCAL d_format_behavior_compat_options = '';
+
 -- rebuild some views in verion before shark 3.0
 drop view if exists sys.sysobjects;
 drop view if exists sys.objects;

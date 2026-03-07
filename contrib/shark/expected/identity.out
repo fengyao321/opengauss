@@ -540,9 +540,11 @@ NOTICE:  CREATE TABLE will create implicit sequence "t_identity_0023_1_id_seq_id
  Column |         Type          |                                Modifiers                                | Storage  | Stats target | Description 
 --------+-----------------------+-------------------------------------------------------------------------+----------+--------------+-------------
  id     | integer               | not null default nextval('t_identity_0023_1_id_seq_identity'::regclass) | plain    |              | 
- name   | character varying(10) |                                                                         | extended |              | 
+ name   | character varying(10) | character set UTF8 collate utf8mb4_general_ci                           | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select ident_current('t_identity_0023_1');
  ident_current 
@@ -594,9 +596,11 @@ NOTICE:  CREATE TABLE will create implicit sequence "t_identity_0023_2_id_seq_id
  Column |         Type          |                                Modifiers                                | Storage  | Stats target | Description 
 --------+-----------------------+-------------------------------------------------------------------------+----------+--------------+-------------
  id     | integer               | not null default nextval('t_identity_0023_2_id_seq_identity'::regclass) | plain    |              | 
- name   | character varying(10) |                                                                         | extended |              | 
+ name   | character varying(10) | character set UTF8 collate utf8mb4_general_ci                           | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 insert t_identity_0023_2 (name) values('xxx1');
 insert t_identity_0023_2 (name) values('xxx1');
@@ -774,13 +778,15 @@ create table t_identity_0025(id1 int, name varchar(10));
 -- expected: successs
 select name, age into t_identity_0024_01 from t_identity_0024;
 \d+ t_identity_0024_01
-                     Table "identity_schema.t_identity_0024_01"
- Column |         Type          | Modifiers | Storage  | Stats target | Description 
---------+-----------------------+-----------+----------+--------------+-------------
- name   | character varying(10) |           | extended |              | 
- age    | integer               |           | plain    |              | 
+                                       Table "identity_schema.t_identity_0024_01"
+ Column |         Type          |                   Modifiers                   | Storage  | Stats target | Description 
+--------+-----------------------+-----------------------------------------------+----------+--------------+-------------
+ name   | character varying(10) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ age    | integer               |                                               | plain    |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 -- expected: success
 set identity_insert = on;
@@ -794,7 +800,9 @@ NOTICE:  CREATE TABLE will create implicit sequence "t_identity_0024_02_1_id_ali
 ----------+---------+----------------------------------------------------------------------------------+---------+--------------+-------------
  id_alias | integer | not null default nextval('t_identity_0024_02_1_id_alias_seq_identity'::regclass) | plain   |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select ident_current('t_identity_0024_02_1');
  ident_current 
@@ -809,10 +817,12 @@ NOTICE:  CREATE TABLE will create implicit sequence "t_identity_0024_03_id_seq_i
  Column |         Type          |                                Modifiers                                 | Storage  | Stats target | Description 
 --------+-----------------------+--------------------------------------------------------------------------+----------+--------------+-------------
  id     | integer               | not null default nextval('t_identity_0024_03_id_seq_identity'::regclass) | plain    |              | 
- name   | character varying(10) |                                                                          | extended |              | 
+ name   | character varying(10) | character set UTF8 collate utf8mb4_general_ci                            | extended |              | 
  age    | integer               |                                                                          | plain    |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select ident_current('t_identity_0024_03');
  ident_current 
@@ -829,7 +839,9 @@ NOTICE:  CREATE TABLE will create implicit sequence "t_identity_0024_04_id_seq_i
  id        | integer | not null default nextval('t_identity_0024_04_id_seq_identity'::regclass) | plain   |              | 
  alias_age | integer |                                                                          | plain   |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select * from t_identity_0024_04 order by id;
  id  | alias_age 
@@ -888,7 +900,9 @@ select i1.id, i2.id1, i1.age as alias_age into t_identity_0024_05 from t_identit
  id1       | integer |           | plain   |              | 
  alias_age | integer |           | plain   |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 -- same to serial.
 -- expected: success
@@ -901,9 +915,11 @@ NOTICE:  CREATE TABLE will create implicit sequence "t_serial_001_1_id_seq" for 
  Column |         Type          |                          Modifiers                          | Storage  | Stats target | Description 
 --------+-----------------------+-------------------------------------------------------------+----------+--------------+-------------
  id     | integer               | not null default nextval('t_serial_001_1_id_seq'::regclass) | plain    |              | 
- name   | character varying(10) |                                                             | extended |              | 
+ name   | character varying(10) | character set UTF8 collate utf8mb4_general_ci               | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 -- expected: success
 create table t_serial_002(id serial, id1 serial, name varchar(10));
@@ -918,9 +934,11 @@ NOTICE:  CREATE TABLE will create implicit sequence "t_serial_002_1_id1_seq" for
 --------+-----------------------+--------------------------------------------------------------+----------+--------------+-------------
  id     | integer               | not null default nextval('t_serial_002_1_id_seq'::regclass)  | plain    |              | 
  id1    | integer               | not null default nextval('t_serial_002_1_id1_seq'::regclass) | plain    |              | 
- name   | character varying(10) |                                                              | extended |              | 
+ name   | character varying(10) | character set UTF8 collate utf8mb4_general_ci                | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 create table t_serial_identity_001(id int identity(200, 2), id1 serial, name varchar(10));
 NOTICE:  CREATE TABLE will create implicit sequence "t_serial_identity_001_id_seq_identity" for serial column "t_serial_identity_001.id"
@@ -944,9 +962,11 @@ set identity_insert = off;
 --------+-----------------------+-------------------------------------------------------------------------------+----------+--------------+-------------
  id     | integer               | not null default nextval('t_serial_identity_001_1_id_seq_identity'::regclass) | plain    |              | 
  id1    | integer               | not null default nextval('t_serial_identity_001_1_id1_seq'::regclass)         | plain    |              | 
- name   | character varying(10) |                                                                               | extended |              | 
+ name   | character varying(10) | character set UTF8 collate utf8mb4_general_ci                                 | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 drop table t_identity_0024;
 drop table t_identity_0024_01;
@@ -976,9 +996,11 @@ NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t1_1_id_
  Column |         Type          |                                   Modifiers                                   | Storage  | Stats target | Description 
 --------+-----------------------+-------------------------------------------------------------------------------+----------+--------------+-------------
  id     | numeric(25,0)         | not null default nextval('t_identity_numeric_t1_1_id_seq_identity'::regclass) | main     |              | 
- name   | character varying(10) |                                                                               | extended |              | 
+ name   | character varying(10) | character set UTF8 collate utf8mb4_general_ci                                 | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 insert into t_identity_numeric_t1_1(id, name) values(987654321098765432109876, 'xxx'); -- over int64
 select * from t_identity_numeric_t1_1 order by id;
@@ -1003,9 +1025,11 @@ set identity_insert = off;
  Column |         Type          |                                   Modifiers                                   | Storage  | Stats target | Description 
 --------+-----------------------+-------------------------------------------------------------------------------+----------+--------------+-------------
  id     | numeric(25,0)         | not null default nextval('t_identity_numeric_t2_1_id_seq_identity'::regclass) | main     |              | 
- name   | character varying(10) |                                                                               | extended |              | 
+ name   | character varying(10) | character set UTF8 collate utf8mb4_general_ci                                 | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 insert into t_identity_numeric_t2_1(name) values('xxx'); -- over int64
 select * from t_identity_numeric_t2_1 order by id;
@@ -1029,9 +1053,11 @@ set identity_insert = off;
  Column |         Type          |                                   Modifiers                                   | Storage  | Stats target | Description 
 --------+-----------------------+-------------------------------------------------------------------------------+----------+--------------+-------------
  id     | numeric(25,0)         | not null default nextval('t_identity_numeric_t3_1_id_seq_identity'::regclass) | main     |              | 
- name   | character varying(10) |                                                                               | extended |              | 
+ name   | character varying(10) | character set UTF8 collate utf8mb4_general_ci                                 | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 insert into t_identity_numeric_t3_1(name) values('xxx'); -- over int64
 insert into t_identity_numeric_t3_1(name) values('xxx1');
@@ -1055,9 +1081,11 @@ NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t4_1_id_
  Column |         Type          |                                   Modifiers                                   | Storage  | Stats target | Description 
 --------+-----------------------+-------------------------------------------------------------------------------+----------+--------------+-------------
  id     | numeric(38,0)         | not null default nextval('t_identity_numeric_t4_1_id_seq_identity'::regclass) | main     |              | 
- name   | character varying(10) |                                                                               | extended |              | 
+ name   | character varying(10) | character set UTF8 collate utf8mb4_general_ci                                 | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 set identity_insert = on;
 insert into t_identity_numeric_t4_1(id, name) values(987654321098765432109876543210, 'xxx'); -- over int64
@@ -1099,9 +1127,11 @@ NOTICE:  CREATE TABLE will create implicit sequence "t_identity_numeric_t6_1_id1
 --------+-----------------------+-------------------------------------------------------------------------------+----------+--------------+-------------
  id     | numeric(38,0)         | not null default nextval('t_identity_numeric_t6_1_id_seq_identity'::regclass) | main     |              | 
  id1    | integer               | not null default nextval('t_identity_numeric_t6_1_id1_seq'::regclass)         | plain    |              | 
- name   | character varying(10) |                                                                               | extended |              | 
+ name   | character varying(10) | character set UTF8 collate utf8mb4_general_ci                                 | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 insert into t_identity_numeric_t6_1(name) values('xxx'); -- over int64
 insert into t_identity_numeric_t6_1(name) values('xxx1');
@@ -1122,9 +1152,11 @@ NOTICE:  CREATE TABLE will create implicit sequence "t_ident_id_seq_identity" fo
  Column |  Type   |                           Modifiers                           | Storage  | Stats target | Description 
 --------+---------+---------------------------------------------------------------+----------+--------------+-------------
  id     | integer | not null default nextval('t_ident_id_seq_identity'::regclass) | plain    |              | 
- col    | text    |                                                               | extended |              | 
+ col    | text    | character set UTF8 collate utf8mb4_general_ci                 | extended |              | 
 Has OIDs: no
-Options: orientation=column, compression=low
+Options: orientation=column, compression=low, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 insert into t_ident(col) values('column1');
 insert into t_ident(col) values('column2');

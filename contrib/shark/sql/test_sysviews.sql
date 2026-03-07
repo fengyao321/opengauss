@@ -1,3 +1,4 @@
+set d_format_behavior_compat_options = '';
 create schema sys_view_test;
 set search_path to sys_view_test;
 
@@ -384,3 +385,4 @@ drop view high_salary_employees;
 
 reset search_path;
 drop schema sys_view_test_02 cascade;
+reset d_format_behavior_compat_options;

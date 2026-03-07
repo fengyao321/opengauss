@@ -1,3 +1,4 @@
+set d_format_behavior_compat_options = '';
 create schema sys_view_test;
 set search_path to sys_view_test;
 -- show views struct

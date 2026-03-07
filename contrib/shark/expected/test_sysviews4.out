@@ -131,7 +131,9 @@ alter table astore_mult2 add foreign key (c) references astore_mult1(a);
 Foreign-key constraints:
     "astore_mult2_c_fkey" FOREIGN KEY (c) REFERENCES astore_mult1(a)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select constraint_column_id, parent_column_id, referenced_column_id from sys.foreign_key_columns
   where constraint_object_id = object_id('astore_mult2_c_fkey', 'F') 
@@ -222,7 +224,9 @@ alter table astore_mult4 add foreign key (d) references astore_mult3(b);
 Foreign-key constraints:
     "astore_mult4_d_fkey" FOREIGN KEY (d) REFERENCES astore_mult3(b)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select constraint_column_id, parent_column_id, referenced_column_id from sys.foreign_key_columns
   where constraint_object_id = object_id('astore_mult4_d_fkey', 'F') 
@@ -314,7 +318,9 @@ alter table astore_mult6 add foreign key (d, e) references astore_mult5 (a, b);
 Foreign-key constraints:
     "astore_mult6_d_fkey" FOREIGN KEY (d, e) REFERENCES astore_mult5(a, b)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select constraint_column_id, parent_column_id, referenced_column_id from sys.foreign_key_columns
   where constraint_object_id = object_id('astore_mult6_d_fkey', 'F') 
@@ -408,7 +414,9 @@ alter table astore_mult8 add foreign key (d, e) references astore_mult7 (b, a);
 Foreign-key constraints:
     "astore_mult8_d_fkey" FOREIGN KEY (d, e) REFERENCES astore_mult7(b, a)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select constraint_column_id, parent_column_id, referenced_column_id from sys.foreign_key_columns
   where constraint_object_id = object_id('astore_mult8_d_fkey', 'F') 
@@ -560,7 +568,9 @@ Foreign-key constraints:
     "astore_mult2_c_fkey" FOREIGN KEY (c) REFERENCES astore_mult1(a)
     "astore_mult2_c_fkey1" FOREIGN KEY (c) REFERENCES astore_mult3(a)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.foreign_keys where name = 'astore_mult2_c_fkey';
  is_system_named 
@@ -593,7 +603,9 @@ alter table astore_mult5 add foreign key (aa, cc) references astore_mult4(a, d);
 Foreign-key constraints:
     "astore_mult5_aa_fkey" FOREIGN KEY (aa, cc) REFERENCES astore_mult4(a, d)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
   on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid
@@ -760,7 +772,9 @@ alter table astore_mult7 add foreign key (aa, cc) references astore_mult6(a, d);
 Foreign-key constraints:
     "astore_mult7_aa_fkey" FOREIGN KEY (aa, cc) REFERENCES astore_mult6(a, d)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select fkey, rkey, keyno from sys.sysforeignkeys fk inner join pg_constraint con
   on fk.constid = con.oid and fk.fkeyid = con.conrelid and fk.rkeyid = con.confrelid

@@ -1,6 +1,7 @@
 create database test_apply dbcompatibility='D';
 \c test_apply
 create extension shark;
+set d_format_behavior_compat_options = '';
 -- cross and outer apply
 create table departments(department_name varchar(50), department_id int);
 create table employees(employee_id int, department_id int, last_name varchar(50));

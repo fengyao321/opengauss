@@ -21,15 +21,17 @@ select * from Products;
 (2 rows)
 
 \d+ Products
-                                                            Table "test_ddl_and_dml.products"
-     Column     |   Type   |                                       Modifiers                                       | Storage | Stats target | Description 
-----------------+----------+---------------------------------------------------------------------------------------+---------+--------------+-------------
- qtyavailable   | smallint |                                                                                       | plain   |              | 
- unitprice      | money    |                                                                                       | plain   |              | 
- inventoryvalue | money    | collate default as ((qtyavailable * unitprice)) persisted                             | plain   |              | 
- retailvalue    | money    | collate default as (((qtyavailable * unitprice) * (1.5)::double precision)) persisted | plain   |              | 
+                                                                           Table "test_ddl_and_dml.products"
+     Column     |   Type   |                                                      Modifiers                                                      | Storage | Stats target | Description 
+----------------+----------+---------------------------------------------------------------------------------------------------------------------+---------+--------------+-------------
+ qtyavailable   | smallint |                                                                                                                     | plain   |              | 
+ unitprice      | money    |                                                                                                                     | plain   |              | 
+ inventoryvalue | money    | character set UTF8 collate utf8mb4_general_ci as ((qtyavailable * unitprice)) persisted                             | plain   |              | 
+ retailvalue    | money    | character set UTF8 collate utf8mb4_general_ci as (((qtyavailable * unitprice) * (1.5)::double precision)) persisted | plain   |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 -- 删除生成列
 ALTER TABLE Products DROP COLUMN RetailValue;
@@ -4207,15 +4209,17 @@ NOTICE:  table "constraint_asc" does not exist, skipping
 create table CONSTRAINT_ASC(id int not null, v1 varchar(30), constraint PK_CONSTRAINT_ASC primary key(id ASC));
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pk_constraint_asc" for table "constraint_asc"
 \d+ CONSTRAINT_ASC
-                      Table "test_ddl_and_dml.constraint_asc"
- Column |         Type          | Modifiers | Storage  | Stats target | Description 
---------+-----------------------+-----------+----------+--------------+-------------
- id     | integer               | not null  | plain    |              | 
- v1     | character varying(30) |           | extended |              | 
+                                        Table "test_ddl_and_dml.constraint_asc"
+ Column |         Type          |                   Modifiers                   | Storage  | Stats target | Description 
+--------+-----------------------+-----------------------------------------------+----------+--------------+-------------
+ id     | integer               | not null                                      | plain    |              | 
+ v1     | character varying(30) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "pk_constraint_asc" PRIMARY KEY, btree (id) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 drop table CONSTRAINT_ASC;
 drop table if exists CONSTRAINT_DESC;
@@ -4223,56 +4227,64 @@ NOTICE:  table "constraint_desc" does not exist, skipping
 create table CONSTRAINT_DESC(id int not null, v1 varchar(30), constraint PK_CONSTRAINT_DESC primary key(id DESC));
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pk_constraint_desc" for table "constraint_desc"
 \d+ CONSTRAINT_DESC
-                      Table "test_ddl_and_dml.constraint_desc"
- Column |         Type          | Modifiers | Storage  | Stats target | Description 
---------+-----------------------+-----------+----------+--------------+-------------
- id     | integer               | not null  | plain    |              | 
- v1     | character varying(30) |           | extended |              | 
+                                        Table "test_ddl_and_dml.constraint_desc"
+ Column |         Type          |                   Modifiers                   | Storage  | Stats target | Description 
+--------+-----------------------+-----------------------------------------------+----------+--------------+-------------
+ id     | integer               | not null                                      | plain    |              | 
+ v1     | character varying(30) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "pk_constraint_desc" PRIMARY KEY, btree (id DESC) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 drop table CONSTRAINT_DESC;
 CREATE TABLE UNIQUE_CONSTRAINT_TEST(v1 int, v2 int, v3 varchar(255), constraint UNIQ_V2 UNIQUE(v2 desc));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "uniq_v2" for table "unique_constraint_test"
 \d+ UNIQUE_CONSTRAINT_TEST
-                   Table "test_ddl_and_dml.unique_constraint_test"
- Column |          Type          | Modifiers | Storage  | Stats target | Description 
---------+------------------------+-----------+----------+--------------+-------------
- v1     | integer                |           | plain    |              | 
- v2     | integer                |           | plain    |              | 
- v3     | character varying(255) |           | extended |              | 
+                                     Table "test_ddl_and_dml.unique_constraint_test"
+ Column |          Type          |                   Modifiers                   | Storage  | Stats target | Description 
+--------+------------------------+-----------------------------------------------+----------+--------------+-------------
+ v1     | integer                |                                               | plain    |              | 
+ v2     | integer                |                                               | plain    |              | 
+ v3     | character varying(255) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "uniq_v2" UNIQUE CONSTRAINT, btree (v2 DESC) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 drop table UNIQUE_CONSTRAINT_TEST;
 drop table if exists ADD_DEFAULT;
 NOTICE:  table "add_default" does not exist, skipping
 create table ADD_DEFAULT(id int, v1 varchar(20), v2 float);
 \d+ ADD_DEFAULT
-                        Table "test_ddl_and_dml.add_default"
- Column |         Type          | Modifiers | Storage  | Stats target | Description 
---------+-----------------------+-----------+----------+--------------+-------------
- id     | integer               |           | plain    |              | 
- v1     | character varying(20) |           | extended |              | 
- v2     | double precision      |           | plain    |              | 
+                                          Table "test_ddl_and_dml.add_default"
+ Column |         Type          |                   Modifiers                   | Storage  | Stats target | Description 
+--------+-----------------------+-----------------------------------------------+----------+--------------+-------------
+ id     | integer               |                                               | plain    |              | 
+ v1     | character varying(20) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ v2     | double precision      |                                               | plain    |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 alter table ADD_DEFAULT add default (mod(4, 3)) for id;
 NOTICE:  DEFAULT added. The added DEFAULT can not be dropped by name
 \d+ ADD_DEFAULT
-                            Table "test_ddl_and_dml.add_default"
- Column |         Type          |     Modifiers     | Storage  | Stats target | Description 
---------+-----------------------+-------------------+----------+--------------+-------------
- id     | integer               | default mod(4, 3) | plain    |              | 
- v1     | character varying(20) |                   | extended |              | 
- v2     | double precision      |                   | plain    |              | 
+                                          Table "test_ddl_and_dml.add_default"
+ Column |         Type          |                   Modifiers                   | Storage  | Stats target | Description 
+--------+-----------------------+-----------------------------------------------+----------+--------------+-------------
+ id     | integer               | default mod(4, 3)                             | plain    |              | 
+ v1     | character varying(20) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ v2     | double precision      |                                               | plain    |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 insert into ADD_DEFAULT(v1, v2) values('bac', 3.1);
 select * from ADD_DEFAULT;
@@ -4284,14 +4296,16 @@ select * from ADD_DEFAULT;
 alter table ADD_DEFAULT add default (2.45) for v2;
 NOTICE:  DEFAULT added. The added DEFAULT can not be dropped by name
 \d+ ADD_DEFAULT
-                            Table "test_ddl_and_dml.add_default"
- Column |         Type          |     Modifiers     | Storage  | Stats target | Description 
---------+-----------------------+-------------------+----------+--------------+-------------
- id     | integer               | default mod(4, 3) | plain    |              | 
- v1     | character varying(20) |                   | extended |              | 
- v2     | double precision      | default 2.45      | plain    |              | 
+                                          Table "test_ddl_and_dml.add_default"
+ Column |         Type          |                   Modifiers                   | Storage  | Stats target | Description 
+--------+-----------------------+-----------------------------------------------+----------+--------------+-------------
+ id     | integer               | default mod(4, 3)                             | plain    |              | 
+ v1     | character varying(20) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ v2     | double precision      | default 2.45                                  | plain    |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 insert into ADD_DEFAULT(v1) VALUES('def');
 select * from ADD_DEFAULT;
@@ -4303,71 +4317,81 @@ select * from ADD_DEFAULT;
 
 ALTER TABLE ADD_DEFAULT ALTER COLUMN id DROP DEFAULT;
 \d+ ADD_DEFAULT
-                         Table "test_ddl_and_dml.add_default"
- Column |         Type          |  Modifiers   | Storage  | Stats target | Description 
---------+-----------------------+--------------+----------+--------------+-------------
- id     | integer               |              | plain    |              | 
- v1     | character varying(20) |              | extended |              | 
- v2     | double precision      | default 2.45 | plain    |              | 
+                                          Table "test_ddl_and_dml.add_default"
+ Column |         Type          |                   Modifiers                   | Storage  | Stats target | Description 
+--------+-----------------------+-----------------------------------------------+----------+--------------+-------------
+ id     | integer               |                                               | plain    |              | 
+ v1     | character varying(20) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ v2     | double precision      | default 2.45                                  | plain    |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 ALTER TABLE ADD_DEFAULT ALTER COLUMN v2 DROP DEFAULT;
 \d+ ADD_DEFAULT
-                        Table "test_ddl_and_dml.add_default"
- Column |         Type          | Modifiers | Storage  | Stats target | Description 
---------+-----------------------+-----------+----------+--------------+-------------
- id     | integer               |           | plain    |              | 
- v1     | character varying(20) |           | extended |              | 
- v2     | double precision      |           | plain    |              | 
+                                          Table "test_ddl_and_dml.add_default"
+ Column |         Type          |                   Modifiers                   | Storage  | Stats target | Description 
+--------+-----------------------+-----------------------------------------------+----------+--------------+-------------
+ id     | integer               |                                               | plain    |              | 
+ v1     | character varying(20) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ v2     | double precision      |                                               | plain    |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 drop table if exists ADD_DEFAULT;
 drop table if exists ADD_CONSTRAINT_DEFAULT;
 NOTICE:  table "add_constraint_default" does not exist, skipping
 create table ADD_CONSTRAINT_DEFAULT(id int, v1 varchar(20), v2 timestamptz);
 \d+ ADD_CONSTRAINT_DEFAULT
-                    Table "test_ddl_and_dml.add_constraint_default"
- Column |           Type           | Modifiers | Storage  | Stats target | Description 
---------+--------------------------+-----------+----------+--------------+-------------
- id     | integer                  |           | plain    |              | 
- v1     | character varying(20)    |           | extended |              | 
- v2     | timestamp with time zone |           | plain    |              | 
+                                      Table "test_ddl_and_dml.add_constraint_default"
+ Column |           Type           |                   Modifiers                   | Storage  | Stats target | Description 
+--------+--------------------------+-----------------------------------------------+----------+--------------+-------------
+ id     | integer                  |                                               | plain    |              | 
+ v1     | character varying(20)    | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ v2     | timestamp with time zone |                                               | plain    |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 alter table ADD_CONSTRAINT_DEFAULT add constraint ADD_SYSTEIME_DEFAULT default (pg_systimestamp()) for v2;
 NOTICE:  DEFAULT added. The added DEFAULT can not be dropped by name
 \d+ ADD_CONSTRAINT_DEFAULT
-                            Table "test_ddl_and_dml.add_constraint_default"
- Column |           Type           |         Modifiers         | Storage  | Stats target | Description 
---------+--------------------------+---------------------------+----------+--------------+-------------
- id     | integer                  |                           | plain    |              | 
- v1     | character varying(20)    |                           | extended |              | 
- v2     | timestamp with time zone | default pg_systimestamp() | plain    |              | 
+                                      Table "test_ddl_and_dml.add_constraint_default"
+ Column |           Type           |                   Modifiers                   | Storage  | Stats target | Description 
+--------+--------------------------+-----------------------------------------------+----------+--------------+-------------
+ id     | integer                  |                                               | plain    |              | 
+ v1     | character varying(20)    | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ v2     | timestamp with time zone | default pg_systimestamp()                     | plain    |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 insert into ADD_CONSTRAINT_DEFAULT(id, v1) values(1, 'abc');
 alter table ADD_CONSTRAINT_DEFAULT add constraint ADD_INT_DEFAULT default ((9)) for id;
 NOTICE:  DEFAULT added. The added DEFAULT can not be dropped by name
 \d+ ADD_CONSTRAINT_DEFAULT
-                            Table "test_ddl_and_dml.add_constraint_default"
- Column |           Type           |         Modifiers         | Storage  | Stats target | Description 
---------+--------------------------+---------------------------+----------+--------------+-------------
- id     | integer                  | default 9                 | plain    |              | 
- v1     | character varying(20)    |                           | extended |              | 
- v2     | timestamp with time zone | default pg_systimestamp() | plain    |              | 
+                                      Table "test_ddl_and_dml.add_constraint_default"
+ Column |           Type           |                   Modifiers                   | Storage  | Stats target | Description 
+--------+--------------------------+-----------------------------------------------+----------+--------------+-------------
+ id     | integer                  | default 9                                     | plain    |              | 
+ v1     | character varying(20)    | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ v2     | timestamp with time zone | default pg_systimestamp()                     | plain    |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 insert into ADD_CONSTRAINT_DEFAULT(v1) values('abc');
 select * from ADD_CONSTRAINT_DEFAULT;
 --?.*
 --?.*
---?  1 | abc | .*
---?  9 | abc | .*
+--?.*
+--?.*
 (2 rows)
 
 drop table if exists ADD_CONSTRAINT_DEFAULT;

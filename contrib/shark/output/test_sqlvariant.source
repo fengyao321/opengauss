@@ -7,13 +7,13 @@ create extension shark;
 create table t (a sql_variant);
 create index idx1 on t(a);
 select pg_get_tabledef('t');
-                        pg_get_tabledef                        
----------------------------------------------------------------
- SET search_path = public;                                    +
- CREATE TABLE t (                                             +
-     a sql_variant                                            +
- )                                                            +
- WITH (orientation=row, compression=no);                      +
+                          pg_get_tabledef                          
+-------------------------------------------------------------------
+ SET search_path = public;                                        +
+ CREATE TABLE t (                                                 +
+     a sql_variant CHARACTER SET "UTF8" COLLATE utf8mb4_general_ci+
+ )                                                                +
+ WITH (orientation=row, compression=no, collate=1537);            +
  CREATE INDEX idx1 ON t USING btree (a) TABLESPACE pg_default;
 (1 row)
 
