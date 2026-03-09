@@ -10857,7 +10857,7 @@ void StartupXLOG(void)
                 }
                 CountRedoTime(t_thrd.xlog_cxt.timeCost[TIME_COST_STEP_1]);
 
-                if (!startPromotion && (IsFailoverTriggered() || IsSwitchoverTriggered())) {
+                if (!startPromotion && ((pg_atomic_read_u32(&g_startupTriggerState) == (uint32)TRIGGER_FAILOVER) || IsSwitchoverTriggered())) {
                     ereport(LOG,(errmsg("Failover or Switchover Promotion recovery from to %X/%08X.",
                                          static_cast<uint32>(t_thrd.xlog_cxt.EndRecPtr >> 32),
                                          static_cast<uint32>(t_thrd.xlog_cxt.EndRecPtr))));

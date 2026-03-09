@@ -414,7 +414,7 @@ void PostRestoreCommand(void)
 
 bool IsFailoverTriggered(void)
 {
-    if (AmStartupProcess() && !IsExtremeRedo()) {
+    if (AmStartupProcess()) {
         return t_thrd.startup_cxt.failover_triggered;
     } else {
         uint32 tgigger = pg_atomic_read_u32(&g_startupTriggerState);
