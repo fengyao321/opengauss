@@ -2381,9 +2381,11 @@ int PostmasterMain(int argc, char* argv[])
         }
     }
 
+#ifndef ENABLE_LITE_MODE
     if (XLogArchivingActive() && XLogArchiveCommandSet() && !XLogArchiveDestSet()) {
         InitArchiveCmdExecuter();
     }
+#endif
 
     CalcMaxBackends();
 
