@@ -27,6 +27,7 @@
  *		"destination" portals synchronized.
  */
 #include "postgres.h"
+#include "fmgr.h"
 #include "knl/knl_variable.h"
 
 #include "access/printtup.h"
@@ -41,6 +42,7 @@
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "utils/portal.h"
+#include "lib/stringinfo.h"
 
 #include "tcop/stmt_retry.h"
 
@@ -186,6 +188,43 @@ void send_dbtime_to_driver(int64 db_time) {
     pq_endmessage(&msgbuf);
 }
 
+void SendATFSnapshot(const char* commandTag, CommandDest dest)
+{
+    if (u_sess->attr.attr_common.enable_atf && strcmp(commandTag, "COMMIT")!=0 && strcmp(commandTag, "ROLLBACK")!=0) {
+        StringInfoData sqlInfo;
+        short msgLen = ATF_MSG_LEN_BASE;
+        initStringInfo(&sqlInfo);
+        enlargeStringInfo(&sqlInfo, ATF_SQL_INFO_TOTAL_LEN);
+        Snapshot snapshot = u_sess->utils_cxt.CurrentSnapshot;
+
+        sqlInfo.len = 0;
+        pq_writeint64(&sqlInfo, snapshot->snapshotcsn);
+
+        sqlInfo.len = ATF_OFFSET_XMIN;
+        pq_writeint64(&sqlInfo, snapshot->xmin);
+
+        sqlInfo.len = ATF_OFFSET_XMAX;
+        pq_writeint64(&sqlInfo, snapshot->xmax);
+
+        sqlInfo.len = ATF_OFFSET_TIMELINE;
+        pq_writeint32(&sqlInfo, snapshot->timeline);
+
+        sqlInfo.data[ATF_OFFSET_RECOVERY] = (char)snapshot->takenDuringRecovery;
+
+        if (!u_sess->attr.attr_common.atf_xid_checks) {
+            TransactionId xid = GetTopTransactionIdIfAny();
+            if (TransactionIdIsValid(xid)) {
+                sqlInfo.len = ATF_OFFSET_XID;
+                pq_writeint64(&sqlInfo, xid);
+                msgLen = ATF_MSG_LEN_FULL;
+            }
+        }
+
+        pq_putmessage('v', sqlInfo.data, msgLen);
+        pfree(sqlInfo.data);
+    }
+}
+
 /* ----------------
  *		EndCommand - clean up the destination at end of command
  * ----------------
@@ -209,7 +248,8 @@ void EndCommand(const char* commandTag, CommandDest dest)
                 * no encoding conversion.
                 */
                 pq_putmessage('C', commandTag, strlen(commandTag) + 1);
-            }
+                SendATFSnapshot(commandTag, dest);
+                }
             break;
         }
         case DestNone:

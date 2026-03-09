@@ -73,6 +73,21 @@
 /* buffer size to use for command completion tags */
 #define COMPLETION_TAG_BUFSIZE 64
 
+#define BITS_PER_BYTE      8 // bits per byte
+#define UINT32_BYTE_LENGTH 4  // 32-bit unsigned integer byte length
+#define UINT64_BYTE_LENGTH 8  // 64-bit unsigned integer byte length
+
+#define ATF_SQL_INFO_TOTAL_LEN 37  // total length of ATF snapshot info buffer
+#define ATF_MSG_LEN_BASE    29  // ATF message base length (without XID)
+#define ATF_MSG_LEN_FULL    37  // ATF message full length (with XID)
+
+#define ATF_OFFSET_XMIN     (UINT64_BYTE_LENGTH * 1)  // offset of xmin field (after 1st 64-bit field)
+#define ATF_OFFSET_XMAX     (UINT64_BYTE_LENGTH * 2)  // offset of xmax field (after 2nd 64-bit field)
+#define ATF_OFFSET_TIMELINE (UINT64_BYTE_LENGTH * 3)  // offset of timeline field (after 3rd 64-bit field)
+/* offset of takenDuringRecovery field (after 32-bit field) */
+#define ATF_OFFSET_RECOVERY (ATF_OFFSET_TIMELINE + UINT32_BYTE_LENGTH)
+#define ATF_OFFSET_XID      (ATF_OFFSET_RECOVERY + 1)  // offset of XID field (1 byte after recovery flag)
+
 /* ----------------
  *		CommandDest is a simplistic means of identifying the desired
  *		destination.  Someday this will probably need to be improved.
@@ -170,6 +185,7 @@ extern void BeginCommand(const char* commandTag, CommandDest dest);
 extern DestReceiver* CreateDestReceiver(CommandDest dest);
 extern DestReceiver* CreateReceiverForMerge(CommandDest dest);
 extern void EndCommand(const char* commandTag, CommandDest dest);
+extern void SendATFSnapshot(const char* commandTag, CommandDest dest);
 extern void EndCommand_noblock(const char* commandTag, CommandDest dest);
 extern void send_dbtime_to_driver(int64 db_time);
 

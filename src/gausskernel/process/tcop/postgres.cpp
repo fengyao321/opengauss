@@ -366,6 +366,7 @@ static void ProcessCommandUpperQ(StringInfo input_message, volatile bool& send_r
 static void ProcessCommandUpperP(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
 static void ProcessCommandUpperB(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
 static void ProcessCommandUpperE(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
+static void ProcessCommandLowerV(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
 #ifdef ENABLE_MULTIPLE_NODES
 static void ProcessCommandLowerK(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
 static void ProcessCommandLowerG(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started);
@@ -474,6 +475,7 @@ void InitProcessCommandFuncs()
     g_ProcessCommandFuncs['P'] = ProcessCommandUpperP;
     g_ProcessCommandFuncs['B'] = ProcessCommandUpperB;
     g_ProcessCommandFuncs['E'] = ProcessCommandUpperE;
+    g_ProcessCommandFuncs['v'] = ProcessCommandLowerV;
     g_ProcessCommandFuncs['F'] = ProcessCommandUpperF;
     g_ProcessCommandFuncs['C'] = ProcessCommandUpperC;
     g_ProcessCommandFuncs['D'] = ProcessCommandUpperD;
@@ -812,6 +814,7 @@ int SocketBackend(StringInfo inBuf)
         case 'B': /* bind */
         case 'C': /* close */
         case 'D': /* describe */
+        case 'v': /* atf snapshot */
         case 'E': /* execute */
         case 'K': /* client conn driver net_time */
         case 'H': /* flush */
@@ -5814,7 +5817,7 @@ void exec_execute_message(const char* portal_name, long max_rows, bool send_end_
         if (t_thrd.postgres_cxt.whereToSendOutput == DestRemote && send_end_msg) {
             pq_putemptymessage('s');
         }
-
+        SendATFSnapshot(completionTag, dest);
         u_sess->xact_cxt.pbe_execute_complete = false;
         /* when only set maxrows, we don't need to set pbe_execute_complete flag. */
         if ((portal_name == NULL || portal_name[0] == '\0') &&
@@ -8448,6 +8451,95 @@ void deal_fronted_lost()
     }
  }
 
+// Update ATF global task counter when Session executes a task
+void GlobalTaskCounterInc() 
+{
+    knl_g_atf_context *instance = &g_instance.atf_cxt;
+
+    // Acquire exclusive lock to protect global task state
+    LWLockAcquire(instance->global_task_lock, LW_EXCLUSIVE);
+
+    if (instance->all_task_done) {
+        // Reset counter and recovery flag if all tasks were marked as done
+        instance->global_task_counter = 0;
+        u_sess->attr.attr_common.atf_recovery = false;
+        ereport(DEBUG2, (errmsg("[ATF] task counter reset to 0 (all tasks done)")));
+    } else {
+        // Increment counter and update timestamp, mark tasks as running
+        instance->global_task_counter++;
+        instance->last_counter_update_ts = GetCurrentTimestamp();
+        instance->all_task_done = false;
+        ereport(DEBUG3, (errmsg("[ATF] task counter=%lu, session task=%u",
+                                 instance->global_task_counter, u_sess->attr.attr_common.atf_sql_count)));
+    }
+
+    LWLockRelease(instance->global_task_lock);
+}
+
+// Utility function: Calculate time difference (in seconds)
+static inline int GetTimeDiffSec(TimestampTz ts1, TimestampTz ts2) 
+{
+    long secs;
+    int microsecs;
+    TimestampDifference(ts1, ts2, &secs, &microsecs);
+    return (int)secs;  // Convert to seconds
+}
+
+/*
+ * SessionWaitAfterTaskDone - ATF Session wait for global task completion
+ * 
+ * Called after Session finishes tasks, loop to check global task status:
+ * 1. Protect global counter/timestamp/done flag with exclusive lock;
+ * 2. Exit if: global tasks done or counter update timeout;
+ * 3. Sleep 100ms and retry if not met, reset ATF recovery flag finally.
+ */
+void SessionWaitAfterTaskDone() {
+    knl_g_atf_context *instance = &g_instance.atf_cxt;
+    bool allTaskDone = false;
+    ereport(WARNING, (errmsg("[ATF] wait session task=%u", u_sess->attr.attr_common.atf_sql_count)));
+    while(!allTaskDone) {
+        LWLockAcquire(instance->global_task_lock, LW_EXCLUSIVE);
+        TimestampTz last_counter_update_ts = instance->last_counter_update_ts;
+        allTaskDone = instance->all_task_done;
+
+        if (allTaskDone) {
+            LWLockRelease(instance->global_task_lock);
+            break;
+        }
+
+        TimestampTz now_ts = GetCurrentTimestamp();
+        int elapsedSec = GetTimeDiffSec(last_counter_update_ts, now_ts);
+        
+        if (elapsedSec >= g_instance.attr.attr_common.atf_task_counter_timeout_sec) {
+            ereport(DEBUG2, (errmsg("[ATF] timeout reached, mark all tasks, atf_task_counter_timeout_sec: done %d",g_instance.attr.attr_common.atf_task_counter_timeout_sec)));
+            instance->all_task_done = true;
+            instance->global_task_counter = 0;
+            allTaskDone = true;
+        }
+
+        LWLockRelease(instance->global_task_lock);
+
+        if (allTaskDone) {
+            break;
+        }
+
+        pg_usleep(100000);  // Sleep for 100ms before checking again
+    }
+
+    ereport(DEBUG2, (errmsg("[ATF] finish waiting for global task completion (reason: %s), reset atf_recovery=false",
+                             allTaskDone ? "all tasks done/timeout" : "unexpected exit")));
+
+    u_sess->attr.attr_common.atf_recovery = false;
+}
+
+bool IsAtfRecoveryDone() {
+    knl_g_atf_context *instance = &g_instance.atf_cxt;
+    LWLockAcquire(instance->global_task_lock, LW_SHARED);
+    bool done = instance->all_task_done;
+    LWLockRelease(instance->global_task_lock);
+    return done;
+}
+
 /* ----------------------------------------------------------------
  * PostgresMain
  *	   openGauss main loop -- all backends, interactive or otherwise start here
@@ -10519,11 +10611,87 @@ static void ProcessCommandUpperE(StringInfo input_message, volatile bool& send_r
     max_rows = pq_getmsgint(input_message, 4);
     pq_getmsgend(input_message);
 
+    if (u_sess->attr.attr_common.atf_recovery) {
+        if (u_sess->attr.attr_common.atf_sql_count>0) {
+            GlobalTaskCounterInc();
+        } else {
+            SessionWaitAfterTaskDone();
+        }
+    } else if (u_sess->attr.attr_common.enable_atf) {
+        if (!IsAtfRecoveryDone()) {
+            SessionWaitAfterTaskDone();
+        }
+    }
+
     if (exec_pre_execute_message(portal_name, max_rows, true)) {
         return;
     }
 
     exec_execute_message(portal_name, max_rows, true);
+
+    u_sess->utils_cxt.atf_receive_snapshot = false;
+}
+
+/*
+ * ProcessCommandLowerV - Process the 'v' command (Snapshot)
+ *
+ * @param input_message: The input message buffer containing the snapshot command data.
+ * @param send_ready_for_query: Flag to indicate if we need to send ready for query message (unused in this command, kept for interface consistency).
+ * @param query_started: Flag to mark if query has started (unused in this command, kept for interface consistency).
+ *
+ * Note: This function handles snapshot data parsing and session snapshot context update,
+ *       consistent with the original 'v' case logic.
+ */
+static void ProcessCommandLowerV(StringInfo input_message, volatile bool& send_ready_for_query, bool& query_started)
+{
+    Assert(IsolationIsReadCommittedOrRepeatableRead());
+    CommitSeqNo csn = InvalidCommitSeqNo;
+    TransactionId xmin = InvalidTransactionId;
+    TransactionId xmax = InvalidTransactionId;
+    GTM_Timeline timeline = 0;
+    bool takeDuringRecovery = false;
+    TransactionId xid = InvalidTransactionId;
+    bool isLastQuery = false;
+
+    if (unlikely((unsigned int)input_message->len > SECUREC_MEM_MAX_LEN)) {
+        ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION), errmsg("invalid snapshot message (v command)")));
+    }
+
+    csn = pq_getmsgint64(input_message);
+    Assert(csn != InvalidCommitSeqNo);
+    xmin = pq_getmsgint64(input_message);
+    Assert(xmin != InvalidTransactionId);
+    xmax = pq_getmsgint64(input_message);
+    Assert(xmax != InvalidTransactionId);
+    timeline = pq_getmsgint(input_message, 4);
+    Assert(GlobalTransactionTimelineIsValid(timeline));
+    takeDuringRecovery = (bool)pq_getmsgbyte(input_message);
+    xid = pq_getmsgint64(input_message);
+
+    u_sess->attr.attr_common.atf_sql_count--;
+    if (TransactionIdIsValid(xid)) {
+        if (TransactionIdDidCommit(xid)) {
+            u_sess->utils_cxt.atf_receive_snapshot = false;
+            ereport(ERROR,
+                    (errcode(ERRCODE_IN_FAILED_SQL_TRANSACTION),
+                     errmsg("current transaction is commited, "
+                            "commands ignored until end of transaction block, firstChar"),
+                     errdetail_abort()));
+        } else {
+            ereport(DEBUG2, (errmsg("[ATF] Received snapshot xid %lu has not committed", xid)));
+        }
+    }
+
+    isLastQuery = (bool)pq_getmsgbyte(input_message);
+    pq_getmsgend(input_message);
+
+    u_sess->utils_cxt.CurrentSnapshot = GetSnapshotData(u_sess->utils_cxt.CurrentSnapshotData, false);
+    u_sess->utils_cxt.CurrentSnapshot->xmin = xmin;
+    u_sess->utils_cxt.CurrentSnapshot->xmax = xmax;
+    u_sess->utils_cxt.CurrentSnapshot->snapshotcsn = csn;
+    u_sess->utils_cxt.CurrentSnapshot->timeline = timeline;
+    u_sess->utils_cxt.CurrentSnapshot->takenDuringRecovery = takeDuringRecovery;
+    u_sess->utils_cxt.atf_receive_snapshot = true;
 }
 
 #ifdef ENABLE_MULTIPLE_NODES

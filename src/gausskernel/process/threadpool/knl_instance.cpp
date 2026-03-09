@@ -1107,6 +1107,16 @@ static void knl_g_online_ddl_context_init(knl_g_online_ddl_context* online_ddl_c
     online_ddl_cxt->context = NULL;
 }
 
+static void knl_g_atf_init(knl_g_atf_context* atf_cxt)
+{
+    Assert(atf_cxt != NULL);
+    errno_t rc = memset_s(atf_cxt, sizeof(knl_g_atf_context), 0, sizeof(knl_g_atf_context));
+    securec_check(rc, "\0", "\0");
+    atf_cxt->all_task_done = false;
+    atf_cxt->global_task_counter = 0;
+    atf_cxt->last_counter_update_ts = GetCurrentTimestamp();
+}
+
 void knl_instance_init()
 {
     g_instance.binaryupgrade = false;
@@ -1238,6 +1248,7 @@ void knl_instance_init()
 
     knl_g_npu_context_init(&g_instance.npu_cxt);
     knl_g_smb_init(&g_instance.smb_cxt);
+    knl_g_atf_init(&g_instance.atf_cxt);
 }
 
 void add_numa_alloc_info(void* numaAddr, size_t length)

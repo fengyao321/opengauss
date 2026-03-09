@@ -272,6 +272,10 @@ typedef struct knl_session_attr_common {
     bool connection_from_coordinator;
     bool enableInternalErrorCode;
     bool skip_new_column_for_ruledef;
+    bool enable_atf;
+    bool atf_recovery;
+    bool atf_xid_checks;
+    int atf_sql_count;
     /* save session level objects, set when the session first uses plpython */
     PlySessionCtx* g_PlySessionCtx;
     bool enable_xact_abort;

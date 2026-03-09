@@ -1961,7 +1961,14 @@ static void do_autovacuum(void)
     TupleDesc pg_class_desc;
     vacuum_object* vacObj = NULL;
     errno_t rc = EOK;
-
+    knl_g_atf_context *instance = &g_instance.atf_cxt;
+    LWLockAcquire(instance->global_task_lock, LW_EXCLUSIVE);
+    if (!instance->all_task_done) {
+        LWLockRelease(instance->global_task_lock);
+        return;
+    }
+    LWLockRelease(instance->global_task_lock);
+    
     /*
      * StartTransactionCommand and CommitTransactionCommand will automatically
      * switch to other contexts.  We need this one to keep the list of

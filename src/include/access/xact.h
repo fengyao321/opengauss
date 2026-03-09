@@ -110,6 +110,9 @@ typedef void (*GTMCallback)(GTMEvent event, void* arg);
  */
 #define IsolationUsesXactSnapshot() (u_sess->utils_cxt.XactIsoLevel >= XACT_REPEATABLE_READ)
 #define IsolationIsSerializable() (u_sess->utils_cxt.XactIsoLevel == XACT_SERIALIZABLE)
+#define IsolationIsReadCommittedOrRepeatableRead() \
+    (u_sess->utils_cxt.XactIsoLevel == XACT_READ_COMMITTED || \
+     u_sess->utils_cxt.XactIsoLevel == XACT_REPEATABLE_READ)
 
 extern THR_LOCAL bool TwoPhaseCommit;
 

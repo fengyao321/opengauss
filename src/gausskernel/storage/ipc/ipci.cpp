@@ -537,6 +537,10 @@ void CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
         g_instance.ckpt_cxt_ctl->ckpt_redo_state.recovery_queue_lock = LWLockAssign(LWTRANCHE_REDO_POINT_QUEUE);
     }
 
+    if (g_instance.atf_cxt.global_task_lock == NULL) {
+        g_instance.atf_cxt.global_task_lock = LWLockAssign(LWTRANCHE_ATF_GLOBAL_TASK);
+    }
+
     /*
      * Now give loadable modules a chance to set up their shmem allocations
      */

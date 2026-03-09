@@ -125,6 +125,7 @@ static Snapshot CopySnapshot(Snapshot snapshot);
 static void FreeSnapshot(Snapshot snapshot);
 static void SnapshotResetXmin(void);
 static bool TransactionIdIsPreparedAtSnapshot(TransactionId xid, Snapshot snapshot);
+static Snapshot GetATFSnapshot(void);
 
 /*
  * TransactionIdIsPreparedAtSnapshot
@@ -460,6 +461,33 @@ bool CommittedXidVisibleInDecodeSnapshot(TransactionId xid, Snapshot snapshot, B
 }
 
 /*
+ * GetATFSnapshot
+ *      Get initialized ATF snapshot for transaction.
+ *
+ * When a transaction receives a specified snapshot from a JDBC client, this function is executed
+ * to return the specified snapshot as the current snapshot of the transaction.
+ *
+ * Note that the return value points to u_sess->utils_cxt.CurrentSnapshot,
+ * which may be modified by subsequent transaction operations.
+ */
+static Snapshot GetATFSnapshot(void)
+{
+    if (!u_sess->utils_cxt.FirstSnapshotSet) {
+        if (IsolationUsesXactSnapshot()) {
+            u_sess->utils_cxt.CurrentSnapshot = CopySnapshot(u_sess->utils_cxt.CurrentSnapshot);
+            u_sess->utils_cxt.FirstXactSnapshot = u_sess->utils_cxt.CurrentSnapshot;
+            /* Mark it as "registered" in FirstXactSnapshot */
+            u_sess->utils_cxt.FirstXactSnapshot->regd_count++;
+            u_sess->utils_cxt.RegisteredSnapshots++;
+        }
+        u_sess->utils_cxt.FirstSnapshotSet = true;
+    }
+
+    Assert(u_sess->utils_cxt.CurrentSnapshot != NULL);
+    return u_sess->utils_cxt.CurrentSnapshot;
+}
+
+/*
  * GetTransactionSnapshot
  *		Get the appropriate snapshot for a new query in a transaction.
  *
@@ -470,6 +498,9 @@ bool CommittedXidVisibleInDecodeSnapshot(TransactionId xid, Snapshot snapshot, B
  */
 Snapshot GetTransactionSnapshot(bool force_local_snapshot)
 {
+    if (u_sess->utils_cxt.atf_receive_snapshot) {
+        return GetATFSnapshot();
+    }
     /*
      * Return historic snapshot if doing logical decoding. We'll never
      * need a non-historic transaction snapshot in this (sub-)transaction, so
@@ -485,7 +516,7 @@ Snapshot GetTransactionSnapshot(bool force_local_snapshot)
     if (!u_sess->utils_cxt.FirstSnapshotSet) {
         Assert(u_sess->utils_cxt.RegisteredSnapshots == 0);
         Assert(u_sess->utils_cxt.FirstXactSnapshot == NULL);
-
+        
         /*
          * In transaction-snapshot mode, the first snapshot must live until
          * end of xact regardless of what the caller does with it, so we must

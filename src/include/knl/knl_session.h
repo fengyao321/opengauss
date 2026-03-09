@@ -679,6 +679,12 @@ typedef struct knl_u_utils_context {
     bool FirstSnapshotSet;
 
     /*
+     * Flag if specified snapshot of corresponding SQL is received in ATF recovery transaction phase;
+     * it will be set to false after the SQL is replayed completely.
+     */
+    bool atf_receive_snapshot{false};
+
+    /*
      * Remember the serializable transaction snapshot, if any.    We cannot trust
      * FirstSnapshotSet in combination with IsolationUsesXactSnapshot(), because
      * GUC may be reset before us, changing the value of IsolationUsesXactSnapshot.

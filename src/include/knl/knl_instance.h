@@ -1567,6 +1567,12 @@ typedef struct knl_g_online_ddl_context {
     int executingCount; /* The number of executing online DDL */
     MemoryContext context;
 } knl_g_online_ddl_context;
+typedef struct knl_g_atf_context {
+    uint64 global_task_counter;          /* Global task execution count */
+    TimestampTz last_counter_update_ts;  /* Last update timestamp of global task counter */
+    LWLock *global_task_lock;             /* LWLock for protecting task counter and timestamp */
+    bool all_task_done;                  /* Flag: all global tasks completed (anti-duplicate wake-up) */
+} knl_g_atf_context;
 
 typedef struct knl_instance_context {
     knl_virtual_role role;
@@ -1734,6 +1740,7 @@ typedef struct knl_instance_context {
     knl_g_smb_context smb_cxt;
     knl_g_rack_mem_cleaner_context rackMemCleanerCxt;
     knl_g_online_ddl_context online_ddl_cxt;
+    knl_g_atf_context atf_cxt;
 } knl_instance_context;
 
 extern long random();
