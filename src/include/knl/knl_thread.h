@@ -2949,7 +2949,6 @@ typedef struct knl_t_storage_context {
     struct HTAB* CRSharedBufHash;
     union CRBufferDescPadded* CRBufferDescriptors;
     char *CRBufferBlocks;
-    int *CRBufferRefCount;
     struct HTAB* ShmemMmap;
 } knl_t_storage_context;
 

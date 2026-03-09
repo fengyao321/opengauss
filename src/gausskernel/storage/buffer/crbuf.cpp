@@ -338,15 +338,6 @@ void CRBufTableAndListRemove(BufferTag *tag, uint32 hashcode, Buffer removing_bu
     }
 }
 
-void InitCRBufPoolAccess(void)
-{
-    uint64 refcount_size;
-    bool found_cr_refcounts = false;
-
-    refcount_size = CR_BUFFER_NUM * sizeof(int32);
-    t_thrd.storage_cxt.CRBufferRefCount = (int32*)ShmemInitStruct("CR Ref Counts", refcount_size, &found_cr_refcounts);
-}
-
 void InitCRBufPool(void)
 {
     bool found_cr_descs = false;
