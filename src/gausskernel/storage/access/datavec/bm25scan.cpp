@@ -91,7 +91,7 @@ static void FindTokenInfo(BM25MetaPageData &meta, Page page, BM25TokenizedDocDat
 static BM25QueryToken *ScanIndexForTokenInfo(Relation index, const char *sentence, uint32 &tokenCount,
     uint32 &tokenFoundCount, bool cutForSearch = false)
 {
-    BM25TokenizedDocData tokenizedQuery = BM25DocumentTokenize(sentence, cutForSearch);
+    BM25TokenizedDocData tokenizedQuery = BM25DocumentTokenize(sentence, Bm25GetDictPath(index), cutForSearch);
     if (tokenizedQuery.tokenCount == 0) {
         tokenCount = 0;
         tokenFoundCount = 0;

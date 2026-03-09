@@ -86,6 +86,30 @@ typedef struct BM25ScanOpaqueData {
 
 typedef BM25ScanOpaqueData *BM25ScanOpaque;
 
+/* BM25 index options */
+typedef struct Bm25Options {
+    int32 vl_len_;   /* varlena header */
+    char *dictPath;  /* base directory for custom Jieba dictionary */
+} Bm25Options;
+
+static inline char* Bm25OptionsGetDictPath(void* basePtr)
+{
+    if (basePtr == NULL)
+        return NULL;
+    Bm25Options* opts = (Bm25Options*)basePtr;
+    if (opts->dictPath == NULL)
+        return NULL;
+    return (char*)basePtr + *(int*)(&opts->dictPath);
+}
+
+/* Get dict_path from index reloptions; returns NULL if not set (use default) */
+static inline const char* Bm25GetDictPath(Relation index)
+{
+    if (index == NULL || index->rd_options == NULL)
+        return NULL;
+    return Bm25OptionsGetDictPath(index->rd_options);
+}
+
 typedef struct BM25EntryPages {
     BlockNumber lockPage;
     BlockNumber documentMetaPage;
@@ -322,7 +346,7 @@ void RecordDocBlkno2DocBlknoTable(Relation index, BM25DocMetaPage docMetaPage,
     BlockNumber newDocBlkno, bool building, ForkNumber forkNum);
 BlockNumber SeekBlocknoForDoc(Relation index, uint32 docId, BlockNumber docBlknoTable);
 bool FindTokenMeta(BM25TokenData &tokenData, BM25PageLocationInfo &tokenMetaLocation, Buffer buf, Page page);
-BM25TokenizedDocData BM25DocumentTokenize(const char* doc, bool cutForSearch = false);
+BM25TokenizedDocData BM25DocumentTokenize(const char* doc, const char* dictPath = nullptr, bool cutForSearch = false);
 void RecordDocForwardBlkno2DocForwardBlknoTable(Relation index, BM25DocForwardMetaPage metaForwardPage,
     BlockNumber newDocForwardBlkno, bool building, ForkNumber forkNum);
 BlockNumber SeekBlocknoForForwardToken(Relation index, uint32 forwardIdx, BlockNumber docForwardBlknoTable);

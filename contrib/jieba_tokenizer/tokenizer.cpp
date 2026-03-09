@@ -13,8 +13,10 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstring>
 #include <thread>
 #include <mutex>
+#include <unordered_map>
 #include <cerrno>
 #include <securec.h>
 #include "zlib.h"
@@ -34,8 +36,13 @@ const char* const USER_DICT_PATH = "lib/jieba_dict/user.dict.utf8";
 const char* const IDF_PATH = "lib/jieba_dict/idf.utf8";
 const char* const STOP_WORD_PATH = "lib/jieba_dict/stop_words.utf8";
 
-std::unique_ptr<cppjieba::Jieba> jiebaTokenizer = nullptr;
-std::once_flag g_initFlag;
+/* File names relative to dict base directory */
+static const char* const DICT_FILES[] = {
+    "jieba.dict.utf8", "hmm_model.utf8", "user.dict.utf8", "idf.utf8", "stop_words.utf8"
+};
+
+static std::unordered_map<std::string, std::unique_ptr<cppjieba::Jieba>> g_tokenizerCache;
+static std::mutex g_tokenizerMutex;
 
 inline static bool IsWhitespace(const std::string& str)
 {
@@ -91,109 +98,135 @@ static void ConvertEmbeddingMap(std::unordered_map<std::string, std::pair<uint32
     }
 }
 
+/* Create Jieba instance from base directory (must contain the 5 dict files) */
+static cppjieba::Jieba* CreateJiebaFromBaseDir(const std::string& baseDir)
+{
+    std::string dictPath = baseDir + "/" + DICT_FILES[0];
+    std::string hmmPath = baseDir + "/" + DICT_FILES[1];
+    std::string userDictPath = baseDir + "/" + DICT_FILES[2];
+    std::string idfPath = baseDir + "/" + DICT_FILES[3];
+    std::string stopWordPath = baseDir + "/" + DICT_FILES[4];
+    return new cppjieba::Jieba(dictPath, hmmPath, userDictPath, idfPath, stopWordPath);
+}
+
+/* Get default dict base path (GAUSSHOME/lib/jieba_dict), resolved. Returns empty on failure. */
+static std::string GetDefaultDictBasePath()
+{
+    char* installPath = getenv("GAUSSHOME");
+    if (installPath == nullptr) {
+        return "";
+    }
+    char path[PATH_MAX + 1] = {0};
+    const char* baseDir = installPath;
+    if (realpath(installPath, path) != nullptr) {
+        baseDir = path;
+    }
+    char basePath[PATH_MAX + 1] = {0};
+    int ret = snprintf_s(basePath, PATH_MAX + 1, PATH_MAX, "%s/lib/jieba_dict", baseDir);
+    if (ret < 0) {
+        return "";
+    }
+    char resolved[PATH_MAX + 1] = {0};
+    if (realpath(basePath, resolved) == nullptr) {
+        return std::string(basePath);  /* fallback to unresolved if realpath fails */
+    }
+    return std::string(resolved);
+}
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+void* GetOrCreateTokenizer(const char* dictBasePath)
+{
+    std::string cacheKey;
+    if (dictBasePath == nullptr || dictBasePath[0] == '\0') {
+        cacheKey = GetDefaultDictBasePath();
+        if (cacheKey.empty()) {
+            return nullptr;
+        }
+    } else {
+        cacheKey = dictBasePath;
+    }
+
+    std::lock_guard<std::mutex> lock(g_tokenizerMutex);
+    auto it = g_tokenizerCache.find(cacheKey);
+    if (it != g_tokenizerCache.end()) {
+        return it->second.get();
+    }
+    cppjieba::Jieba* jieba = nullptr;
+    try {
+        jieba = CreateJiebaFromBaseDir(cacheKey);
+    } catch (...) {
+        return nullptr;
+    }
+    if (jieba == nullptr) {
+        return nullptr;
+    }
+    g_tokenizerCache[cacheKey].reset(jieba);
+    return static_cast<void*>(jieba);
+}
+
 bool CreateTokenizer()
 {
-    if (jiebaTokenizer != nullptr) {
-        return true;
-    }
-    char *installPath = getenv("GAUSSHOME");
-    if (installPath == nullptr) {
-        return false;
-    }
-    char path[PATH_MAX] = {0};
-    if (!realpath(installPath, path)) {
-        if (errno != ENOENT && errno != EACCES) {
-            return false;
-        }
-    }
-    char dictPath[PATH_MAX] = {0};
-    char hmmPath[PATH_MAX] = {0};
-    char userDictPath[PATH_MAX] = {0};
-    char idfPath[PATH_MAX] = {0};
-    char stopWordPath[PATH_MAX] = {0};
-    int ret = snprintf_s(dictPath, PATH_MAX, PATH_MAX - 1, "%s/%s", path, DICT_PATH);
-    if (ret < 0) {
-        return false;
-    }
-    ret = snprintf_s(hmmPath, PATH_MAX, PATH_MAX - 1, "%s/%s", path, HMM_PATH);
-    if (ret < 0) {
-        return false;
-    }
-    ret = snprintf_s(userDictPath, PATH_MAX, PATH_MAX - 1, "%s/%s", path, USER_DICT_PATH);
-    if (ret < 0) {
-        return false;
-    }
-    ret = snprintf_s(idfPath, PATH_MAX, PATH_MAX - 1, "%s/%s", path, IDF_PATH);
-    if (ret < 0) {
-        return false;
-    }
-    ret = snprintf_s(stopWordPath, PATH_MAX, PATH_MAX - 1, "%s/%s", path, STOP_WORD_PATH);
-    if (ret < 0) {
-        return false;
-    }
-    jiebaTokenizer.reset(new cppjieba::Jieba(std::string(dictPath), std::string(hmmPath),
-        std::string(userDictPath), std::string(idfPath), std::string(stopWordPath)));
-    return (jiebaTokenizer == nullptr) ? false : true;
+    return GetOrCreateTokenizer(nullptr) != nullptr;
 }
 
 void DestroyTokenizer()
 {
-    if (jiebaTokenizer == nullptr) {
-        return;
-    }
-    jiebaTokenizer.reset();
-    return;
+    std::lock_guard<std::mutex> lock(g_tokenizerMutex);
+    g_tokenizerCache.clear();
 }
 
-bool ConvertString2Embedding(const char* srcStr, EmbeddingMap *embeddingMap, bool isKeywordExtractor, bool cutForSearch)
+bool ConvertString2Embedding(const char* srcStr, EmbeddingMap *embeddingMap, bool isKeywordExtractor,
+    bool cutForSearch, const char* dictBasePath)
 {
-    std::call_once(g_initFlag, CreateTokenizer);
-    if (jiebaTokenizer == nullptr || srcStr == nullptr || embeddingMap == nullptr) {
+    cppjieba::Jieba* jieba = static_cast<cppjieba::Jieba*>(GetOrCreateTokenizer(dictBasePath));
+    if (jieba == nullptr || srcStr == nullptr || embeddingMap == nullptr) {
         return false;
     }
 
-    std::string sentence(srcStr);
-    std::unordered_map<std::string, std::pair<uint32_t, float>> tokensMap;
-    if (isKeywordExtractor && !cutForSearch) {
-        std::vector<cppjieba::KeywordExtractor::Word> keywords;
-        jiebaTokenizer->extractor.Extract(sentence, keywords, MAX_KEYWORD_NUM);
-        for (const auto& keyword : keywords) {
-            std::string lowerCaseKeyword = Convert2LowerCase(keyword.word);
-            uint32_t hashValue = HashString2Uint32(lowerCaseKeyword);
-            tokensMap[lowerCaseKeyword] = std::make_pair(hashValue, keyword.weight);
+    try {
+        std::string sentence(srcStr);
+        std::unordered_map<std::string, std::pair<uint32_t, float>> tokensMap;
+        if (isKeywordExtractor && !cutForSearch) {
+            std::vector<cppjieba::KeywordExtractor::Word> keywords;
+            jieba->extractor.Extract(sentence, keywords, MAX_KEYWORD_NUM);
+            for (const auto& keyword : keywords) {
+                std::string lowerCaseKeyword = Convert2LowerCase(keyword.word);
+                uint32_t hashValue = HashString2Uint32(lowerCaseKeyword);
+                tokensMap[lowerCaseKeyword] = std::make_pair(hashValue, keyword.weight);
+            }
+            if (!tokensMap.empty()) {
+                ConvertEmbeddingMap(tokensMap, embeddingMap);
+                return true;
+            }
         }
-        if (!tokensMap.empty()) {
-            ConvertEmbeddingMap(tokensMap, embeddingMap);
-            return true;
-        }
-    }
 
-    // if the keywords extracted by 'Extract' are empty, then use 'Cut' for tokenization.
-    std::vector<std::string> tokens;
-    if (cutForSearch) {
-        jiebaTokenizer->CutForSearch(sentence, tokens, true);
-    } else {
-        jiebaTokenizer->Cut(sentence, tokens, true);
-    }
-
-    for (const auto& token : tokens) {
-        if (IsWhitespace(token)) {
-            continue;
-        }
-        std::string lowerCaseToken = Convert2LowerCase(token);
-        uint32_t hashValue = HashString2Uint32(lowerCaseToken);
-        if (tokensMap.find(lowerCaseToken) == tokensMap.end()) {
-            tokensMap[lowerCaseToken] = std::make_pair(hashValue, 1.0f);
+        std::vector<std::string> tokens;
+        if (cutForSearch) {
+            jieba->CutForSearch(sentence, tokens, true);
         } else {
-            tokensMap[lowerCaseToken].second += 1.0f;
+            jieba->Cut(sentence, tokens, true);
         }
+
+        for (const auto& token : tokens) {
+            if (IsWhitespace(token)) {
+                continue;
+            }
+            std::string lowerCaseToken = Convert2LowerCase(token);
+            uint32_t hashValue = HashString2Uint32(lowerCaseToken);
+            if (tokensMap.find(lowerCaseToken) == tokensMap.end()) {
+                tokensMap[lowerCaseToken] = std::make_pair(hashValue, 1.0f);
+            } else {
+                tokensMap[lowerCaseToken].second += 1.0f;
+            }
+        }
+        ConvertEmbeddingMap(tokensMap, embeddingMap);
+        return true;
+    } catch (...) {
+        return false;
     }
-    ConvertEmbeddingMap(tokensMap, embeddingMap);
-    return true;
 }
 
 #ifdef __cplusplus

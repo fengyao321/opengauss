@@ -23,7 +23,141 @@
 
 #include "postgres.h"
 #include "access/multi_redo_api.h"
+#include "access/reloptions.h"
+#include "miscadmin.h"
+#include "utils/rel.h"
 #include "access/datavec/bm25.h"
+
+#include <sys/stat.h>
+#include <unistd.h>
+#include <limits.h>
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
+/* Jieba dictionary file names (relative to dict_path directory) */
+static const char* const BM25_DICT_FILES[] = {
+    "jieba.dict.utf8",
+    "hmm_model.utf8",
+    "user.dict.utf8",
+    "idf.utf8",
+    "stop_words.utf8"
+};
+#define BM25_DICT_FILE_COUNT (sizeof(BM25_DICT_FILES) / sizeof(BM25_DICT_FILES[0]))
+
+/* Validate dict_path input (non-empty, length, absolute, no danger chars, no symlink). On error, ereport. */
+static void Bm25ValidateDictPathInput(const char* dictPath)
+{
+    if (dictPath == NULL || dictPath[0] == '\0') {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+            errmsg("dict_path cannot be empty")));
+    }
+    if (strlen(dictPath) >= MAXPGPATH) {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+            errmsg("dict_path exceeds maximum length")));
+    }
+    if (dictPath[0] != '/') {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+            errmsg("dict_path must be an absolute path")));
+    }
+    check_backend_env(dictPath);
+#ifdef HAVE_SYMLINK
+    {
+        struct stat st;
+        if (lstat(dictPath, &st) == 0 && S_ISLNK(st.st_mode)) {
+            ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                errmsg("dict_path cannot be a symbolic link")));
+        }
+    }
+#endif
+}
+
+/* Resolve GAUSSHOME and check resolved dict path is under it. Returns length of gausshome prefix. */
+static size_t Bm25GetGausshomePrefixLen(const char* resolved)
+{
+    char* gausshome = gs_getenv_r("GAUSSHOME");
+    if (gausshome == NULL || gausshome[0] == '\0') {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+            errmsg("GAUSSHOME is not set, cannot validate dict_path")));
+    }
+    char gausshomeResolved[PATH_MAX + 1];
+    if (realpath(gausshome, gausshomeResolved) == NULL) {
+        ereport(ERROR, (errcode_for_file_access(),
+            errmsg("cannot resolve GAUSSHOME \"%s\": %m", gausshome)));
+    }
+    size_t gausshomeLen = strlen(gausshomeResolved);
+    if (strncmp(resolved, gausshomeResolved, gausshomeLen) != 0 ||
+        (resolved[gausshomeLen] != '\0' && resolved[gausshomeLen] != '/')) {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+            errmsg("dict_path must be under GAUSSHOME directory")));
+    }
+    return gausshomeLen;
+}
+
+/*
+ * Validate dictionary file under resolved dict_path:
+ *  - path can be lstat'ed and is not a symlink
+ *  - file is readable
+ *  - realpath still stays under resolved dict_path
+ */
+static void Bm25ValidateDictFile(const char* resolvedDir, const char* fileName)
+{
+    char filepath[MAXPGPATH];
+    char fileResolved[PATH_MAX + 1];
+    struct stat st;
+    size_t resolvedDirLen = strlen(resolvedDir);
+
+    int ret = snprintf_s(filepath, sizeof(filepath), sizeof(filepath) - 1, "%s/%s", resolvedDir, fileName);
+    if (ret < 0) {
+        ereport(ERROR,
+            (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("dict_path too long for file \"%s\"", fileName)));
+    }
+
+    if (lstat(filepath, &st) != 0) {
+        ereport(ERROR,
+            (errcode_for_file_access(), errmsg("cannot access dict file \"%s\": %m", fileName)));
+    }
+    if (S_ISLNK(st.st_mode)) {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+            errmsg("dict file \"%s\" cannot be a symbolic link", fileName)));
+    }
+    if (access(filepath, R_OK) != 0) {
+        ereport(ERROR,
+            (errcode_for_file_access(), errmsg("dict file \"%s\" is not readable", fileName)));
+    }
+    if (realpath(filepath, fileResolved) == NULL) {
+        ereport(ERROR, (errcode_for_file_access(),
+            errmsg("cannot resolve dict file \"%s\": %m", fileName)));
+    }
+    if (strncmp(fileResolved, resolvedDir, resolvedDirLen) != 0 ||
+        (fileResolved[resolvedDirLen] != '\0' && fileResolved[resolvedDirLen] != '/')) {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+            errmsg("dict file \"%s\" must remain under dict_path", fileName)));
+    }
+}
+
+/*
+ * Validate dict_path and return resolved (canonical) path.
+ * On error, ereport(ERROR) and never return.
+ * Caller must pfree the result.
+ */
+static char* Bm25ValidateDictPath(const char* dictPath)
+{
+    char resolved[PATH_MAX + 1];
+    size_t i;
+
+    Bm25ValidateDictPathInput(dictPath);
+    if (realpath(dictPath, resolved) == NULL) {
+        ereport(ERROR, (errcode_for_file_access(),
+            errmsg("cannot resolve dict_path \"%s\": %m", dictPath)));
+    }
+    (void)Bm25GetGausshomePrefixLen(resolved);
+
+    for (i = 0; i < BM25_DICT_FILE_COUNT; i++) {
+        Bm25ValidateDictFile(resolved, BM25_DICT_FILES[i]);
+    }
+    return pstrdup(resolved);
+}
 
 /*
  * Estimate the cost of an index scan
@@ -159,7 +293,40 @@ Datum bm25insert(PG_FUNCTION_ARGS)
 PGDLLEXPORT PG_FUNCTION_INFO_V1(bm25options);
 Datum bm25options(PG_FUNCTION_ARGS)
 {
-    elog(ERROR, "bm25 index do not support any options.");
+    Datum reloptions = PG_GETARG_DATUM(0);
+    bool validate = PG_GETARG_BOOL(1);
+
+    static const relopt_parse_elt tab[] = {
+        {"dict_path", RELOPT_TYPE_STRING, offsetof(Bm25Options, dictPath)},
+    };
+
+    relopt_value *options;
+    int numoptions;
+    Bm25Options *rdopts;
+    int i;
+
+    options = parseRelOptions(reloptions, validate, RELOPT_KIND_BM25, &numoptions);
+    /* Validate dict_path and replace with resolved path before fillRelOptions */
+    if (validate && options != NULL) {
+        for (i = 0; i < numoptions; i++) {
+            if (options[i].gen != NULL && strcmp(options[i].gen->name, "dict_path") == 0 &&
+                options[i].isset && options[i].values.string_val != NULL &&
+                options[i].values.string_val[0] != '\0') {
+                char *resolved = Bm25ValidateDictPath(options[i].values.string_val);
+                pfree(options[i].values.string_val);
+                options[i].values.string_val = resolved;
+                break;
+            }
+        }
+    }
+
+    rdopts = (Bm25Options *)allocateReloptStruct(sizeof(Bm25Options), options, numoptions);
+    fillRelOptions((void *)rdopts, sizeof(Bm25Options), options, numoptions, validate, tab, lengthof(tab));
+
+    if (rdopts != NULL) {
+        PG_RETURN_BYTEA_P(rdopts);
+    }
+
     PG_RETURN_NULL();
 }
 

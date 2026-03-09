@@ -33,11 +33,14 @@
 #include "storage/buf/bufmgr.h"
 #include "tokenizer.h"
 
-BM25TokenizedDocData BM25DocumentTokenize(const char* doc, bool cutForSearch)
+BM25TokenizedDocData BM25DocumentTokenize(const char* doc, const char* dictPath, bool cutForSearch)
 {
     uint32 docLength = 0;
     EmbeddingMap embeddingMap{0};
-    ConvertString2Embedding(doc, &embeddingMap, true, cutForSearch);
+    if (!ConvertString2Embedding(doc, &embeddingMap, true, cutForSearch, dictPath)) {
+        ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+            errmsg("BM25 tokenization failed: Jieba dictionary not available or tokenizer error")));
+    }
     BM25TokenizedDocData tokenizedData = {};
     BM25TokenData* tokenDatas = (BM25TokenData*)palloc0(sizeof(BM25TokenData) * embeddingMap.size);
     for (size_t idx = 0; idx < embeddingMap.size; idx++) {

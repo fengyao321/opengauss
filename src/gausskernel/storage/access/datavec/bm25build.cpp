@@ -524,7 +524,8 @@ static bool BM25InsertDocument(Relation index, Datum *values, ItemPointerData &c
                                                   ALLOCSET_DEFAULT_MAXSIZE);
     MemoryContext oldCtx = MemoryContextSwitchTo(tempCtx);
     /* new */
-    BM25TokenizedDocData tokenizedDoc = BM25DocumentTokenize(TextDatumGetCString(values[0]));
+    BM25TokenizedDocData tokenizedDoc = BM25DocumentTokenize(TextDatumGetCString(values[0]),
+        Bm25GetDictPath(index), false);
     if (tokenizedDoc.tokenCount == 0) {
         MemoryContextSwitchTo(oldCtx);
         MemoryContextDelete(tempCtx);

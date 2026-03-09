@@ -20070,6 +20070,22 @@ bool CheckDefListContainsCompressedOptions(List* defList)
     return false;
 }
 
+static bool CheckDefListContainsOption(List* defList, const char* optionName)
+{
+    if (defList == NULL || optionName == NULL) {
+        return false;
+    }
+
+    ListCell* opt = NULL;
+    foreach (opt, defList) {
+        DefElem* def = (DefElem*)lfirst(opt);
+        if (def != NULL && def->defname != NULL && pg_strcasecmp(def->defname, optionName) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /**
  * Set compressed options need to rebuild table, check whether the modification need to rebuild table,
  * and check whether the new compressed options is valid.
@@ -20425,6 +20441,12 @@ static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType oper
         }
         case RELKIND_INDEX:
         case RELKIND_GLOBAL_INDEX: {
+            if (strcmp(rel->rd_am->amname.data, "bm25") == 0 &&
+                CheckDefListContainsOption(defList, "dict_path")) {
+                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("ALTER INDEX SET/RESET for bm25 option \"dict_path\" is not supported"),
+                    errhint("Please run REINDEX to rebuild the bm25 index with the new dict_path.")));
+            }
             ForbidUserToSetDefinedIndexOptions(rel, defList);
             Assert(oldRelHasUids == false);
             relOpt = index_reloptions(rel->rd_am->amoptions, newOptions, true);

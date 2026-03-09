@@ -634,6 +634,13 @@ static relopt_string stringRelOpts[] = {
         ValidateRabitqRefineOption,
         RABITQ_REFINE_TYPE_SQ8,
     },
+    {
+        { "dict_path", "Base directory for BM25 custom Jieba dictionary", RELOPT_KIND_BM25 },
+        0,
+        true,
+        NULL,
+        NULL
+    },
     /* list terminator */
     {{NULL}}
 };
