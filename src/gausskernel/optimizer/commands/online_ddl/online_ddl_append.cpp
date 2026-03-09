@@ -1145,6 +1145,8 @@ static bool OnlineDDLInsertIntoNewRelationAlterMode(OnlineDDLAppender* appender,
             }
         }
 
+        pfree_ext(values);
+        pfree_ext(isnull);
         ExecDropSingleTupleTableSlot(oldslot);
         ExecDropSingleTupleTableSlot(newslot);
     }
@@ -1585,6 +1587,7 @@ static bool OnlineDDLAppendScanOldTable(OnlineDDLAppender* appender, TableScanDe
         ReleaseBuffer(buffer);
 
         OnlineDDLInsertOpt(appender, copyedTuple, hiOptions);
+        heap_freetuple_ext(copyedTuple);
 
         if (CompareItemPointer(&appender->oldTableScanIdx, oldTableCtid)) {
             ItemPointerSet(&appender->oldTableScanIdx, ItemPointerGetBlockNumber(oldTableCtid),
