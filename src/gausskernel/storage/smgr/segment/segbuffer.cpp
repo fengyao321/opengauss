@@ -612,10 +612,7 @@ Buffer ReadBufferFastNormal(SegSpace *spc, RelFileNode rnode, ForkNumber forkNum
                     found = true;
                     goto found_branch;
                 }
-                /* when in failover worker thread should exit */
-                if (SS_IN_FAILOVER && SS_AM_BACKENDS_WORKERS) {
-                    ereport(ERROR, (errmodule(MOD_DMS), (errmsg("worker1 thread which in failover are exiting"))));
-                }
+
                 dms_buf_ctrl_t *buf_ctrl = GetDmsBufCtrl(bufHdr->buf_id);
                 LWLockMode lockmode = LW_SHARED;
                 if (!LockModeCompatible(buf_ctrl, lockmode)) {

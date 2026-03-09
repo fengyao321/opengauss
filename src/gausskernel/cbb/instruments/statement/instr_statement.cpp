@@ -1015,11 +1015,6 @@ NON_EXEC_STATIC void StatementFlushMain()
 #ifndef EXEC_BACKEND
     InitProcess();
 #endif
-    /* when in failover worker thread should exit */
-    if (SS_IN_FAILOVER && TRACK_STMT_WORKER) {
-        g_instance.pid_cxt.StatementPID = 0;
-        ereport(ERROR, (errmodule(MOD_DMS), (errmsg("worker thread which in failover are exiting"))));
-    }
     t_thrd.proc_cxt.PostInit->SetDatabaseAndUser((char*)pstrdup(DEFAULT_DATABASE), InvalidOid, username);
     t_thrd.proc_cxt.PostInit->InitStatementWorker();
     SetProcessingMode(NormalProcessing);
