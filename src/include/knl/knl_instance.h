@@ -249,7 +249,6 @@ typedef struct knl_g_pid_context {
     ThreadId AutoVacPID;
     ThreadId PgJobSchdPID;
     ThreadId PgArchPID;
-    ThreadId PgStatPID;
     ThreadId PercentilePID;
     ThreadId *PgAuditPID;
     ThreadId SysLoggerPID;
@@ -336,8 +335,6 @@ typedef struct knl_g_stat_context {
     pgsocket pgStatSock;
 
     Latch pgStatLatch;
-
-    time_t last_pgstat_start_time;
 
     /* Last time the collector successfully wrote the stats file */
     TimestampTz last_statwrite;

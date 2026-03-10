@@ -1,8 +1,20 @@
-/* -------------------------------------------------------------------------
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
  *
- * pgstat_shmem.h
+ * openGauss is licensed under Mulan PSL v2.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
  *
- * Shared-memory pgstat structures and APIs.
+ *          http://license.coscl.org.cn/MulanPSL2
+ *
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ * -------------------------------------------------------------------------
+ *
+ * IDENTIFICATION
+ *    src/include/pgstat_shmem.h
  *
  * -------------------------------------------------------------------------
  */
@@ -137,14 +149,16 @@ static inline PgStatSharedState* pgstat_get_shared_state(void)
 }
 
 extern Size PgStatShmemSize(void);
+/** Estimated size in use (by current entry counts); <= PgStatShmemSize(). */
+extern Size PgStatShmemUsedSize(void);
 extern void PgStatShmemInit(void);
 
 extern PgStatSharedDBEntry* pgstat_shared_get_db_entry(Oid dbid, bool create, LWLockMode mode, LWLock** lock,
     bool* found);
-extern PgStatSharedTabEntry* pgstat_shared_get_tab_entry(Oid dbid, Oid relid, uint32 statFlag, bool create,
+extern PgStatSharedTabEntry* pgstat_shared_get_tab_entry(const PgStatSharedTabKey* key, bool create,
     LWLockMode mode, LWLock** lock, bool* found);
-extern PgStatSharedFuncEntry* pgstat_shared_get_func_entry(Oid dbid, Oid funcid, bool create, LWLockMode mode,
-    LWLock** lock, bool* found);
+extern PgStatSharedFuncEntry* pgstat_shared_get_func_entry(const PgStatSharedFuncKey* key, bool create,
+    LWLockMode mode, LWLock** lock, bool* found);
 
 extern void pgstat_shared_release_lock(LWLock* lock);
 

@@ -1,16 +1,30 @@
-/* -------------------------------------------------------------------------
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
  *
- * pgstat_shmem.cpp
+ * openGauss is licensed under Mulan PSL v2.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
  *
- * Shared-memory pgstat storage and helpers.
+ *          http://license.coscl.org.cn/MulanPSL2
+ *
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ * -------------------------------------------------------------------------
+ *
+ * IDENTIFICATION
+ *    src/gausskernel/process/postmaster/pgstat_shmem.cpp
  *
  * -------------------------------------------------------------------------
  */
+
 #include "postgres.h"
 #include "knl/knl_variable.h"
 
 #include "pgstat_shmem.h"
 #include "storage/shmem.h"
+#include "storage/lock/lwlock.h"
 #include "utils/atomic.h"
 #include "utils/dynahash.h"
 #include "utils/hsearch.h"
@@ -20,6 +34,8 @@
 #define PGSTAT_SHMEM_DB_HASH_SIZE 256
 #define PGSTAT_SHMEM_TAB_HASH_SIZE 524288 /* 512K, covers 400K+ tables/partitions/TOAST with headroom */
 #define PGSTAT_SHMEM_FUNC_HASH_SIZE 8192
+/* Ratio (0.0-1.0) of hash size above which we log "near full" warning. */
+#define PGSTAT_SHMEM_HASH_NEAR_FULL_RATIO 0.9
 
 #define PGSTAT_SNAPSHOT_DB_HASH_SIZE 16
 #define PGSTAT_SNAPSHOT_TAB_HASH_SIZE 512
@@ -72,9 +88,10 @@ static void pgstat_unlock_all(LWLockPadded* locks, int count)
 
 static inline bool pgstat_dbid_visible(Oid dbid, Oid onlydb)
 {
-    if (onlydb == InvalidOid)
+    if (onlydb == InvalidOid) {
         return true;
-    return (dbid == onlydb || dbid == InvalidOid);
+    }
+    return (dbid == onlydb);
 }
 
 static void pgstat_shared_init_db_entry(PgStatSharedDBEntry* entry, Oid dbid)
@@ -99,6 +116,22 @@ static void pgstat_shared_init_func_entry(PgStatSharedFuncEntry* entry, const Pg
     entry->key = *key;
 }
 
+static void pgstat_func_hash_warn_near_full(PgStatSharedState* s)
+{
+    long num_entries = hash_get_num_entries(s->func_hash);
+    if (num_entries >= (long)(PGSTAT_SHMEM_FUNC_HASH_SIZE * PGSTAT_SHMEM_HASH_NEAR_FULL_RATIO)) {
+        ereport(WARNING,
+            (errmsg("pgstat func hash near full: current entries %ld, limit %d; "
+                     "new functions may not be recorded",
+                num_entries, PGSTAT_SHMEM_FUNC_HASH_SIZE)));
+    }
+}
+
+/*
+ * Total shared memory = PgStatSharedState + DB hash + TAB hash + FUNC hash.
+ * With default sizes (DB=256, TAB=524288, FUNC=8192) on 64-bit, approximate total is ~145 MB,
+ * of which the TAB hash (table/partition/TOAST stats) accounts for the vast majority (~140 MB).
+ */
 Size PgStatShmemSize(void)
 {
     Size size = MAXALIGN(sizeof(PgStatSharedState));
@@ -108,16 +141,38 @@ Size PgStatShmemSize(void)
     return size;
 }
 
+/*
+ * Estimate of shared memory "in use" by current entry counts (DB/TAB/FUNC hashes).
+ * May be less than PgStatShmemSize() when tables are not full; useful for monitoring.
+ */
+Size PgStatShmemUsedSize(void)
+{
+    PgStatSharedState* s = pgstat_get_shared_state();
+    if (s == NULL || s->db_hash == NULL || s->tab_hash == NULL || s->func_hash == NULL) {
+        return 0;
+    }
+    long n_db = hash_get_num_entries(s->db_hash);
+    long n_tab = hash_get_num_entries(s->tab_hash);
+    long n_func = hash_get_num_entries(s->func_hash);
+    Size used = MAXALIGN(sizeof(PgStatSharedState));
+    used = add_size(used, hash_estimate_size(n_db, sizeof(PgStatSharedDBEntry)));
+    used = add_size(used, hash_estimate_size(n_tab, sizeof(PgStatSharedTabEntry)));
+    used = add_size(used, hash_estimate_size(n_func, sizeof(PgStatSharedFuncEntry)));
+    return used;
+}
+
 void PgStatShmemInit(void)
 {
     bool found = false;
     HASHCTL ctl;
     errno_t rc;
 
-    g_instance.stat_cxt.pgstat_shared = (PgStatSharedState*)ShmemInitStruct("PgStat Shared State", sizeof(PgStatSharedState), &found);
+    g_instance.stat_cxt.pgstat_shared = (PgStatSharedState*)ShmemInitStruct("PgStat Shared State",
+        sizeof(PgStatSharedState), &found);
 
-    if (found)
+    if (found) {
         return;
+    }
 
     PgStatSharedState* s = g_instance.stat_cxt.pgstat_shared;
     for (int i = 0; i < PGSTAT_DB_NPARTITIONS; i++)
@@ -162,26 +217,33 @@ void PgStatShmemInit(void)
 uint64 pgstat_shared_get_epoch(void)
 {
     PgStatSharedState* s = pgstat_get_shared_state();
-    if (s == NULL)
+    if (s == NULL) {
         return 0;
+    }
     return pg_atomic_read_u64((volatile uint64*)&s->stats_epoch);
 }
 
 void pgstat_shared_bump_epoch(void)
 {
     PgStatSharedState* s = pgstat_get_shared_state();
-    if (s != NULL)
+    if (s != NULL) {
         (void)pg_atomic_fetch_add_u64((volatile uint64*)&s->stats_epoch, 1);
+    }
 }
 
 PgStatSharedDBEntry* pgstat_shared_get_db_entry(Oid dbid, bool create, LWLockMode mode, LWLock** lock, bool* found)
 {
     PgStatSharedState* s = pgstat_get_shared_state();
-    if (s == NULL)
+    if (s == NULL) {
         return NULL;
+    }
 
     LWLock* l = pgstat_db_lock(s, dbid);
-    LWLockAcquire(l, mode);
+    bool locked = false;
+    if (!LWLockHeldByMe(l)) {
+        LWLockAcquire(l, mode);
+        locked = true;
+    }
 
     HASHACTION action = create ? HASH_ENTER : HASH_FIND;
     bool local_found = false;
@@ -189,112 +251,170 @@ PgStatSharedDBEntry* pgstat_shared_get_db_entry(Oid dbid, bool create, LWLockMod
         (PgStatSharedDBEntry*)hash_search(s->db_hash, &dbid, action, &local_found);
 
     if (entry == NULL) {
-        LWLockRelease(l);
-        if (lock)
+        if (create) {
+            ereport(WARNING,
+                (errmsg("pgstat db entry creation failed (hash may be full), database %u", dbid)));
+        }
+        if (locked) {
+            LWLockRelease(l);
+        }
+        if (lock) {
             *lock = NULL;
-        if (found)
+        }
+        if (found) {
             *found = false;
+        }
         return NULL;
     }
 
-    if (!local_found && create)
+    if (!local_found && create) {
         pgstat_shared_init_db_entry(entry, dbid);
+        {
+            long num_entries = hash_get_num_entries(s->db_hash);
+            if (num_entries >= (long)(PGSTAT_SHMEM_DB_HASH_SIZE * PGSTAT_SHMEM_HASH_NEAR_FULL_RATIO)) {
+                ereport(WARNING,
+                    (errmsg("pgstat db hash near full: current entries %ld, limit %d; "
+                             "new databases may not be recorded",
+                        num_entries, PGSTAT_SHMEM_DB_HASH_SIZE)));
+            }
+        }
+    }
 
-    if (found)
+    if (found) {
         *found = local_found;
-    if (lock)
-        *lock = l;
+    }
+    if (lock) {
+        *lock = locked ? l : NULL;
+    }
     return entry;
 }
 
-PgStatSharedTabEntry* pgstat_shared_get_tab_entry(Oid dbid, Oid relid, uint32 statFlag, bool create, LWLockMode mode,
+PgStatSharedTabEntry* pgstat_shared_get_tab_entry(const PgStatSharedTabKey* key, bool create, LWLockMode mode,
     LWLock** lock, bool* found)
 {
     PgStatSharedState* s = pgstat_get_shared_state();
-    if (s == NULL)
+    if (s == NULL) {
         return NULL;
+    }
 
-    PgStatSharedTabKey key;
-    key.databaseid = dbid;
-    key.tableid = relid;
-    key.statFlag = statFlag;
-
-    LWLock* l = pgstat_tab_lock(s, &key);
-    LWLockAcquire(l, mode);
+    LWLock* l = pgstat_tab_lock(s, key);
+    bool locked = false;
+    if (!LWLockHeldByMe(l)) {
+        LWLockAcquire(l, mode);
+        locked = true;
+    }
 
     HASHACTION action = create ? HASH_ENTER : HASH_FIND;
     bool local_found = false;
     PgStatSharedTabEntry* entry =
-        (PgStatSharedTabEntry*)hash_search(s->tab_hash, &key, action, &local_found);
+        (PgStatSharedTabEntry*)hash_search(s->tab_hash, key, action, &local_found);
 
     if (entry == NULL) {
-        LWLockRelease(l);
-        if (lock)
+        if (create) {
+            ereport(WARNING,
+                (errmsg("pgstat tab entry creation failed (hash may be full), database %u table %u statFlag %u",
+                    key->databaseid, key->tableid, key->statFlag)));
+        }
+        if (locked) {
+            LWLockRelease(l);
+        }
+        if (lock) {
             *lock = NULL;
-        if (found)
+        }
+        if (found) {
             *found = false;
+        }
         return NULL;
     }
 
-    if (!local_found && create)
-        pgstat_shared_init_tab_entry(entry, &key);
+    if (!local_found && create) {
+        pgstat_shared_init_tab_entry(entry, key);
+        /* Log when tab hash is near full so operators can take action (e.g. VACUUM or increase hash size). */
+        {
+            long num_entries = hash_get_num_entries(s->tab_hash);
+            if (num_entries >= (long)(PGSTAT_SHMEM_TAB_HASH_SIZE * PGSTAT_SHMEM_HASH_NEAR_FULL_RATIO)) {
+                ereport(WARNING,
+                    (errmsg("pgstat tab hash near full: current entries %ld, limit %d; "
+                             "new relations may not be recorded, consider running VACUUM or increasing capacity",
+                        num_entries, PGSTAT_SHMEM_TAB_HASH_SIZE)));
+            }
+        }
+    }
 
-    if (found)
+    if (found) {
         *found = local_found;
-    if (lock)
-        *lock = l;
+    }
+    if (lock) {
+        *lock = locked ? l : NULL;
+    }
     return entry;
 }
 
-PgStatSharedFuncEntry* pgstat_shared_get_func_entry(Oid dbid, Oid funcid, bool create, LWLockMode mode, LWLock** lock,
-    bool* found)
+PgStatSharedFuncEntry* pgstat_shared_get_func_entry(
+    const PgStatSharedFuncKey* key, bool create, LWLockMode mode, LWLock** lock, bool* found)
 {
     PgStatSharedState* s = pgstat_get_shared_state();
-    if (s == NULL)
+    if (s == NULL) {
         return NULL;
+    }
 
-    PgStatSharedFuncKey key;
-    key.databaseid = dbid;
-    key.functionid = funcid;
-
-    LWLock* l = pgstat_func_lock(s, &key);
-    LWLockAcquire(l, mode);
+    LWLock* l = pgstat_func_lock(s, key);
+    bool locked = false;
+    if (!LWLockHeldByMe(l)) {
+        LWLockAcquire(l, mode);
+        locked = true;
+    }
 
     HASHACTION action = create ? HASH_ENTER : HASH_FIND;
     bool local_found = false;
     PgStatSharedFuncEntry* entry =
-        (PgStatSharedFuncEntry*)hash_search(s->func_hash, &key, action, &local_found);
+        (PgStatSharedFuncEntry*)hash_search(s->func_hash, key, action, &local_found);
 
     if (entry == NULL) {
-        LWLockRelease(l);
-        if (lock)
+        if (create) {
+            ereport(WARNING,
+                (errmsg("pgstat func entry creation failed (hash may be full), database %u function %u",
+                    key->databaseid, key->functionid)));
+        }
+        if (locked) {
+            LWLockRelease(l);
+        }
+        if (lock) {
             *lock = NULL;
-        if (found)
+        }
+        if (found) {
             *found = false;
+        }
         return NULL;
     }
 
-    if (!local_found && create)
-        pgstat_shared_init_func_entry(entry, &key);
+    if (!local_found && create) {
+        pgstat_shared_init_func_entry(entry, key);
+        pgstat_func_hash_warn_near_full(s);
+    }
 
-    if (found)
+    if (found) {
         *found = local_found;
-    if (lock)
-        *lock = l;
+    }
+    if (lock) {
+        *lock = locked ? l : NULL;
+    }
     return entry;
 }
 
 void pgstat_shared_release_lock(LWLock* lock)
 {
-    if (lock != NULL)
+    if (lock != NULL) {
         LWLockRelease(lock);
+    }
 }
 
 bool pgstat_shared_remove_tab_entry(Oid dbid, Oid relid, uint32 statFlag, PgStatSharedTabEntry* removed)
 {
     PgStatSharedState* s = pgstat_get_shared_state();
-    if (s == NULL)
+    if (s == NULL) {
         return false;
+    }
 
     PgStatSharedTabKey key;
     key.databaseid = dbid;
@@ -323,8 +443,9 @@ bool pgstat_shared_remove_tab_entry(Oid dbid, Oid relid, uint32 statFlag, PgStat
 bool pgstat_shared_remove_func_entry(Oid dbid, Oid funcid)
 {
     PgStatSharedState* s = pgstat_get_shared_state();
-    if (s == NULL)
+    if (s == NULL) {
         return false;
+    }
 
     PgStatSharedFuncKey key;
     key.databaseid = dbid;
@@ -347,8 +468,9 @@ bool pgstat_shared_remove_func_entry(Oid dbid, Oid funcid)
 
 static void pgstat_shared_remove_tab_by_dbid(Oid dbid)
 {
-    if (pgstat_get_shared_state() == NULL)
+    if (pgstat_get_shared_state() == NULL) {
         return;
+    }
 
     pgstat_lock_all(pgstat_get_shared_state()->tab_locks, PGSTAT_TAB_NPARTITIONS, LW_EXCLUSIVE);
 
@@ -356,8 +478,9 @@ static void pgstat_shared_remove_tab_by_dbid(Oid dbid)
     hash_seq_init(&seq, pgstat_get_shared_state()->tab_hash);
     PgStatSharedTabEntry* entry = NULL;
     while ((entry = (PgStatSharedTabEntry*)hash_seq_search(&seq)) != NULL) {
-        if (entry->key.databaseid != dbid)
+        if (entry->key.databaseid != dbid) {
             continue;
+        }
         PgStatSharedTabKey key = entry->key;
         (void)hash_search(pgstat_get_shared_state()->tab_hash, &key, HASH_REMOVE, NULL);
     }
@@ -367,8 +490,9 @@ static void pgstat_shared_remove_tab_by_dbid(Oid dbid)
 
 static void pgstat_shared_remove_func_by_dbid(Oid dbid)
 {
-    if (pgstat_get_shared_state() == NULL)
+    if (pgstat_get_shared_state() == NULL) {
         return;
+    }
 
     pgstat_lock_all(pgstat_get_shared_state()->func_locks, PGSTAT_FUNC_NPARTITIONS, LW_EXCLUSIVE);
 
@@ -376,8 +500,9 @@ static void pgstat_shared_remove_func_by_dbid(Oid dbid)
     hash_seq_init(&seq, pgstat_get_shared_state()->func_hash);
     PgStatSharedFuncEntry* entry = NULL;
     while ((entry = (PgStatSharedFuncEntry*)hash_seq_search(&seq)) != NULL) {
-        if (entry->key.databaseid != dbid)
+        if (entry->key.databaseid != dbid) {
             continue;
+        }
         PgStatSharedFuncKey key = entry->key;
         (void)hash_search(pgstat_get_shared_state()->func_hash, &key, HASH_REMOVE, NULL);
     }
@@ -404,18 +529,22 @@ void pgstat_shared_reset_db(Oid dbid)
 
 void pgstat_shared_reset_sharedcounter(PgStat_Shared_Reset_Target target)
 {
-    if (pgstat_get_shared_state() == NULL)
+    if (pgstat_get_shared_state() == NULL) {
         return;
+    }
 
-    if (target != RESET_BGWRITER)
+    if (target != RESET_BGWRITER) {
         return;
+    }
 
     LWLock* lock = pgstat_shared_global_lock();
-    if (lock == NULL)
+    if (lock == NULL) {
         return;
+    }
 
     LWLockAcquire(lock, LW_EXCLUSIVE);
-    errno_t rc = memset_s(&pgstat_get_shared_state()->global_stats, sizeof(PgStat_GlobalStats), 0, sizeof(PgStat_GlobalStats));
+    errno_t rc = memset_s(&pgstat_get_shared_state()->global_stats,
+        sizeof(PgStat_GlobalStats), 0, sizeof(PgStat_GlobalStats));
     securec_check(rc, "\0", "\0");
     pgstat_get_shared_state()->global_stats.stat_reset_timestamp = GetCurrentTimestamp();
     LWLockRelease(lock);
@@ -440,8 +569,9 @@ static PgStat_StatDBEntry* snapshot_get_db_entry(HTAB* dbhash, MemoryContext mcx
     bool found = false;
     HASHACTION action = create ? HASH_ENTER : HASH_FIND;
     PgStat_StatDBEntry* entry = (PgStat_StatDBEntry*)hash_search(dbhash, &dbid, action, &found);
-    if (entry == NULL)
+    if (entry == NULL) {
         return NULL;
+    }
 
     if (!found && create) {
         errno_t rc = memset_s(entry, sizeof(PgStat_StatDBEntry), 0, sizeof(PgStat_StatDBEntry));
@@ -510,11 +640,13 @@ static void copy_snapshot_fill_db_entries(HTAB* dbhash, MemoryContext mcxt, Oid 
     hash_seq_init(&hstat, pgstat_get_shared_state()->db_hash);
     PgStatSharedDBEntry* sdb = NULL;
     while ((sdb = (PgStatSharedDBEntry*)hash_seq_search(&hstat)) != NULL) {
-        if (!pgstat_dbid_visible(sdb->databaseid, onlydb))
+        if (!pgstat_dbid_visible(sdb->databaseid, onlydb)) {
             continue;
+        }
         PgStat_StatDBEntry* dbentry = snapshot_get_db_entry(dbhash, mcxt, sdb->databaseid, true);
-        if (dbentry == NULL)
+        if (dbentry == NULL) {
             continue;
+        }
         dbentry->n_xact_commit = sdb->n_xact_commit;
         dbentry->n_xact_rollback = sdb->n_xact_rollback;
         dbentry->n_blocks_fetched = sdb->n_blocks_fetched;
@@ -551,11 +683,13 @@ static void copy_snapshot_fill_tab_entries(HTAB* dbhash, MemoryContext mcxt, Oid
     hash_seq_init(&tstat, pgstat_get_shared_state()->tab_hash);
     PgStatSharedTabEntry* stab = NULL;
     while ((stab = (PgStatSharedTabEntry*)hash_seq_search(&tstat)) != NULL) {
-        if (!pgstat_dbid_visible(stab->key.databaseid, onlydb))
+        if (!pgstat_dbid_visible(stab->key.databaseid, onlydb)) {
             continue;
+        }
         PgStat_StatDBEntry* dbentry = snapshot_get_db_entry(dbhash, mcxt, stab->key.databaseid, true);
-        if (dbentry == NULL || dbentry->tables == NULL)
+        if (dbentry == NULL || dbentry->tables == NULL) {
             continue;
+        }
         PgStat_StatTabKey tabkey;
         tabkey.tableid = stab->key.tableid;
         tabkey.statFlag = stab->key.statFlag;
@@ -577,11 +711,13 @@ static void copy_snapshot_fill_func_entries(HTAB* dbhash, MemoryContext mcxt, Oi
     hash_seq_init(&fstat, pgstat_get_shared_state()->func_hash);
     PgStatSharedFuncEntry* sfunc = NULL;
     while ((sfunc = (PgStatSharedFuncEntry*)hash_seq_search(&fstat)) != NULL) {
-        if (!pgstat_dbid_visible(sfunc->key.databaseid, onlydb))
+        if (!pgstat_dbid_visible(sfunc->key.databaseid, onlydb)) {
             continue;
+        }
         PgStat_StatDBEntry* dbentry = snapshot_get_db_entry(dbhash, mcxt, sfunc->key.databaseid, true);
-        if (dbentry == NULL || dbentry->functions == NULL)
+        if (dbentry == NULL || dbentry->functions == NULL) {
             continue;
+        }
         bool found = false;
         PgStat_StatFuncEntry* funcentry =
             (PgStat_StatFuncEntry*)hash_search(dbentry->functions, &sfunc->key.functionid, HASH_ENTER, &found);
@@ -597,12 +733,15 @@ static void copy_snapshot_fill_func_entries(HTAB* dbhash, MemoryContext mcxt, Oi
 
 void pgstat_shared_copy_snapshot(Oid onlydb, MemoryContext mcxt, HTAB** out_dbhash, PgStat_GlobalStats* out_global)
 {
-    if (out_dbhash != NULL)
+    if (out_dbhash != NULL) {
         *out_dbhash = NULL;
-    if (out_global != NULL)
+    }
+    if (out_global != NULL) {
         (void)memset_s(out_global, sizeof(PgStat_GlobalStats), 0, sizeof(PgStat_GlobalStats));
-    if (pgstat_get_shared_state() == NULL || mcxt == NULL)
+    }
+    if (pgstat_get_shared_state() == NULL || mcxt == NULL) {
         return;
+    }
 
     MemoryContext old = MemoryContextSwitchTo(mcxt);
     HASHCTL hash_ctl;
@@ -613,9 +752,11 @@ void pgstat_shared_copy_snapshot(Oid onlydb, MemoryContext mcxt, HTAB** out_dbha
     hash_ctl.hash = oid_hash;
     hash_ctl.hcxt = mcxt;
     HTAB* dbhash =
-        hash_create("Databases hash", PGSTAT_SNAPSHOT_DB_HASH_SIZE, &hash_ctl, HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
-    if (out_dbhash != NULL)
+        hash_create("Databases hash", PGSTAT_SNAPSHOT_DB_HASH_SIZE,
+            &hash_ctl, HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
+    if (out_dbhash != NULL) {
         *out_dbhash = dbhash;
+    }
 
     LWLock* glock = pgstat_shared_global_lock();
     if (glock != NULL && out_global != NULL) {
@@ -631,8 +772,9 @@ void pgstat_shared_copy_snapshot(Oid onlydb, MemoryContext mcxt, HTAB** out_dbha
 
 static void pgstat_shared_clear_all_hashes(void)
 {
-    if (pgstat_get_shared_state() == NULL)
+    if (pgstat_get_shared_state() == NULL) {
         return;
+    }
 
     pgstat_lock_all(pgstat_get_shared_state()->db_locks, PGSTAT_DB_NPARTITIONS, LW_EXCLUSIVE);
     HASH_SEQ_STATUS dbseq;
@@ -700,15 +842,20 @@ static void import_snapshot_copy_tab_to_shared(PgStatSharedTabEntry* stab, const
 
 static void import_snapshot_copy_tables_to_shmem(Oid databaseid, HTAB* tables)
 {
-    if (tables == NULL)
+    if (tables == NULL) {
         return;
+    }
     HASH_SEQ_STATUS tstat;
     hash_seq_init(&tstat, tables);
     PgStat_StatTabEntry* tabentry = NULL;
     while ((tabentry = (PgStat_StatTabEntry*)hash_seq_search(&tstat)) != NULL) {
         LWLock* tlock = NULL;
-        PgStatSharedTabEntry* stab = pgstat_shared_get_tab_entry(databaseid,
-            tabentry->tablekey.tableid, tabentry->tablekey.statFlag, true, LW_EXCLUSIVE, &tlock, NULL);
+        PgStatSharedTabKey key;
+        key.databaseid = databaseid;
+        key.tableid = tabentry->tablekey.tableid;
+        key.statFlag = tabentry->tablekey.statFlag;
+        PgStatSharedTabEntry* stab =
+            pgstat_shared_get_tab_entry(&key, true, LW_EXCLUSIVE, &tlock, NULL);
         if (stab != NULL) {
             import_snapshot_copy_tab_to_shared(stab, tabentry);
             pgstat_shared_release_lock(tlock);
@@ -718,15 +865,19 @@ static void import_snapshot_copy_tables_to_shmem(Oid databaseid, HTAB* tables)
 
 static void import_snapshot_copy_functions_to_shmem(Oid databaseid, HTAB* functions)
 {
-    if (functions == NULL)
+    if (functions == NULL) {
         return;
+    }
     HASH_SEQ_STATUS fstat;
     hash_seq_init(&fstat, functions);
     PgStat_StatFuncEntry* funcentry = NULL;
     while ((funcentry = (PgStat_StatFuncEntry*)hash_seq_search(&fstat)) != NULL) {
         LWLock* flock = NULL;
+        PgStatSharedFuncKey key;
+        key.databaseid = databaseid;
+        key.functionid = funcentry->functionid;
         PgStatSharedFuncEntry* sfunc =
-            pgstat_shared_get_func_entry(databaseid, funcentry->functionid, true, LW_EXCLUSIVE, &flock, NULL);
+            pgstat_shared_get_func_entry(&key, true, LW_EXCLUSIVE, &flock, NULL);
         if (sfunc != NULL) {
             sfunc->f_numcalls = funcentry->f_numcalls;
             sfunc->f_total_time = funcentry->f_total_time;
@@ -741,8 +892,9 @@ static void import_snapshot_copy_one_db(PgStat_StatDBEntry* dbentry)
     LWLock* dblock = NULL;
     PgStatSharedDBEntry* sdb =
         pgstat_shared_get_db_entry(dbentry->databaseid, true, LW_EXCLUSIVE, &dblock, NULL);
-    if (sdb == NULL)
+    if (sdb == NULL) {
         return;
+    }
     sdb->n_xact_commit = dbentry->n_xact_commit;
     sdb->n_xact_rollback = dbentry->n_xact_rollback;
     sdb->n_blocks_fetched = dbentry->n_blocks_fetched;
@@ -775,8 +927,9 @@ static void import_snapshot_copy_one_db(PgStat_StatDBEntry* dbentry)
 
 void pgstat_shared_import_snapshot(HTAB* dbhash, const PgStat_GlobalStats* global)
 {
-    if (pgstat_get_shared_state() == NULL || dbhash == NULL)
+    if (pgstat_get_shared_state() == NULL || dbhash == NULL) {
         return;
+    }
     pgstat_shared_clear_all_hashes();
     if (global != NULL) {
         LWLock* glock = pgstat_shared_global_lock();

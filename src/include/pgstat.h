@@ -1814,11 +1814,8 @@ extern Size BackendStatusShmemSize(void);
 extern void CreateSharedBackendStatus(void);
 
 extern void pgstat_init(void);
-extern ThreadId pgstat_start(void);
-extern bool pgstat_collector_enabled(void);
 extern void pgstat_reset_all(void);
 extern void pgstat_write_statsfile_permanent(void);
-extern void allow_immediate_pgstat_restart(void);
 extern void PgstatCollectorMain();
 
 /* ----------

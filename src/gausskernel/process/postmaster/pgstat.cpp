@@ -360,8 +360,8 @@ static void pgstat_beshutdown_hook(int code, Datum arg);
 static void pgstat_sighup_handler(SIGNAL_ARGS);
 
 static PgStatSharedDBEntry* pgstat_get_db_entry(Oid databaseid, bool create, LWLockMode mode, LWLock** lock);
-static PgStatSharedTabEntry* pgstat_get_tab_entry(Oid databaseid, Oid tableoid, uint32 statFlag, bool create,
-    LWLockMode mode, LWLock** lock, bool* found);
+static PgStatSharedTabEntry* pgstat_get_tab_entry(
+    const PgStatSharedTabKey* key, bool create, LWLockMode mode, LWLock** lock, bool* found);
 template <bool save_last_scan>
 static void pgstat_write_statsfile(bool permanent);
 static HTAB* pgstat_read_statsfile(Oid onlydb, bool permanent);
@@ -447,7 +447,6 @@ static void DetachMySessionTimeEntry(volatile SessionTimeEntry* pEntry);
 void pgstat_init(void)
 {
     g_instance.stat_cxt.pgStatSock = PGSTAT_SHMEM_FAKE_SOCKET;
-    g_instance.stat_cxt.last_pgstat_start_time = 0;
     g_instance.stat_cxt.last_statwrite = 0;
     g_instance.stat_cxt.last_statrequest = 0;
     /*
@@ -464,8 +463,9 @@ void pgstat_init(void)
  */
 static void pgstat_load_statsfile_into_shmem(void)
 {
-    if (pgstat_get_shared_state() == NULL || u_sess == NULL)
+    if (pgstat_get_shared_state() == NULL || u_sess == NULL) {
         return;
+    }
 
     MemoryContext oldctx = u_sess->stat_cxt.pgStatLocalContext;
     HTAB* oldhash = u_sess->stat_cxt.pgStatDBHash;
@@ -475,11 +475,13 @@ static void pgstat_load_statsfile_into_shmem(void)
 
     pgstat_setup_memcxt();
     HTAB* dbhash = pgstat_read_statsfile(InvalidOid, true);
-    if (dbhash != NULL)
+    if (dbhash != NULL) {
         pgstat_shared_import_snapshot(dbhash, u_sess->stat_cxt.globalStats);
+    }
 
-    if (u_sess->stat_cxt.pgStatLocalContext != NULL)
+    if (u_sess->stat_cxt.pgStatLocalContext != NULL) {
         MemoryContextDelete(u_sess->stat_cxt.pgStatLocalContext);
+    }
 
     u_sess->stat_cxt.pgStatLocalContext = oldctx;
     u_sess->stat_cxt.pgStatDBHash = oldhash;
@@ -491,8 +493,9 @@ static void pgstat_load_statsfile_into_shmem(void)
  * ---------- */
 static bool pgstat_pending_have_updates(void)
 {
-    if (u_sess == NULL)
+    if (u_sess == NULL) {
         return false;
+    }
     return (u_sess->stat_cxt.pgStatPendingDeadlocks != 0 || u_sess->stat_cxt.pgStatPendingTempFiles != 0 ||
             u_sess->stat_cxt.pgStatPendingTempBytes != 0 || u_sess->stat_cxt.pgStatPendingMemReserved != 0 ||
             u_sess->stat_cxt.pgStatPendingConflictTablespace != 0 ||
@@ -504,8 +507,9 @@ static bool pgstat_pending_have_updates(void)
 
 static void pgstat_pending_clear(void)
 {
-    if (u_sess == NULL)
+    if (u_sess == NULL) {
         return;
+    }
     u_sess->stat_cxt.pgStatPendingDeadlocks = 0;
     u_sess->stat_cxt.pgStatPendingTempFiles = 0;
     u_sess->stat_cxt.pgStatPendingTempBytes = 0;
@@ -519,8 +523,9 @@ static void pgstat_pending_clear(void)
 
 static void pgstat_pending_epoch_ensure(void)
 {
-    if (u_sess == NULL)
+    if (u_sess == NULL) {
         return;
+    }
     uint64 epoch = pgstat_shared_get_epoch();
     if (u_sess->stat_cxt.pgStatPendingEpoch != epoch) {
         pgstat_pending_clear();
@@ -530,18 +535,23 @@ static void pgstat_pending_epoch_ensure(void)
 
 static void pgstat_flush_pending(bool force)
 {
-    if (u_sess == NULL)
+    if (u_sess == NULL) {
         return;
-    if (!force && !pgstat_pending_have_updates())
+    }
+    if (!force && !pgstat_pending_have_updates()) {
         return;
-    if (!u_sess->attr.attr_common.pgstat_track_counts)
+    }
+    if (!u_sess->attr.attr_common.pgstat_track_counts) {
         return;
-    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId))
+    }
+    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId)) {
         return;
+    }
 
     pgstat_pending_epoch_ensure();
-    if (!pgstat_pending_have_updates())
+    if (!pgstat_pending_have_updates()) {
         return;
+    }
     if (u_sess->stat_cxt.pgStatPendingEpoch != pgstat_shared_get_epoch()) {
         pgstat_pending_clear();
         return;
@@ -565,8 +575,9 @@ static void pgstat_flush_pending(bool force)
 
     if (u_sess->stat_cxt.pgStatPendingMemReserved != 0) {
         int64 new_val = (int64)dbentry->n_mem_mbytes_reserved + (int64)u_sess->stat_cxt.pgStatPendingMemReserved;
-        if (new_val < 0)
+        if (new_val < 0) {
             new_val = 0;
+        }
         dbentry->n_mem_mbytes_reserved = (PgStat_Counter)new_val;
     }
 
@@ -584,32 +595,6 @@ void pgstat_reset_all(void)
 {
     elog(LOG, "[Pgstat] remove permanent stat file: %s", PGSTAT_STAT_PERMANENT_FILENAME);
     unlink(PGSTAT_STAT_PERMANENT_FILENAME);
-}
-
-/*
- * pgstat_start() -
- *
- *	Called from postmaster at startup or after an existing collector
- *	died.  Attempt to fire up a fresh statistics collector.
- *
- *	Returns PID of child process, or 0 if fail.
- *
- *	Note: if fail, we will be called again from the postmaster main loop.
- */
-ThreadId pgstat_start(void)
-{
-    return 0;
-}
-
-bool pgstat_collector_enabled(void)
-{
-    return false;
-}
-
-
-void allow_immediate_pgstat_restart(void)
-{
-    g_instance.stat_cxt.last_pgstat_start_time = 0;
 }
 
 /* ------------------------------------------------------------
@@ -1513,12 +1498,15 @@ void pgstat_report_analyze(Relation rel, PgStat_Counter livetuples, PgStat_Count
  */
 void pgstat_report_recovery_conflict(int reason)
 {
-    if (u_sess == NULL)
+    if (u_sess == NULL) {
         return;
-    if (!u_sess->attr.attr_common.pgstat_track_counts)
+    }
+    if (!u_sess->attr.attr_common.pgstat_track_counts) {
         return;
-    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId))
+    }
+    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId)) {
         return;
+    }
 
     pgstat_pending_epoch_ensure();
 
@@ -1555,12 +1543,15 @@ void pgstat_report_recovery_conflict(int reason)
  */
 void pgstat_report_deadlock(void)
 {
-    if (u_sess == NULL)
+    if (u_sess == NULL) {
         return;
-    if (!u_sess->attr.attr_common.pgstat_track_counts)
+    }
+    if (!u_sess->attr.attr_common.pgstat_track_counts) {
         return;
-    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId))
+    }
+    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId)) {
         return;
+    }
 
     pgstat_pending_epoch_ensure();
     u_sess->stat_cxt.pgStatPendingDeadlocks++;
@@ -1574,12 +1565,15 @@ void pgstat_report_deadlock(void)
  */
 void pgstat_report_tempfile(size_t filesize)
 {
-    if (u_sess == NULL)
+    if (u_sess == NULL) {
         return;
-    if (!u_sess->attr.attr_common.pgstat_track_counts)
+    }
+    if (!u_sess->attr.attr_common.pgstat_track_counts) {
         return;
-    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId))
+    }
+    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId)) {
         return;
+    }
 
     pgstat_pending_epoch_ensure();
     u_sess->stat_cxt.pgStatPendingTempFiles++;
@@ -1594,19 +1588,23 @@ void pgstat_report_tempfile(size_t filesize)
  */
 void pgstat_report_memReserved(int4 memReserved, int reserve_or_release)
 {
-    if (u_sess == NULL)
+    if (u_sess == NULL) {
         return;
-    if (!u_sess->attr.attr_common.pgstat_track_counts)
+    }
+    if (!u_sess->attr.attr_common.pgstat_track_counts) {
         return;
-    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId))
+    }
+    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId)) {
         return;
+    }
 
     pgstat_pending_epoch_ensure();
 
-    if (reserve_or_release == 1)
+    if (reserve_or_release == 1) {
         u_sess->stat_cxt.pgStatPendingMemReserved += memReserved;
-    else if (reserve_or_release == -1)
+    } else if (reserve_or_release == -1) {
         u_sess->stat_cxt.pgStatPendingMemReserved -= memReserved;
+    }
 }
 
 /* ----------
@@ -2337,7 +2335,7 @@ void AtEOSubXact_PgStat(bool isCommit, int nestDepth)
                 tabstat->t_counts.t_tuples_deleted += trans->tuples_deleted_accum;
                 tabstat->t_counts.t_tuples_inplace_updated += trans->tuples_inplace_updated_accum;
                 /* inserted tuples are dead, deleted tuples are unaffected */
-                tabstat->t_counts.t_delta_dead_tuples += 
+                tabstat->t_counts.t_delta_dead_tuples +=
                     trans->tuples_inserted + (trans->tuples_updated - trans->tuples_inplace_updated);
                 tabstat->trans = trans->upper;
                 pfree(trans);
@@ -2460,7 +2458,7 @@ void pgstat_twophase_postcommit(TransactionId xid, uint16 info, void* recdata, u
         pgstat_info->t_counts.t_tuples_inplace_updated_post_truncate += rec->tuples_inplace_updated;
     }
     pgstat_info->t_counts.t_delta_live_tuples += rec->tuples_inserted - rec->tuples_deleted;
-    pgstat_info->t_counts.t_delta_dead_tuples += 
+    pgstat_info->t_counts.t_delta_dead_tuples +=
         (rec->tuples_updated - rec->tuples_inplace_updated) + rec->tuples_deleted;
     pgstat_info->t_counts.t_changed_tuples += rec->tuples_inserted + rec->tuples_updated + rec->tuples_deleted;
 }
@@ -3363,7 +3361,7 @@ void pgstat_beshutdown_session(int ctrl_index)
          * if t_thrd.proc_cxt.proc_exit_inprogress is true, thread backend entry and
          * session backend entry can be reused by other backend(CleanupInvalidationState
          * is called before), so backend entry cann't be accessed during this stage.
-         * when false, just case that thread pool worker is detaching or closing session, 
+         * when false, just case that thread pool worker is detaching or closing session,
          * so we need to release statemement context.
          */
         release_statement_context(&t_thrd.shemem_ptr_cxt.BackendStatusArray[ctrl_index], __FUNCTION__, __LINE__);
@@ -4151,7 +4149,7 @@ void pgstat_set_io_state(WorkloadManagerIOState iostate)
 {
     if (!u_sess->attr.attr_common.pgstat_track_activities)
         return;
-    
+
     volatile PgBackendStatus* beentry = t_thrd.shemem_ptr_cxt.MyBEEntry;
     if (beentry == NULL)
         return;
@@ -4720,7 +4718,7 @@ void pgstat_report_dms_waitevent(const uint32 waitevent, const DMSWaiteventTarge
     }
 }
 
-void decode_dms_waitevent_target(const uint32 waitevent, const DMSWaiteventTarget target, 
+void decode_dms_waitevent_target(const uint32 waitevent, const DMSWaiteventTarget target,
   _out_ char** object, _out_ char** mode)
 {
     Assert((waitevent & WAITEVENT_CLASS_MASK) == PG_WAIT_DMS);
@@ -5541,10 +5539,10 @@ static PgStatSharedDBEntry* pgstat_get_db_entry(Oid databaseid, bool create, LWL
  * table entry exists, initialize it, if the create parameter is true.
  * Else, return NULL.
  */
-static PgStatSharedTabEntry* pgstat_get_tab_entry(Oid databaseid, Oid tableoid, uint32 statFlag, bool create,
-    LWLockMode mode, LWLock** lock, bool* found)
+static PgStatSharedTabEntry* pgstat_get_tab_entry(
+    const PgStatSharedTabKey* key, bool create, LWLockMode mode, LWLock** lock, bool* found)
 {
-    return pgstat_shared_get_tab_entry(databaseid, tableoid, statFlag, create, mode, lock, found);
+    return pgstat_shared_get_tab_entry(key, create, mode, lock, found);
 }
 
 
@@ -5651,7 +5649,7 @@ static void pgstat_write_statsfile(bool permanent)
                 Assert((copylen1 + sizeof(TimestampTz) + copylen2) == sizeof(PgStat_StatTabEntry));
                 rc = memcpy_s(&tabbuf, copylen1, tabentry, copylen1);
                 securec_check(rc, "", "");
-                rc = memcpy_s(((char*)&tabbuf) + copylen1, copylen2, 
+                rc = memcpy_s(((char*)&tabbuf) + copylen1, copylen2,
                               ((char*)tabentry) + copylen1 + sizeof(TimestampTz), copylen2);
                 securec_check(rc, "", "");
                 rc = fwrite(&tabbuf, sizeof(PgStat_StatTabEntry) - sizeof(TimestampTz), 1, fpout);
@@ -5768,13 +5766,8 @@ void pgstat_write_statsfile_permanent(void)
 
 static HTAB* pgstat_read_statsfile_hashcreate(const char* tableString, int hashSize, HASHCTL* hashCtl)
 {
-    HTAB* hashTable;
-    if (IsGlobalStatsTrackerProcess()) {
-        hashTable = hash_create(tableString, hashSize, hashCtl, HASH_ELEM | HASH_FUNCTION | HASH_SHRCTX);
-    } else {
-        hashTable = hash_create(tableString, hashSize, hashCtl, HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
-    }
-    return hashTable;
+    /* Statsfile is read into a per-process snapshot; no need for shared context here. */
+    return hash_create(tableString, hashSize, hashCtl, HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
 }
 
 /* ----------
@@ -6087,17 +6080,20 @@ done:
  */
 static bool pgstat_read_statsfile_timestamp(bool permanent, TimestampTz* ts)
 {
-    if (pgstat_get_shared_state() == NULL || ts == NULL)
+    if (pgstat_get_shared_state() == NULL || ts == NULL) {
         return false;
+    }
 
     LWLock* lock = pgstat_shared_global_lock();
-    if (lock != NULL)
+    if (lock != NULL) {
         LWLockAcquire(lock, LW_SHARED);
+    }
 
     *ts = pgstat_get_shared_state()->global_stats.stats_timestamp;
 
-    if (lock != NULL)
+    if (lock != NULL) {
         LWLockRelease(lock);
+    }
 
     return true;
 }
@@ -6166,28 +6162,31 @@ void pgstat_read_analyzed()
         hash_create("AnalyzeCheck hash", PGSTAT_TAB_HASH_SIZE, &hash_ctl,
             HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
 
-    if (u_sess->stat_cxt.pgStatDBHash == NULL)
+    if (u_sess->stat_cxt.pgStatDBHash == NULL) {
         return;
+    }
 
     HASH_SEQ_STATUS hstat;
     hash_seq_init(&hstat, u_sess->stat_cxt.pgStatDBHash);
     for (;;) {
         PgStat_StatDBEntry* dbentry = (PgStat_StatDBEntry*)hash_seq_search(&hstat);
-        if (dbentry == NULL)
+        if (dbentry == NULL) {
             break;
-        if (dbentry->databaseid != u_sess->proc_cxt.MyDatabaseId)
+        }
+        if (dbentry->databaseid != u_sess->proc_cxt.MyDatabaseId || dbentry->tables == NULL) {
             continue;
-        if (dbentry->tables == NULL)
-            continue;
+        }
 
         HASH_SEQ_STATUS tstat;
         hash_seq_init(&tstat, dbentry->tables);
         for (;;) {
             PgStat_StatTabEntry* tabbuf = (PgStat_StatTabEntry*)hash_seq_search(&tstat);
-            if (tabbuf == NULL)
+            if (tabbuf == NULL) {
                 break;
-            if (tabbuf->tablekey.statFlag != STATFLG_RELATION)
+            }
+            if (tabbuf->tablekey.statFlag != STATFLG_RELATION) {
                 continue;
+            }
 
             tabentry = (PgStat_AnaCheckEntry*)hash_search(
                 u_sess->stat_cxt.analyzeCheckHash, (void*)&(tabbuf->tablekey.tableid), HASH_ENTER, &found);
@@ -6334,8 +6333,9 @@ static void pgstat_recv_tabstat(PgStat_MsgTabstat* msg, int len)
     }
 
     dbentry = pgstat_get_db_entry(msg->m_databaseid, true, LW_EXCLUSIVE, &db_lock);
-    if (dbentry == NULL)
+    if (dbentry == NULL) {
         return;
+    }
 
     /* Check and update database-wide stats. */
     overflow_check(dbentry->n_xact_commit, (PgStat_Counter)(msg->m_xact_commit));
@@ -6366,10 +6366,11 @@ static void pgstat_recv_tabstat(PgStat_MsgTabstat* msg, int len)
         PgStat_TableEntry* tabmsg = &(msg->m_entry[i]);
         bool found = false;
         LWLock* tab_lock = NULL;
-        PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(msg->m_databaseid, tabmsg->t_id, tabmsg->t_statFlag,
-            true, LW_EXCLUSIVE, &tab_lock, &found);
-        if (tabentry == NULL)
+        PgStatSharedTabKey tab_key = {msg->m_databaseid, tabmsg->t_id, tabmsg->t_statFlag};
+        PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(&tab_key, true, LW_EXCLUSIVE, &tab_lock, &found);
+        if (tabentry == NULL) {
             continue;
+        }
 
         if (!found) {
             tabentry->numscans = tabmsg->t_counts.t_numscans;
@@ -6393,7 +6394,9 @@ static void pgstat_recv_tabstat(PgStat_MsgTabstat* msg, int len)
             tabentry->cu_mem_hit = tabmsg->t_counts.t_cu_mem_hit;
             tabentry->cu_hdd_sync = tabmsg->t_counts.t_cu_hdd_sync;
             tabentry->cu_hdd_asyn = tabmsg->t_counts.t_cu_hdd_asyn;
-            /* vacuum/analyze/prune all fields are memset to 0 in pgstat_shared_init_tab_entry, no need to assign again. */
+            /* vacuum/analyze/prune all fields are memset to 0 in pgstat_shared_init_tab_entry,
+             * no need to assign again.
+             */
         } else {
             tabentry->numscans += tabmsg->t_counts.t_numscans;
             tabentry->tuples_returned += tabmsg->t_counts.t_tuples_returned;
@@ -6434,8 +6437,9 @@ static void pgstat_recv_tabstat(PgStat_MsgTabstat* msg, int len)
 
         bool parent_found = false;
         LWLock* parent_lock = NULL;
-        PgStatSharedTabEntry* parent_entry = pgstat_get_tab_entry(msg->m_databaseid, tabmsg->t_statFlag, InvalidOid,
-            true, LW_EXCLUSIVE, &parent_lock, &parent_found);
+        PgStatSharedTabKey parent_key = {msg->m_databaseid, tabmsg->t_statFlag, InvalidOid};
+        PgStatSharedTabEntry* parent_entry =
+            pgstat_get_tab_entry(&parent_key, true, LW_EXCLUSIVE, &parent_lock, &parent_found);
         if (parent_entry == NULL)
             continue;
 
@@ -6457,7 +6461,9 @@ static void pgstat_recv_tabstat(PgStat_MsgTabstat* msg, int len)
             parent_entry->cu_mem_hit = tabmsg->t_counts.t_cu_mem_hit;
             parent_entry->cu_hdd_sync = tabmsg->t_counts.t_cu_hdd_sync;
             parent_entry->cu_hdd_asyn = tabmsg->t_counts.t_cu_hdd_asyn;
-            /* vacuum/analyze/prune all fields are memset to 0 in pgstat_shared_init_tab_entry, no need to assign again. */
+            /* vacuum/analyze/prune all fields are memset to 0 in pgstat_shared_init_tab_entry,
+             * no need to assign again.
+             */
         } else {
             parent_entry->numscans += tabmsg->t_counts.t_numscans;
             parent_entry->tuples_returned += tabmsg->t_counts.t_tuples_returned;
@@ -6508,8 +6514,9 @@ static void pgstat_recv_tabpurge(PgStat_MsgTabpurge* msg, int len)
         if (msg->m_entry[i].m_statFlag) {
             LWLock* parent_lock = NULL;
             bool found = false;
-            PgStatSharedTabEntry* parententry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_entry[i].m_statFlag,
-                InvalidOid, false, LW_EXCLUSIVE, &parent_lock, &found);
+            PgStatSharedTabKey parent_key = {msg->m_databaseid, msg->m_entry[i].m_statFlag, InvalidOid};
+            PgStatSharedTabEntry* parententry =
+                pgstat_get_tab_entry(&parent_key, false, LW_EXCLUSIVE, &parent_lock, &found);
             if (parententry != NULL) {
                 parententry->n_dead_tuples = Max(0, parententry->n_dead_tuples - removed.n_dead_tuples);
                 parententry->n_live_tuples = Max(0, parententry->n_live_tuples - removed.n_live_tuples);
@@ -6575,8 +6582,9 @@ static void pgstat_recv_resetsinglecounter(PgStat_MsgResetsinglecounter* msg, in
 {
     LWLock* db_lock = NULL;
     PgStatSharedDBEntry* dbentry = pgstat_get_db_entry(msg->m_databaseid, false, LW_EXCLUSIVE, &db_lock);
-    if (dbentry == NULL)
+    if (dbentry == NULL) {
         return;
+    }
 
     /* Set the reset timestamp for the whole database */
     dbentry->stat_reset_timestamp = GetCurrentTimestamp();
@@ -6588,7 +6596,9 @@ static void pgstat_recv_resetsinglecounter(PgStat_MsgResetsinglecounter* msg, in
     } else if (msg->m_resettype == RESET_FUNCTION) {
         (void)pgstat_shared_remove_func_entry(msg->m_databaseid, msg->m_objectid);
     }
-    /* Do not bump_epoch here: only single table/func was reset; DB-level stats (deadlock/tempfile/etc.) are unchanged. */
+    /* Do not bump_epoch here: only single table/func was reset;
+     * DB-level stats (deadlock/tempfile/etc.) are unchanged.
+     */
 }
 
 
@@ -6602,8 +6612,9 @@ static void pgstat_recv_autovac(PgStat_MsgAutovacStart* msg, int len)
 {
     LWLock* db_lock = NULL;
     PgStatSharedDBEntry* dbentry = pgstat_get_db_entry(msg->m_databaseid, true, LW_EXCLUSIVE, &db_lock);
-    if (dbentry == NULL)
+    if (dbentry == NULL) {
         return;
+    }
 
     dbentry->last_autovac_time = msg->m_start_time;
     pgstat_shared_release_lock(db_lock);
@@ -6620,10 +6631,11 @@ static void pgstat_recv_vacuum(PgStat_MsgVacuum* msg, int len)
 {
     LWLock* tab_lock = NULL;
     bool found = false;
-    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_tableoid, msg->m_statFlag, true,
-        LW_EXCLUSIVE, &tab_lock, &found);
-    if (tabentry == NULL)
+    PgStatSharedTabKey key = {msg->m_databaseid, msg->m_tableoid, msg->m_statFlag};
+    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(&key, true, LW_EXCLUSIVE, &tab_lock, &found);
+    if (tabentry == NULL) {
         return;
+    }
 
     if (msg->m_tuples < 0) {
         tabentry->n_dead_tuples = 0;
@@ -6646,13 +6658,15 @@ static void pgstat_recv_vacuum(PgStat_MsgVacuum* msg, int len)
 
     if (OidIsValid(msg->m_statFlag)) {
         LWLock* main_lock = NULL;
-        PgStatSharedTabEntry* main_tabentry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_statFlag, InvalidOid, false,
-            LW_EXCLUSIVE, &main_lock, &found);
+        PgStatSharedTabKey main_key = {msg->m_databaseid, msg->m_statFlag, InvalidOid};
+        PgStatSharedTabEntry* main_tabentry =
+            pgstat_get_tab_entry(&main_key, false, LW_EXCLUSIVE, &main_lock, &found);
         if (main_tabentry != NULL) {
-            if (msg->m_tuples < 0)
+            if (msg->m_tuples < 0) {
                 main_tabentry->n_dead_tuples = 0;
-            else
+            } else {
                 main_tabentry->n_dead_tuples = Max(0, main_tabentry->n_dead_tuples - msg->m_tuples);
+            }
             pgstat_shared_release_lock(main_lock);
         }
     }
@@ -6669,10 +6683,11 @@ static void PgstatRecvPrunestat(PgStat_MsgPrune* msg, int len)
 {
     LWLock* tab_lock = NULL;
     bool found = false;
-    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_tableoid, msg->m_statFlag, true,
-        LW_EXCLUSIVE, &tab_lock, &found);
-    if (tabentry == NULL)
+    PgStatSharedTabKey key = {msg->m_databaseid, msg->m_tableoid, msg->m_statFlag};
+    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(&key, true, LW_EXCLUSIVE, &tab_lock, &found);
+    if (tabentry == NULL) {
         return;
+    }
 
     tabentry->success_prune_cnt += msg->m_pruned_blocks;
     tabentry->total_prune_cnt += msg->m_scanned_blocks;
@@ -6692,10 +6707,11 @@ static void pgstat_recv_data_changed(PgStat_MsgDataChanged* msg, int len)
 {
     LWLock* tab_lock = NULL;
     bool found = false;
-    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_tableoid, msg->m_statFlag, true,
-        LW_EXCLUSIVE, &tab_lock, &found);
-    if (tabentry == NULL)
+    PgStatSharedTabKey key = {msg->m_databaseid, msg->m_tableoid, msg->m_statFlag};
+    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(&key, true, LW_EXCLUSIVE, &tab_lock, &found);
+    if (tabentry == NULL) {
         return;
+    }
 
     tabentry->data_changed_timestamp = msg->m_changed_time;
     pgstat_shared_release_lock(tab_lock);
@@ -6712,10 +6728,11 @@ static void pgstat_recv_autovac_stat(PgStat_MsgAutovacStat* msg, int len)
 {
     LWLock* tab_lock = NULL;
     bool found = false;
-    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_tableoid, msg->m_statFlag, true,
-        LW_EXCLUSIVE, &tab_lock, &found);
-    if (tabentry == NULL)
+    PgStatSharedTabKey key = {msg->m_databaseid, msg->m_tableoid, msg->m_statFlag};
+    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(&key, true, LW_EXCLUSIVE, &tab_lock, &found);
+    if (tabentry == NULL) {
         return;
+    }
 
     if (AV_TIMEOUT == msg->m_autovacStat) {
         increase_continued_timeout(tabentry->autovac_status);
@@ -6736,10 +6753,11 @@ static void pgstat_recv_truncate(PgStat_MsgTruncate* msg, int len)
 {
     LWLock* tab_lock = NULL;
     bool found = false;
-    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_tableoid, msg->m_statFlag, true,
-        LW_EXCLUSIVE, &tab_lock, &found);
-    if (tabentry == NULL)
+    PgStatSharedTabKey key = {msg->m_databaseid, msg->m_tableoid, msg->m_statFlag};
+    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(&key, true, LW_EXCLUSIVE, &tab_lock, &found);
+    if (tabentry == NULL) {
         return;
+    }
 
     PgStat_Counter dead = tabentry->n_dead_tuples;
     PgStat_Counter live = tabentry->n_live_tuples;
@@ -6748,8 +6766,9 @@ static void pgstat_recv_truncate(PgStat_MsgTruncate* msg, int len)
     if (msg->m_statFlag) {
         LWLock* parent_lock = NULL;
         /* Only update parent if it already exists (same as original HASH_FIND). */
-        PgStatSharedTabEntry* parent_entry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_statFlag, InvalidOid, false,
-            LW_EXCLUSIVE, &parent_lock, &found);
+        PgStatSharedTabKey parent_key = {msg->m_databaseid, msg->m_statFlag, InvalidOid};
+        PgStatSharedTabEntry* parent_entry =
+            pgstat_get_tab_entry(&parent_key, false, LW_EXCLUSIVE, &parent_lock, &found);
         if (parent_entry != NULL) {
             parent_entry->n_dead_tuples = Max(0, parent_entry->n_dead_tuples - dead);
             parent_entry->n_live_tuples = Max(0, parent_entry->n_live_tuples - live);
@@ -6775,10 +6794,11 @@ static void pgstat_recv_analyze(PgStat_MsgAnalyze* msg, int len)
 {
     LWLock* tab_lock = NULL;
     bool found = false;
-    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(msg->m_databaseid, msg->m_tableoid, msg->m_statFlag, true,
-        LW_EXCLUSIVE, &tab_lock, &found);
-    if (tabentry == NULL)
+    PgStatSharedTabKey key = {msg->m_databaseid, msg->m_tableoid, msg->m_statFlag};
+    PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(&key, true, LW_EXCLUSIVE, &tab_lock, &found);
+    if (tabentry == NULL) {
         return;
+    }
 
     tabentry->n_live_tuples = msg->m_live_tuples;
     tabentry->n_dead_tuples = msg->m_dead_tuples;
@@ -6808,8 +6828,9 @@ static void pgstat_recv_analyze(PgStat_MsgAnalyze* msg, int len)
 static void pgstat_recv_bgwriter(PgStat_MsgBgWriter* msg, int len)
 {
     LWLock* lock = pgstat_shared_global_lock();
-    if (lock == NULL)
+    if (lock == NULL) {
         return;
+    }
 
     LWLockAcquire(lock, LW_EXCLUSIVE);
     PgStat_GlobalStats* stats = pgstat_shared_global_stats();
@@ -6892,9 +6913,9 @@ static void pgstat_recv_recoveryconflict(const PgStat_MsgRecoveryConflict* msg)
 {
     LWLock* db_lock = NULL;
     PgStatSharedDBEntry* dbentry = pgstat_get_db_entry(msg->m_databaseid, true, LW_EXCLUSIVE, &db_lock);
-    if (dbentry == NULL)
+    if (dbentry == NULL) {
         return;
-
+    }
     switch (msg->m_reason) {
         case PROCSIG_RECOVERY_CONFLICT_DATABASE:
 
@@ -6938,9 +6959,9 @@ static void pgstat_recv_deadlock(const PgStat_MsgDeadlock* msg)
 {
     LWLock* db_lock = NULL;
     PgStatSharedDBEntry* dbentry = pgstat_get_db_entry(msg->m_databaseid, true, LW_EXCLUSIVE, &db_lock);
-    if (dbentry == NULL)
+    if (dbentry == NULL) {
         return;
-
+    }
     dbentry->n_deadlocks++;
     pgstat_shared_release_lock(db_lock);
 }
@@ -6955,9 +6976,9 @@ static void pgstat_recv_tempfile(PgStat_MsgTempFile* msg, int len)
 {
     LWLock* db_lock = NULL;
     PgStatSharedDBEntry* dbentry = pgstat_get_db_entry(msg->m_databaseid, true, LW_EXCLUSIVE, &db_lock);
-    if (dbentry == NULL)
+    if (dbentry == NULL) {
         return;
-
+    }
     dbentry->n_temp_bytes += msg->m_filesize;
     dbentry->n_temp_files += 1;
     pgstat_shared_release_lock(db_lock);
@@ -7131,9 +7152,9 @@ static void pgstat_recv_memReserved(const PgStat_MsgMemReserved* msg)
 {
     LWLock* db_lock = NULL;
     PgStatSharedDBEntry* dbentry = pgstat_get_db_entry(msg->m_databaseid, true, LW_EXCLUSIVE, &db_lock);
-    if (dbentry == NULL)
+    if (dbentry == NULL) {
         return;
-
+    }
     if (msg->m_reserve_or_release == 1)
         dbentry->n_mem_mbytes_reserved += msg->m_memMbytes;
     else if (msg->m_reserve_or_release == -1)
@@ -7163,8 +7184,11 @@ static void pgstat_recv_funcstat(PgStat_MsgFuncstat* msg, int len)
     for (i = 0; i < msg->m_nentries; i++, funcmsg++) {
         LWLock* func_lock = NULL;
         bool found = false;
-        PgStatSharedFuncEntry* funcentry =
-            pgstat_shared_get_func_entry(msg->m_databaseid, funcmsg->f_id, true, LW_EXCLUSIVE, &func_lock, &found);
+            PgStatSharedFuncKey key;
+            key.databaseid = msg->m_databaseid;
+            key.functionid = funcmsg->f_id;
+            PgStatSharedFuncEntry* funcentry =
+                pgstat_shared_get_func_entry(&key, true, LW_EXCLUSIVE, &func_lock, &found);
         if (funcentry == NULL) {
             pgstat_shared_release_lock(func_lock);
             continue;
@@ -7869,7 +7893,7 @@ void timeInfoRecordEnd(bool update_delay)
 
     if (u_sess->attr.attr_common.enable_instr_cpu_timer) {
         int64 cur = getCpuTime();
-        u_sess->stat_cxt.localTimeInfoArray[CPU_TIME] = cur - 
+        u_sess->stat_cxt.localTimeInfoArray[CPU_TIME] = cur -
             u_sess->stat_cxt.localTimeInfoArray[CPU_TIME];
     }
     og_time_record_end();
@@ -7883,7 +7907,8 @@ void timeInfoRecordEnd(bool update_delay)
 
 }
 
-void update_sql_state(void) {
+void update_sql_state(void)
+{
     t_thrd.shemem_ptr_cxt.mySessionTimeEntry->changeCount++;
     addThreadTimeEntry();
     t_thrd.shemem_ptr_cxt.mySessionTimeEntry->changeCount++;
@@ -8139,7 +8164,7 @@ static void pgstat_recv_filestat(PgStat_MsgFile* msg, int len)
                 }
             }
             fileStatCount = minLocation;
-            ereport(DEBUG1, (errmodule(MOD_INSTR), 
+            ereport(DEBUG1, (errmodule(MOD_INSTR),
                 errmsg("the latest filenum is %d, update is %ld",
                     fileStatCount, pgStatFileArray[fileStatCount].time)));
         }
@@ -8468,11 +8493,32 @@ static void recursiveThreadMemoryContext(const volatile PGPROC* proc, const Memo
  * @@GaussDB@@
  * Target		: pv_shared_memory_detail view
  * Brief		:
- * Description	:
+ * Description	: Reports shared memory usage. Includes MemoryContext tree under
+ *				  instance_context and fixed blocks (e.g. PgStat) from ShmemInitStruct.
  */
 void getSharedMemoryDetail(Tuplestorestate* tupStore, TupleDesc tupDesc)
 {
     recursiveThreadMemoryContext(NULL, g_instance.instance_context, true, tupStore, tupDesc);
+
+    /* PgStat shmem is allocated via ShmemInitStruct, not under instance_context; report it explicitly. */
+    if (pgstat_get_shared_state() != NULL) {
+        Size totalSize = PgStatShmemSize();
+        Size usedSize = PgStatShmemUsedSize();
+        if (usedSize > totalSize) {
+            usedSize = totalSize;
+        }
+        Datum values[NUM_SHARED_MEMORY_DETAIL_ELEM] = {0};
+        bool nulls[NUM_SHARED_MEMORY_DETAIL_ELEM] = {false};
+
+        values[0] = CStringGetTextDatum("PgStat");
+        values[1] = Int16GetDatum(0);
+        nulls[2] = true; /* parent */
+        values[3] = Int64GetDatum((int64)totalSize);
+        values[4] = Int64GetDatum((int64)(totalSize - usedSize)); /* freesize: reserved but not used by entries */
+        values[5] = Int64GetDatum((int64)usedSize);               /* usedsize: estimate by current entry counts */
+
+        tuplestore_putvalues(tupStore, tupDesc, values, nulls);
+    }
 }
 
 /*

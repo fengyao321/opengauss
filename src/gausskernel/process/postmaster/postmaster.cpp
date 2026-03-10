@@ -1,4 +1,4 @@
-﻿/* -------------------------------------------------------------------------
+/* -------------------------------------------------------------------------
  *
  * postmaster.cpp
  *	  This program acts as a clearing house for requests to the
@@ -4611,11 +4611,6 @@ static int ServerLoop(void)
             }
         }
 
-        /* If we have lost the stats collector, try to start a new one */
-        if (pgstat_collector_enabled() && g_instance.pid_cxt.PgStatPID == 0 &&
-            (pmState == PM_RUN || pmState == PM_HOT_STANDBY) && !dummyStandbyMode)
-            g_instance.pid_cxt.PgStatPID = pgstat_start();
-
 #ifndef ENABLE_LITE_MODE
         /* If we have lost the snapshot capturer, try to start a new one */
         if ((g_instance.role == VSINGLENODE) && pmState == PM_RUN &&
@@ -6244,9 +6239,6 @@ static void SIGHUP_handler(SIGNAL_ARGS)
                 }
             }
         }
-        if (g_instance.pid_cxt.PgStatPID != 0)
-            signal_child(g_instance.pid_cxt.PgStatPID, SIGHUP);
-
         if (g_instance.pid_cxt.TxnSnapCapturerPID != 0) {
             Assert(!dummyStandbyMode);
             signal_child(g_instance.pid_cxt.TxnSnapCapturerPID, SIGHUP);
@@ -6407,10 +6399,6 @@ static void SIGHUP_handler(SIGNAL_ARGS)
 
 void KillGraceThreads(void)
 {
-    if (g_instance.pid_cxt.PgStatPID != 0) {
-        signal_child(g_instance.pid_cxt.PgStatPID, SIGQUIT);
-    }
-
     if (g_instance.pid_cxt.AlarmCheckerPID != 0) {
         Assert(!dummyStandbyMode);
         signal_child(g_instance.pid_cxt.AlarmCheckerPID, SIGQUIT);
@@ -6831,7 +6819,6 @@ static void PrepareDemoteResponse(void)
         Assert(g_instance.dms_cxt.SSClusterState == NODESTATE_PRIMARY_DEMOTING);
         g_instance.dms_cxt.SSClusterState = NODESTATE_PROMOTE_APPROVE;
 
-        allow_immediate_pgstat_restart();
         return;
     }
     SetWalsndsNodeState(NODESTATE_PROMOTE_APPROVE, NODESTATE_STANDBY_REDIRECT);
@@ -6856,7 +6843,6 @@ static void PrepareDemoteResponse(void)
         load_server_mode();
     }
 
-    allow_immediate_pgstat_restart();
 }
 
 /* * process demote request from standby */
@@ -7618,9 +7604,6 @@ static void reaper(SIGNAL_ARGS)
                 ArchObsThreadManage();
             }
 
-            if (pgstat_collector_enabled() && g_instance.pid_cxt.PgStatPID == 0 && !dummyStandbyMode)
-                g_instance.pid_cxt.PgStatPID = pgstat_start();
-
 #ifndef ENABLE_LITE_MODE
             if ((g_instance.role == VSINGLENODE) && pmState == PM_RUN &&
                 g_instance.pid_cxt.TxnSnapCapturerPID == 0 && !dummyStandbyMode && !ENABLE_DMS) {
@@ -7913,13 +7896,6 @@ static void reaper(SIGNAL_ARGS)
                 }
                 pmState = PM_SHUTDOWN_2;
 
-                /*
-                 * We can also shut down the stats collector now; there's
-                 * nothing left for it to do.
-                 */
-                if (g_instance.pid_cxt.PgStatPID != 0)
-                    signal_child(g_instance.pid_cxt.PgStatPID, SIGQUIT);
-
                 if (!SS_PERFORMING_SWITCHOVER) {
                     if (g_instance.pid_cxt.TxnSnapCapturerPID != 0)
                         signal_child(g_instance.pid_cxt.TxnSnapCapturerPID, SIGQUIT);
@@ -8137,23 +8113,6 @@ static void reaper(SIGNAL_ARGS)
                     continue;
                 }
             }
-        }
-
-        /*
-         * Was it the statistics collector?  If so, just try to start a new
-         * one; no need to force reset of the rest of the system.  (If fail,
-         * we'll try again in future cycles of the main loop.)
-         */
-        if (pid == g_instance.pid_cxt.PgStatPID) {
-            Assert(!dummyStandbyMode);
-            g_instance.pid_cxt.PgStatPID = 0;
-
-            if (!EXIT_STATUS_0(exitstatus))
-                LogChildExit(LOG, _("statistics collector process"), pid, exitstatus);
-
-            if (pgstat_collector_enabled() && (pmState == PM_RUN || pmState == PM_HOT_STANDBY))
-                g_instance.pid_cxt.PgStatPID = pgstat_start();
-            continue;
         }
 
 #ifndef ENABLE_LITE_MODE
@@ -8595,8 +8554,6 @@ static const char* GetProcName(ThreadId pid)
         return "job scheduler process";
     else if (pid == g_instance.pid_cxt.PgArchPID)
         return "archiver process";
-    else if (pid == g_instance.pid_cxt.PgStatPID)
-        return "statistics collector process";
     else if (g_instance.pid_cxt.TxnSnapCapturerPID == pid)
         return "txnsnapcapturer process";
     else if (g_instance.pid_cxt.RbCleanrPID == pid)
@@ -9300,9 +9257,6 @@ static void PostmasterStateMachine(void)
                         }
                     }
 
-                    if (g_instance.pid_cxt.PgStatPID != 0)
-                        signal_child(g_instance.pid_cxt.PgStatPID, SIGQUIT);
-
                     /*  signal the auditor process */
                     if (g_instance.pid_cxt.PgAuditPID != NULL) {
                         pgaudit_stop_all();
@@ -9358,7 +9312,7 @@ static void PostmasterStateMachine(void)
          * g_instance.fatal_error processing.
          */
         if (DLGetHead(g_instance.backend_list) == NULL && g_instance.pid_cxt.PgArchPID == 0 &&
-            g_instance.pid_cxt.PgStatPID == 0 && AuditAllShutDown() &&
+            AuditAllShutDown() &&
             ckpt_all_flush_buffer_thread_exit() && ObsArchAllShutDown() && !SS_PERFORMING_SWITCHOVER) {
 
             AsssertAllChildThreadExit();
@@ -10370,9 +10324,6 @@ static void handle_begin_hot_standby()
         /*
          * Likewise, start other special children as needed.
          */
-        Assert(g_instance.pid_cxt.PgStatPID == 0);
-        if (pgstat_collector_enabled() && !dummyStandbyMode)
-            g_instance.pid_cxt.PgStatPID = pgstat_start();
         PMUpdateDBState(NORMAL_STATE, get_cur_mode(), get_cur_repl_num());
         ereport(LOG,
             (errmsg("update gaussdb state file: db state(NORMAL_STATE), server mode(%s)",
@@ -11127,10 +11078,6 @@ static void sigusr1_handler(SIGNAL_ARGS)
         /* shut down all backends and autovac workers */
         (void)SignalSomeChildren(SIGTERM, BACKEND_TYPE_NORMAL | BACKEND_TYPE_AUTOVAC);
 
-        if (g_instance.pid_cxt.PgStatPID != 0 && SS_DISASTER_STANDBY_CLUSTER) {
-            signal_child(g_instance.pid_cxt.PgStatPID, SIGQUIT);
-        }
-
         /* and the autovac launcher too */
         if (g_instance.pid_cxt.AutoVacPID != 0)
             signal_child(g_instance.pid_cxt.AutoVacPID, SIGTERM);
@@ -11323,10 +11270,6 @@ static void sigusr1_handler(SIGNAL_ARGS)
         /* and the autovac launcher too */
         if (g_instance.pid_cxt.AutoVacPID != 0)
             signal_child(g_instance.pid_cxt.AutoVacPID, SIGTERM);
-
-        if (g_instance.pid_cxt.PgStatPID != 0 && SS_DISASTER_STANDBY_CLUSTER) {
-            signal_child(g_instance.pid_cxt.PgStatPID, SIGQUIT);
-        }
 
         if (g_instance.pid_cxt.PgJobSchdPID != 0)
             signal_child(g_instance.pid_cxt.PgJobSchdPID, SIGTERM);

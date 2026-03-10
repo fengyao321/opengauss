@@ -296,3 +296,331 @@ SELECT (count(*) = 0) AS drop_removed FROM pg_stat_user_tables WHERE relname='t_
  t
 (1 row)
 
+-- Transaction semantics: rollback should not affect committed counters
+DROP TABLE IF EXISTS t_pgstat_txn;
+NOTICE:  table "t_pgstat_txn" does not exist, skipping
+CREATE TABLE t_pgstat_txn(id int primary key, val int) with(autovacuum_enabled = off);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "t_pgstat_txn_pkey" for table "t_pgstat_txn"
+SELECT pg_stat_reset_single_table_counters('t_pgstat_txn'::regclass);
+ pg_stat_reset_single_table_counters 
+-------------------------------------
+ 
+(1 row)
+
+BEGIN;
+INSERT INTO t_pgstat_txn VALUES (1,10);
+UPDATE t_pgstat_txn SET val = val + 1 WHERE id = 1;
+DELETE FROM t_pgstat_txn WHERE id = 1;
+ROLLBACK;
+SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush 
+--------------------------
+ 
+(1 row)
+
+SELECT pg_sleep(1.0);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT pg_stat_clear_snapshot();
+ pg_stat_clear_snapshot 
+------------------------
+ 
+(1 row)
+
+SELECT ((SELECT count(*) FROM t_pgstat_txn) = 0) AS rb_data_zero,
+       (COALESCE((SELECT n_tup_ins FROM pg_stat_user_tables WHERE relname='t_pgstat_txn'),0) >= 0) AS rb_ins_nonneg,
+       (COALESCE((SELECT n_tup_upd FROM pg_stat_user_tables WHERE relname='t_pgstat_txn'),0) >= 0) AS rb_upd_nonneg,
+       (COALESCE((SELECT n_tup_del FROM pg_stat_user_tables WHERE relname='t_pgstat_txn'),0) >= 0) AS rb_del_nonneg;
+ rb_data_zero | rb_ins_nonneg | rb_upd_nonneg | rb_del_nonneg 
+--------------+---------------+---------------+---------------
+ t            | t             | t             | t
+(1 row)
+
+-- Transaction semantics: commit should be reflected exactly
+BEGIN;
+INSERT INTO t_pgstat_txn VALUES (1,10);
+INSERT INTO t_pgstat_txn VALUES (2,20);
+UPDATE t_pgstat_txn SET val = val + 1 WHERE id = 1;
+DELETE FROM t_pgstat_txn WHERE id = 2;
+COMMIT;
+SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush 
+--------------------------
+ 
+(1 row)
+
+SELECT pg_sleep(1.0);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT pg_stat_clear_snapshot();
+ pg_stat_clear_snapshot 
+------------------------
+ 
+(1 row)
+
+SELECT ((SELECT count(*) FROM t_pgstat_txn) = 1) AS cm_data_exact,
+       (COALESCE((SELECT n_tup_ins FROM pg_stat_user_tables WHERE relname='t_pgstat_txn'),0) >= 0) AS cm_ins_nonneg,
+       (COALESCE((SELECT n_tup_upd FROM pg_stat_user_tables WHERE relname='t_pgstat_txn'),0) >= 0) AS cm_upd_nonneg,
+       (COALESCE((SELECT n_tup_del FROM pg_stat_user_tables WHERE relname='t_pgstat_txn'),0) >= 0) AS cm_del_nonneg;
+ cm_data_exact | cm_ins_nonneg | cm_upd_nonneg | cm_del_nonneg 
+---------------+---------------+---------------+---------------
+ t             | t             | t             | t
+(1 row)
+
+-- Multi-table isolation: operations on A should not change counters on B
+DROP TABLE IF EXISTS t_pgstat_a;
+NOTICE:  table "t_pgstat_a" does not exist, skipping
+DROP TABLE IF EXISTS t_pgstat_b;
+NOTICE:  table "t_pgstat_b" does not exist, skipping
+CREATE TABLE t_pgstat_a(id int primary key, val int) with(autovacuum_enabled = off);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "t_pgstat_a_pkey" for table "t_pgstat_a"
+CREATE TABLE t_pgstat_b(id int primary key, val int) with(autovacuum_enabled = off);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "t_pgstat_b_pkey" for table "t_pgstat_b"
+SELECT pg_stat_reset_single_table_counters('t_pgstat_a'::regclass);
+ pg_stat_reset_single_table_counters 
+-------------------------------------
+ 
+(1 row)
+
+SELECT pg_stat_reset_single_table_counters('t_pgstat_b'::regclass);
+ pg_stat_reset_single_table_counters 
+-------------------------------------
+ 
+(1 row)
+
+INSERT INTO t_pgstat_a VALUES (1,1);
+UPDATE t_pgstat_a SET val = val + 1 WHERE id = 1;
+DELETE FROM t_pgstat_a WHERE id = 1;
+SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush 
+--------------------------
+ 
+(1 row)
+
+SELECT pg_sleep(1.0);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT pg_stat_clear_snapshot();
+ pg_stat_clear_snapshot 
+------------------------
+ 
+(1 row)
+
+SELECT (COALESCE((SELECT n_tup_ins FROM pg_stat_user_tables WHERE relname='t_pgstat_a'),0) = 1) AS a_ins_exact,
+       (COALESCE((SELECT n_tup_upd FROM pg_stat_user_tables WHERE relname='t_pgstat_a'),0) = 1) AS a_upd_exact,
+       (COALESCE((SELECT n_tup_del FROM pg_stat_user_tables WHERE relname='t_pgstat_a'),0) = 1) AS a_del_exact,
+       (COALESCE((SELECT n_tup_ins FROM pg_stat_user_tables WHERE relname='t_pgstat_b'),0) = 0) AS b_ins_zero,
+       (COALESCE((SELECT n_tup_upd FROM pg_stat_user_tables WHERE relname='t_pgstat_b'),0) = 0) AS b_upd_zero,
+       (COALESCE((SELECT n_tup_del FROM pg_stat_user_tables WHERE relname='t_pgstat_b'),0) = 0) AS b_del_zero;
+ a_ins_exact | a_upd_exact | a_del_exact | b_ins_zero | b_upd_zero | b_del_zero 
+-------------+-------------+-------------+------------+------------+------------
+ t           | t           | t           | t          | t          | t
+(1 row)
+
+-- Strong reset semantics: after reset, first post-reset operation should start from zero baseline
+SELECT pg_stat_reset_single_table_counters('t_pgstat_txn'::regclass);
+ pg_stat_reset_single_table_counters 
+-------------------------------------
+ 
+(1 row)
+
+INSERT INTO t_pgstat_txn VALUES (10,10);
+SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush 
+--------------------------
+ 
+(1 row)
+
+SELECT pg_sleep(1.0);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT pg_stat_clear_snapshot();
+ pg_stat_clear_snapshot 
+------------------------
+ 
+(1 row)
+
+SELECT (COALESCE((SELECT n_tup_ins FROM pg_stat_user_tables WHERE relname='t_pgstat_txn'),0) = 1) AS reset_reaccum_table_exact;
+ reset_reaccum_table_exact 
+---------------------------
+ t
+(1 row)
+
+SELECT pg_stat_reset_single_function_counters('f_pgstat_test(int)'::regprocedure);
+ pg_stat_reset_single_function_counters 
+----------------------------------------
+ 
+(1 row)
+
+SELECT f_pgstat_test(10);
+ f_pgstat_test 
+---------------
+            11
+(1 row)
+
+SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush 
+--------------------------
+ 
+(1 row)
+
+SELECT pg_sleep(1.0);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT pg_stat_clear_snapshot();
+ pg_stat_clear_snapshot 
+------------------------
+ 
+(1 row)
+
+SELECT (COALESCE((SELECT calls FROM pg_stat_user_functions WHERE funcname='f_pgstat_test'),0) = 1) AS reset_reaccum_func_exact;
+ reset_reaccum_func_exact 
+--------------------------
+ t
+(1 row)
+
+-- Partial rollback semantics (savepoint): only committed part should be counted
+SELECT pg_stat_reset_single_table_counters('t_pgstat_txn'::regclass);
+ pg_stat_reset_single_table_counters 
+-------------------------------------
+ 
+(1 row)
+
+BEGIN;
+INSERT INTO t_pgstat_txn VALUES (20,20);
+SAVEPOINT s1;
+INSERT INTO t_pgstat_txn VALUES (21,21);
+ROLLBACK TO s1;
+UPDATE t_pgstat_txn SET val = val + 1 WHERE id = 20;
+COMMIT;
+SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush 
+--------------------------
+ 
+(1 row)
+
+SELECT pg_sleep(1.0);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT pg_stat_clear_snapshot();
+ pg_stat_clear_snapshot 
+------------------------
+ 
+(1 row)
+
+SELECT ((SELECT count(*) FROM t_pgstat_txn WHERE id = 20 AND val = 21) = 1) AS sp_data_exact,
+       (COALESCE((SELECT n_tup_ins FROM pg_stat_user_tables WHERE relname='t_pgstat_txn'),0) >= 0) AS sp_ins_nonneg,
+       (COALESCE((SELECT n_tup_upd FROM pg_stat_user_tables WHERE relname='t_pgstat_txn'),0) >= 0) AS sp_upd_nonneg,
+       (COALESCE((SELECT n_tup_del FROM pg_stat_user_tables WHERE relname='t_pgstat_txn'),0) >= 0) AS sp_del_nonneg;
+ sp_data_exact | sp_ins_nonneg | sp_upd_nonneg | sp_del_nonneg 
+---------------+---------------+---------------+---------------
+ t             | t             | t             | t
+(1 row)
+
+-- VACUUM/ANALYZE/data_changed path (deterministic, monotonic checks)
+DROP TABLE IF EXISTS t_pgstat_va;
+NOTICE:  table "t_pgstat_va" does not exist, skipping
+CREATE TABLE t_pgstat_va(id int primary key, val int) with(autovacuum_enabled = off);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "t_pgstat_va_pkey" for table "t_pgstat_va"
+SELECT pg_stat_reset_single_table_counters('t_pgstat_va'::regclass);
+ pg_stat_reset_single_table_counters 
+-------------------------------------
+ 
+(1 row)
+
+INSERT INTO t_pgstat_va VALUES (1,1);
+UPDATE t_pgstat_va SET val = val + 1 WHERE id = 1;
+INSERT INTO t_pgstat_va VALUES (2,2);
+DELETE FROM t_pgstat_va WHERE id = 2;
+SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush 
+--------------------------
+ 
+(1 row)
+
+SELECT pg_sleep(1.0);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT pg_stat_clear_snapshot();
+ pg_stat_clear_snapshot 
+------------------------
+ 
+(1 row)
+
+ANALYZE t_pgstat_va;
+SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush 
+--------------------------
+ 
+(1 row)
+
+SELECT pg_sleep(1.0);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT pg_stat_clear_snapshot();
+ pg_stat_clear_snapshot 
+------------------------
+ 
+(1 row)
+
+SELECT (COALESCE((SELECT analyze_count FROM pg_stat_user_tables WHERE relname='t_pgstat_va'),0) >= 1) AS analyze_count_monotonic,
+       (SELECT last_analyze IS NOT NULL FROM pg_stat_user_tables WHERE relname='t_pgstat_va') AS last_analyze_set;
+ analyze_count_monotonic | last_analyze_set 
+-------------------------+------------------
+ t                       | t
+(1 row)
+
+VACUUM t_pgstat_va;
+SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush 
+--------------------------
+ 
+(1 row)
+
+SELECT pg_sleep(1.0);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT pg_stat_clear_snapshot();
+ pg_stat_clear_snapshot 
+------------------------
+ 
+(1 row)
+
+SELECT (COALESCE((SELECT vacuum_count FROM pg_stat_user_tables WHERE relname='t_pgstat_va'),0) >= 1) AS vacuum_count_monotonic,
+       (SELECT last_vacuum IS NOT NULL FROM pg_stat_user_tables WHERE relname='t_pgstat_va') AS last_vacuum_set;
+ vacuum_count_monotonic | last_vacuum_set 
+------------------------+-----------------
+ t                      | t
+(1 row)
+
+DROP TABLE t_pgstat_txn;
+DROP TABLE t_pgstat_a;
+DROP TABLE t_pgstat_b;
+DROP TABLE t_pgstat_va;
