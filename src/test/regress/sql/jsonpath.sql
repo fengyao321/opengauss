@@ -248,6 +248,22 @@ INSERT INTO t_JsonExists_Case0006
 SELECT po.po_document FROM t_JsonExists_Case0006 po WHERE json_exists(po.po_document,'$[0][0]');
 drop table t_JsonExists_Case0006;
 
+drop table if exists t_JsonTextcontains_Case0003;
+create table t_JsonTextcontains_Case0003(col1 int);
+insert into t_JsonTextcontains_Case0003 values(100);
+select col1 from t_JsonTextcontains_Case0003 where json_textcontains('{ "zebra" : { "name" : "Marty",   
+                       "stripes" : ["Black","White"],  
+                       "handler" : "Bob" }}','$.zebra.stripes','');
+
+select col1 from t_JsonTextcontains_Case0003 where json_textcontains('{ "zebra" : { "name" : "Marty",   
+                       "stripes" : ["Black","White"],  
+                       "handler" : "Bob" }}','$.zebra.stripes',null);
+                       
+select col1 from t_JsonTextcontains_Case0003 where json_textcontains('{ "zebra" : { "name" : "Marty",   
+                       "stripes" : ["Black","White"],  
+                       "handler" : "Bob" }}','$.zebra.stripes',' ');
+drop table if exists t_JsonTextcontains_Case0003;
+
 \c regression
 DROP DATABASE test_jsonpath_a;
 

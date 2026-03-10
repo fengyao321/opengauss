@@ -227,15 +227,17 @@ static bool json_textcontains_internal(text* json, char* pathStr, char* raw)
     if (!JsonValueListIsEmpty(&jvlFound)) {
         char* copyRaw = pstrdup(raw);
         List* targetStrList = SplitRawTarget(copyRaw);
-        List* jbvStrList = CollectScalarJsonbValue(&cxt, &jvlFound);
-        bres = MatchTargetInJBValueList(jbvStrList, targetStrList);
+        if (targetStrList != NIL)  {
+            List* jbvStrList = CollectScalarJsonbValue(&cxt, &jvlFound);
+            bres = MatchTargetInJBValueList(jbvStrList, targetStrList);
 
-        ListCell* lc;
-        foreach (lc, targetStrList) {
-            list_free_deep((List*)lfirst(lc));
+            ListCell* lc;
+            foreach (lc, targetStrList) {
+                list_free_deep((List*)lfirst(lc));
+            }
+            list_free(targetStrList);
+            list_free_deep(jbvStrList);
         }
-        list_free(targetStrList);
-        list_free_deep(jbvStrList);
         if (copyRaw != NULL) {
             pfree(copyRaw);
         }
@@ -902,7 +904,9 @@ static List* SplitRawTarget(char* raw)
     while (tok != NULL) {
         row = NIL;
         SplitString(tok, ' ', strlen(tok), &row);
-        targetStrList = lappend(targetStrList, row);
+        if (row != NIL) {
+            targetStrList = lappend(targetStrList, row);
+        }
         tok = strtok_s(NULL, ",", &cxt);
     }
     return targetStrList;
