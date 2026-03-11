@@ -2696,10 +2696,6 @@ Buffer ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber fork
     } else if (RecoveryInProgress() && !t_thrd.xlog_cxt.InRecovery &&
         !g_instance.dms_cxt.SSRecoveryInfo.in_flushcopy) {
         BlockNumber totalBlkNum = smgrnblocks_cached(smgr, forkNum);
-        /* when in failover worker thread should exit */
-        if (SS_IN_FAILOVER && SS_AM_BACKENDS_WORKERS) {
-            ereport(ERROR, (errmodule(MOD_DMS), (errmsg("worker thread which in failover are exiting"))));
-        }
         /* Update cached blocks */
         if (totalBlkNum == InvalidBlockNumber || blockNum >= totalBlkNum) {
             totalBlkNum = smgrnblocks(smgr, forkNum);
@@ -2719,10 +2715,6 @@ Buffer ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber fork
             pgstatCountLocalBlocksRead4SessionLevel();
         }
     } else {
-        /* when in failover worker thread should exit */
-        if (SS_IN_FAILOVER && SS_AM_BACKENDS_WORKERS) {
-            ereport(ERROR, (errmodule(MOD_DMS), (errmsg("worker thread which in failover are exiting"))));
-        }
         /*
          * lookup the buffer.  IO_IN_PROGRESS is set if the requested block is
          * not currently in memory.
@@ -2906,11 +2898,6 @@ found_branch:
                     if (LWLockHeldByMe(bufHdr->io_in_progress_lock)) {
                         TerminateBufferIO(bufHdr, false, 0);
                     }
-                    /* when in failover worker thread should exit */
-                    if (SS_IN_FAILOVER && SS_AM_BACKENDS_WORKERS) {
-                        SSUnPinBuffer(bufHdr);
-                        ereport(ERROR, (errmodule(MOD_DMS), (errmsg("worker thread which in failover are exiting"))));
-                    }
 
                     if (AmDmsProcess() && !dms_drc_accessible((uint8)DRC_RES_PAGE_TYPE) &&
                         t_thrd.dms_cxt.in_ondemand_redo) {
@@ -2926,11 +2913,6 @@ found_branch:
                 if (SS_STANDBY_ONDEMAND_NOT_NORMAL && !SSOndemandRequestPrimaryRedo(bufHdr->tag)) {
                     if (LWLockHeldByMe(bufHdr->io_in_progress_lock)) {
                         TerminateBufferIO(bufHdr, false, 0);
-                    }
-                    /* when in failover worker thread should exit */
-                    if (SS_IN_FAILOVER && SS_AM_BACKENDS_WORKERS) {
-                        SSUnPinBuffer(bufHdr);
-                        ereport(ERROR, (errmodule(MOD_DMS), (errmsg("worker thread which in failover are exiting"))));
                     }
                     continue;
                 }
@@ -2961,12 +2943,7 @@ found_branch:
                             }
                             return InvalidBuffer;
                         }
-                        /* when in failover worker thread should exit */
-                        if (SS_IN_FAILOVER && SS_AM_BACKENDS_WORKERS) {
-                            SSUnPinBuffer(bufHdr);
-                            ereport(ERROR,
-                                (errmodule(MOD_DMS), (errmsg("worker thread which in failover are exiting"))));
-                        }
+
                         pg_usleep(5000L);
                         continue;
                     }
@@ -6703,12 +6680,6 @@ retry:
             buf_ctrl->state &= ~BUF_READ_MODE_ZERO_LOCK;
         }
         bool with_io_in_progress = true;
-        /* the old job schedule thread should exit */
-        if (t_thrd.role == JOB_SCHEDULER && g_instance.dms_cxt.SSRecoveryInfo.failover_to_job) {
-            g_instance.dms_cxt.SSRecoveryInfo.failover_to_job = false;
-            return;
-        }
-
         if (IsSegmentBufferID(buf->buf_id)) {
             tmp_buffer = DmsReadSegPage(buffer, lock_mode, read_mode, &with_io_in_progress);
         } else {
@@ -6726,10 +6697,6 @@ retry:
             }
 
             LWLockRelease(buf->content_lock);
-            /* when in failover worker thread should exit */
-            if (SS_IN_FAILOVER && SS_AM_BACKENDS_WORKERS) {
-                ereport(ERROR, (errmodule(MOD_DMS), (errmsg("worker thread which in failover are exiting"))));
-            }
             if (SSNeedTerminateRequestPageInPrimaryRestart(GetBufferDescriptor(buffer - 1))) {
                 t_thrd.dms_cxt.page_need_retry = true;
                 return;
