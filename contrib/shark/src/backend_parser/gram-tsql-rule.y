@@ -3459,6 +3459,13 @@ datediff_arg:
 			| Sconst								{ $$ = $1; }
 		;
 
+/* Support EXTRACT(quarter/q/qq FROM ...) in shark grammar. */
+extract_arg:
+			TSQL_QUARTER							{ $$ = "quarter"; }
+			| TSQL_Q								{ $$ = "quarter"; }
+			| TSQL_QQ								{ $$ = "quarter"; }
+		;
+
 CharacterWithLength:
                         character_national '(' TSQL_MAX ')'
                         {
