@@ -350,7 +350,74 @@ col1 int primary key
 create table ## test_temp_table(
 col1 int primary key
 );
+--列存表
+create table #test_temp_table_2(
+col1 int primary key,
+col2 char(10)
+)WITH (ORIENTATION = COLUMN);
+-- with schema pg_temp
+create table pg_temp.#test_temp_table_2(
+col1 int primary key,
+col2 char(10)
+)WITH (ORIENTATION = COLUMN);
 
+--外键1-本表为临时表，被引用表为临时表
+create table #test_temp_table_3(
+col1 int,
+col2 char(10) primary key
+);
+insert into #test_temp_table_3 values(1,'test');
+insert into #test_temp_table_3 values(2,'vast');
+insert into #test_temp_table_3 values(3,'coast');
+insert into #test_temp_table_3 values(4,'fast');
+create table #test_temp_foreign_table_3(
+col1 int,
+col2 char(20) references #test_temp_table_3(col2)
+);
+insert into #test_temp_foreign_table_3 values(6,'fast');
+insert into #test_temp_foreign_table_3 values(8,'best');
+--外键2-本表为临时表，被引用表为非临时表
+create table test_temp_table_3_1(
+col1 int,
+col2 char(10) primary key
+);
+insert into test_temp_table_3_1 values(1,'test');
+insert into test_temp_table_3_1 values(2,'vast');
+insert into test_temp_table_3_1 values(3,'coast');
+insert into test_temp_table_3_1 values(4,'fast');
+create table #test_temp_foreign_table_3_1(
+col1 int,
+col2 char(20) references test_temp_table_3_1(col2)
+);
+insert into #test_temp_foreign_table_3_1 values(6,'fast');
+insert into #test_temp_foreign_table_3_1 values(8,'best');
+--外键3-本表为实体表，被引用表为临时表
+create table #test_temp_table_3_2(
+col1 int,
+col2 char(10) primary key
+);
+insert into #test_temp_table_3_2 values(1,'test');
+create table test_temp_foreign_table_3_2(
+col1 int,
+col2 char(20) references #test_temp_table_3_2(col2)
+);
+
+-- alter table add constraint foreign key in D-format
+create table #test_temp_table_4(
+col1 int,
+col2 char(10) primary key
+);
+insert into #test_temp_table_4 values(1,'test');
+insert into #test_temp_table_4 values(2,'vast');
+insert into #test_temp_table_4 values(3,'coast');
+insert into #test_temp_table_4 values(4,'fast');
+create table #test_temp_foreign_table_4(
+col1 int,
+col2 char(20)
+);
+alter table #test_temp_foreign_table_4 add foreign key (col2) references #test_temp_table_4(col2);
+insert into #test_temp_foreign_table_4 values(6,'fast');
+insert into #test_temp_foreign_table_4 values(8,'best');
 -- clean
 \c postgres
 DROP DATABASE temp_table_prefix;
