@@ -1090,7 +1090,7 @@ static float GetCandidateDistance(char *base, HnswElement element, Datum q, Fmgr
     Datum value = HnswGetValue(base, element);
     float realDis = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, q, value));
 
-    if (IS_SPARSEVEC(procinfo->fn_oid)) {
+    if (IS_SPARSEVEC(procinfo->fn_oid) || IS_BITVEC(procinfo->fn_oid)) {
         return realDis;
     }
 
@@ -1679,7 +1679,7 @@ static float HnswGetDistance(char *base, HnswElement a, HnswElement b, FmgrInfo 
     Datum bValue = HnswGetValue(base, b);
     float realDis = DatumGetFloat8(FunctionCall2Coll(procinfo, collation, aValue, bValue));
 
-    if (IS_SPARSEVEC(procinfo->fn_oid)) {
+    if (IS_SPARSEVEC(procinfo->fn_oid) || IS_BITVEC(procinfo->fn_oid)) {
         return realDis;
     }
 
