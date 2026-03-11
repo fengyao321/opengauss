@@ -1059,7 +1059,7 @@ static bool InsertTuple(Relation index, Datum *values, const bool *isnull, ItemP
     HnswPtrStore(base, element->pqcodes, codePtr);
     HnswPtrStore(base, element->rbqcodes, rbqPtr);
 
-    if (!IS_SPARSEVEC(buildstate->procinfo->fn_oid)) {
+    if (!IS_SPARSEVEC(buildstate->procinfo->fn_oid) && !IS_BITVEC(buildstate->procinfo->fn_oid)) {
         Vector* currentVec = (Vector*)HnswGetValue(base, element);
         if (buildstate->enableLsg) {
             currentVec->isoValue = CalcIsoVal((float *)currentVec->x, buildstate->LocScalingParam);
