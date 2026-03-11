@@ -692,6 +692,64 @@ ERROR:  syntax error at or near "#"
 LINE 1: SELECT 1 # #111.ID from #111 where ID = 1;
                                 ^
 reset enable_special_operator;
+-- special character in table name
+--本地临时表
+--中文、数字、字母、特殊字符@#_ --成功
+create table #测试test_temp_table( col1 int primary key );
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "#测试test_temp_table_pkey" for table "#测试test_temp_table"
+create table #123test_temp_table( col1 int primary key );
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "#123test_temp_table_pkey" for table "#123test_temp_table"
+create table #test_temp_table( col1 int primary key );
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "#test_temp_table_pkey" for table "#test_temp_table"
+create table #@test_temp_table( col1 int primary key );
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "#@test_temp_table_pkey" for table "#@test_temp_table"
+create table #_test_temp_table(
+col1 int primary key
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "#_test_temp_table_pkey" for table "#_test_temp_table"
+--本地临时表-特殊字符、空格 --报错
+create table #.test_temp_table(
+col1 int primary key
+);
+ERROR:  syntax error at or near "#"
+LINE 1: create table #.test_temp_table(
+                     ^
+create table # test_temp_table(
+col1 int primary key
+);
+ERROR:  syntax error at or near "#"
+LINE 1: create table # test_temp_table(
+                     ^
+--全局临时表--中文、数字、字母、特殊字符@#_ --成功
+create table ##测试test_temp_table( col1 int primary key );
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "##测试test_temp_table_pkey" for table "##测试test_temp_table"
+create table ##123test_temp_table( col1 int primary key );
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "##123test_temp_table_pkey" for table "##123test_temp_table"
+create table ##test_temp_table( col1 int primary key );
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "##test_temp_table_pkey" for table "##test_temp_table"
+create table ##@test_temp_table( col1 int primary key );
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "##@test_temp_table_pkey" for table "##@test_temp_table"
+create table ###test_temp_table(
+col1 int primary key
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "###test_temp_table_pkey" for table "###test_temp_table"
+create table ##_test_temp_table(
+col1 int primary key
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "##_test_temp_table_pkey" for table "##_test_temp_table"
+--全局临时表-特殊字符、空格 --报错
+create table ##.test_temp_table(
+col1 int primary key
+);
+ERROR:  syntax error at or near "##"
+LINE 1: create table ##.test_temp_table(
+                     ^
+create table ## test_temp_table(
+col1 int primary key
+);
+ERROR:  syntax error at or near "##"
+LINE 1: create table ## test_temp_table(
+                     ^
 -- clean
 \c postgres
 DROP DATABASE temp_table_prefix;
