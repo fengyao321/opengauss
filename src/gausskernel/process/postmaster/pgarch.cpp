@@ -113,8 +113,8 @@ static bool pgarch_archiveXlog(char* xlog);
 static bool pgarch_readyXlog(char* xlog, int xlog_length);
 static void pgarch_archiveDone(const char* xlog);
 static void archKill(int code, Datum arg);
-static bool CheckArchiveCmdExecuterExists(int *pid, bool clean);
 #ifndef ENABLE_LITE_MODE
+static bool CheckArchiveCmdExecuterExists(int *pid, bool clean);
 static void pgarch_archiveRoachForPitrStandby();
 static bool pgarch_archiveRoachForPitrMaster(XLogRecPtr targetLsn);
 static bool pgarch_archiveRoachForCoordinator(XLogRecPtr targetLsn);
@@ -800,9 +800,11 @@ static bool pgarch_archiveXlog(char* xlog)
         return PgarchArchiveXlogToDest(xlog);
     }
 
+#ifndef ENABLE_LITE_MODE
     rc = snprintf_s(pathname, MAXPGPATH, MAXPGPATH - 1, "%s/%s/%s", g_instance.attr.attr_common.data_directory,
         SS_XLOGDIR, xlog);
     securec_check_ss(rc, "\0", "\0");
+#endif
 
     /*
      * construct the command to be executed
@@ -847,7 +849,9 @@ static bool pgarch_archiveXlog(char* xlog)
             }
         }
     }
+#ifndef ENABLE_LITE_MODE
     *dp++ = '\n';
+#endif
     *dp = '\0';
 
     ereport(DEBUG3, (errmsg_internal("executing archive command \"%s\"", xlogarchcmd)));
@@ -858,6 +862,7 @@ static bool pgarch_archiveXlog(char* xlog)
 
     set_ps_display(activitymsg, false);
 
+#ifndef ENABLE_LITE_MODE
     int pid;
     if (!CheckArchiveCmdExecuterExists(&pid, false)) {
         ereport(WARNING, (errmsg("Skip as archive command executer process doesn't exist.")));
@@ -866,6 +871,10 @@ static bool pgarch_archiveXlog(char* xlog)
 
     rc = write(g_instance.attr.attr_common.archiveCmdExecutePipe[1], xlogarchcmd, strlen(xlogarchcmd));
     if (rc == -1) {
+#else
+     rc = gs_popen_security(xlogarchcmd);
+     if (rc != 0) {
+#endif
         /* If execute archive command failed, we report an alarm */
         g_instance.WalSegmentArchSucceed = false;
 
@@ -879,10 +888,40 @@ static bool pgarch_archiveXlog(char* xlog)
          * Per the Single Unix Spec, shells report exit status > 128 when a
          * called command died on a signal.
          */
+#ifndef ENABLE_LITE_MODE
         ereport(WARNING,
             (errmsg("archive command exited with unrecognized status %d", rc),
                 errdetail("The failed archive command was: \"%s\" ", xlogarchcmd)));
 
+#else
+        int lev = (WIFSIGNALED(rc) || WEXITSTATUS(rc) > 128) ? FATAL : LOG;
+        if (WIFEXITED(rc)) {
+            ereport(lev,
+                (errmsg("archive command failed with exit code %d", WEXITSTATUS(rc)),
+                    errdetail("The failed archive command was: \"%s\" ", xlogarchcmd)));
+        } else if (WIFSIGNALED(rc)) {
+#if defined(WIN32)
+            ereport(lev,
+                (errmsg("archive command was terminated by exception 0x%X", WTERMSIG(rc)),
+                    errhint("See C include file \"ntstatus.h\" for a description of the hexadecimal value."),
+                    errdetail("The failed archive command was: \"%s\" ", xlogarchcmd)));
+#elif defined(HAVE_DECL_SYS_SIGLIST) && HAVE_DECL_SYS_SIGLIST
+            ereport(lev,
+                (errmsg("archive command was terminated by signal %d: %s",
+                     WTERMSIG(rc),
+                     WTERMSIG(rc) < NSIG ? sys_siglist[WTERMSIG(rc)] : "(unknown)"),
+                    errdetail("The failed archive command was: \"%s\" ", xlogarchcmd)));
+#else
+            ereport(lev,
+                (errmsg("archive command was terminated by signal %d", WTERMSIG(rc)),
+                    errdetail("The failed archive command was: \"%s\" ", xlogarchcmd)));
+#endif
+        } else {
+            ereport(lev,
+                (errmsg("archive command exited with unrecognized status %d", rc),
+                    errdetail("The failed archive command was: \"%s\" ", xlogarchcmd)));
+        }
+#endif
         rc = snprintf_s(activitymsg, sizeof(activitymsg), sizeof(activitymsg) - 1, "failed on %s", xlog);
         securec_check_ss(rc, "\0", "\0");
 
@@ -1391,5 +1430,4 @@ void InitArchiveCmdExecuter()
     close(g_instance.attr.attr_common.archiveCmdExecutePipe[0]);
     return;
 }
-
 #endif
