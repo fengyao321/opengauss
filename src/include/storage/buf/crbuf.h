@@ -92,7 +92,6 @@ inline void UnlockCRBufHdr(CRBufferDesc *desc, uint64 s)
 }
 
 void InitCRBufPool(void);
-void InitCRBufPoolAccess(void);
 
 CRBufferDesc *ReadCRBuffer(Relation reln, BlockNumber block_num, CommitSeqNo csn, CommandId cid);
 CRBufferDesc *AllocCRBuffer(Relation reln, ForkNumber forkNum, BlockNumber blockNum, CommitSeqNo csn, CommandId cid);
