@@ -2073,8 +2073,8 @@ static void spc_shrink_compact(Oid spcNode, Oid dbNode, int extentType, ForkNumb
 
     SegSpace *spc = spc_open(spcNode, dbNode, false);
     if (spc == NULL) {
-        ereport(LOG, (errmsg("Segment is not initialized in current database")));
-        return;
+        ereport(ERROR, (errmsg("Segment is not initialized in current database, database and "
+                               "tablespace may be incorrect or mismatched")));
     }
     SegExtentGroup* seg = &spc->extent_group[EXTENT_TYPE_TO_GROUPID(extentType)][forknum];
     if (!eg_df_exists(seg)) {

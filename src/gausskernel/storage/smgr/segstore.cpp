@@ -2523,7 +2523,10 @@ static uint32 seg_shrink_recycle_extents(Relation rel, SegSpace* spc, uint32 nex
         ext_size = ExtentSizeByCount(last_ext);
         egid = EXTENT_SIZE_TO_GROUPID(ext_size);
         seg = &spc->extent_group[egid][forknum];
-        SegmentCheck(eg_df_exists(seg));
+        // empty segment
+        if (!eg_df_exists(seg)) {
+            break;
+        }
         ext_start = ExtentIdToLogicBlockNum(last_ext);
         SegmentCheck(seg->extent_size == ext_size);
         if (seg_extent_in_use(rel, nblocks, seg, ext_start)) {
