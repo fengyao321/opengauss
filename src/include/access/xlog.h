@@ -844,6 +844,7 @@ extern bool CheckSwitchoverTimeoutSignal(void);
 
 extern void WakeupRecovery(void);
 extern void WakeupDataRecovery(void);
+extern pg_atomic_uint32 wal_thread_wakeup_flag;
 extern void SetWalWriterSleeping(bool sleeping);
 extern uint64 XLogDiff(XLogRecPtr end, XLogRecPtr start);
 
