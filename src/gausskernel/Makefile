@@ -160,11 +160,6 @@ LIBS += -llz4
 LIBS += -lcjson
 
 ##########################################################################
-# append text-splitter for text chunking
-############################################################################
-LIBS += -ltext_splitter_ffi
-
-##########################################################################
 # append onnx for AI model inference
 ############################################################################
 LIBS += -lonnx_wrapper -lonnxruntime -ltokenizers
@@ -300,10 +295,6 @@ endif
   # append cjson for json parser in c: cjson
   LDFLAGS += -L$(CJSON_LIB_PATH)
   CXXFLAGS+= -I$(CJSON_INCLUDE_PATH)
-
-  # append text-splitter for text chunking
-  LDFLAGS += -L$(TEXT_SPLITTER_LIB_PATH)
-  CXXFLAGS+= -I$(TEXT_SPLITTER_INCLUDE_PATH)
 
   # append onnx for AI model inference
   LDFLAGS += -L$(ONNXRUNTIME_LIB_PATH) -L$(TOKENIZERS_LIB_PATH)
@@ -647,7 +638,6 @@ endif
 	cp -d $(ZLIB_LIB_PATH)/libz* '$(DESTDIR)$(libdir)/'
 	cp -d $(XGBOOST_LIB_PATH)/libxgboost* '$(DESTDIR)$(libdir)/'
 	cp -d $(CJSON_LIB_PATH)/libcjson* '$(DESTDIR)$(libdir)/'
-	cp -d $(TEXT_SPLITTER_LIB_PATH)/libtext_splitter_ffi* '$(DESTDIR)$(libdir)/'
 	cp -d $(ONNXRUNTIME_LIB_PATH)/libonnx* '$(DESTDIR)$(libdir)/'
 	cp -d $(TOKENIZERS_LIB_PATH)/libtokenizers* '$(DESTDIR)$(libdir)/'
 
