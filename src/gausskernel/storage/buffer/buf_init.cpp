@@ -273,8 +273,13 @@ Size BufferShmemSize(void)
     }
 
     if (!ENABLE_DMS) {
-        size = add_size(size, mul_size(CR_BUFFER_NUM, sizeof(CRBufferDescPadded))) + PG_CACHE_LINE_SIZE;
-        size = add_size(size, mul_size(CR_BUFFER_NUM, BLCKSZ)), + PG_CACHE_LINE_SIZE;
+        size = add_size(size, mul_size(CR_BUFFER_NUM, sizeof(CRBufferDescPadded)));
+        size = add_size(size, PG_CACHE_LINE_SIZE);
+        size = add_size(size, mul_size(CR_BUFFER_NUM, BLCKSZ));
+#ifdef __aarch64__
+        size = add_size(size, PG_CACHE_LINE_SIZE);
+#endif
+        size = add_size(size, hash_estimate_size(CR_BUFFER_NUM, sizeof(CRBufEntry)));
     }
 
     return size;

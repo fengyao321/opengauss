@@ -109,7 +109,9 @@ typedef struct knl_instance_attr_common {
     bool enable_default_index_deduplication;
     bool enable_mot_server;
     bool xlog_write_flush_split;
+#ifndef ENABLE_LITE_MODE
     int archiveCmdExecutePipe[2];
+#endif
 } knl_instance_attr_common;
 
 #endif /* SRC_INCLUDE_KNL_KNL_INSTANCE_ATTR_COMMON_H_ */
