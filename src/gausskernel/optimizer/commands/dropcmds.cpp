@@ -110,7 +110,8 @@ static void DropExtensionInListIsSupported(List* objname)
         "gms_raw",
         "gms_match",
         "gms_assert",
-        "gms_tcp"
+        "gms_tcp",
+        "gms_xmlparser"
 #endif
     };
     int len = lengthof(supportList);
