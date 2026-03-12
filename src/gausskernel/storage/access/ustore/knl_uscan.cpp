@@ -1561,6 +1561,10 @@ bool UHeapGetTupPageBatchmode(UHeapScanDesc scan, ScanDirection dir)
             scan->rs_base.rs_ctupRows = 0;
             return true;
         } else {
+            for (int i = 0; i < scan->rs_base.rs_ntuples; i++) {
+                pfree_ext(scan->rs_visutuples[i]);
+            }
+            scan->rs_base.rs_ntuples = 0;
             if (unlikely(!UHeapGetPage((TableScanDesc)scan, page))) {
                 continue;
             }
