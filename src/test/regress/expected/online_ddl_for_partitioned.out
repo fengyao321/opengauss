@@ -1,0 +1,883 @@
+CREATE SCHEMA IF NOT EXISTS test_ddl;
+SET current_schema = test_ddl;
+CREATE OR REPLACE FUNCTION create_partitioned_table(tablename TEXT)
+RETURNS VOID AS $$
+BEGIN
+    EXECUTE format('
+        CREATE TABLE %I (
+            id int NOT NULL,
+            value1 varchar,
+            value2 int
+        ) PARTITION BY RANGE (id) (
+            PARTITION %I_p1 VALUES LESS THAN (5),
+            PARTITION %I_p2 VALUES LESS THAN (10),
+            PARTITION %I_p3 VALUES LESS THAN (MAXVALUE)
+        );
+    ', tablename, tablename, tablename, tablename);
+END;
+$$ LANGUAGE plpgsql;
+-- Case 1: alter column type in transaction block
+DROP TABLE IF EXISTS online_ddl_test_error;
+NOTICE:  table "online_ddl_test_error" does not exist, skipping
+SELECT create_partitioned_table('online_ddl_test_error');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+BEGIN;
+ALTER TABLE CONCURRENTLY online_ddl_test_error ALTER COLUMN value1 TYPE int; -- ERROR
+ERROR:  ALTER TABLE CONCURRENTLY cannot run inside a transaction block
+ROLLBACK;
+\d+ online_ddl_test_error
+                     Table "test_ddl.online_ddl_test_error"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Case 2: set not null in transaction block
+DROP TABLE IF EXISTS online_ddl_test_error;
+SELECT create_partitioned_table('online_ddl_test_error');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+BEGIN;
+ALTER TABLE CONCURRENTLY online_ddl_test_error ALTER COLUMN value2 SET NOT NULL; -- ERROR
+ERROR:  ALTER TABLE CONCURRENTLY cannot run inside a transaction block
+ROLLBACK;
+\d+ online_ddl_test_error
+                     Table "test_ddl.online_ddl_test_error"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Case 3: subtransaction block
+DROP TABLE IF EXISTS online_ddl_test_error;
+SELECT create_partitioned_table('online_ddl_test_error');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+BEGIN;
+SAVEPOINT sp1;
+ALTER TABLE CONCURRENTLY online_ddl_test_error ALTER COLUMN value1 TYPE int; -- ERROR
+ERROR:  ALTER TABLE CONCURRENTLY cannot run inside a transaction block
+ROLLBACK;
+\d+ online_ddl_test_error
+                     Table "test_ddl.online_ddl_test_error"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Case 4: subtransaction + set not null
+DROP TABLE IF EXISTS online_ddl_test_error;
+SELECT create_partitioned_table('online_ddl_test_error');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+BEGIN;
+SAVEPOINT sp1;
+ALTER TABLE CONCURRENTLY online_ddl_test_error ALTER COLUMN value2 SET NOT NULL; -- ERROR
+ERROR:  ALTER TABLE CONCURRENTLY cannot run inside a transaction block
+ROLLBACK;
+\d+ online_ddl_test_error
+                     Table "test_ddl.online_ddl_test_error"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Case 5: alter command with no concurrently gram
+DROP TABLE IF EXISTS online_ddl_test_error;
+SELECT create_partitioned_table('online_ddl_test_error');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+ALTER TABLE CONCURRENTLY online_ddl_test_error RENAME COLUMN value1 TO value_1; -- ERROR
+ERROR:  syntax error at or near "RENAME"
+LINE 1: ALTER TABLE CONCURRENTLY online_ddl_test_error RENAME COLUMN...
+                                                       ^
+\d+ online_ddl_test_error
+                     Table "test_ddl.online_ddl_test_error"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Case 6: alter column set not null with null value
+DROP TABLE IF EXISTS online_ddl_test_not_null;
+NOTICE:  table "online_ddl_test_not_null" does not exist, skipping
+SELECT create_partitioned_table('online_ddl_test_not_null');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+INSERT INTO online_ddl_test_not_null SELECT generate_series(1, 10), 'test', 111;
+INSERT INTO online_ddl_test_not_null VALUES (11, 'test_null', NULL);
+ALTER TABLE CONCURRENTLY online_ddl_test_not_null ALTER COLUMN value2 SET NOT NULL; -- ERROR
+NOTICE:  Online DDL instance init finish, start to copy baseline data.
+NOTICE:  Online DDL rewrite catalogs finish, start to copy baseline data.
+ERROR:  column "value2" contains null values
+\d+ online_ddl_test_not_null
+                   Table "test_ddl.online_ddl_test_not_null"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no, append_mode=online_ddl, append_mode_internal=6
+
+-- Case 7: alter column set range constraint with out of range value
+DROP TABLE IF EXISTS online_ddl_test_range;
+NOTICE:  table "online_ddl_test_range" does not exist, skipping
+SELECT create_partitioned_table('online_ddl_test_range');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+INSERT INTO online_ddl_test_range SELECT generate_series(1, 10), 'test', 9;
+INSERT INTO online_ddl_test_range VALUES (11, 'test_out_of_range', 11);
+ALTER TABLE CONCURRENTLY online_ddl_test_range ADD CONSTRAINT ck_online_ddl_test_range CHECK (value2 > 1 AND value2 < 10); -- ERROR
+NOTICE:  Online DDL instance init finish, start to copy baseline data.
+NOTICE:  Online DDL rewrite catalogs finish, start to copy baseline data.
+ERROR:  check constraint "ck_online_ddl_test_range" is violated by some row
+\d+ online_ddl_test_range
+                     Table "test_ddl.online_ddl_test_range"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no, append_mode=online_ddl, append_mode_internal=6
+
+-- Case 9: alter command no need to rewrite table
+DROP TABLE IF EXISTS online_ddl_test_skip;
+NOTICE:  table "online_ddl_test_skip" does not exist, skipping
+SELECT create_partitioned_table('online_ddl_test_skip');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+ALTER TABLE CONCURRENTLY online_ddl_test_skip ALTER COLUMN id SET DEFAULT 100; -- SKIP
+NOTICE:  Current command doestn't need to rewrite table.
+\d+ online_ddl_test_skip
+                           Table "test_ddl.online_ddl_test_skip"
+ Column |       Type        |      Modifiers       | Storage  | Stats target | Description 
+--------+-------------------+----------------------+----------+--------------+-------------
+ id     | integer           | not null default 100 | plain    |              | 
+ value1 | character varying |                      | extended |              | 
+ value2 | integer           |                      | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+DROP TABLE IF EXISTS online_ddl_test_skip;
+SELECT create_partitioned_table('online_ddl_test_skip');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+ALTER TABLE CONCURRENTLY online_ddl_test_skip ADD COLUMN value3 int; -- SKIP
+NOTICE:  Current command doestn't need to rewrite table.
+\d+ online_ddl_test_skip
+                     Table "test_ddl.online_ddl_test_skip"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+ value3 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+DROP TABLE IF EXISTS online_ddl_test_skip;
+SELECT create_partitioned_table('online_ddl_test_skip');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+ALTER TABLE CONCURRENTLY online_ddl_test_skip DROP COLUMN value3; -- SKIP
+NOTICE:  Current command doestn't need to rewrite table.
+ERROR:  column "value3" of relation "online_ddl_test_skip" does not exist
+\d+ online_ddl_test_skip
+                     Table "test_ddl.online_ddl_test_skip"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+DROP TABLE IF EXISTS online_ddl_test_skip;
+SELECT create_partitioned_table('online_ddl_test_skip');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+ALTER TABLE CONCURRENTLY online_ddl_test_skip RENAME COLUMN value1 TO value_1; -- ERROR
+ERROR:  syntax error at or near "RENAME"
+LINE 1: ALTER TABLE CONCURRENTLY online_ddl_test_skip RENAME COLUMN ...
+                                                      ^
+\d+ online_ddl_test_skip
+                     Table "test_ddl.online_ddl_test_skip"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Add constraint unique
+DROP TABLE IF EXISTS online_ddl_test_skip;
+SELECT create_partitioned_table('online_ddl_test_skip');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+ALTER TABLE CONCURRENTLY online_ddl_test_skip ADD CONSTRAINT uq_online_ddl_test_skip UNIQUE (value2); -- SKIP
+NOTICE:  Online DDL operation is not supported for command types, type: 18, do it without online ddl.
+NOTICE:  ALTER TABLE / ADD UNIQUE will create implicit index "uq_online_ddl_test_skip" for table "online_ddl_test_skip"
+\d+ online_ddl_test_skip
+                     Table "test_ddl.online_ddl_test_skip"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Indexes:
+    "uq_online_ddl_test_skip" UNIQUE CONSTRAINT, btree (value2) TABLESPACE pg_default
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Add primary key
+DROP TABLE IF EXISTS online_ddl_test_skip;
+SELECT create_partitioned_table('online_ddl_test_skip');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+ALTER TABLE CONCURRENTLY online_ddl_test_skip ADD CONSTRAINT pk_online_ddl_test_skip PRIMARY KEY (id); -- SKIP
+NOTICE:  Online DDL operation is not supported for command types, type: 18, do it without online ddl.
+NOTICE:  ALTER TABLE / ADD PRIMARY KEY will create implicit index "pk_online_ddl_test_skip" for table "online_ddl_test_skip"
+\d+ online_ddl_test_skip
+                     Table "test_ddl.online_ddl_test_skip"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Indexes:
+    "pk_online_ddl_test_skip" PRIMARY KEY, btree (id) LOCAL TABLESPACE pg_default
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Case 10: alter column add constraint with valid data
+DROP TABLE IF EXISTS online_ddl_test_valid;
+NOTICE:  table "online_ddl_test_valid" does not exist, skipping
+SELECT create_partitioned_table('online_ddl_test_valid');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+INSERT INTO online_ddl_test_valid SELECT generate_series(1, 10), 'test', 5;
+ALTER TABLE CONCURRENTLY online_ddl_test_valid ALTER COLUMN value2 SET NOT NULL; -- SUCCESS
+NOTICE:  Online DDL instance init finish, start to copy baseline data.
+NOTICE:  Online DDL rewrite catalogs finish, start to copy baseline data.
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table online_ddl_temp_schema_16448_1663_16459_16695.online_ddl_delta_log
+drop cascades to table online_ddl_temp_schema_16448_1663_16459_16695.ctid_map
+\d+ online_ddl_test_valid
+                     Table "test_ddl.online_ddl_test_valid"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           | not null  | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+DROP TABLE IF EXISTS online_ddl_test_valid;
+SELECT create_partitioned_table('online_ddl_test_valid');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+INSERT INTO online_ddl_test_valid SELECT generate_series(1, 10), 'test', 5;
+ALTER TABLE CONCURRENTLY online_ddl_test_valid ADD CONSTRAINT ck_online_ddl_test_valid CHECK (value2 > 1 AND value2 < 10); -- SUCCESS
+NOTICE:  Online DDL instance init finish, start to copy baseline data.
+NOTICE:  Online DDL rewrite catalogs finish, start to copy baseline data.
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table online_ddl_temp_schema_16453_1663_16459_16719.online_ddl_delta_log
+drop cascades to table online_ddl_temp_schema_16453_1663_16459_16719.ctid_map
+\d+ online_ddl_test_valid
+                     Table "test_ddl.online_ddl_test_valid"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Check constraints:
+    "ck_online_ddl_test_valid" CHECK (value2 > 1 AND value2 < 10)
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Case 11: alter table concurrently set row compression
+-- No need to rewrite table
+DROP TABLE IF EXISTS online_ddl_test_compress;
+NOTICE:  table "online_ddl_test_compress" does not exist, skipping
+SELECT create_partitioned_table('online_ddl_test_compress');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+INSERT INTO online_ddl_test_compress SELECT generate_series(1, 10), 'test', 5;
+ALTER TABLE CONCURRENTLY online_ddl_test_compress SET (compress_level = 0); -- SKIP
+NOTICE:  Current command doestn't need to rewrite table.
+\d+ online_ddl_test_compress
+                   Table "test_ddl.online_ddl_test_compress"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no, compress_level=0
+
+DROP TABLE IF EXISTS online_ddl_test_compress;
+SELECT create_partitioned_table('online_ddl_test_compress');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+ALTER TABLE online_ddl_test_compress SET (compresstype=2, compress_level = 15);
+INSERT INTO online_ddl_test_compress SELECT generate_series(1, 10), 'test', 5;
+ALTER TABLE CONCURRENTLY online_ddl_test_compress SET (compresstype=2, compress_level = 15); -- SKIP
+NOTICE:  Current command doestn't need to rewrite table.
+\d+ online_ddl_test_compress
+                   Table "test_ddl.online_ddl_test_compress"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no, compresstype=2, compress_level=15
+
+-- No compress to compress
+DROP TABLE IF EXISTS online_ddl_test_compress;
+SELECT create_partitioned_table('online_ddl_test_compress');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+INSERT INTO online_ddl_test_compress SELECT generate_series(1, 10), 'test', 5;
+ALTER TABLE CONCURRENTLY online_ddl_test_compress SET (compresstype=2, compress_level = 15); -- SUCCESS
+NOTICE:  Online DDL instance init finish, start to copy baseline data.
+NOTICE:  Online DDL rewrite catalogs finish, start to copy baseline data.
+NOTICE:  Online DDL baseline data copy completed, start to append incremental data.
+NOTICE:  Online DDL get AccessExclusiveLock for partitioned table before commit, append data for the last time.
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table online_ddl_temp_schema_16466_1663_16459_16794.online_ddl_delta_log
+drop cascades to table online_ddl_temp_schema_16466_1663_16459_16794.ctid_map
+\d+ online_ddl_test_compress
+                   Table "test_ddl.online_ddl_test_compress"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no, compresstype=2, compress_level=15
+
+-- Indexed table no compress to compress
+DROP TABLE IF EXISTS online_ddl_test_compress;
+SELECT create_partitioned_table('online_ddl_test_compress');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+CREATE INDEX idx_online_ddl_test_compress_value1 ON online_ddl_test_compress USING btree (value1) local;
+CREATE INDEX idx_online_ddl_test_compress_value2 ON online_ddl_test_compress USING hash (value2) local;
+INSERT INTO online_ddl_test_compress SELECT generate_series(1, 10), 'test', 5;
+ALTER TABLE CONCURRENTLY online_ddl_test_compress SET (compresstype=2, compress_level = 15); -- SUCCESS
+NOTICE:  Online DDL instance init finish, start to copy baseline data.
+NOTICE:  Online DDL rewrite catalogs finish, start to copy baseline data.
+NOTICE:  Online DDL baseline data copy completed, start to append incremental data.
+NOTICE:  Online DDL get AccessExclusiveLock for partitioned table before commit, append data for the last time.
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table online_ddl_temp_schema_16473_1663_16459_16836.online_ddl_delta_log
+drop cascades to table online_ddl_temp_schema_16473_1663_16459_16836.ctid_map
+\d+ online_ddl_test_compress
+                   Table "test_ddl.online_ddl_test_compress"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Indexes:
+    "idx_online_ddl_test_compress_value1" btree (value1) LOCAL TABLESPACE pg_default
+    "idx_online_ddl_test_compress_value2" hash (value2) LOCAL TABLESPACE pg_default
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no, compresstype=2, compress_level=15
+
+-- Compress to no compress
+DROP TABLE IF EXISTS online_ddl_test_compress;
+SELECT create_partitioned_table('online_ddl_test_compress');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+ALTER TABLE online_ddl_test_compress SET (compresstype=2, compress_level = 15);
+INSERT INTO online_ddl_test_compress SELECT generate_series(1, 10), 'test', 5;
+ALTER TABLE CONCURRENTLY online_ddl_test_compress RESET (compresstype, compress_level); -- SUCCESS
+NOTICE:  Online DDL instance init finish, start to copy baseline data.
+NOTICE:  Online DDL rewrite catalogs finish, start to copy baseline data.
+NOTICE:  Online DDL baseline data copy completed, start to append incremental data.
+NOTICE:  Online DDL get AccessExclusiveLock for partitioned table before commit, append data for the last time.
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table online_ddl_temp_schema_16479_1663_16459_16898.online_ddl_delta_log
+drop cascades to table online_ddl_temp_schema_16479_1663_16459_16898.ctid_map
+\d+ online_ddl_test_compress
+                   Table "test_ddl.online_ddl_test_compress"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Indexed table compress to no compress
+DROP TABLE IF EXISTS online_ddl_test_compress;
+SELECT create_partitioned_table('online_ddl_test_compress');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+CREATE INDEX idx_online_ddl_test_compress_value1 ON online_ddl_test_compress USING btree (value1) local;
+CREATE INDEX idx_online_ddl_test_compress_value2 ON online_ddl_test_compress USING hash (value2) local;
+INSERT INTO online_ddl_test_compress SELECT generate_series(1, 10), 'test', 5;
+ALTER TABLE CONCURRENTLY online_ddl_test_compress RESET (compresstype, compress_level); -- SUCCESS
+NOTICE:  Current command doestn't need to rewrite table.
+\d+ online_ddl_test_compress
+                   Table "test_ddl.online_ddl_test_compress"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Indexes:
+    "idx_online_ddl_test_compress_value1" btree (value1) LOCAL TABLESPACE pg_default
+    "idx_online_ddl_test_compress_value2" hash (value2) LOCAL TABLESPACE pg_default
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Alter compress level
+DROP TABLE IF EXISTS online_ddl_test_compress;
+SELECT create_partitioned_table('online_ddl_test_compress');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+ALTER TABLE online_ddl_test_compress SET (compresstype=2, compress_level = 10);
+INSERT INTO online_ddl_test_compress SELECT generate_series(1, 10), 'test', 5;
+ALTER TABLE CONCURRENTLY online_ddl_test_compress SET (compress_level = 5); -- SUCCESS
+NOTICE:  Online DDL instance init finish, start to copy baseline data.
+NOTICE:  Online DDL rewrite catalogs finish, start to copy baseline data.
+NOTICE:  Online DDL baseline data copy completed, start to append incremental data.
+NOTICE:  Online DDL get AccessExclusiveLock for partitioned table before commit, append data for the last time.
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table online_ddl_temp_schema_16491_1663_16459_16982.online_ddl_delta_log
+drop cascades to table online_ddl_temp_schema_16491_1663_16459_16982.ctid_map
+\d+ online_ddl_test_compress
+                   Table "test_ddl.online_ddl_test_compress"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no, compresstype=2, compress_level=5
+
+-- Indexed table alter compress level
+DROP TABLE IF EXISTS online_ddl_test_compress;
+SELECT create_partitioned_table('online_ddl_test_compress');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+CREATE INDEX idx_online_ddl_test_compress_value1 ON online_ddl_test_compress USING btree (value1) local;
+CREATE INDEX idx_online_ddl_test_compress_value2 ON online_ddl_test_compress USING hash (value2) local;
+ALTER TABLE online_ddl_test_compress SET (compresstype=2, compress_level = 10);
+INSERT INTO online_ddl_test_compress SELECT generate_series(1, 10), 'test', 5;
+ALTER TABLE CONCURRENTLY online_ddl_test_compress SET (compress_level = 5); -- SUCCESS
+NOTICE:  Online DDL instance init finish, start to copy baseline data.
+NOTICE:  Online DDL rewrite catalogs finish, start to copy baseline data.
+NOTICE:  Online DDL baseline data copy completed, start to append incremental data.
+NOTICE:  Online DDL get AccessExclusiveLock for partitioned table before commit, append data for the last time.
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table online_ddl_temp_schema_16499_1663_16459_17042.online_ddl_delta_log
+drop cascades to table online_ddl_temp_schema_16499_1663_16459_17042.ctid_map
+\d+ online_ddl_test_compress
+                   Table "test_ddl.online_ddl_test_compress"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Indexes:
+    "idx_online_ddl_test_compress_value1" btree (value1) LOCAL TABLESPACE pg_default
+    "idx_online_ddl_test_compress_value2" hash (value2) LOCAL TABLESPACE pg_default
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no, compresstype=2, compress_level=5
+
+-- Case 12: alter table concurrently alter column type with valid data
+-- Int to varchar and varchar to int
+DROP TABLE IF EXISTS online_ddl_test_alter_type;
+NOTICE:  table "online_ddl_test_alter_type" does not exist, skipping
+SELECT create_partitioned_table('online_ddl_test_alter_type');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+INSERT INTO online_ddl_test_alter_type SELECT generate_series(1, 10), 'test', '1000';
+ALTER TABLE CONCURRENTLY online_ddl_test_alter_type ALTER COLUMN value2 TYPE int;
+NOTICE:  Current command doestn't need to rewrite table.
+\d+ online_ddl_test_alter_type
+                  Table "test_ddl.online_ddl_test_alter_type"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+DROP TABLE IF EXISTS online_ddl_test_alter_type;
+SELECT create_partitioned_table('online_ddl_test_alter_type');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+INSERT INTO online_ddl_test_alter_type SELECT generate_series(1, 10), 'test', 5;
+ALTER TABLE CONCURRENTLY online_ddl_test_alter_type ALTER COLUMN value2 TYPE varchar;
+NOTICE:  Online DDL instance init finish, start to copy baseline data.
+NOTICE:  Online DDL rewrite catalogs finish, start to copy baseline data.
+NOTICE:  Online DDL baseline data copy completed, start to append incremental data.
+NOTICE:  Online DDL get AccessExclusiveLock for partitioned table before commit, append data for the last time.
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table online_ddl_temp_schema_16507_1663_16459_17144.online_ddl_delta_log
+drop cascades to table online_ddl_temp_schema_16507_1663_16459_17144.ctid_map
+\d+ online_ddl_test_alter_type
+                  Table "test_ddl.online_ddl_test_alter_type"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | character varying |           | extended |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Indexed table varchar to int
+DROP TABLE IF EXISTS online_ddl_test_alter_type;
+SELECT create_partitioned_table('online_ddl_test_alter_type');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+CREATE INDEX idx_online_ddl_test_alter_type_value1 ON online_ddl_test_alter_type USING btree (value1) local;
+CREATE INDEX idx_online_ddl_test_alter_type_value1_hash ON online_ddl_test_alter_type USING hash (value1) local;
+INSERT INTO online_ddl_test_alter_type SELECT generate_series(1, 10), 'test', '1000';
+ALTER TABLE CONCURRENTLY online_ddl_test_alter_type ALTER COLUMN value2 TYPE int;
+NOTICE:  Current command doestn't need to rewrite table.
+\d+ online_ddl_test_alter_type
+                  Table "test_ddl.online_ddl_test_alter_type"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Indexes:
+    "idx_online_ddl_test_alter_type_value1" btree (value1) LOCAL TABLESPACE pg_default
+    "idx_online_ddl_test_alter_type_value1_hash" hash (value1) LOCAL TABLESPACE pg_default
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Int to bigint and bigint to int
+DROP TABLE IF EXISTS online_ddl_test_alter_type;
+SELECT create_partitioned_table('online_ddl_test_alter_type');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+INSERT INTO online_ddl_test_alter_type SELECT generate_series(1, 10), 'test', 5;
+ALTER TABLE CONCURRENTLY online_ddl_test_alter_type ALTER COLUMN value2 TYPE bigint;
+NOTICE:  Online DDL instance init finish, start to copy baseline data.
+NOTICE:  Online DDL rewrite catalogs finish, start to copy baseline data.
+NOTICE:  Online DDL baseline data copy completed, start to append incremental data.
+NOTICE:  Online DDL get AccessExclusiveLock for partitioned table before commit, append data for the last time.
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table online_ddl_temp_schema_16518_1663_16459_17210.online_ddl_delta_log
+drop cascades to table online_ddl_temp_schema_16518_1663_16459_17210.ctid_map
+\d+ online_ddl_test_alter_type
+                  Table "test_ddl.online_ddl_test_alter_type"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | bigint            |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Indexed table int to bigint
+DROP TABLE IF EXISTS online_ddl_test_alter_type;
+SELECT create_partitioned_table('online_ddl_test_alter_type');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+CREATE INDEX idx_online_ddl_test_alter_type_value1 ON online_ddl_test_alter_type USING btree (value1) local;
+CREATE INDEX idx_online_ddl_test_alter_type_value1_hash ON online_ddl_test_alter_type USING hash (value1) local;
+INSERT INTO online_ddl_test_alter_type SELECT generate_series(1, 10), 'test', 1000;
+ALTER TABLE CONCURRENTLY online_ddl_test_alter_type ALTER COLUMN value2 TYPE bigint;
+NOTICE:  Online DDL instance init finish, start to copy baseline data.
+NOTICE:  Online DDL rewrite catalogs finish, start to copy baseline data.
+NOTICE:  Online DDL baseline data copy completed, start to append incremental data.
+NOTICE:  Online DDL get AccessExclusiveLock for partitioned table before commit, append data for the last time.
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table online_ddl_temp_schema_16525_1663_16459_17252.online_ddl_delta_log
+drop cascades to table online_ddl_temp_schema_16525_1663_16459_17252.ctid_map
+\d+ online_ddl_test_alter_type
+                  Table "test_ddl.online_ddl_test_alter_type"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | bigint            |           | plain    |              | 
+Indexes:
+    "idx_online_ddl_test_alter_type_value1" btree (value1) LOCAL TABLESPACE pg_default
+    "idx_online_ddl_test_alter_type_value1_hash" hash (value1) LOCAL TABLESPACE pg_default
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Indexed table huge number of rows
+DROP TABLE IF EXISTS online_ddl_test_alter_type;
+SELECT create_partitioned_table('online_ddl_test_alter_type');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+CREATE INDEX idx_online_ddl_test_alter_type_value1 ON online_ddl_test_alter_type USING btree (value1) local;
+CREATE INDEX idx_online_ddl_test_alter_type_value1_hash ON online_ddl_test_alter_type USING hash (value1) local;
+INSERT INTO online_ddl_test_alter_type SELECT generate_series(1, 1000), 'test', 1000;
+ALTER TABLE CONCURRENTLY online_ddl_test_alter_type ALTER COLUMN value2 TYPE bigint;
+NOTICE:  Online DDL instance init finish, start to copy baseline data.
+NOTICE:  Online DDL rewrite catalogs finish, start to copy baseline data.
+NOTICE:  Online DDL baseline data copy completed, start to append incremental data.
+NOTICE:  Online DDL get AccessExclusiveLock for partitioned table before commit, append data for the last time.
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table online_ddl_temp_schema_16532_1663_16459_17314.online_ddl_delta_log
+drop cascades to table online_ddl_temp_schema_16532_1663_16459_17314.ctid_map
+\d+ online_ddl_test_alter_type
+                  Table "test_ddl.online_ddl_test_alter_type"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | bigint            |           | plain    |              | 
+Indexes:
+    "idx_online_ddl_test_alter_type_value1" btree (value1) LOCAL TABLESPACE pg_default
+    "idx_online_ddl_test_alter_type_value1_hash" hash (value1) LOCAL TABLESPACE pg_default
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+SELECT count(*) FROM online_ddl_test_alter_type;
+ count 
+-------
+  1000
+(1 row)
+
+-- Indexed table with toast data
+DROP TABLE IF EXISTS online_ddl_test_alter_type_toast;
+NOTICE:  table "online_ddl_test_alter_type_toast" does not exist, skipping
+SELECT create_partitioned_table('online_ddl_test_alter_type_toast');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+CREATE INDEX idx_online_ddl_test_alter_type_toast_value2 ON online_ddl_test_alter_type_toast USING btree (value2) local;
+CREATE INDEX idx_online_ddl_test_alter_type_toast_value2_hash ON online_ddl_test_alter_type_toast USING hash (value2) local;
+ALTER TABLE online_ddl_test_alter_type_toast ALTER value1 SET STORAGE EXTERNAL;
+INSERT INTO online_ddl_test_alter_type_toast SELECT generate_series(1, 10), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789', '1000';
+SELECT COUNT(*) FROM pg_class WHERE oid = (SELECT reltoastrelid FROM pg_class WHERE relname = 'online_ddl_test_alter_type_toast');
+ count 
+-------
+     0
+(1 row)
+
+ALTER TABLE CONCURRENTLY online_ddl_test_alter_type_toast ALTER COLUMN value2 TYPE int;
+NOTICE:  Current command doestn't need to rewrite table.
+\d+ online_ddl_test_alter_type_toast
+               Table "test_ddl.online_ddl_test_alter_type_toast"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | external |              | 
+ value2 | integer           |           | plain    |              | 
+Indexes:
+    "idx_online_ddl_test_alter_type_toast_value2" btree (value2) LOCAL TABLESPACE pg_default
+    "idx_online_ddl_test_alter_type_toast_value2_hash" hash (value2) LOCAL TABLESPACE pg_default
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+-- Case 13: : alter table concurrently alter column type with invalid data
+DROP TABLE IF EXISTS online_ddl_test_alter_type;
+SELECT create_partitioned_table('online_ddl_test_alter_type');
+ create_partitioned_table 
+--------------------------
+ 
+(1 row)
+
+INSERT INTO online_ddl_test_alter_type SELECT generate_series(1, 10), 'test', 'not number';
+ERROR:  invalid input syntax for integer: "not number"
+LINE 1: ...alter_type SELECT generate_series(1, 10), 'test', 'not numbe...
+                                                             ^
+CONTEXT:  referenced column: value2
+ALTER TABLE CONCURRENTLY online_ddl_test_alter_type ALTER COLUMN value2 TYPE int;
+NOTICE:  Current command doestn't need to rewrite table.
+\d+ online_ddl_test_alter_type
+                  Table "test_ddl.online_ddl_test_alter_type"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           | not null  | plain    |              | 
+ value1 | character varying |           | extended |              | 
+ value2 | integer           |           | plain    |              | 
+Partition By RANGE(id)
+Number of partitions: 3 (View pg_partition to check each partition range.)
+Has OIDs: no
+Options: orientation=row, compression=no
+
+DROP SCHEMA IF EXISTS test_ddl CASCADE;
+NOTICE:  drop cascades to 9 other objects
+DETAIL:  drop cascades to function create_partitioned_table(text)
+drop cascades to table online_ddl_test_error
+drop cascades to table online_ddl_test_not_null
+drop cascades to table online_ddl_test_range
+drop cascades to table online_ddl_test_skip
+drop cascades to table online_ddl_test_valid
+drop cascades to table online_ddl_test_compress
+drop cascades to table online_ddl_test_alter_type_toast
+drop cascades to table online_ddl_test_alter_type
