@@ -1256,6 +1256,23 @@ void InitAuxiliaryProcess(void)
     on_shmem_exit(AuxiliaryProcKill, Int32GetDatum(proctype));
 }
 
+#ifndef ENABLE_LITE_MODE
+/*
+ * Return the AIO completer slot offset inside the multi-auxiliary range.
+ * This keeps every completer thread mapped to a unique BackendStatusArray slot.
+ */
+static int GetAioProcessAuxOffset()
+{
+    return t_thrd.aio_cxt.compltrIdx +
+           MAX_PAGE_WRITER_THREAD_NUM +
+           MAX_RECOVERY_THREAD_NUM +
+           SMBWRITERAUX_THREAD_NUM +
+           MAX_CBM_THREAD_NUM +
+           g_instance.shmem_cxt.ThreadPoolGroupNum +
+           MAX_COMPACTION_THREAD_NUM;
+}
+#endif
+
 /* get entry index of all various stat arrays for auxiliary threads */
 int GetAuxProcEntryIndex(int baseIdx)
 {
@@ -1299,6 +1316,12 @@ int GetAuxProcEntryIndex(int baseIdx)
                     MAX_PAGE_WRITER_THREAD_NUM +
                     MAX_RECOVERY_THREAD_NUM;
         }
+#ifndef ENABLE_LITE_MODE
+        else if (t_thrd.bootstrap_cxt.MyAuxProcType == AIO_PROCESS) {
+            /* Reserve AIO slots after all existing multi-aux thread ranges. */
+            index += GetAioProcessAuxOffset();
+        }
+#endif
     }
 
     return index;
