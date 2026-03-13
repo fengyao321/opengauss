@@ -767,6 +767,33 @@ SELECT po.po_document FROM t_JsonExists_Case0006 po WHERE json_exists(po.po_docu
 (2 rows)
 
 drop table t_JsonExists_Case0006;
+drop table if exists t_JsonTextcontains_Case0003;
+NOTICE:  table "t_jsontextcontains_case0003" does not exist, skipping
+create table t_JsonTextcontains_Case0003(col1 int);
+insert into t_JsonTextcontains_Case0003 values(100);
+select col1 from t_JsonTextcontains_Case0003 where json_textcontains('{ "zebra" : { "name" : "Marty",   
+                       "stripes" : ["Black","White"],  
+                       "handler" : "Bob" }}','$.zebra.stripes','');
+ col1 
+------
+(0 rows)
+
+select col1 from t_JsonTextcontains_Case0003 where json_textcontains('{ "zebra" : { "name" : "Marty",   
+                       "stripes" : ["Black","White"],  
+                       "handler" : "Bob" }}','$.zebra.stripes',null);
+ col1 
+------
+(0 rows)
+
+                       
+select col1 from t_JsonTextcontains_Case0003 where json_textcontains('{ "zebra" : { "name" : "Marty",   
+                       "stripes" : ["Black","White"],  
+                       "handler" : "Bob" }}','$.zebra.stripes',' ');
+ col1 
+------
+(0 rows)
+
+drop table if exists t_JsonTextcontains_Case0003;
 \c regression
 DROP DATABASE test_jsonpath_a;
 -- jsonpath gram test
