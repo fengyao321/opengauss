@@ -227,7 +227,7 @@ void MultiRedoMain()
     }
 }
 
-static void recoveryWakeupDelayLatchOp(RecoverDelayLatchOperation op, int wakeEvents, long waitTime)
+static void recoveryWakeupDelayLatchOp(RecoveryDelayLatchOperation op, int wakeEvents, long waitTime)
 {
     switch (op) {
         case LATCH_INIT: {
@@ -259,7 +259,7 @@ static void recoveryWakeupDelayLatchOp(RecoverDelayLatchOperation op, int wakeEv
     }
 }
 
-void RecoverDelayLatchOp(RecoverDelayLatchOperation op, int wakeEvents, long waitTime)
+void RecoveryDelayLatchOp(RecoveryDelayLatchOperation op, int wakeEvents, long waitTime)
 {
     if (IsExtremeRedo()) {
         ExtremeRedoDelayLatchOp(op, wakeEvents, waitTime);
@@ -331,7 +331,7 @@ static bool RecoveryApplyDelay(const XLogReaderState* record, TimestampTz& xtime
     }
 
     while (true) {
-        RecoverDelayLatchOp(LATCH_RESET);
+        RecoveryDelayLatchOp(LATCH_RESET);
 
         /* might change the trigger file's location */
         RedoInterruptCallBack();
@@ -354,7 +354,7 @@ static bool RecoveryApplyDelay(const XLogReaderState* record, TimestampTz& xtime
 
         /* delay 1s every time */
         waitTime = (secs >= 1) ? MSECS_PER_SEC : (microsecs / USECS_PER_MSEC);
-        RecoverDelayLatchOp(LATCH_WAIT, WL_LATCH_SET | WL_TIMEOUT, waitTime);
+        RecoveryDelayLatchOp(LATCH_WAIT, WL_LATCH_SET | WL_TIMEOUT, waitTime);
     }
     return true;
 }
