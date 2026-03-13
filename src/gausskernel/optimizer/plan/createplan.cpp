@@ -3841,6 +3841,12 @@ static TableFuncScan *create_tablefuncscan_plan(PlannerInfo *root, Path *best_pa
     scan_plan = make_tablefuncscan(tlist, scan_clauses, scan_relid,
                                    tablefunc);
 
+#ifdef STREAMPLAN
+    scan_plan->scan.plan.exec_nodes =
+        ng_convert_to_exec_nodes(&best_path->distribution, best_path->locator_type, RELATION_ACCESS_READ);
+    scan_plan->scan.plan.exec_type = EXEC_ON_DATANODES;
+#endif
+
     copy_generic_path_info(&scan_plan->scan.plan, best_path);
 
     return scan_plan;
