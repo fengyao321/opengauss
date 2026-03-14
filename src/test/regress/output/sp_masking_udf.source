@@ -1,5 +1,22 @@
 create user udftest password 'udftest@123';
 create user p1 poladmin password 'udftest@123';
+\! @abs_bindir@/gs_guc reload -Z datanode -D @abs_srcdir@/tmp_check/datanode1 -c "enable_security_policy=on" >/dev/null 2>&1
+do $$
+declare
+    i int := 0;
+begin
+    loop
+        if current_setting('enable_security_policy') = 'on' then
+            return;
+        end if;
+        if i >= 100 then
+            raise exception 'enable_security_policy is not on';
+        end if;
+        perform pg_sleep(0.1);
+        i := i + 1;
+    end loop;
+end;
+$$;
 set role udftest password 'udftest@123';
 create table users (pid int, Name text, CreditCard text, Email text, Telephone varchar2, Salary float);
 insert into users values (1,'Perx','6211-4554-0000-1324','Perx12px@huawei.com',15144213224,15000);
@@ -48,6 +65,24 @@ CREATE RESOURCE LABEL salcol ADD COLUMN(udftest.users.Salary);
 CREATE MASKING POLICY pol_sal msk_sal ON LABEL(salcol); 
 \c
 set role udftest password 'udftest@123';
+do $$
+declare
+    i int := 0;
+    cur_val text;
+begin
+    loop
+        select CreditCard into cur_val from users limit 1;
+        if cur_val = '6211-xxxx-xxxx-1324' then
+            return;
+        end if;
+        if i >= 100 then
+            raise exception 'masking result mismatch, expect 6211-xxxx-xxxx-1324, got %', cur_val;
+        end if;
+        perform pg_sleep(0.1);
+        i := i + 1;
+    end loop;
+end;
+$$;
 select * from users;
  pid | name |     creditcard      |        email        |  telephone  | salary 
 -----+------+---------------------+---------------------+-------------+--------
@@ -93,6 +128,24 @@ $$ language plpgsql;
 CREATE MASKING POLICY pol_creditcard msk_creditcard ON LABEL(creditcardcol);
 \c
 set role udftest password 'udftest@123';
+do $$
+declare
+    i int := 0;
+    cur_val text;
+begin
+    loop
+        select CreditCard into cur_val from users limit 1;
+        if cur_val = 'xxxxxxxxxxxxxxxxxxx' then
+            return;
+        end if;
+        if i >= 100 then
+            raise exception 'masking result mismatch, expect xxxxxxxxxxxxxxxxxxx, got %', cur_val;
+        end if;
+        perform pg_sleep(0.1);
+        i := i + 1;
+    end loop;
+end;
+$$;
 select CreditCard from users;
      creditcard      
 ---------------------
@@ -115,6 +168,24 @@ $$ language plpgsql;
 CREATE MASKING POLICY pol_creditcard msk_creditcard ON LABEL(creditcardcol);
 \c
 set role udftest password 'udftest@123';
+do $$
+declare
+    i int := 0;
+    cur_val text;
+begin
+    loop
+        select CreditCard into cur_val from users limit 1;
+        if cur_val = 'xxxxxxxxxxxxxxxxxxx' then
+            return;
+        end if;
+        if i >= 100 then
+            raise exception 'masking result mismatch, expect xxxxxxxxxxxxxxxxxxx, got %', cur_val;
+        end if;
+        perform pg_sleep(0.1);
+        i := i + 1;
+    end loop;
+end;
+$$;
 select CreditCard from users;
      creditcard      
 ---------------------
@@ -160,6 +231,24 @@ DETAIL:  cannot drop masking function
 revoke all privileges on function msk_creditcard(int) from public;
 \c
 set role udftest password 'udftest@123';
+do $$
+declare
+    i int := 0;
+    cur_val text;
+begin
+    loop
+        select CreditCard into cur_val from users limit 1;
+        if cur_val = 'xxxxxxxxxxxxxxxxxxx' then
+            return;
+        end if;
+        if i >= 100 then
+            raise exception 'masking result mismatch, expect xxxxxxxxxxxxxxxxxxx, got %', cur_val;
+        end if;
+        perform pg_sleep(0.1);
+        i := i + 1;
+    end loop;
+end;
+$$;
 select CreditCard from users;
      creditcard      
 ---------------------
@@ -210,6 +299,24 @@ CREATE RESOURCE LABEL creditcardcol ADD COLUMN(udftest.users.Creditcard);
 CREATE MASKING POLICY pol_creditcard msk_creditcard ON LABEL(creditcardcol);
 \c
 set role udftest password 'udftest@123';
+do $$
+declare
+    i int := 0;
+    cur_val text;
+begin
+    loop
+        select CreditCard into cur_val from users limit 1;
+        if cur_val = 'xxxxxxxxxxxxxxxxxxx' then
+            return;
+        end if;
+        if i >= 100 then
+            raise exception 'masking result mismatch, expect xxxxxxxxxxxxxxxxxxx, got %', cur_val;
+        end if;
+        perform pg_sleep(0.1);
+        i := i + 1;
+    end loop;
+end;
+$$;
 select CreditCard from users;
      creditcard      
 ---------------------
@@ -222,6 +329,24 @@ drop masking policy pol_creditcard;
 CREATE MASKING POLICY pol_creditcard p1.msk_creditcard ON LABEL(creditcardcol);
 \c
 set role udftest password 'udftest@123';
+do $$
+declare
+    i int := 0;
+    cur_val text;
+begin
+    loop
+        select CreditCard into cur_val from users limit 1;
+        if cur_val = 'xxxxxxxxxxxxxxxxxxx' then
+            return;
+        end if;
+        if i >= 100 then
+            raise exception 'masking result mismatch, expect xxxxxxxxxxxxxxxxxxx, got %', cur_val;
+        end if;
+        perform pg_sleep(0.1);
+        i := i + 1;
+    end loop;
+end;
+$$;
 select CreditCard from users;
      creditcard      
 ---------------------
@@ -234,6 +359,24 @@ drop masking policy pol_creditcard;
 CREATE MASKING POLICY pol_creditcard p2.msk_creditcard ON LABEL(creditcardcol);
 \c
 set role udftest password 'udftest@123';
+do $$
+declare
+    i int := 0;
+    cur_val text;
+begin
+    loop
+        select CreditCard into cur_val from users limit 1;
+        if cur_val = 'xxxxxxxxxxxxxxxxxxx' then
+            return;
+        end if;
+        if i >= 100 then
+            raise exception 'masking result mismatch, expect xxxxxxxxxxxxxxxxxxx, got %', cur_val;
+        end if;
+        perform pg_sleep(0.1);
+        i := i + 1;
+    end loop;
+end;
+$$;
 select CreditCard from users;
      creditcard      
 ---------------------
@@ -247,6 +390,24 @@ drop MASKING POLICY pol_creditcard;
 CREATE MASKING POLICY pol_creditcard regexpmasking('[\d+]','*',2, 10) ON LABEL(creditcardcol);
 \c
 set role udftest password 'udftest@123';
+do $$
+declare
+    i int := 0;
+    cur_val text;
+begin
+    loop
+        select CreditCard into cur_val from users limit 1;
+        if cur_val = '62**-****-**00-1324' then
+            return;
+        end if;
+        if i >= 100 then
+            raise exception 'masking result mismatch, expect 62**-****-**00-1324, got %', cur_val;
+        end if;
+        perform pg_sleep(0.1);
+        i := i + 1;
+    end loop;
+end;
+$$;
 select CreditCard from users;
      creditcard      
 ---------------------
@@ -259,6 +420,24 @@ drop MASKING POLICY pol_creditcard;
 CREATE MASKING POLICY pol_creditcard regexpmasking('[\d+]','*',2.1, 10) ON LABEL(creditcardcol);
 \c
 set role udftest password 'udftest@123';
+do $$
+declare
+    i int := 0;
+    cur_val text;
+begin
+    loop
+        select CreditCard into cur_val from users limit 1;
+        if cur_val = 'xxxxxxxxxxxxxxxxxxx' then
+            return;
+        end if;
+        if i >= 100 then
+            raise exception 'masking result mismatch, expect xxxxxxxxxxxxxxxxxxx, got %', cur_val;
+        end if;
+        perform pg_sleep(0.1);
+        i := i + 1;
+    end loop;
+end;
+$$;
 select CreditCard from users;
      creditcard      
 ---------------------
