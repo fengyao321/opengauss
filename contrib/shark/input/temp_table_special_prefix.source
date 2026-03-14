@@ -313,6 +313,44 @@ SELECT 1 # 1;
 SELECT 1 # #111.ID from #111 where ID = 1;
 reset enable_special_operator;
 
+-- special character in table name
+--本地临时表
+--中文、数字、字母、特殊字符@#_ --成功
+create table #测试test_temp_table( col1 int primary key );
+create table #123test_temp_table( col1 int primary key );
+create table #test_temp_table( col1 int primary key );
+create table #@test_temp_table( col1 int primary key );
+create table #_test_temp_table(
+col1 int primary key
+);
+
+--本地临时表-特殊字符、空格 --报错
+create table #.test_temp_table(
+col1 int primary key
+);
+create table # test_temp_table(
+col1 int primary key
+);
+
+--全局临时表--中文、数字、字母、特殊字符@#_ --成功
+create table ##测试test_temp_table( col1 int primary key );
+create table ##123test_temp_table( col1 int primary key );
+create table ##test_temp_table( col1 int primary key );
+create table ##@test_temp_table( col1 int primary key );
+create table ###test_temp_table(
+col1 int primary key
+);
+create table ##_test_temp_table(
+col1 int primary key
+);
+--全局临时表-特殊字符、空格 --报错
+create table ##.test_temp_table(
+col1 int primary key
+);
+create table ## test_temp_table(
+col1 int primary key
+);
+
 -- clean
 \c postgres
 DROP DATABASE temp_table_prefix;
