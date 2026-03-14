@@ -2699,10 +2699,10 @@ void ParallelRedoThreadMain()
     InitRecoveryLockHash();
     WaitStateNormal();
     EnableSyncRequestForwarding();
-    RecoverDelayLatchOp(LATCH_OWN);
+    RecoveryDelayLatchOp(LATCH_OWN);
 
     int retCode = RedoMainLoop();
-    RecoverDelayLatchOp(LATCH_DISOWN);
+    RecoveryDelayLatchOp(LATCH_DISOWN);
     StandbyReleaseAllLocks();
     if (g_redoWorker->role == REDO_TRXN_WORKER) {
         redo_worker_release_all_locks();

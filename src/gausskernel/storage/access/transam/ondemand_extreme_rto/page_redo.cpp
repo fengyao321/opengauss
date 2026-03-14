@@ -3904,10 +3904,10 @@ void ParallelRedoThreadMain()
     InitRecoveryLockHash();
     WaitStateNormal();
     EnableSyncRequestForwarding();
-    RecoverDelayLatchOp(LATCH_OWN);
+    RecoveryDelayLatchOp(LATCH_OWN);
 
     int retCode = RedoMainLoop();
-    RecoverDelayLatchOp(LATCH_DISOWN);
+    RecoveryDelayLatchOp(LATCH_DISOWN);
     StandbyReleaseAllLocks();
     ResourceManagerStop();
     ereport(LOG, (errmsg("Page-redo-worker thread %u terminated, role:%u, slotId:%u, retcode %u.", g_redoWorker->id,
