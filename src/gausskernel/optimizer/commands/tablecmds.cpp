@@ -8565,7 +8565,6 @@ static void ATController(AlterTableStmt *parsetree, Relation rel, List* cmds, bo
         if (!relationIsPartitioned && CheckLockRelation(rel, AccessExclusiveLock)) {
             UnlockRelation(rel, AccessExclusiveLock);
         }
-        ereport(NOTICE, (errmsg("Online DDL rewrite catalogs finish, start to copy baseline data.")));
     }
     
 #ifdef PGXC

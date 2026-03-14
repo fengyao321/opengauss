@@ -2818,8 +2818,9 @@ bool OnlineDDLOnlyCheck(OnlineDDLAppender* appender)
         return OnlineDDLOnlyCheckForPartitionedTable(appender);
     } else {
         Assert(appender->oldRelation != NULL);
-        ereport(WARNING, (errmsg("Online DDL only check for normal table, oldRelation: %d, newRelation: %d",
-                                  appender->oldRelation != NULL, appender->newRelation != NULL)));
+        ereport(ONLINE_DDL_LOG_LEVEL,
+                (errmsg("Online DDL only check for normal table, oldRelation: %d, newRelation: %d",
+                        appender->oldRelation != NULL, appender->newRelation != NULL)));
         Assert(appender->oldPartitionList == NIL && appender->newOidList == NIL);
         return OnlineDDLOnlyCheckForNormalTable(appender);
     }
