@@ -1735,7 +1735,9 @@ static bool OnlineDDLAppendScanOldTableWithPartitioning(OnlineDDLAppender* appen
         appender->newRelation = partRel;  // Set the dynamically computed partition as target
 
         // Call the lower-level function with the computed partition
-        OnlineDDLInsertOpt(appender, copyedTuple, hiOptions);
+        tableam_tuple_insert(partRel, copyedTuple, GetCurrentCommandId(true), HEAP_INSERT_SPLIT_PARTITION, NULL);
+        OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+        operators->insertCtidMap(oldTableCtid, targetPartOid, &((HeapTuple)copyedTuple)->t_self);
         // Restore newRelation
         appender->newRelation = savedRel;
 
