@@ -2381,12 +2381,6 @@ int PostmasterMain(int argc, char* argv[])
         }
     }
 
-#ifndef ENABLE_LITE_MODE
-    if (XLogArchivingActive() && XLogArchiveCommandSet() && !XLogArchiveDestSet()) {
-        InitArchiveCmdExecuter();
-    }
-#endif
-
     CalcMaxBackends();
 
     /* init thread args pool for ever sub threads except signal moniter */
@@ -3358,6 +3352,13 @@ int PostmasterMain(int argc, char* argv[])
     if (PythonFencedMasterModel) {
         fencedMasterPID = StartUDFMaster();
     }
+
+#ifndef ENABLE_LITE_MODE
+    if (XLogArchivingActive() && XLogArchiveCommandSet() && !XLogArchiveDestSet()) {
+        InitArchiveCmdExecuter();
+    }
+#endif
+
     if (status == STATUS_OK)
         status = ServerLoop();
 
