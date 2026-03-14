@@ -1,20 +1,13 @@
 create user udftest password 'udftest@123';
 create user p1 poladmin password 'udftest@123';
 \! @abs_bindir@/gs_guc reload -Z datanode -D @abs_srcdir@/tmp_check/datanode1 -c "enable_security_policy=on" >/dev/null 2>&1
+\! sh -c 'for i in $(seq 1 100); do v=$("@abs_bindir@/gsql" -X -p @portstring@ -U @login_user@ -A -t -d regression -c "show enable_security_policy" 2>/dev/null); [ "$v" = "on" ] && exit 0; sleep 0.1; done; exit 1' >/dev/null 2>&1
+\c
 do $$
-declare
-    i int := 0;
 begin
-    loop
-        if current_setting('enable_security_policy') = 'on' then
-            return;
-        end if;
-        if i >= 100 then
-            raise exception 'enable_security_policy is not on';
-        end if;
-        perform pg_sleep(0.1);
-        i := i + 1;
-    end loop;
+    if current_setting('enable_security_policy') <> 'on' then
+        raise exception 'enable_security_policy is not on';
+    end if;
 end;
 $$;
 set role udftest password 'udftest@123';
@@ -71,7 +64,7 @@ declare
     cur_val text;
 begin
     loop
-        select CreditCard into cur_val from users limit 1;
+        execute 'select CreditCard from users limit 1' into cur_val;
         if cur_val = '6211-xxxx-xxxx-1324' then
             return;
         end if;
@@ -126,7 +119,7 @@ declare
     cur_val text;
 begin
     loop
-        select CreditCard into cur_val from users limit 1;
+        execute 'select CreditCard from users limit 1' into cur_val;
         if cur_val = 'xxxxxxxxxxxxxxxxxxx' then
             return;
         end if;
@@ -161,7 +154,7 @@ declare
     cur_val text;
 begin
     loop
-        select CreditCard into cur_val from users limit 1;
+        execute 'select CreditCard from users limit 1' into cur_val;
         if cur_val = 'xxxxxxxxxxxxxxxxxxx' then
             return;
         end if;
@@ -213,7 +206,7 @@ declare
     cur_val text;
 begin
     loop
-        select CreditCard into cur_val from users limit 1;
+        execute 'select CreditCard from users limit 1' into cur_val;
         if cur_val = 'xxxxxxxxxxxxxxxxxxx' then
             return;
         end if;
@@ -272,7 +265,7 @@ declare
     cur_val text;
 begin
     loop
-        select CreditCard into cur_val from users limit 1;
+        execute 'select CreditCard from users limit 1' into cur_val;
         if cur_val = 'xxxxxxxxxxxxxxxxxxx' then
             return;
         end if;
@@ -297,7 +290,7 @@ declare
     cur_val text;
 begin
     loop
-        select CreditCard into cur_val from users limit 1;
+        execute 'select CreditCard from users limit 1' into cur_val;
         if cur_val = 'xxxxxxxxxxxxxxxxxxx' then
             return;
         end if;
@@ -322,7 +315,7 @@ declare
     cur_val text;
 begin
     loop
-        select CreditCard into cur_val from users limit 1;
+        execute 'select CreditCard from users limit 1' into cur_val;
         if cur_val = 'xxxxxxxxxxxxxxxxxxx' then
             return;
         end if;
@@ -339,8 +332,7 @@ select CreditCard from users;
 set role p2 password 'udftest@123';
 drop MASKING POLICY pol_creditcard;
 --check regexp
-CREATE MASKING POLICY pol_creditcard regexpmasking('[\d+]','*',2, 10) ON LABEL(creditcardcol);
-\c
+CREATE MASKING POLICY pol_creditcard regexpmasking('[0-9]','*',2, 10) ON LABEL(creditcardcol);
 set role udftest password 'udftest@123';
 do $$
 declare
@@ -348,7 +340,7 @@ declare
     cur_val text;
 begin
     loop
-        select CreditCard into cur_val from users limit 1;
+        execute 'select CreditCard from users limit 1' into cur_val;
         if cur_val = '62**-****-**00-1324' then
             return;
         end if;
@@ -364,8 +356,7 @@ select CreditCard from users;
 \c
 set role p2 password 'udftest@123';
 drop MASKING POLICY pol_creditcard;
-CREATE MASKING POLICY pol_creditcard regexpmasking('[\d+]','*',2.1, 10) ON LABEL(creditcardcol);
-\c
+CREATE MASKING POLICY pol_creditcard regexpmasking('[0-9]','*',2.1, 10) ON LABEL(creditcardcol);
 set role udftest password 'udftest@123';
 do $$
 declare
@@ -373,7 +364,7 @@ declare
     cur_val text;
 begin
     loop
-        select CreditCard into cur_val from users limit 1;
+        execute 'select CreditCard from users limit 1' into cur_val;
         if cur_val = 'xxxxxxxxxxxxxxxxxxx' then
             return;
         end if;
