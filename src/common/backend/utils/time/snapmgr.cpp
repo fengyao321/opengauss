@@ -516,7 +516,7 @@ Snapshot GetTransactionSnapshot(bool force_local_snapshot)
     if (!u_sess->utils_cxt.FirstSnapshotSet) {
         Assert(u_sess->utils_cxt.RegisteredSnapshots == 0);
         Assert(u_sess->utils_cxt.FirstXactSnapshot == NULL);
-        
+
         /*
          * In transaction-snapshot mode, the first snapshot must live until
          * end of xact regardless of what the caller does with it, so we must

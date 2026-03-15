@@ -190,39 +190,51 @@ void send_dbtime_to_driver(int64 db_time) {
 
 void SendATFSnapshot(const char* commandTag, CommandDest dest)
 {
-    if (u_sess->attr.attr_common.enable_atf && strcmp(commandTag, "COMMIT")!=0 && strcmp(commandTag, "ROLLBACK")!=0) {
-        StringInfoData sqlInfo;
-        short msgLen = ATF_MSG_LEN_BASE;
-        initStringInfo(&sqlInfo);
-        enlargeStringInfo(&sqlInfo, ATF_SQL_INFO_TOTAL_LEN);
-        Snapshot snapshot = u_sess->utils_cxt.CurrentSnapshot;
-
-        sqlInfo.len = 0;
-        pq_writeint64(&sqlInfo, snapshot->snapshotcsn);
-
-        sqlInfo.len = ATF_OFFSET_XMIN;
-        pq_writeint64(&sqlInfo, snapshot->xmin);
-
-        sqlInfo.len = ATF_OFFSET_XMAX;
-        pq_writeint64(&sqlInfo, snapshot->xmax);
-
-        sqlInfo.len = ATF_OFFSET_TIMELINE;
-        pq_writeint32(&sqlInfo, snapshot->timeline);
-
-        sqlInfo.data[ATF_OFFSET_RECOVERY] = (char)snapshot->takenDuringRecovery;
-
-        if (!u_sess->attr.attr_common.atf_xid_checks) {
-            TransactionId xid = GetTopTransactionIdIfAny();
-            if (TransactionIdIsValid(xid)) {
-                sqlInfo.len = ATF_OFFSET_XID;
-                pq_writeint64(&sqlInfo, xid);
-                msgLen = ATF_MSG_LEN_FULL;
-            }
-        }
-
-        pq_putmessage('v', sqlInfo.data, msgLen);
-        pfree(sqlInfo.data);
+    Assert(IsolationIsReadCommittedOrRepeatableRead());
+    if (!u_sess->attr.attr_common.enable_atf) {
+        return;
     }
+
+    if (strcmp(commandTag, "COMMIT") == 0 || strcmp(commandTag, "ROLLBACK") == 0) {
+        return;
+    }
+
+    if (u_sess->utils_cxt.CurrentSnapshot == NULL) {
+        return;
+    }
+    Snapshot snapshot = u_sess->utils_cxt.CurrentSnapshot;
+
+    StringInfoData sqlInfo;
+    short msg_len = ATF_MSG_LEN_BASE;
+    initStringInfo(&sqlInfo);
+    
+    enlargeStringInfo(&sqlInfo, ATF_SQL_INFO_TOTAL_LEN);
+
+    sqlInfo.len = 0;
+    pq_writeint64(&sqlInfo, snapshot->snapshotcsn);
+
+    sqlInfo.len = ATF_OFFSET_XMIN;
+    pq_writeint64(&sqlInfo, snapshot->xmin);
+
+    sqlInfo.len = ATF_OFFSET_XMAX;
+    pq_writeint64(&sqlInfo, snapshot->xmax);
+
+    sqlInfo.len = ATF_OFFSET_TIMELINE;
+    pq_writeint32(&sqlInfo, snapshot->timeline);
+
+    sqlInfo.data[ATF_OFFSET_RECOVERY] = (char)snapshot->takenDuringRecovery;
+
+    if (!u_sess->attr.attr_common.atf_xid_checks) {
+        TransactionId xid = GetTopTransactionIdIfAny();
+        if (TransactionIdIsValid(xid)) {
+            sqlInfo.len = ATF_OFFSET_XID;
+            pq_writeint64(&sqlInfo, xid);
+            msg_len = ATF_MSG_LEN_FULL;
+        }
+    }
+
+    pq_putmessage('v', sqlInfo.data, msg_len);
+    pfree(sqlInfo.data);
 }
 
 /* ----------------

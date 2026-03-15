@@ -10658,13 +10658,9 @@ static void ProcessCommandLowerV(StringInfo input_message, volatile bool& send_r
     }
 
     csn = pq_getmsgint64(input_message);
-    Assert(csn != InvalidCommitSeqNo);
     xmin = pq_getmsgint64(input_message);
-    Assert(xmin != InvalidTransactionId);
     xmax = pq_getmsgint64(input_message);
-    Assert(xmax != InvalidTransactionId);
     timeline = pq_getmsgint(input_message, 4);
-    Assert(GlobalTransactionTimelineIsValid(timeline));
     takeDuringRecovery = (bool)pq_getmsgbyte(input_message);
     xid = pq_getmsgint64(input_message);
 
