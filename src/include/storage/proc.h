@@ -376,6 +376,7 @@ typedef struct PGXACT {
 
 /* max number of CMA's connections */
 #define NUM_CMAGENT_PROCS (10)
+#define NUM_CMAGENT_WARN_COUNT (8)
 
 /*
  * There is one ProcGlobal struct for the whole database cluster.
