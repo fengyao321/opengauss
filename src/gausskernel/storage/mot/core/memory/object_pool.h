@@ -405,8 +405,10 @@ public:
         for (int i = 0; i <= SLAB_MAX_BIN; i++) {
             if (m_bins[i] != nullptr) {
                 ObjAllocInterface::FreeObjPool(&m_bins[i]);
+                m_bins[i] = nullptr;
             }
         }
+        m_isInitialized = false;
     }
 
     inline bool Initialize()
