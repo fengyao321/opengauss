@@ -153,11 +153,17 @@ bool GcQueue::Initialize(GcManager* manager)
     m_deleteVector = new (std::nothrow) DeleteVector();
     if (m_deleteVector == nullptr) {
         MOT_REPORT_ERROR(MOT_ERROR_OOM, "Create GC Context", "Failed to allocate deleteList for limbo group");
+        manager->DestroyLimboGroup(limboGroup);
+        m_limboHead = m_limboTail = nullptr;
         return false;
     }
 
     if (!m_reservedManager.initialize()) {
         MOT_REPORT_ERROR(MOT_ERROR_OOM, "Create GC Context", "Failed to create GcQueueReservedMemory");
+        delete m_deleteVector;
+        m_deleteVector = nullptr;
+        manager->DestroyLimboGroup(limboGroup);
+        m_limboHead = m_limboTail = nullptr;
         return false;  // safe cleanup during destroy
     }
 
