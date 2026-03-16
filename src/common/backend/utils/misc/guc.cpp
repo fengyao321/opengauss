@@ -486,6 +486,8 @@ static void assign_syslog_facility(int newval, void* extra);
 static void assign_syslog_ident(const char* newval, void* extra);
 static void assign_session_replication_role(int newval, void* extra);
 static bool check_client_min_messages(int* newval, void** extra, GucSource source);
+static bool check_enable_atf(bool *newval, void **extra, GucSource source);
+static bool check_atf_recovery(bool *newval, void **extra, GucSource source);
 static bool check_default_transaction_isolation(int* newval, void** extra, GucSource source);
 static bool check_debug_assertions(bool* newval, void** extra, GucSource source);
 static void process_set_global_transation(Oid databaseid, Oid roleid, VariableSetStmt* setstmt);
@@ -1194,7 +1196,7 @@ static void InitConfigureNamesBool()
             NULL},
             &u_sess->attr.attr_common.enable_atf,
             false,
-            NULL,
+            check_enable_atf,
             NULL,
             NULL},
         {{"atf_recovery",
@@ -1205,7 +1207,7 @@ static void InitConfigureNamesBool()
             NULL},
             &u_sess->attr.attr_common.atf_recovery,
             false,
-            NULL,
+            check_atf_recovery,
             NULL,
             NULL},
         {{"xlog_write_flush_split",
@@ -2538,11 +2540,11 @@ static void InitConfigureNamesInt()
             PGC_POSTMASTER,
             NODE_ALL,
             UNGROUPED,
-            gettext_noop("The timeout for all possible applications' connection recovery in  application transprant failover, in serconds, default is 5s"),
+            gettext_noop("The timeout for all possible applications' connection recovery in  application transprant failover, in serconds, default is 0s"),
             NULL},
             &g_instance.attr.attr_common.atf_task_counter_timeout_sec,
-            5,
-            1,
+            0,
+            0,
             INT_MAX,
             NULL,
             NULL,
@@ -3481,7 +3483,7 @@ static void InitConfigureNamesInt()
             0,
             0,
             65535,
-            NULL,
+            check_atf_sql_count,
             NULL,
             NULL},
         /* End-of-list marker */
@@ -12041,6 +12043,36 @@ static bool check_client_min_messages(int* newval, void** extra, GucSource sourc
     return true;
 }
 
+static bool check_enable_atf(bool *newval, void **extra, GucSource source)
+{   
+    if (source == PGC_S_FILE && *newval) {
+        ereport(ERROR, (errmsg("enable_atf cannot be set in postgresql.conf")));
+        return false;
+    }
+    if (!ENABLE_ATF_TIMEOUT && *newval) {
+        ereport(ERROR, (errmsg("The current value of parameter \"atf_task_counter_timeout_sec\" is 0; "
+            "please configure this parameter in postgresql.conf first")));
+        return false;
+    }
+
+    return true;
+}
+
+static bool check_atf_recovery(bool *newval, void **extra, GucSource source)
+{
+    if (source == PGC_S_FILE && *newval) {
+        ereport(ERROR, (errmsg("atf_recovery cannot be set in postgresql.conf")));
+        return false;
+    }
+    if (!ENABLE_ATF_TIMEOUT && *newval) {
+        ereport(ERROR, (errmsg("The current value of parameter \"atf_task_counter_timeout_sec\" is 0; "
+            "please configure this parameter in postgresql.conf first")));
+        return false;
+    }
+    
+    return true;
+}
+
 static bool check_default_transaction_isolation(int *newval, void **extra, GucSource source)
 {
     if (ENABLE_DMS && *newval != XACT_READ_COMMITTED) {
@@ -12651,6 +12683,16 @@ static bool check_effective_io_concurrency(int* newval, void** extra, GucSource 
 #else
     return true;
 #endif /* USE_PREFETCH */
+}
+
+static bool check_atf_sql_count(int* newval, void** extra, GucSource source)
+{
+    if (source == PGC_S_FILE) {
+        ereport(ERROR, (errmsg("atf_sql_count cannot be set in postgresql.conf")));
+        return false;
+    }
+
+    return true;
 }
 
 static void assign_effective_io_concurrency(int newval, void* extra)

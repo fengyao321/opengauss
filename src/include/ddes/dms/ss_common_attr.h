@@ -37,6 +37,7 @@
 #define ENABLE_SS_BCAST_SNAPSHOT false
 #define ENABLE_SS_BCAST_GETOLDESTXMIN false
 #else
+#define ENABLE_ATF_TIMEOUT (g_instance.attr.attr_common.atf_task_counter_timeout_sec != 0)
 #define ENABLE_DMS (g_instance.attr.attr_storage.dms_attr.enable_dms && !IsInitdb)
 #define ENABLE_VERIFY_PAGE_VERSION (g_instance.attr.attr_storage.dms_attr.enable_verify_page)
 #define ENABLE_SS_TXNSTATUS_CACHE (ENABLE_DMS && g_instance.attr.attr_storage.dms_attr.txnstatus_cache_size > 0)
