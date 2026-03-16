@@ -333,6 +333,7 @@ set role p2 password 'udftest@123';
 drop MASKING POLICY pol_creditcard;
 --check regexp
 CREATE MASKING POLICY pol_creditcard regexpmasking('[0-9]','*',2, 10) ON LABEL(creditcardcol);
+\c
 set role udftest password 'udftest@123';
 do $$
 declare
@@ -357,6 +358,7 @@ select CreditCard from users;
 set role p2 password 'udftest@123';
 drop MASKING POLICY pol_creditcard;
 CREATE MASKING POLICY pol_creditcard regexpmasking('[0-9]','*',2.1, 10) ON LABEL(creditcardcol);
+\c
 set role udftest password 'udftest@123';
 do $$
 declare
