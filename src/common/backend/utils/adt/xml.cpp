@@ -1186,6 +1186,34 @@ static xmlChar* xml_charpnstrdup(char* str, size_t len)
 }
 
 /*
+ * Copy xmlChar string to PostgreSQL-owned memory, freeing the input.
+ *
+ * The input xmlChar is freed regardless of success of the copy.
+ */
+static char* xml_pstrdup_and_free(xmlChar *str)
+{
+    char* result;
+
+    if (str) {
+        PG_TRY();
+        {
+            result = pstrdup((char *) str);
+        }
+        PG_CATCH();
+        {
+            xmlFree(str);
+            PG_RE_THROW();
+        }
+        PG_END_TRY();
+        xmlFree(str);
+    } else {
+        result = NULL;
+    }
+
+    return result;
+}
+
+/*
  * str is the null-terminated input string.  Remaining arguments are
  * output arguments; each can be NULL if value is not wanted.
  * version and encoding are returned as locally-palloc'd strings.
@@ -3680,7 +3708,7 @@ static text* xml_xmlnodetoxmltype(xmlNodePtr cur)
 {
     xmltype* result = NULL;
 
-    if (cur->type == XML_ELEMENT_NODE) {
+    if (cur->type != XML_ATTRIBUTE_NODE && cur->type != XML_TEXT_NODE) {
         xmlBufferPtr buf;
 
         buf = xmlBufferCreate();
@@ -5039,75 +5067,67 @@ static Datum XmlTableGetValue(TableFuncScanState *state, int colnum,
          * nodes are returned.
          */
         if (xpathobj->type == XPATH_NODESET) {
-            int            count = 0;
+            int count = 0;
 
-            if (xpathobj->nodesetval != NULL)
+            if (xpathobj->nodesetval != NULL) {
                 count = xpathobj->nodesetval->nodeNr;
+            }
 
             if (xpathobj->nodesetval == NULL || count == 0) {
                 *isnull = true;
-            } else if (count == 1 && typid == XMLOID) {
-                text       *textstr;
-
-                /* simple case, result is one value */
-                textstr = xml_xmlnodetoxmltype(xpathobj->nodesetval->nodeTab[0]);
-                cstr = text_to_cstring(textstr);
-            } else if (count == 1) {
-                xmlChar    *str;
-
-                str = xmlNodeListGetString(xtCxt->doc,
-                           xpathobj->nodesetval->nodeTab[0]->xmlChildrenNode,
-                                           1);
-                if (str != NULL) {
-                    PG_TRY();
-                    {
-                        cstr = pstrdup((char *) str);
-                    }
-                    PG_CATCH();
-                    {
-                        xmlFree(str);
-                        PG_RE_THROW();
-                    }
-                    PG_END_TRY();
-                    xmlFree(str);
-                } else {
-                    /*
-                     * This line ensure mapping of empty tags to PostgreSQL
-                     * value. Usually we would to map a empty tag to empty
-                     * string. But this mapping can create empty string when
-                     * user doesn't expect it - when empty tag is enforced
-                     * by libxml2 - when user uses a text() function for
-                     * example.
-                     */
-                    cstr = "";
-                }
             } else {
-                StringInfoData str;
-                int            i;
+                if (typid == XMLOID) {
+                    text* textstr;
+                    StringInfoData str;
 
-                Assert(count > 1);
+                    /* Concatenate serialized values */
+                    initStringInfo(&str);
+                    for (int i = 0; i < count; i++) {
+                        textstr = xml_xmlnodetoxmltype(xpathobj->nodesetval->nodeTab[i]);
+                        appendStringInfoText(&str, textstr);
+                    }
+                    cstr = str.data;
+                } else {
+                    xmlChar* str;
 
-                /*
-                 * When evaluating the XPath expression returns multiple
-                 * nodes, the result is the concatenation of them all. The
-                 * target type must be XML.
-                 */
-                if (typid != XMLOID)
-                    ereport(ERROR,
-                            (errcode(ERRCODE_CARDINALITY_VIOLATION),
-                             errmsg("more than one value returned by column XPath expression")));
+                    if (count > 1) {
+                        ereport(ERROR,
+                                (errcode(ERRCODE_CARDINALITY_VIOLATION),
+                                 errmsg("more than one value returned by column XPath expression")));
+                    }
 
-                /* Concatenate serialized values */
-                initStringInfo(&str);
-                for (i = 0; i < count; i++) {
-                    appendStringInfoText(&str,
-                       xml_xmlnodetoxmltype(xpathobj->nodesetval->nodeTab[i]));
+                    str = xmlXPathCastNodeSetToString(xpathobj->nodesetval);
+                    char* non_str = "";
+                    cstr = str ? xml_pstrdup_and_free(str) : non_str;
                 }
-                cstr = str.data;
             }
         } else if (xpathobj->type == XPATH_STRING) {
-            cstr = (char *) xpathobj->stringval;
-        } else { 
+            /* Content should be escaped when target will be XML */
+            if (typid == XMLOID) {
+                cstr = escape_xml((char *) xpathobj->stringval);
+            } else {
+                cstr = (char *) xpathobj->stringval;
+            }
+        } else if (xpathobj->type == XPATH_BOOLEAN) {
+            char		typcategory;
+            bool		typispreferred;
+            xmlChar    *str;
+
+            /* Allow implicit casting from boolean to numbers */
+            get_type_category_preferred(typid, &typcategory, &typispreferred);
+
+            if (typcategory != TYPCATEGORY_NUMERIC) {
+                str = xmlXPathCastBooleanToString(xpathobj->boolval);
+            } else {
+                str = xmlXPathCastNumberToString(xmlXPathCastBooleanToNumber(xpathobj->boolval));
+            }
+            cstr = xml_pstrdup_and_free(str);
+        } else if (xpathobj->type == XPATH_NUMBER) {
+            xmlChar    *str;
+
+            str = xmlXPathCastNumberToString(xpathobj->floatval);
+            cstr = xml_pstrdup_and_free(str);
+        } else {
             elog(ERROR, "unexpected XPath object type %u", xpathobj->type);
         }
 
