@@ -26,6 +26,12 @@ SELECT pg_stat_force_next_flush();
 (1 row)
 
 INSERT INTO t_pgstat_test VALUES (1,1);
+SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush 
+--------------------------
+ 
+(1 row)
+
 SELECT pg_sleep(1.0);
  pg_sleep 
 ----------
@@ -97,6 +103,12 @@ SELECT pg_stat_force_next_flush();
 (1 row)
 
 DELETE FROM t_pgstat_test WHERE id=2;
+SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush 
+--------------------------
+ 
+(1 row)
+
 SELECT pg_sleep(1.0);
  pg_sleep 
 ----------
@@ -162,6 +174,12 @@ SELECT f_pgstat_test(1);
  f_pgstat_test 
 ---------------
              2
+(1 row)
+
+SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush 
+--------------------------
+ 
 (1 row)
 
 SELECT pg_sleep(1.0);
