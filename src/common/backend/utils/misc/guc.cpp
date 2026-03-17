@@ -533,6 +533,7 @@ static const char* show_tcp_keepalives_count(void);
 static const char* show_tcp_user_timeout(void);
 static bool check_shared_preload_libraries(char** newval, void** extra, GucSource source);
 static bool check_effective_io_concurrency(int* newval, void** extra, GucSource source);
+static bool check_atf_sql_count(int* newval, void** extra, GucSource source);
 static void assign_effective_io_concurrency(int newval, void* extra);
 static void assign_pgstat_temp_directory(const char* newval, void* extra);
 static bool check_application_name(char** newval, void** extra, GucSource source);
