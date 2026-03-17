@@ -3036,6 +3036,7 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
                 errdetail("4k page size doesn't surpport segment-page storage"),
                 errhint("change 8k package before using segment-page storage.")));
         }
+        ForbidToSetOptionsForSegmentTbl(stmt->options);
 
         Oid tbspcId = (tablespaceId == InvalidOid) ? u_sess->proc_cxt.MyDatabaseTableSpace : tablespaceId;
         uint64 tablespaceMaxSize = 0;
@@ -20408,6 +20409,10 @@ static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType oper
                 }
             }
 
+            if (rel->storage_type == SEGMENT_PAGE) {
+                ForbidToSetOptionsForSegmentTbl(defList);
+            }
+
             /* validate the values of ttl and period for partition manager */
             if (NULL != heapRelOpt) {
                 check_partion_policy_rel_option(defList, (StdRdOptions*)heapRelOpt);
@@ -35440,6 +35445,9 @@ bool OnlineDDLCheckSetCompressOptFeasible(Relation rel, List* defList, AlterTabl
     }
     if (RelationIsUstoreFormat(rel)) {
         ForbidToSetOptionsForUstoreTbl(defList);
+    }
+    if (rel->storage_type == SEGMENT_PAGE) {
+        ForbidToSetOptionsForSegmentTbl(defList);
     }
 
     needRewrite = transformCompressedOptions(rel, relOpt, defList, tab);
