@@ -190,10 +190,10 @@ void send_dbtime_to_driver(int64 db_time) {
 
 void SendATFSnapshot(const char* commandTag, CommandDest dest)
 {
-    Assert(IsolationIsReadCommittedOrRepeatableRead());
     if (!u_sess->attr.attr_common.enable_atf) {
         return;
     }
+    Assert(IsolationIsReadCommittedOrRepeatableRead());
 
     if (strcmp(commandTag, "COMMIT") == 0 || strcmp(commandTag, "ROLLBACK") == 0) {
         return;
