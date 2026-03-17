@@ -2463,8 +2463,9 @@ extern char* GetDatabaseCompatibility(const char* dbname);
 HeapTuple SearchUserHostName(const char* userName, Oid* oid)
 {
     char* userHostName = NULL;
-    HeapTuple roleTup = NULL;
-    if (u_sess->attr.attr_common.b_compatibility_user_host_auth && (!OidIsValid(u_sess->proc_cxt.MyDatabaseId) || u_sess->proc_cxt.check_auth) && u_sess->proc_cxt.MyProcPort) {
+    HeapTuple roleTup = SearchSysCache1(AUTHNAME, PointerGetDatum(userName));
+    if (!roleTup && u_sess->attr.attr_common.b_compatibility_user_host_auth &&
+        (!OidIsValid(u_sess->proc_cxt.MyDatabaseId) || u_sess->proc_cxt.check_auth) && u_sess->proc_cxt.MyProcPort) {
         bool isBFormat = false;
         char* dbCompatibility = GetDatabaseCompatibility(u_sess->proc_cxt.MyProcPort->database_name);
         if (dbCompatibility)
@@ -2485,9 +2486,6 @@ HeapTuple SearchUserHostName(const char* userName, Oid* oid)
                 }
             }
         }
-    }
-    if (!roleTup) {
-        roleTup = SearchSysCache1(AUTHNAME, PointerGetDatum(userName));
     }
     if (roleTup && oid)
         *oid = HeapTupleGetOid(roleTup);

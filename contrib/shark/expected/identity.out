@@ -1141,5 +1141,43 @@ select ident_current('t_ident');
 (1 row)
 
 drop table t_ident;
+-- ### test internal sequence name used by identity column
+-- create table like
+create sequence identity_t2_id_seq_identity;
+create table identity_t2(id numeric(38, 0) identity(10, 2), b int);
+NOTICE:  CREATE TABLE will create implicit sequence "identity_t2_id_seq_identity1" for serial column "identity_t2.id"
+create table identity_t2_1 (like identity_t2);
+NOTICE:  CREATE TABLE will create implicit sequence "identity_t2_1_id_seq_identity" for serial column "identity_t2_1.id"
+insert into identity_t2_1(b) values (10);
+insert into identity_t2_1(b) values (10);
+select id, b from identity_t2_1;
+ id | b  
+----+----
+ 10 | 10
+ 12 | 10
+(2 rows)
+
+drop sequence identity_t2_id_seq_identity;
+drop table identity_t2;
+drop table identity_t2_1;
+-- select into
+create sequence identity_t3_id_seq_identity;
+create table identity_t3(id numeric(38, 0) identity(10, 3), b int);
+NOTICE:  CREATE TABLE will create implicit sequence "identity_t3_id_seq_identity1" for serial column "identity_t3.id"
+set identity_insert = on;
+select id, b into identity_t3_1 from identity_t3;
+NOTICE:  CREATE TABLE will create implicit sequence "identity_t3_1_id_seq_identity" for serial column "identity_t3_1.id"
+insert into identity_t3_1(b) values (10);
+insert into identity_t3_1(b) values (10);
+select id, b from identity_t3_1;
+ id | b  
+----+----
+ 10 | 10
+ 13 | 10
+(2 rows)
+
+drop sequence identity_t3_id_seq_identity;
+drop table identity_t3;
+drop table identity_t3_1;
 reset current_schema;
 drop schema identity_schema;

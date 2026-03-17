@@ -96,12 +96,6 @@ typedef uint16 BloomSignatureWord;
 #define DEFAULT_BLOOM_BITS		2
 #define MAX_BLOOM_BITS			(MAX_BLOOM_LENGTH - 1)
 
-/*
- * Maximum of bloom signature length in uint16. Actual value
- * is 512 bytes
- */
-#define MAX_BLOOM_LENGTH        (256)
-
 /* Bloom index options */
 typedef struct BloomOptions {
     int32        vl_len_;        /* varlena header (do not touch directly!) */

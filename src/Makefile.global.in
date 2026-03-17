@@ -546,13 +546,6 @@ CJSON_INCLUDE_PATH = $(CJSON_HOME)/include
 CJSON_LIB_PATH = $(CJSON_HOME)/lib
 
 #############################################################################
-# text-splitter component
-#############################################################################
-TEXT_SPLITTER_HOME = $(with_3rd)/kernel/dependency/text-splitter/comm
-TEXT_SPLITTER_INCLUDE_PATH = $(TEXT_SPLITTER_HOME)/include
-TEXT_SPLITTER_LIB_PATH = $(TEXT_SPLITTER_HOME)/lib
-
-#############################################################################
 # tokenizers component
 #############################################################################
 TOKENIZERS_HOME = $(with_3rd)/kernel/dependency/tokenizers/comm
@@ -956,8 +949,6 @@ LDOUT = -o
 RANLIB = @RANLIB@
 WINDRES = @WINDRES@
 X = @EXEEXT@
-
-LDFLAGS += -L$(with_3rd)/kernel/dependency/text-splitter/comm/lib
 
 ifeq ($(with_3rd), NONE)
   LIBTINFO_HOME = $(top_builddir)/$(BINARYPATH)/ncurses/comm

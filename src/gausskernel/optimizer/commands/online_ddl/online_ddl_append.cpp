@@ -1735,7 +1735,9 @@ static bool OnlineDDLAppendScanOldTableWithPartitioning(OnlineDDLAppender* appen
         appender->newRelation = partRel;  // Set the dynamically computed partition as target
 
         // Call the lower-level function with the computed partition
-        OnlineDDLInsertOpt(appender, copyedTuple, hiOptions);
+        tableam_tuple_insert(partRel, copyedTuple, GetCurrentCommandId(true), HEAP_INSERT_SPLIT_PARTITION, NULL);
+        OnlineDDLRelOperators* operators = ((OnlineDDLRelOperators*)u_sess->online_ddl_operators);
+        operators->insertCtidMap(oldTableCtid, targetPartOid, &((HeapTuple)copyedTuple)->t_self);
         // Restore newRelation
         appender->newRelation = savedRel;
 
@@ -1962,6 +1964,26 @@ bool OnlineDDLAppendForPartitionedTable(OnlineDDLAppender* appender)
     while (true) {
         int deltaLogRemainPages = 0;
         int totalOldTableRemainPages = 0;
+
+        deltaLogRemainPages = Max(
+            RelationGetNumberOfBlocks(appender->deltaRelation) - ItemPointerGetBlockNumber(&appender->deltaLogScanIdx),
+            0);
+        index = 0;
+        foreach (cell, oldPartRelationList) {
+            Relation oldPartRelation = (Relation)lfirst(cell);
+            int remainPages = 0;
+            // Since GetRemainPages is designed for single relation, we'll calculate based on blocks
+            BlockNumber currentBlock = ItemPointerGetBlockNumberNoCheck(&partitionScanIndexes[index]);
+            BlockNumber totalBlocks = RelationGetNumberOfBlocks(oldPartRelation);
+            // Ensure non-negative result
+            if (currentBlock < totalBlocks) {
+                remainPages = totalBlocks - currentBlock;
+            } else {
+                remainPages = 0;
+            }
+            totalOldTableRemainPages += remainPages;
+            index++;
+        }
 
         if (deltaLogRemainPages <= ONLINE_DDL_APPENDER_MAX_FINISH_PAGES - totalOldTableRemainPages && !firstScan) {
             ereport(LOG, (errmsg("[Online-DDL] partitioned table finish data catchup by reach max finish pages: "
@@ -2257,6 +2279,7 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
     ItemPointerData* partitionScanIndexes;
     int partitionNum = list_length(appender->oldPartitionList);
     partitionScanIndexes = (ItemPointerData*)palloc0(sizeof(ItemPointerData) * partitionNum);
+    int index = 0;
 
     foreach (cell, oldPartRelationList) {
         Relation oldPartRelation = (Relation)lfirst(cell);
@@ -2278,6 +2301,26 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
     while (true) {
         int deltaLogRemainPages = 0;
         int totalOldTableRemainPages = 0;
+
+        deltaLogRemainPages = Max(
+            RelationGetNumberOfBlocks(appender->deltaRelation) - ItemPointerGetBlockNumber(&appender->deltaLogScanIdx),
+            0);
+        index = 0;
+        foreach (cell, oldPartRelationList) {
+            Relation oldPartRelation = (Relation)lfirst(cell);
+            int remainPages = 0;
+            // Since GetRemainPages is designed for single relation, we'll calculate based on blocks
+            BlockNumber currentBlock = ItemPointerGetBlockNumberNoCheck(&partitionScanIndexes[index]);
+            BlockNumber totalBlocks = RelationGetNumberOfBlocks(oldPartRelation);
+            // Ensure non-negative result
+            if (currentBlock < totalBlocks) {
+                remainPages = totalBlocks - currentBlock;
+            } else {
+                remainPages = 0;
+            }
+            totalOldTableRemainPages += remainPages;
+            index++;
+        }
 
         if (deltaLogRemainPages <= ONLINE_DDL_APPENDER_MAX_FINISH_PAGES - totalOldTableRemainPages && !firstScan) {
             ereport(LOG, (errmsg("[Online-DDL] partitioned table finish data catchup by reach max finish pages: "
@@ -2310,7 +2353,7 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
         ListCell* oldPartRelCell = NULL;
         ListCell* oldPartScanCell = NULL;
         ListCell* oldPartScanTimesCell = NULL;
-        int i = 0;
+        index = 0;
         forthree(oldPartRelCell, oldPartRelationList,          // old partition relation
                  oldPartScanCell, oldTableScanList,            // old table scan
                  oldPartScanTimesCell, oldTableScanTimesList)  // scan times for each partition
@@ -2325,7 +2368,7 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
             if (firstScan) {
                 partitionScanIdx = operators->getEndCtidForPartition(oldPartRelation->rd_id);
             } else {
-                partitionScanIdx = partitionScanIndexes[i];
+                partitionScanIdx = partitionScanIndexes[index];
             }
 
             // Temporarily save and replace the relation and scan index in appender
@@ -2350,10 +2393,10 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
             *oldTableScanTimes += (oldTableScanFinished ? 1 : 0);
 
             // Restore the relation and scan index in appender
-            partitionScanIndexes[i] = appender->oldTableScanIdx;
+            partitionScanIndexes[index] = appender->oldTableScanIdx;
             appender->oldRelation = savedOldRelation;
             appender->oldTableScanIdx = savedOldTableScanIdx;
-            i++;
+            index++;
         }
 
         firstScan = false;
@@ -2385,7 +2428,7 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
     ListCell* oldPartRelCell = NULL;
     ListCell* oldPartScanCell = NULL;
     ListCell* oldPartScanTimesCell = NULL;
-    int i = 0;
+    index = 0;
     forthree(oldPartRelCell, oldPartRelationList,          // old partition relation
              oldPartScanCell, oldTableScanList,            // old table scan
              oldPartScanTimesCell, oldTableScanTimesList)  // scan times for each partition
@@ -2400,7 +2443,7 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
         if (firstScan) {
             partitionScanIdx = operators->getEndCtidForPartition(oldPartRelation->rd_id);
         } else {
-            partitionScanIdx = partitionScanIndexes[i];
+            partitionScanIdx = partitionScanIndexes[index];
         }
 
         // Temporarily save and replace the relation and scan index in appender
@@ -2427,10 +2470,10 @@ bool OnlineDDLAppendForMergePartition(OnlineDDLAppender* appender)
         *oldTableScanTimes += (oldTableScanFinished ? 1 : 0);
 
         // Restore the relation and scan index in appender
-        partitionScanIndexes[i] = appender->oldTableScanIdx;
+        partitionScanIndexes[index] = appender->oldTableScanIdx;
         appender->oldRelation = savedOldRelation;
         appender->oldTableScanIdx = savedOldTableScanIdx;
-        i++;
+        index++;
     }
 
     // Clean up log scanner
@@ -2596,12 +2639,21 @@ bool OnlineDDLOnlyCheckForPartitionedTable(OnlineDDLAppender* appender)
     while (true) {
         // Calculate total remaining pages across all partitions
         int totalOldTableRemainPages = 0;
+        index = 0;
         foreach (cell, oldPartRelationList) {
             Relation oldPartRelation = (Relation)lfirst(cell);
             int remainPages = 0;
             // Since GetRemainPages is designed for single relation, we'll calculate based on blocks
-            remainPages = RelationGetNumberOfBlocks(oldPartRelation);
+            BlockNumber currentBlock = ItemPointerGetBlockNumberNoCheck(&partitionScanIndexes[index]);
+            BlockNumber totalBlocks = RelationGetNumberOfBlocks(oldPartRelation);
+            // Ensure non-negative result
+            if (currentBlock < totalBlocks) {
+                remainPages = totalBlocks - currentBlock;
+            } else {
+                remainPages = 0;
+            }
             totalOldTableRemainPages += remainPages;
+            index++;
         }
 
         // Check if we should finish based on remaining pages
@@ -2673,6 +2725,7 @@ bool OnlineDDLOnlyCheckForPartitionedTable(OnlineDDLAppender* appender)
         }
 
         firstScan = false;
+        CHECK_FOR_INTERRUPTS();
     }
 
     ereport(NOTICE, (errmsg("Online DDL get AccessExclusiveLock for partitioned table before commit, start to append "
@@ -2765,8 +2818,9 @@ bool OnlineDDLOnlyCheck(OnlineDDLAppender* appender)
         return OnlineDDLOnlyCheckForPartitionedTable(appender);
     } else {
         Assert(appender->oldRelation != NULL);
-        ereport(WARNING, (errmsg("Online DDL only check for normal table, oldRelation: %d, newRelation: %d",
-                                  appender->oldRelation != NULL, appender->newRelation != NULL)));
+        ereport(ONLINE_DDL_LOG_LEVEL,
+                (errmsg("Online DDL only check for normal table, oldRelation: %d, newRelation: %d",
+                        appender->oldRelation != NULL, appender->newRelation != NULL)));
         Assert(appender->oldPartitionList == NIL && appender->newOidList == NIL);
         return OnlineDDLOnlyCheckForNormalTable(appender);
     }

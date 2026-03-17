@@ -1319,6 +1319,12 @@ Datum gs_space_shrink(PG_FUNCTION_ARGS)
     uint32 extent_type = PG_GETARG_UINT32(2);
     ForkNumber forknum = PG_GETARG_INT32(3);
 
+    AclResult aclresult = pg_tablespace_aclcheck(spaceid, GetUserId(), ACL_VACUUM);
+    if (aclresult != ACLCHECK_OK) {
+        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+            errmsg("permission denied for tablespace %u, required VACUUM permissions to shrink", spaceid)));
+    }
+
     return gs_space_shrink_internal(spaceid, dbid, extent_type, forknum);
 }
 
@@ -1337,6 +1343,12 @@ Datum local_space_shrink(PG_FUNCTION_ARGS)
     char *dbname = text_to_cstring(PG_GETARG_TEXT_PP(1));
     Oid spaceid = get_tablespace_oid_by_name(tablespacename);
     Oid dbid = get_database_oid_by_name(dbname);
+
+    AclResult aclresult = pg_tablespace_aclcheck(spaceid, GetUserId(), ACL_VACUUM);
+    if (aclresult != ACLCHECK_OK) {
+        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+            errmsg("permission denied for tablespace %s, required VACUUM permissions to shrink", tablespacename)));
+    }
 
     for (int extent_type = EXTENT_8; extent_type <= EXTENT_8192; extent_type++) {
         for (ForkNumber forknum = MAIN_FORKNUM; forknum <= SEGMENT_MAX_FORKNUM; forknum++) {
@@ -1827,6 +1839,13 @@ Datum gs_table_shrink(PG_FUNCTION_ARGS)
     }
 
     Relation rel = relation_open(relOid, AccessExclusiveLock);
+    AclResult aclresult = pg_class_aclcheck(relOid, GetUserId(), ACL_VACUUM);
+    if (aclresult != ACLCHECK_OK && !(pg_class_ownercheck(relOid, GetUserId()) ||
+            (pg_database_ownercheck(u_sess->proc_cxt.MyDatabaseId, GetUserId()) && !rel->rd_rel->relisshared))) {
+        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+            errmsg("permission denied for relation %s, required VACUUM permissions to shrink", relName)));
+    }
+
     uint32 shrinkExtents = 0;
     bool execFailed = false;
     if (!RelationIsValid(rel)) {
@@ -2073,8 +2092,8 @@ static void spc_shrink_compact(Oid spcNode, Oid dbNode, int extentType, ForkNumb
 
     SegSpace *spc = spc_open(spcNode, dbNode, false);
     if (spc == NULL) {
-        ereport(LOG, (errmsg("Segment is not initialized in current database")));
-        return;
+        ereport(ERROR, (errmsg("Segment is not initialized in current database, database and "
+                               "tablespace may be incorrect or mismatched")));
     }
     SegExtentGroup* seg = &spc->extent_group[EXTENT_TYPE_TO_GROUPID(extentType)][forknum];
     if (!eg_df_exists(seg)) {
@@ -2143,6 +2162,12 @@ Datum gs_space_shrink_compact(PG_FUNCTION_ARGS)
     Oid dbid = get_database_oid_by_name(dbName);
     if (dbid != u_sess->proc_cxt.MyDatabaseId) {
         ereport(ERROR, (errmodule(MOD_SEGMENT_PAGE), errmsg("database id is not current database")));
+    }
+
+    AclResult aclresult = pg_tablespace_aclcheck(spaceid, GetUserId(), ACL_VACUUM);
+    if (aclresult != ACLCHECK_OK) {
+        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+            errmsg("permission denied for tablespace %s, required VACUUM permissions to shrink", tableSpaceName)));
     }
 
     for (int extent_type = EXTENT_8; extent_type <= EXTENT_8192; extent_type++) {

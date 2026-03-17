@@ -119,3 +119,8 @@ RESET enable_seqscan;
 RESET enable_bitmapscan;
 RESET enable_indexscan;
 DROP TABLE tst;
+create table bloom_table (id1 int, id2 int, id3 text);
+insert into bloom_table values (1,11,'111'),(2,22,'222');
+CREATE INDEX bloom_index ON bloom_table USING bloom (id1,id2,id3) WITH (length=4096, col1=2, col2=2, col3=4);
+drop index bloom_index;
+drop table bloom_table;

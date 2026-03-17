@@ -1342,6 +1342,33 @@ SELECT count(*) FROM alter_compress_params_schema.all_options_subpartitioned_unc
 (1 row)
 
 DROP TABLE alter_compress_params_schema.all_options_subpartitioned_uncompressed;
+-- segment compressed tables should be inspectable by compress_address_* functions
+CREATE TABLE alter_compress_params_schema.seg_compress_address_fix(id int, c1 text)
+WITH (segment=on, compresstype=1, compress_chunk_size=512);
+INSERT INTO alter_compress_params_schema.seg_compress_address_fix
+SELECT id, repeat(md5(id::text), 200)
+FROM generate_series(1, 1200) id;
+\pset tuples_only on
+SELECT count(*) > 0 AS has_header
+FROM pg_catalog.compress_address_header('alter_compress_params_schema.seg_compress_address_fix', 0);
+ t
+
+SELECT count(*) > 0 AS has_detail
+FROM pg_catalog.compress_address_details('alter_compress_params_schema.seg_compress_address_fix', 0);
+ t
+
+SELECT count(*) > 0 AS has_header_ignore_segment
+FROM pg_catalog.compress_address_header('alter_compress_params_schema.seg_compress_address_fix', 1);
+WARNING:  segment_no 1 is ignored for segment-page compressed tables
+ t
+
+SELECT count(*) > 0 AS has_detail_ignore_segment
+FROM pg_catalog.compress_address_details('alter_compress_params_schema.seg_compress_address_fix', 1);
+WARNING:  segment_no 1 is ignored for segment-page compressed tables
+ t
+
+\pset tuples_only off
+DROP TABLE alter_compress_params_schema.seg_compress_address_fix;
 --Test relfilenode reuse for compressed segment table index.
 --1.create compressed segment table
 CREATE TABLE alter_compress_params_schema.seg_tbl_with_index(id int, c1 text) WITH(compresstype=1, segment=on);

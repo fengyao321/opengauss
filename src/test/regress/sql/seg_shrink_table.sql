@@ -12,6 +12,7 @@ create table seg_test_basic (id bigint, value text, update_at time) with (segmen
 create table seg_test_mix (id bigint, value char(8000)) with (segment=on);
 create index seg_basic_idx on seg_test_basic using btree(id);
 create index seg_mix_idx on seg_test_mix using btree(id);
+select * from gs_table_shrink('seg_test_basic','seg_shrink_tbs','seg_shrink_db');
 -- basic1-mix1-basic2-basic3-mix2
 insert into seg_test_basic(id,value) select t,t from generate_series(1,100000) t;
 insert into seg_test_basic(id,value,update_at) select t,t,now() from generate_series(1,100000) t;
@@ -115,3 +116,23 @@ select * from local_segment_space_info('seg_shrink_tbs','seg_shrink_db') where f
 \c regression;
 drop database if exists seg_shrink_db;
 drop tablespace if exists seg_shrink_tbs;
+
+-- issue 8025
+drop database if exists shrink_test_db;
+drop tablespace if exists shrink_test_tbs;
+drop database if exists shrink_seg_db;
+drop tablespace if exists shrink_seg_tbs;
+
+create tablespace shrink_test_tbs relative location 'shrink_test_tbs';
+create database shrink_test_db tablespace shrink_test_tbs;
+create tablespace shrink_seg_tbs relative location 'shrink_seg_tbs';
+create database shrink_seg_db tablespace shrink_seg_tbs;
+
+\c shrink_seg_db;
+select * from gs_space_shrink_compact('shrink_test_tbs','shrink_seg_db');
+
+\c regression;
+drop database if exists shrink_test_db;
+drop tablespace if exists shrink_test_tbs;
+drop database if exists shrink_seg_db;
+drop tablespace if exists shrink_seg_tbs;

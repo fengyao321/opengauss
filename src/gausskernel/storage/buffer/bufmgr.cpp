@@ -2696,6 +2696,10 @@ Buffer ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber fork
     } else if (RecoveryInProgress() && !t_thrd.xlog_cxt.InRecovery &&
         !g_instance.dms_cxt.SSRecoveryInfo.in_flushcopy) {
         BlockNumber totalBlkNum = smgrnblocks_cached(smgr, forkNum);
+        if (pg_atomic_read_u32(&g_instance.conn_cxt.CurCMAProcCount) >= NUM_CMAGENT_WARN_COUNT &&
+            u_sess->proc_cxt.clientIsCMAgent) {
+            ereport(ERROR, (errmsg("worker thread which connect with cm_agent are exiting")));
+        }
         /* Update cached blocks */
         if (totalBlkNum == InvalidBlockNumber || blockNum >= totalBlkNum) {
             totalBlkNum = smgrnblocks(smgr, forkNum);
@@ -2715,6 +2719,10 @@ Buffer ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber fork
             pgstatCountLocalBlocksRead4SessionLevel();
         }
     } else {
+        if (pg_atomic_read_u32(&g_instance.conn_cxt.CurCMAProcCount) >= NUM_CMAGENT_WARN_COUNT &&
+            u_sess->proc_cxt.clientIsCMAgent) {
+            ereport(ERROR, (errmsg("worker thread which connect with cm_agent are exiting")));
+        }
         /*
          * lookup the buffer.  IO_IN_PROGRESS is set if the requested block is
          * not currently in memory.
@@ -2898,6 +2906,11 @@ found_branch:
                     if (LWLockHeldByMe(bufHdr->io_in_progress_lock)) {
                         TerminateBufferIO(bufHdr, false, 0);
                     }
+                    if (pg_atomic_read_u32(&g_instance.conn_cxt.CurCMAProcCount) >= NUM_CMAGENT_WARN_COUNT &&
+                        u_sess->proc_cxt.clientIsCMAgent) {
+                        SSUnPinBuffer(bufHdr);
+                        ereport(ERROR, (errmsg("worker thread which connect with cm_agent are exiting")));
+                    }
 
                     if (AmDmsProcess() && !dms_drc_accessible((uint8)DRC_RES_PAGE_TYPE) &&
                         t_thrd.dms_cxt.in_ondemand_redo) {
@@ -2913,6 +2926,11 @@ found_branch:
                 if (SS_STANDBY_ONDEMAND_NOT_NORMAL && !SSOndemandRequestPrimaryRedo(bufHdr->tag)) {
                     if (LWLockHeldByMe(bufHdr->io_in_progress_lock)) {
                         TerminateBufferIO(bufHdr, false, 0);
+                    }
+                    if (pg_atomic_read_u32(&g_instance.conn_cxt.CurCMAProcCount) >= NUM_CMAGENT_WARN_COUNT &&
+                        u_sess->proc_cxt.clientIsCMAgent) {
+                        SSUnPinBuffer(bufHdr);
+                        ereport(ERROR, (errmsg("worker thread which connect with cm_agent are exiting")));
                     }
                     continue;
                 }
@@ -2943,7 +2961,11 @@ found_branch:
                             }
                             return InvalidBuffer;
                         }
-
+                        if (pg_atomic_read_u32(&g_instance.conn_cxt.CurCMAProcCount) >= NUM_CMAGENT_WARN_COUNT &&
+                            u_sess->proc_cxt.clientIsCMAgent) {
+                            SSUnPinBuffer(bufHdr);
+                            ereport(ERROR, (errmsg("worker thread which connect with cm_agent are exiting")));
+                        }
                         pg_usleep(5000L);
                         continue;
                     }
@@ -6697,6 +6719,11 @@ retry:
             }
 
             LWLockRelease(buf->content_lock);
+
+            if (pg_atomic_read_u32(&g_instance.conn_cxt.CurCMAProcCount) >= NUM_CMAGENT_WARN_COUNT &&
+                u_sess->proc_cxt.clientIsCMAgent) {
+                ereport(ERROR, (errmsg("worker thread which connect with cm_agent are exiting")));
+            }
             if (SSNeedTerminateRequestPageInPrimaryRestart(GetBufferDescriptor(buffer - 1))) {
                 t_thrd.dms_cxt.page_need_retry = true;
                 return;

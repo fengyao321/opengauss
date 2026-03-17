@@ -40,6 +40,9 @@
 #include "catalog/pg_partition_fn.h"
 #include "storage/cfs/cfs_buffers.h"
 #include "storage/file/fio_device.h"
+#include "storage/page_compression.h"
+#include "storage/smgr/segment.h"
+#include "utils/rel_gs.h"
 
 typedef struct {
     char* location;
@@ -61,9 +64,11 @@ typedef struct StatFile_State {
 
 typedef struct {
     FILE* fd;
+    RelFileNode relFileNode;
     BlockNumber maxExtent;
     BlockNumber extentCount;
     BlockNumber blockNumber;
+    bool isSegmentCompressed;
     char extentHeaderChar[BLCKSZ];
 } CompressAddrState;
 
@@ -429,7 +434,7 @@ static void ReadBinaryFileBlocksFirstCall(PG_FUNCTION_ARGS, int32 startBlockNum,
     (void)MemoryContextSwitchTo(mctx);
 }
 
-static RelFileNode GetCompressRelFileNode(Oid oid)
+static RelFileNode GetCompressRelFileNode(Oid oid, bool *isSegmentCompressed)
 {
     HeapTuple tuple;
     Form_pg_partition pgPartitionForm;
@@ -440,10 +445,17 @@ static RelFileNode GetCompressRelFileNode(Oid oid)
     rnode.relNode = InvalidOid;
     rnode.bucketNode = InvalidBktId;
     rnode.opt = 0;
+    if (isSegmentCompressed != NULL) {
+        *isSegmentCompressed = false;
+    }
 
     // try to get origin oid
     Relation relation = try_relation_open(oid, AccessShareLock);
     if (RelationIsValid(relation)) {
+        if (isSegmentCompressed != NULL) {
+            *isSegmentCompressed =
+                RelationIsSegmentTable(relation) && IS_SEG_COMPRESSED_RNODE(relation->rd_node, MAIN_FORKNUM);
+        }
         rnode = relation->rd_node;
         relation_close(relation, AccessShareLock);
         return rnode;
@@ -480,18 +492,87 @@ static RelFileNode GetCompressRelFileNode(Oid oid)
     return rnode;
 }
 
-static CompressAddrState* CompressAddressInit(PG_FUNCTION_ARGS)
+static void FreeCompressAddressState(CompressAddrState *state)
 {
-    Oid old = PG_GETARG_OID(0);
-    int64 segmentNo = PG_GETARG_INT64(1);
-    RelFileNode relFileNode;
-
-    relFileNode = GetCompressRelFileNode(old);
-    if (!OidIsValid(relFileNode.relNode)) {
-        ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE), errmsg("can not find table ")));
+    if (state->fd != NULL) {
+        (void)FreeFile(state->fd);
+        state->fd = NULL;
     }
-    char *path = relpathbackend(relFileNode, InvalidBackendId, MAIN_FORKNUM);
+}
 
+static CfsExtentHeader *ReadSegmentCompressExtentHeader(CompressAddrState *state, BlockNumber extentIndex)
+{
+    BlockNumber logicBlockNum = CFS_EXT_SIZE_8_TOTAL_PAGES + extentIndex * CFS_LOGIC_BLOCKS_PER_EXTENT;
+    SMgrRelation reln = smgropen(state->relFileNode, InvalidBackendId);
+    (void)seg_nblocks(reln, MAIN_FORKNUM);
+
+    SegPageLocation loc = seg_get_physical_location(state->relFileNode, MAIN_FORKNUM, logicBlockNum, false);
+    if (loc.blocknum == InvalidBlockNumber) {
+        smgrclose(reln);
+        ereport(ERROR,
+            (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                errmsg("failed to locate the physical block for compressed segment relation")));
+    }
+
+    RelFileNode extentGroupNode = EXTENT_GROUP_RNODE(reln->seg_space, loc.extent_size, state->relFileNode.opt);
+    int egid = EXTENT_TYPE_TO_GROUPID(extentGroupNode.relNode);
+    SegExtentGroup *seg = &reln->seg_space->extent_group[egid][MAIN_FORKNUM];
+    int fd = df_get_fd(seg->segfile, loc.blocknum);
+    ExtentLocation location =
+        g_location_convert[SEG_STORAGE](reln, extentGroupNode, fd, loc.extent_size, MAIN_FORKNUM, loc.blocknum);
+    pca_page_ctrl_t *ctrl = pca_buf_read_page(location, LW_SHARED, PCA_BUF_NORMAL_READ);
+    if (ctrl->load_status == CTRL_PAGE_LOADED_ERROR) {
+        pca_buf_free_page(ctrl, location, false);
+        smgrclose(reln);
+        ereport(ERROR,
+            (errcode(ERRCODE_DATA_CORRUPTED),
+                errmsg("failed to read compressed segment extent header, headerNum: %u", location.headerNum)));
+    }
+
+    errno_t rc = memcpy_s(state->extentHeaderChar, BLCKSZ, ctrl->pca_page, BLCKSZ);
+    pca_buf_free_page(ctrl, location, false);
+    smgrclose(reln);
+    securec_check(rc, "\0", "\0");
+    return (CfsExtentHeader *)state->extentHeaderChar;
+}
+
+static CfsExtentHeader *ReadCompressExtentHeader(CompressAddrState *state, BlockNumber extentIndex)
+{
+    if (state->isSegmentCompressed) {
+        return ReadSegmentCompressExtentHeader(state, extentIndex);
+    }
+
+    if (fseeko(state->fd, (((extentIndex + 1) * CFS_EXTENT_SIZE) - 1) * BLCKSZ, SEEK_SET) != 0) {
+        ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE), errmsg("fseeko: can not seek file")));
+    }
+    if (fread(state->extentHeaderChar, 1, BLCKSZ, state->fd) != BLCKSZ) {
+        ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE), errmsg("fread: can not read file")));
+    }
+    return (CfsExtentHeader *)state->extentHeaderChar;
+}
+
+static void InitSegmentCompressAddressState(CompressAddrState *state, int64 segmentNo)
+{
+    if (segmentNo != 0) {
+        ereport(WARNING, (errmsg("segment_no %ld is ignored for segment-page compressed tables", segmentNo)));
+    }
+
+    SMgrRelation reln = smgropen(state->relFileNode, InvalidBackendId);
+    BlockNumber nblocks = seg_nblocks(reln, MAIN_FORKNUM);
+    if (nblocks <= CFS_EXT_SIZE_8_TOTAL_PAGES) {
+        state->maxExtent = 0;
+        smgrclose(reln);
+        return;
+    }
+
+    state->maxExtent = (nblocks - CFS_EXT_SIZE_8_TOTAL_PAGES + CFS_LOGIC_BLOCKS_PER_EXTENT - 1) /
+        CFS_LOGIC_BLOCKS_PER_EXTENT;
+    smgrclose(reln);
+}
+
+static void InitCommonCompressAddressState(CompressAddrState *state, int64 segmentNo)
+{
+    char *path = relpathbackend(state->relFileNode, InvalidBackendId, MAIN_FORKNUM);
     char pcaFilePath[MAXPGPATH];
     if (segmentNo == 0) {
         errno_t rc = snprintf_s(pcaFilePath, MAXPGPATH, MAXPGPATH - 1, COMPRESS_SUFFIX, path);
@@ -501,18 +582,42 @@ static CompressAddrState* CompressAddressInit(PG_FUNCTION_ARGS)
         securec_check_ss(rc, "\0", "\0");
     }
     pfree(path);
+
     FILE* pcaFile = AllocateFile((const char*)pcaFilePath, "rb");
     if (pcaFile == NULL) {
         ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE), errmsg("compress File: can not find file")));
     }
+
     struct stat fileStat;
     if (fstat(fileno(pcaFile), &fileStat) != 0) {
         ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE), errmsg("fileStat: can not find file")));
     }
-    auto compressAddressState = (CompressAddrState*)palloc(sizeof(CompressAddrState));
-    compressAddressState->fd = pcaFile;
-    auto maxExtent = (fileStat.st_size / BLCKSZ) / CFS_EXTENT_SIZE;
-    compressAddressState->maxExtent = (BlockNumber)maxExtent;
+
+    state->fd = pcaFile;
+    state->maxExtent = (BlockNumber)((fileStat.st_size / BLCKSZ) / CFS_EXTENT_SIZE);
+}
+
+static CompressAddrState* CompressAddressInit(PG_FUNCTION_ARGS)
+{
+    Oid old = PG_GETARG_OID(0);
+    int64 segmentNo = PG_GETARG_INT64(1);
+    RelFileNode relFileNode;
+    bool isSegmentCompressed = false;
+
+    relFileNode = GetCompressRelFileNode(old, &isSegmentCompressed);
+    if (!OidIsValid(relFileNode.relNode)) {
+        ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE), errmsg("can not find table ")));
+    }
+    auto compressAddressState = (CompressAddrState*)palloc0(sizeof(CompressAddrState));
+    compressAddressState->relFileNode = relFileNode;
+    compressAddressState->isSegmentCompressed = isSegmentCompressed;
+
+    if (isSegmentCompressed) {
+        InitSegmentCompressAddressState(compressAddressState, segmentNo);
+    } else {
+        InitCommonCompressAddressState(compressAddressState, segmentNo);
+    }
+
     compressAddressState->extentCount= 0;
     compressAddressState->blockNumber= 0;
 
@@ -548,32 +653,29 @@ Datum compress_address_details(PG_FUNCTION_ARGS)
 
     if (itemState->extentCount < itemState->maxExtent) {
         CfsExtentHeader* extentHeader = NULL;
-        if (itemState->blockNumber == 0) {
-            if (fseeko(itemState->fd, (((itemState->extentCount + 1) * CFS_EXTENT_SIZE) - 1) * BLCKSZ, SEEK_SET) != 0) {
-                ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-                                errmsg("fseeko: can not seek file")));
-            }
-            if (fread(itemState->extentHeaderChar, 1, BLCKSZ, itemState->fd) == BLCKSZ) {
-                extentHeader = (CfsExtentHeader*)itemState->extentHeaderChar;
-            } else {
-                ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-                                errmsg("fread: can not read file")));
-            }
+        if (itemState->blockNumber == 0 || itemState->isSegmentCompressed) {
+            extentHeader = ReadCompressExtentHeader(itemState, itemState->extentCount);
         } else {
             extentHeader = (CfsExtentHeader*)itemState->extentHeaderChar;
         }
         if (extentHeader->nblocks == 0) {
-            (void)FreeFile(itemState->fd);
+            FreeCompressAddressState(itemState);
             SRF_RETURN_DONE(fctx);
         }
         CfsExtentAddress *cfsExtentAddress = GetExtentAddress(extentHeader, (uint16)itemState->blockNumber);
         auto allocatedChunk = cfsExtentAddress->allocated_chunks;
 
         Datum values[6];
+        int64 blockNumber = 0;
+        int64 extentOffset = (int64)itemState->extentCount * CFS_LOGIC_BLOCKS_PER_EXTENT;
         values[0] = Int64GetDatum(itemState->extentCount);
         values[1] = Int64GetDatum(itemState->blockNumber);
-        values[2] = Int64GetDatum(PG_GETARG_INT64(1) * CFS_LOGIC_BLOCKS_PER_FILE + itemState->extentCount *
-                                  CFS_LOGIC_BLOCKS_PER_EXTENT + itemState->blockNumber);
+        if (itemState->isSegmentCompressed) {
+            blockNumber = CFS_EXT_SIZE_8_TOTAL_PAGES + extentOffset + itemState->blockNumber;
+        } else {
+            blockNumber = PG_GETARG_INT64(1) * CFS_LOGIC_BLOCKS_PER_FILE + extentOffset + itemState->blockNumber;
+        }
+        values[2] = Int64GetDatum(blockNumber);
         values[3] = Int32GetDatum(allocatedChunk);
         values[4] = Int32GetDatum(cfsExtentAddress->nchunks);
 
@@ -596,7 +698,7 @@ Datum compress_address_details(PG_FUNCTION_ARGS)
         }
         SRF_RETURN_NEXT(fctx, result);
     } else {
-        (void)FreeFile(itemState->fd);
+        FreeCompressAddressState(itemState);
         SRF_RETURN_DONE(fctx);
     }
 }
@@ -628,15 +730,7 @@ Datum compress_address_header(PG_FUNCTION_ARGS)
     auto itemState = (CompressAddrState *)fctx->user_fctx;
 
     if (fctx->call_cntr < fctx->max_calls) {
-        CfsExtentHeader* extentHeader = NULL;
-        if (fseeko(itemState->fd, (((itemState->extentCount + 1) * CFS_EXTENT_SIZE) - 1) * BLCKSZ, SEEK_SET) != 0) {
-            ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE), errmsg("fseeko: can not seek file")));
-        }
-        if (fread(itemState->extentHeaderChar, 1, BLCKSZ, itemState->fd) == BLCKSZ) {
-            extentHeader = (CfsExtentHeader*)itemState->extentHeaderChar;
-        } else {
-            ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE), errmsg("fread: can not read file")));
-        }
+        CfsExtentHeader* extentHeader = ReadCompressExtentHeader(itemState, itemState->extentCount);
 
         Datum values[5];
         values[0] = Int64GetDatum(fctx->call_cntr);
@@ -653,7 +747,7 @@ Datum compress_address_header(PG_FUNCTION_ARGS)
         itemState->extentCount++;
         SRF_RETURN_NEXT(fctx, result);
     } else {
-        (void)FreeFile(itemState->fd);
+        FreeCompressAddressState(itemState);
         SRF_RETURN_DONE(fctx);
     }
 }

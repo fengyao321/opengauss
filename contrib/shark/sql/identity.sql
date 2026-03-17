@@ -563,5 +563,28 @@ select SCOPE_IDENTITY();
 select ident_current('t_ident');
 drop table t_ident;
 
+
+-- ### test internal sequence name used by identity column
+-- create table like
+create sequence identity_t2_id_seq_identity;
+create table identity_t2(id numeric(38, 0) identity(10, 2), b int);
+create table identity_t2_1 (like identity_t2);
+insert into identity_t2_1(b) values (10);
+insert into identity_t2_1(b) values (10);
+select id, b from identity_t2_1;
+drop sequence identity_t2_id_seq_identity;
+drop table identity_t2;
+drop table identity_t2_1;
+-- select into
+create sequence identity_t3_id_seq_identity;
+create table identity_t3(id numeric(38, 0) identity(10, 3), b int);
+set identity_insert = on;
+select id, b into identity_t3_1 from identity_t3;
+insert into identity_t3_1(b) values (10);
+insert into identity_t3_1(b) values (10);
+select id, b from identity_t3_1;
+drop sequence identity_t3_id_seq_identity;
+drop table identity_t3;
+drop table identity_t3_1;
 reset current_schema;
 drop schema identity_schema;

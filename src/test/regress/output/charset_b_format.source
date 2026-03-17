@@ -503,6 +503,7 @@ NOTICE: '[ CHARACTER SET | CHARSET ]' is only available in CENTRALIZED mode and 
 NOTICE: '[ COLLATE [ = ] collation ]' is only available in CENTRALIZED mode and B-format database!
 NOTICE: '[ VISIBLE | INVISIBLE ]' is only avaliable in CENTRALIZED mode and B-format database!
 NOTICE: 'IDENTITY [ (seed , increment) ]' is only avaliable in D-format database!
+NOTICE: 'table_name' begin with '#' and '##' as temp table name is only avaliable in CENTRALIZED mode and D-format database!
 
 \h create table partition;
 Command:     CREATE TABLE PARTITION

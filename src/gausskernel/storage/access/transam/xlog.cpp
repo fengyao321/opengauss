@@ -6757,6 +6757,9 @@ void XLOGShmemInit(void)
                 sizeof(XLogRecPtr) * g_instance.attr.attr_storage.XLOGbuffers, 0,
                 sizeof(XLogRecPtr) * g_instance.attr.attr_storage.XLOGbuffers);
             securec_check(errorno, "", "");
+
+            /* recovery_min_apply_delay is SIGHUP level, so init recoverywakeupdelaylatch if extremerto mode */
+            RecoveryDelayLatchOp(LATCH_INIT);
             ereport(LOG, (errmsg("[SS %s] Successfully reset xlblocks when thrd:%lu with role:%d started",
                 SS_PERFORMING_SWITCHOVER ? "switchover" : "failover", t_thrd.proc->pid, (int)t_thrd.role)));
         }
@@ -6860,7 +6863,7 @@ void XLOGShmemInit(void)
     InitSharedLatch(&t_thrd.shemem_ptr_cxt.XLogCtl->dataRecoveryLatch);
 
     /* recovery_min_apply_delay is SIGHUP level, so init recoveryWakeupDelayLatch if extremeRto mode*/
-    RecoverDelayLatchOp(LATCH_INIT);
+    RecoveryDelayLatchOp(LATCH_INIT);
 
     if (g_instance.smb_cxt.use_smb) {
         InitSharedLatch(&t_thrd.shemem_ptr_cxt.XLogCtl->SMBWakeupLatch);
@@ -9718,7 +9721,7 @@ void StartupXLOG(void)
     if (t_thrd.xlog_cxt.StandbyModeRequested) {
         OwnLatch(&t_thrd.shemem_ptr_cxt.XLogCtl->recoveryWakeupLatch);
         OwnLatch(&t_thrd.shemem_ptr_cxt.XLogCtl->dataRecoveryLatch);
-        RecoverDelayLatchOp(LATCH_OWN);
+        RecoveryDelayLatchOp(LATCH_OWN);
     }
 
     /* Set up XLOG reader facility */
@@ -11028,7 +11031,7 @@ void StartupXLOG(void)
             DisownLatch(&t_thrd.shemem_ptr_cxt.XLogCtl->recoveryWakeupLatch);
         }
         DisownLatch(&t_thrd.shemem_ptr_cxt.XLogCtl->dataRecoveryLatch);
-        RecoverDelayLatchOp(LATCH_DISOWN);
+        RecoveryDelayLatchOp(LATCH_DISOWN);
     }
 
     /*
@@ -19095,7 +19098,7 @@ void WakeupRecovery(void)
 {
     SetLatch(&t_thrd.shemem_ptr_cxt.XLogCtl->recoveryWakeupLatch);
     if (u_sess->attr.attr_storage.recovery_min_apply_delay > 0) {
-        RecoverDelayLatchOp(LATCH_SET);
+        RecoveryDelayLatchOp(LATCH_SET);
     }
 }
 
@@ -19730,7 +19733,7 @@ void ReLeaseRecoveryLatch()
  * Reset latch before startup process delay recovery.
  */
 void ResetRecoveryDelayLatch() {
-    RecoverDelayLatchOp(LATCH_RESET);
+    RecoveryDelayLatchOp(LATCH_RESET);
     ResetLatch(&t_thrd.shemem_ptr_cxt.XLogCtl->recoveryWakeupLatch);
 }
 

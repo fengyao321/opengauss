@@ -376,6 +376,7 @@ typedef struct PGXACT {
 
 /* max number of CMA's connections */
 #define NUM_CMAGENT_PROCS (10)
+#define NUM_CMAGENT_WARN_COUNT (8)
 
 /*
  * There is one ProcGlobal struct for the whole database cluster.
@@ -460,8 +461,11 @@ const int SMBWRITERAUX_THREAD_NUM = 7;
 #define NUM_MULTI_AUX_PROC \
     (MAX_PAGE_WRITER_THREAD_NUM + \
      MAX_RECOVERY_THREAD_NUM + \
+     SMBWRITERAUX_THREAD_NUM + \
+     MAX_CBM_THREAD_NUM + \
+     g_instance.shmem_cxt.ThreadPoolGroupNum + \
      MAX_COMPACTION_THREAD_NUM + \
-     SMBWRITERAUX_THREAD_NUM \
+     MAX_AIO_COMPLETER_THREAD_NUM \
     )
 
 #define NUM_AUXILIARY_PROCS (NUM_SINGLE_AUX_PROC + NUM_MULTI_AUX_PROC) 

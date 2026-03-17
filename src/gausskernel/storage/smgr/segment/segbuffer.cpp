@@ -612,7 +612,10 @@ Buffer ReadBufferFastNormal(SegSpace *spc, RelFileNode rnode, ForkNumber forkNum
                     found = true;
                     goto found_branch;
                 }
-
+                if (pg_atomic_read_u32(&g_instance.conn_cxt.CurCMAProcCount) >= NUM_CMAGENT_WARN_COUNT &&
+                    u_sess->proc_cxt.clientIsCMAgent) {
+                    ereport(ERROR, (errmsg("worker1 thread which connect with cm_agent are exiting")));
+                }
                 dms_buf_ctrl_t *buf_ctrl = GetDmsBufCtrl(bufHdr->buf_id);
                 LWLockMode lockmode = LW_SHARED;
                 if (!LockModeCompatible(buf_ctrl, lockmode)) {

@@ -190,8 +190,8 @@ typedef enum {
     LATCH_OWN,
     LATCH_DISOWN,
     LATCH_WAIT,
-} RecoverDelayLatchOperation;
+} RecoveryDelayLatchOperation;
 
-void RecoverDelayLatchOp(RecoverDelayLatchOperation op, int wakeEvents = 0, long waitTime = 0);
+void RecoveryDelayLatchOp(RecoveryDelayLatchOperation op, int wakeEvents = 0, long waitTime = 0);
 
 #endif

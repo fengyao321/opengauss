@@ -2381,12 +2381,6 @@ int PostmasterMain(int argc, char* argv[])
         }
     }
 
-#ifndef ENABLE_LITE_MODE
-    if (XLogArchivingActive() && XLogArchiveCommandSet() && !XLogArchiveDestSet()) {
-        InitArchiveCmdExecuter();
-    }
-#endif
-
     CalcMaxBackends();
 
     /* init thread args pool for ever sub threads except signal moniter */
@@ -3358,6 +3352,13 @@ int PostmasterMain(int argc, char* argv[])
     if (PythonFencedMasterModel) {
         fencedMasterPID = StartUDFMaster();
     }
+
+#ifndef ENABLE_LITE_MODE
+    if (XLogArchivingActive() && XLogArchiveCommandSet() && !XLogArchiveDestSet()) {
+        InitArchiveCmdExecuter();
+    }
+#endif
+
     if (status == STATUS_OK)
         status = ServerLoop();
 
@@ -14615,6 +14616,13 @@ int GaussDbAuxiliaryThreadMain(knl_thread_arg* arg)
              * g_instance.shmem_cxt.MaxBackends + 1 as the base index of the slot for an
              * auxiliary process.
              */
+#ifndef ENABLE_LITE_MODE
+            /* AIO completer threads need their thread index set before
+             * GetAuxProcEntryIndex so each gets a unique slot. */
+            if (thread_role == AIO_COMPLETER_THREAD) {
+                t_thrd.aio_cxt.compltrIdx = (int)(uintptr_t)arg->payload;
+            }
+#endif
             int index = GetAuxProcEntryIndex(g_instance.shmem_cxt.MaxBackends + 1);
 
             ProcSignalInit(index);
