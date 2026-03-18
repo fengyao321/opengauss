@@ -866,7 +866,7 @@ static bool pgarch_archiveXlog(char* xlog)
     int pid;
     if (!CheckArchiveCmdExecuterExists(&pid, false)) {
         ereport(WARNING, (errmsg("Skip as archive command executer process doesn't exist.")));
-        return false;
+        SendPostmasterSignal(PMSIGNAL_START_ARCHIVE_CMD_AGENT);
     }
 
     rc = write(g_instance.attr.attr_common.archiveCmdExecutePipe[1], xlogarchcmd, strlen(xlogarchcmd));
@@ -1413,13 +1413,56 @@ void InitArchiveCmdExecuter()
                 cmd[n-1] = '\0';
             }
 
-            int pid = fork();
-            if (pid == 0) {
-                execl("/bin/sh", "sh", "-c", cmd, (char*)NULL);
-                _exit(127);
-            } else if (pid > 0) {
-                int status;
-                waitpid(pid, &status, 0);
+            int output_pipe[2];
+            if (pipe(output_pipe) < 0) {
+                ereport(WARNING, (errmsg("failed to create output pipe for command: %s, error: %m", cmd)));
+            } else {
+                int pid = fork();
+                if (pid == 0) {
+                    close(output_pipe[0]);
+                    dup2(output_pipe[1], fileno(stdout));
+                    dup2(output_pipe[1], fileno(stderr));
+                    close(output_pipe[1]);
+                    execl("/bin/sh", "sh", "-c", cmd, (char*)NULL);
+                    _exit(127);
+                } else if (pid > 0) {
+                    close(output_pipe[1]);
+                    char output_buf[MAXPGPATH] = {0};
+                    ssize_t total = 0;
+                    ssize_t bytes_read;
+                    while ((bytes_read = read(output_pipe[0], output_buf + total,
+                            sizeof(output_buf) - 1 - total)) > 0) {
+                        total += bytes_read;
+                        if (total >= (ssize_t)sizeof(output_buf) - 1)
+                            break;
+                    }
+                    output_buf[total] = '\0';
+                    int status;
+                    waitpid(pid, &status, 0);
+                    close(output_pipe[0]);
+                    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+                        ereport(WARNING,
+                            (errmsg("archive command output: %s", total > 0 ? output_buf : "no output from command")));
+                    }
+
+                    int lev = (WIFSIGNALED(status) || WEXITSTATUS(status) > 128) ? FATAL : LOG;
+                    if (WIFEXITED(status)) {
+                        ereport(lev,
+                            (errmsg("archive command failed with exit code %d", WEXITSTATUS(status)),
+                                errdetail("The failed archive command was: \"%s\" ", cmd)));
+                    } else if (WIFSIGNALED(status)) {
+                        ereport(lev,
+                            (errmsg("archive command was terminated by signal %d", WTERMSIG(status)),
+                                errdetail("The failed archive command was: \"%s\" ", cmd)));
+                    } else {
+                        ereport(lev,
+                            (errmsg("archive command exited with unrecognized status %d", status),
+                                errdetail("The failed archive command was: \"%s\" ", cmd)));
+                    }
+                } else {
+                    close(output_pipe[0]);
+                    close(output_pipe[1]);
+                }
             }
         }
         close(g_instance.attr.attr_common.archiveCmdExecutePipe[0]);
