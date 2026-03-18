@@ -650,6 +650,9 @@ endif
 	cp -d $(TEXT_SPLITTER_LIB_PATH)/libtext_splitter_ffi* '$(DESTDIR)$(libdir)/'
 	cp -d $(ONNXRUNTIME_LIB_PATH)/libonnx* '$(DESTDIR)$(libdir)/'
 	cp -d $(TOKENIZERS_LIB_PATH)/libtokenizers* '$(DESTDIR)$(libdir)/'
+ifeq ($(host_cpu), aarch64)
+	@if test -d $(KVECTURBO_LIB_PATH); then cp -d $(KVECTURBO_LIB_PATH)/libkvecturbo* '$(DESTDIR)$(libdir)/'; fi
+endif
 
 ifneq ($(with_openeuler_os), yes)
 ifeq ($(enable_lite_mode), no)
