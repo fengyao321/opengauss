@@ -11015,6 +11015,19 @@ static void sigusr1_handler(SIGNAL_ARGS)
         StartPgjobWorker();
     }
 
+#ifndef ENABLE_LITE_MODE
+    /* should not start a worker in shutdown or demotion procedure */
+    if (CheckPostmasterSignal(PMSIGNAL_START_ARCHIVE_CMD_AGENT) && g_instance.status == NoShutdown &&
+        g_instance.demotion == NoDemote && (!ENABLE_DMS || SS_NORMAL_PRIMARY)
+#ifdef ENABLE_NEON
+        && !IsNeonComputeMode()
+#endif
+        ) {
+        /* The statement flush thread wants us to start a clean statement worker process. */
+        InitArchiveCmdExecuter();
+    }
+#endif
+
     /*
      * 1. if xlog_file_path is not equel to zero and dms is enabled, main standby need to initialize walreceiver
      *    and walrecwrite. Other modes don't need when dms is enabled.
