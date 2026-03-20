@@ -323,7 +323,7 @@ static Acl* merge_acl_with_grant(Acl* old_acl, bool is_grant, bool grant_option,
         if (is_grant && grant_option && aclitem.ai_grantee == ACL_ID_PUBLIC)
             ereport(ERROR, (errmodule(MOD_SEC), errcode(ERRCODE_INVALID_GRANT_OPERATION),
                 errmsg("invalid grant operation"), errdetail("Grant options can only be granted to roles."),
-                    errcause("Grant options cannnot be granted to public."),
+                    errcause("Grant options cannot be granted to public."),
                         erraction("Grant grant options to roles.")));
 
         aclitem.ai_grantor = grantorId;
@@ -3022,9 +3022,9 @@ static void ExecGrant_Language(InternalGrant* istmt)
          */
         if (!pg_language_tuple->lanpltrusted && ClanguageId != langId)
             ereport(ERROR, (errmodule(MOD_SEC), errcode(ERRCODE_INVALID_GRANT_OPERATION),
-                errmsg("Grant/revoke on untrusted languages if forbidden."),
+                errmsg("Grant/revoke on untrusted languages is forbidden."),
                     errdetail("language \"%s\" is not trusted", NameStr(pg_language_tuple->lanname)),
-                        errcause("Grant/revoke on untrusted languages if forbidden."),
+                        errcause("Grant/revoke on untrusted languages is forbidden."),
                             erraction("Support grant/revoke on trusted C languages")));
 
         /*

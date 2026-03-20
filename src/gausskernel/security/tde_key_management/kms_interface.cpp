@@ -265,7 +265,7 @@ char* KMSInterface::parser_http_string(AdvStrList* http_msg_list, ResetApiType a
             ereport(ERROR, (errmodule(MOD_SEC_TDE), errcode(ERRCODE_UNEXPECTED_NULL_VALUE), 
                 errmsg("KMS dek json key is NULL"), errdetail("N/A"), 
                 errcause("KMS return value error"), 
-                erraction("check KMS config paramenter")));
+                erraction("check KMS config parameter")));
         }
         json_string = cJSON_GetObjectItem(dek_json, data_key)->valuestring;
         if (json_string == NULL) {
@@ -298,7 +298,7 @@ DekInfo* KMSInterface::parser_http_array(AdvStrList* http_msg_list, ResetApiType
             ereport(ERROR, (errmodule(MOD_SEC_TDE), errcode(ERRCODE_UNEXPECTED_NULL_VALUE), 
                 errmsg("KMS dek json key is NULL"), errdetail("N/A"), 
                 errcause("KMS return value error"), 
-                erraction("check KMS config paramenter")));
+                erraction("check KMS config parameter")));
         }
         plain_json = cJSON_GetObjectItem(dek_json, plain_text)->valuestring;
         cipher_json = cJSON_GetObjectItem(dek_json, cipher_text)->valuestring;

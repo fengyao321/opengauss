@@ -399,7 +399,7 @@ char* CKMSMessage::get_kms_json(ReplaceJsonValue input_json[], KmsHttpMsgType js
     if (json == NULL) {
         ereport(ERROR, (errmodule(MOD_SEC_TDE), errcode(ERRCODE_UNEXPECTED_NULL_VALUE), 
             errmsg("get JSON tree is NULL"), errdetail("N/A"), errcause("get KMS JSON tree failed"), 
-            erraction("check input prarmeter or config.ini file")));
+            erraction("check input parameter or config.ini file")));
         return NULL;
     }
     ret = traverse_jsontree_with_raplace_value(json, input_json, count);
@@ -411,7 +411,7 @@ char* CKMSMessage::get_kms_json(ReplaceJsonValue input_json[], KmsHttpMsgType js
     if (temp_json == NULL) {
         ereport(ERROR, (errmodule(MOD_SEC_TDE), errcode(ERRCODE_UNEXPECTED_NULL_VALUE), 
             errmsg("get JSON tree is NULL"), errdetail("N/A"), errcause("get KMS JSON tree failed"), 
-            erraction("check input prarmeter or config.ini file")));
+            erraction("check input parameter or config.ini file")));
     }
     json_string = (char*)palloc0(strlen(temp_json) + 1);
     rc = memcpy_s(json_string, (strlen(temp_json) + 1), temp_json, (strlen(temp_json) + 1));
@@ -513,7 +513,7 @@ HttpErrCode CKMSMessage::traverse_jsontree_with_raplace_value(cJSON *json_tree, 
                 ereport(ERROR, (errmodule(MOD_SEC_TDE), errcode(ERRCODE_UNEXPECTED_NULL_VALUE), 
                         errmsg("failed to get json tree"), errdetail("N/A"), 
                         errcause("config.ini json tree error"), 
-                        erraction("check input prarmeter or config.ini file")));
+                        erraction("check input parameter or config.ini file")));
             }
             if (strcmp(replace_rules[i].src_value, cJSON_GetStringValue(json_tree)) == 0) {
                 new_value = cJSON_SetValuestring(json_tree, replace_rules[i].dest_value);
@@ -521,7 +521,7 @@ HttpErrCode CKMSMessage::traverse_jsontree_with_raplace_value(cJSON *json_tree, 
                     ereport(ERROR, (errmodule(MOD_SEC_TDE), errcode(ERRCODE_UNEXPECTED_NULL_VALUE), 
                         errmsg("failed to set the value of json tree"), errdetail("N/A"), 
                         errcause("config.ini json tree error"), 
-                        erraction("check input prarmeter or config.ini file")));
+                        erraction("check input parameter or config.ini file")));
                     return TDE_SET_CJSON_VALUE_ERR;
                 }
             }

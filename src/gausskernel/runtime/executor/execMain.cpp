@@ -2791,7 +2791,7 @@ bool ExecConstraints(ResultRelInfo *resultRelInfo, TupleTableSlot *slot, EState 
                     RelationGetRelationName(rel), failed),
                 val_desc ? errdetail("Failing row contains %s.", val_desc) : 0,
                 errcause("some rows copy failed"),
-                erraction("check table defination")));
+                erraction("check table definition")));
     } else {
         ereport(ERROR, 
             (errmodule(MOD_EXECUTOR), errcode(ERRCODE_CHECK_VIOLATION),

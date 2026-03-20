@@ -126,7 +126,7 @@ msgstr "无效的授权操作"
 
 #: ../common/backend/catalog/aclchk.cpp:314
 #, c-format
-msgid "Grant options cannnot be granted to public."
+msgid "Grant options cannot be granted to public."
 msgstr "授予选项不能授予public."
 
 #: ../common/backend/catalog/aclchk.cpp:315
@@ -1462,7 +1462,7 @@ msgstr "缓存查找语言 %u 失败"
 #: ../common/backend/catalog/aclchk.cpp:3013
 #: ../common/backend/catalog/aclchk.cpp:3015
 #, c-format
-msgid "Grant/revoke on untrusted languages if forbidden."
+msgid "Grant/revoke on untrusted languages is forbidden."
 msgstr "如果禁止，则对不受信任的语言Grant/revoke。"
 
 #: ../common/backend/catalog/aclchk.cpp:3014
@@ -77125,7 +77125,7 @@ msgstr "部分行复制失败"
 #
 #: runtime/executor/execMain.cpp:2636
 #, c-format
-msgid "check table defination"
+msgid "check table definition"
 msgstr "检查表定义"
 
 #
@@ -80399,7 +80399,7 @@ msgstr "获取KMS JSON树失败"
 #: security/tde_key_management/ckms_message.cpp:459
 #: security/tde_key_management/ckms_message.cpp:467
 #, c-format
-msgid "check input prarmeter or config.ini file"
+msgid "check input parameter or config.ini file"
 msgstr "检查输入参数或config.ini文件"
 
 #: security/tde_key_management/ckms_message.cpp:457
@@ -80526,7 +80526,7 @@ msgstr "KMS返回值错误"
 #: security/tde_key_management/kms_interface.cpp:268
 #: security/tde_key_management/kms_interface.cpp:301
 #, c-format
-msgid "check KMS config paramenter"
+msgid "check KMS config parameter"
 msgstr "检查KMS配置参数"
 
 #: security/tde_key_management/kms_interface.cpp:274
