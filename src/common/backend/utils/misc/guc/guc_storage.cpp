@@ -1986,7 +1986,7 @@ static void InitStorageConfigureNamesInt()
             GUC_UNIT_KB},
             &g_instance.attr.attr_storage.DataQueueBufSize,
             16 * 1024,
-            0,
+            4096,
             1023 * 1024 * 1024,
             NULL,
             NULL,
