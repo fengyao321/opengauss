@@ -1965,6 +1965,7 @@ static void do_autovacuum(void)
     LWLockAcquire(instance->global_task_lock, LW_EXCLUSIVE);
     if (!instance->all_task_done) {
         LWLockRelease(instance->global_task_lock);
+        ereport(DEBUG2, (errmsg("Canceled an autovacuum because an AFT rebuild transaction is in progress.")));
         return;
     }
     LWLockRelease(instance->global_task_lock);

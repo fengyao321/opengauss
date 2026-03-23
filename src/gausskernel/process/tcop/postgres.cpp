@@ -235,6 +235,8 @@ typedef struct AttachInfoContext {
 
 #define MAXSTRLEN ((1 << 11) - 1)
 
+#define ATF_TASK_CHECK_INTERVAL_USEC 100000
+
 extern PgBackendStatus* GetMyBEEntry(void);
 extern THR_LOCAL bool g_pq_interrupt_happened;
 
@@ -8523,7 +8525,8 @@ void SessionWaitAfterTaskDone() {
             break;
         }
 
-        pg_usleep(100000);  // Sleep for 100ms before checking again
+        CHECK_FOR_INTERRUPTS();
+        pg_usleep(ATF_TASK_CHECK_INTERVAL_USEC);  // Sleep for 100ms before checking again
     }
 
     ereport(DEBUG2, (errmsg("[ATF] finish waiting for global task completion (reason: %s), reset atf_recovery=false",
