@@ -1463,7 +1463,7 @@ msgstr "缓存查找语言 %u 失败"
 #: ../common/backend/catalog/aclchk.cpp:3015
 #, c-format
 msgid "Grant/revoke on untrusted languages is forbidden."
-msgstr "如果禁止，则对不受信任的语言Grant/revoke。"
+msgstr "禁止对不受信任的语言执行GRANT/REVOKE。"
 
 #: ../common/backend/catalog/aclchk.cpp:3014
 #, c-format
