@@ -99,11 +99,19 @@ const int MAX_AUDIT_NUM = 48;
 const int MAX_SQL_LIMIT_TYPE = 4;
 const int SMBWRITER_THD_NUM = 8;
 
+#ifdef ENABLE_LITE_MODE
+/* Maximum number of max parallel decode threads */
+#define MAX_PARALLEL_DECODE_NUM 10
+
+/* Maximum number of max replication slots */
+#define MAX_REPLICATION_SLOT_NUM 50
+#else
 /* Maximum number of max parallel decode threads */
 #define MAX_PARALLEL_DECODE_NUM 20
 
 /* Maximum number of max replication slots */
 #define MAX_REPLICATION_SLOT_NUM 100
+#endif
 
 #define MAX_CBM_THREAD_NUM 10
 #define INVAILD_CBM_THREAD_NUM 99

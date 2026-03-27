@@ -2573,8 +2573,9 @@ int PostmasterMain(int argc, char* argv[])
 
         ereport(DEBUG3, (errmsg_internal("-----------------------------------------")));
     }
-
-    PrepareAlarmEnvironment();
+    if (g_instance.attr.attr_common.enable_alarm) {
+        PrepareAlarmEnvironment();
+    }
 
     /*
         * Create lockfile for data directory.
@@ -3156,7 +3157,8 @@ int PostmasterMain(int argc, char* argv[])
 #endif
 
     /* start alarm checker thread. */
-    if (!dummyStandbyMode)
+    if (!dummyStandbyMode &&
+        g_instance.attr.attr_common.enable_alarm)
         g_instance.pid_cxt.AlarmCheckerPID = startAlarmChecker();
 
     /* start reaper backend thread which is always alive. */
