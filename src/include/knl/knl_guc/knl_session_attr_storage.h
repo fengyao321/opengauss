@@ -113,6 +113,7 @@ typedef struct knl_session_attr_storage {
     bool enable_show_any_tuples;
     bool enable_debug_vacuum;
     bool enableVacuumExtremeXmin;
+    bool vacuum_truncate;
     bool enable_adio_debug;
     bool gds_debug_mod;
     bool log_pagewriter;
