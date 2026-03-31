@@ -181,9 +181,13 @@ Size ComputeTotalSizeOfShmem()
         size = add_size(size, SyncScanShmemSize());
         size = add_size(size, AsyncShmemSize());
         size = add_size(size, active_gtt_shared_hash_size());
-        size = add_size(size, AsyncRollbackHashShmemSize());
-        size = add_size(size, UndoWorkerShmemSize());
-        size = add_size(size, OgaiWorkerShmemSize());
+        if (g_instance.attr.attr_storage.enable_ustore) {
+            size = add_size(size, AsyncRollbackHashShmemSize());
+            size = add_size(size, UndoWorkerShmemSize());
+        }
+        if (g_instance.attr.attr_storage.enable_async_ogai) {
+            size = add_size(size, OgaiWorkerShmemSize());
+        }
 #ifndef ENABLE_LITE_MODE
         size = add_size(size, TxnSnapCapShmemSize());
         size = add_size(size, RbCleanerShmemSize());
@@ -413,10 +417,14 @@ void CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
     DataSenderQueueShmemInit();
     DataWriterQueueShmemInit();
     HaShmemInit();
-    AsyncRollbackHashShmemInit();
-    UndoWorkerShmemInit();
-    OgaiWorkerShmemInit();
-    undo::InitUndoZoneLock();
+    if (g_instance.attr.attr_storage.enable_ustore) {
+        AsyncRollbackHashShmemInit();
+        UndoWorkerShmemInit();
+        undo::InitUndoZoneLock();
+    }
+    if (g_instance.attr.attr_storage.enable_async_ogai) {
+        OgaiWorkerShmemInit();
+    }
     heartbeat_shmem_init();
     MatviewShmemInit();
 #ifndef ENABLE_MULTIPLE_NODES
