@@ -475,6 +475,7 @@ static void knl_u_utils_init(knl_u_utils_context* utils_cxt)
     utils_cxt->RegisteredSnapshots = 0;
     utils_cxt->FirstSnapshotSet = false;
     utils_cxt->atf_receive_snapshot = false;
+    utils_cxt->atf_set_taskcount = false;
     utils_cxt->FirstXactSnapshot = NULL;
     utils_cxt->exportedSnapshots = NIL;
     utils_cxt->g_output_version = 1;

@@ -8468,7 +8468,10 @@ void GlobalTaskCounterInc()
         ereport(DEBUG2, (errmsg("[ATF] task counter reset to 0 (all tasks done)")));
     } else {
         // Increment counter and update timestamp, mark tasks as running
-        instance->global_task_counter++;
+        if (!u_sess->utils_cxt.atf_set_taskcount && u_sess->attr.attr_common.atf_recovery) {
+            instance->global_task_counter++;
+            u_sess->utils_cxt.atf_set_taskcount = true;
+        }
         instance->last_counter_update_ts = GetCurrentTimestamp();
         instance->all_task_done = false;
         ereport(DEBUG3, (errmsg("[ATF] task counter=%lu, session task=%u",
@@ -8512,10 +8515,9 @@ void SessionWaitAfterTaskDone() {
         TimestampTz now_ts = GetCurrentTimestamp();
         int elapsedSec = GetTimeDiffSec(last_counter_update_ts, now_ts);
         
-        if (elapsedSec >= g_instance.attr.attr_common.atf_task_counter_timeout_sec) {
+        if (elapsedSec >= g_instance.attr.attr_common.atf_task_counter_timeout_sec && instance->global_task_counter == 0) {
             ereport(DEBUG2, (errmsg("[ATF] timeout reached, mark all tasks, atf_task_counter_timeout_sec: done %d",g_instance.attr.attr_common.atf_task_counter_timeout_sec)));
             instance->all_task_done = true;
-            instance->global_task_counter = 0;
             allTaskDone = true;
         }
 
@@ -10618,6 +10620,12 @@ static void ProcessCommandUpperE(StringInfo input_message, volatile bool& send_r
         if (u_sess->attr.attr_common.atf_sql_count>0) {
             GlobalTaskCounterInc();
         } else {
+            knl_g_atf_context *instance = &g_instance.atf_cxt;
+            LWLockAcquire(instance->global_task_lock, LW_EXCLUSIVE);
+            if (u_sess->utils_cxt.atf_set_taskcount) {
+                instance->global_task_counter--;
+            }
+            LWLockRelease(instance->global_task_lock);
             SessionWaitAfterTaskDone();
         }
     } else if (u_sess->attr.attr_common.enable_atf) {

@@ -683,6 +683,7 @@ typedef struct knl_u_utils_context {
      * it will be set to false after the SQL is replayed completely.
      */
     bool atf_receive_snapshot{false};
+    bool atf_set_taskcount{false};
 
     /*
      * Remember the serializable transaction snapshot, if any.    We cannot trust
