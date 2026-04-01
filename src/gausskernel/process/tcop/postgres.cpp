@@ -10688,6 +10688,17 @@ static void ProcessCommandLowerV(StringInfo input_message, volatile bool& send_r
             ereport(DEBUG2, (errmsg("[ATF] Received snapshot xid %lu has not committed", xid)));
         }
     }
+    knl_g_atf_context *instance = &g_instance.atf_cxt;
+    LWLockAcquire(instance->global_task_lock, LW_SHARED);
+    if (instance->all_task_done) {
+        u_sess->utils_cxt.atf_receive_snapshot = false;
+        ereport(ERROR,
+                    (errcode(ERRCODE_IN_FAILED_SQL_TRANSACTION),
+                     errmsg("The cluster has exited the ATF recovery phase, "
+                        "this transaction will be rolled back, firstChar"),
+                     errdetail_abort()));
+    }
+    LWLockRelease(instance->global_task_lock);
 
     isLastQuery = (bool)pq_getmsgbyte(input_message);
     pq_getmsgend(input_message);
