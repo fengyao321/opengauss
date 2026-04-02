@@ -1,0 +1,59 @@
+-- BM25 VarBlock: heap-first build (building=true) + update/vacuum/reindex + bulk delete
+-- (Merged old 004/006; parallel_workers omitted here so ORDER BY <&> ties stay stable in regression.)
+SET client_min_messages = error;
+
+DROP TABLE IF EXISTS bm25_varblock_002;
+
+CREATE TABLE bm25_varblock_002 (
+    id int PRIMARY KEY,
+    content text
+);
+
+INSERT INTO bm25_varblock_002(id, content)
+SELECT g, 'apple'::text
+FROM generate_series(1, 800) g;
+
+INSERT INTO bm25_varblock_002(id, content)
+SELECT g, 'banana'::text
+FROM generate_series(801, 1600) g;
+
+CREATE INDEX bm25_varblock_002_bm25_idx ON bm25_varblock_002 USING bm25(content);
+
+SET enable_seqscan = off;
+SET enable_indexscan = on;
+
+COPY (SELECT /*+ indexscan(bm25_varblock_002 bm25_varblock_002_bm25_idx) */ id
+      FROM bm25_varblock_002
+      ORDER BY content <&> 'apple' DESC
+      LIMIT 5) TO STDOUT;
+
+UPDATE bm25_varblock_002
+SET content = 'grape'
+WHERE id BETWEEN 41 AND 200;
+
+VACUUM bm25_varblock_002;
+
+COPY (SELECT /*+ indexscan(bm25_varblock_002 bm25_varblock_002_bm25_idx) */ id
+      FROM bm25_varblock_002
+      ORDER BY content <&> 'apple' DESC
+      LIMIT 5) TO STDOUT;
+
+COPY (SELECT /*+ indexscan(bm25_varblock_002 bm25_varblock_002_bm25_idx) */ id
+      FROM bm25_varblock_002
+      ORDER BY content <&> 'grape' DESC
+      LIMIT 5) TO STDOUT;
+
+REINDEX INDEX bm25_varblock_002_bm25_idx;
+
+DELETE FROM bm25_varblock_002 WHERE id BETWEEN 500 AND 1200;
+VACUUM bm25_varblock_002;
+
+SET enable_seqscan = off;
+SET enable_indexscan = on;
+
+COPY (SELECT /*+ indexscan(bm25_varblock_002 bm25_varblock_002_bm25_idx) */ id
+      FROM bm25_varblock_002
+      ORDER BY content <&> 'banana' DESC
+      LIMIT 5) TO STDOUT;
+
+DROP TABLE bm25_varblock_002;

@@ -66,6 +66,10 @@ test: inherit
 test: create_table_like
 test: typed_table
 test: vacuum
+test: bm25_varblock_001
+test: bm25_varblock_002
+test: bm25_parallel_build
+test: bm25_vacuum_stress
 test: drop_if_exists
 test: drop_database
 test: sanity_check

@@ -1,0 +1,192 @@
+[Warning]: The "libpq.so" loaded mismatch the version of gsql, please check it.
+expected: (openGauss 7.0.0-RC3 build 4a9ddb17) compiled at 2026-04-02 17:19:03 commit 0 last mr 9099 debug
+result: (openGauss 7.0.0-RC3 build 9059335a) compiled at 2026-04-02 19:32:57 commit 0 last mr 9099 debug
+-- BM25 VarBlock: online build + multi-chunk + vacuum empty token + update/reindex (merged)
+SET client_min_messages = error;
+DROP TABLE IF EXISTS bm25_varblock_001;
+CREATE TABLE bm25_varblock_001 (
+    id int PRIMARY KEY,
+    content text
+);
+CREATE INDEX bm25_varblock_001_bm25_idx ON bm25_varblock_001 USING bm25(content);
+-- Online insert after index (building=false posting updates).
+INSERT INTO bm25_varblock_001(id, content)
+SELECT g, 'apple'::text
+FROM generate_series(1, 25) g;
+INSERT INTO bm25_varblock_001(id, content)
+SELECT g, 'banana'::text
+FROM generate_series(26, 50) g;
+SET enable_seqscan = off;
+SET enable_indexscan = on;
+COPY (SELECT /*+ indexscan(bm25_varblock_001 bm25_varblock_001_bm25_idx) */ id
+      FROM bm25_varblock_001
+      ORDER BY content <&> 'apple' DESC
+      LIMIT 25) TO STDOUT;
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+COPY (SELECT /*+ indexscan(bm25_varblock_001 bm25_varblock_001_bm25_idx) */ id
+      FROM bm25_varblock_001
+      ORDER BY content <&> 'apple banana' DESC
+      LIMIT 50) TO STDOUT;
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+-- Grow postings to span multiple VarBlock chunks (same token mass insert).
+INSERT INTO bm25_varblock_001(id, content)
+SELECT g, 'apple'::text
+FROM generate_series(51, 210) g;
+INSERT INTO bm25_varblock_001(id, content)
+SELECT g, 'banana'::text
+FROM generate_series(211, 370) g;
+COPY (SELECT /*+ indexscan(bm25_varblock_001 bm25_varblock_001_bm25_idx) */ id
+      FROM bm25_varblock_001
+      ORDER BY content <&> 'apple' DESC
+      LIMIT 5) TO STDOUT;
+1
+2
+3
+4
+5
+COPY (SELECT /*+ indexscan(bm25_varblock_001 bm25_varblock_001_bm25_idx) */ id
+      FROM bm25_varblock_001
+      ORDER BY content <&> 'banana' DESC
+      LIMIT 5) TO STDOUT;
+26
+27
+28
+29
+30
+-- Partial delete + vacuum (subset rebuild).
+DELETE FROM bm25_varblock_001
+WHERE id <= 60 OR (id >= 211 AND id <= 270);
+VACUUM bm25_varblock_001;
+COPY (SELECT /*+ indexscan(bm25_varblock_001 bm25_varblock_001_bm25_idx) */ id
+      FROM bm25_varblock_001
+      ORDER BY content <&> 'apple' DESC
+      LIMIT 5) TO STDOUT;
+61
+62
+63
+64
+65
+-- Delete all apple docs: posting chain for token should go empty.
+DELETE FROM bm25_varblock_001 WHERE id <= 210;
+VACUUM bm25_varblock_001;
+COPY (SELECT COALESCE((
+            SELECT /*+ indexscan(bm25_varblock_001 bm25_varblock_001_bm25_idx) */ id
+            FROM bm25_varblock_001
+            ORDER BY content <&> 'apple' DESC
+            LIMIT 1
+        ), -1)) TO STDOUT;
+-1
+COPY (SELECT /*+ indexscan(bm25_varblock_001 bm25_varblock_001_bm25_idx) */ id
+      FROM bm25_varblock_001
+      ORDER BY content <&> 'banana' DESC
+      LIMIT 5) TO STDOUT;
+271
+272
+273
+274
+275
+INSERT INTO bm25_varblock_001(id, content)
+SELECT g, 'apple'::text
+FROM generate_series(371, 430) g;
+COPY (SELECT /*+ indexscan(bm25_varblock_001 bm25_varblock_001_bm25_idx) */ id
+      FROM bm25_varblock_001
+      ORDER BY content <&> 'apple' DESC
+      LIMIT 5) TO STDOUT;
+371
+372
+373
+374
+375
+-- Update-driven posting moves + reindex.
+UPDATE bm25_varblock_001
+SET content = 'grape'
+WHERE id BETWEEN 380 AND 410;
+VACUUM bm25_varblock_001;
+REINDEX INDEX bm25_varblock_001_bm25_idx;
+SET enable_seqscan = off;
+SET enable_indexscan = on;
+COPY (SELECT /*+ indexscan(bm25_varblock_001 bm25_varblock_001_bm25_idx) */ id
+      FROM bm25_varblock_001
+      ORDER BY content <&> 'banana' DESC
+      LIMIT 5) TO STDOUT;
+271
+272
+273
+274
+275
+DROP TABLE bm25_varblock_001;
+libgcov profiling error:/home/w00888124/openGauss-server/src/common/interfaces/libpq/../../../..//src/gausskernel/storage/dss/fio_dss.gcda:overwriting an existing profile data with a different timestamp
+libgcov profiling error:/home/w00888124/openGauss-server/src/common/interfaces/libpq/../../../..//src/gausskernel/storage/dss/fio_dss.gcda:overwriting an existing profile data with a different timestamp
