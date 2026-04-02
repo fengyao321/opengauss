@@ -1112,7 +1112,7 @@ static void knl_g_atf_init(knl_g_atf_context* atf_cxt)
     errno_t rc = memset_s(atf_cxt, sizeof(knl_g_atf_context), 0, sizeof(knl_g_atf_context));
     securec_check(rc, "\0", "\0");
     atf_cxt->all_task_done = false;
-    atf_cxt->global_task_counter = 0;
+    pg_atomic_init_u64(&atf_cxt->global_task_counter, 0);
     atf_cxt->last_counter_update_ts = GetCurrentTimestamp();
 }
 

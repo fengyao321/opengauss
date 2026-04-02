@@ -645,9 +645,7 @@ void errfinish(int dummy, ...)
         u_sess->exec_cxt.has_equal_uservar = false;
         if (u_sess->utils_cxt.atf_set_taskcount && u_sess->attr.attr_common.atf_recovery) {
             knl_g_atf_context *instance = &g_instance.atf_cxt;
-            LWLockAcquire(instance->global_task_lock, LW_EXCLUSIVE);
-            instance->global_task_counter--;
-            LWLockRelease(instance->global_task_lock);
+            pg_atomic_fetch_sub_u64(&instance->global_task_counter, 1);
         }
     }
 

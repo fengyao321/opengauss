@@ -1568,7 +1568,7 @@ typedef struct knl_g_online_ddl_context {
     MemoryContext context;
 } knl_g_online_ddl_context;
 typedef struct knl_g_atf_context {
-    uint64 global_task_counter;          /* Global task execution count */
+    pg_atomic_uint64  global_task_counter;          /* Global task execution count */
     TimestampTz last_counter_update_ts;  /* Last update timestamp of global task counter */
     LWLock *global_task_lock;             /* LWLock for protecting task counter and timestamp */
     bool all_task_done;                  /* Flag: all global tasks completed (anti-duplicate wake-up) */

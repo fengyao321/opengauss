@@ -8463,19 +8463,20 @@ void GlobalTaskCounterInc()
 
     if (instance->all_task_done) {
         // Reset counter and recovery flag if all tasks were marked as done
-        instance->global_task_counter = 0;
+        pg_atomic_write_u64(&instance->global_task_counter, 0);
         u_sess->attr.attr_common.atf_recovery = false;
         ereport(DEBUG2, (errmsg("[ATF] task counter reset to 0 (all tasks done)")));
     } else {
         // Increment counter and update timestamp, mark tasks as running
         if (!u_sess->utils_cxt.atf_set_taskcount && u_sess->attr.attr_common.atf_recovery) {
-            instance->global_task_counter++;
+            pg_atomic_fetch_add_u64(&instance->global_task_counter, 1);
             u_sess->utils_cxt.atf_set_taskcount = true;
         }
         instance->last_counter_update_ts = GetCurrentTimestamp();
         instance->all_task_done = false;
+        uint64 cur_cnt = pg_atomic_read_u64(&instance->global_task_counter);
         ereport(DEBUG3, (errmsg("[ATF] task counter=%lu, session task=%u",
-                                 instance->global_task_counter, u_sess->attr.attr_common.atf_sql_count)));
+                                 cur_cnt, u_sess->attr.attr_common.atf_sql_count)));
     }
 
     LWLockRelease(instance->global_task_lock);
@@ -8515,7 +8516,7 @@ void SessionWaitAfterTaskDone() {
         TimestampTz now_ts = GetCurrentTimestamp();
         int elapsedSec = GetTimeDiffSec(last_counter_update_ts, now_ts);
         
-        if (elapsedSec >= g_instance.attr.attr_common.atf_task_counter_timeout_sec && instance->global_task_counter == 0) {
+        if (elapsedSec >= g_instance.attr.attr_common.atf_task_counter_timeout_sec && pg_atomic_read_u64(&instance->global_task_counter) == 0) {
             ereport(DEBUG2, (errmsg("[ATF] timeout reached, mark all tasks, atf_task_counter_timeout_sec: done %d",g_instance.attr.attr_common.atf_task_counter_timeout_sec)));
             instance->all_task_done = true;
             allTaskDone = true;
@@ -10620,12 +10621,10 @@ static void ProcessCommandUpperE(StringInfo input_message, volatile bool& send_r
         if (u_sess->attr.attr_common.atf_sql_count>0) {
             GlobalTaskCounterInc();
         } else {
-            knl_g_atf_context *instance = &g_instance.atf_cxt;
-            LWLockAcquire(instance->global_task_lock, LW_EXCLUSIVE);
             if (u_sess->utils_cxt.atf_set_taskcount) {
-                instance->global_task_counter--;
+                knl_g_atf_context *instance = &g_instance.atf_cxt;
+                pg_atomic_fetch_sub_u64(&instance->global_task_counter, 1);
             }
-            LWLockRelease(instance->global_task_lock);
             SessionWaitAfterTaskDone();
         }
     } else if (u_sess->attr.attr_common.enable_atf) {

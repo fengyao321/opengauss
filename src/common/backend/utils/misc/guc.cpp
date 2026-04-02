@@ -9827,6 +9827,7 @@ void ExecSetVariableStmt(VariableSetStmt* stmt, ParamListInfo paramInfo)
                 }
             }
             break;
+            
         default:
             break;
     }
