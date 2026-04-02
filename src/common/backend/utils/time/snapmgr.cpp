@@ -473,7 +473,7 @@ bool CommittedXidVisibleInDecodeSnapshot(TransactionId xid, Snapshot snapshot, B
 static Snapshot GetATFSnapshot(void)
 {
     /*
-    * hen operating under the REPEATABLE READ isolation level, 
+    * when operating under the REPEATABLE READ isolation level,
     * the code will enter the following branch when setting the transaction snapshot for the first time.
     */
     if (!u_sess->utils_cxt.FirstSnapshotSet) {
