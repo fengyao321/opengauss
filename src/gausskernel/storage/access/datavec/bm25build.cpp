@@ -25,6 +25,8 @@
 #include "utils/rel.h"
 #include "utils/rel_gs.h"
 #include "storage/buf/block.h"
+#include "storage/buf/bufmgr.h"
+#include "storage/buf/bufpage.h"
 #include "utils/memutils.h"
 #include "postmaster/bgworker.h"
 #include "access/genam.h"
@@ -32,6 +34,9 @@
 #include "access/tableam.h"
 #include "utils/builtins.h"
 #include "access/datavec/bm25.h"
+#include "access/datavec/varblock.h"
+#include "access/generic_xlog.h"
+#include "storage/freespace.h"
 
 #define CALLBACK_ITEM_POINTER HeapTuple hup
 
@@ -149,6 +154,8 @@ static void InsertItemToTokenMetaList(Relation index, BM25EntryPages &bm25EntryP
     tokenMeta->maxScore = 0;
     tokenMeta->postingBlkno = InvalidBlockNumber;
     tokenMeta->lastInsertBlkno = InvalidBlockNumber;
+    ItemPointerSetInvalid(&tokenMeta->postingChainHead);
+    ItemPointerSetInvalid(&tokenMeta->postingChainTail);
     OffsetNumber offno = PageAddItem(cpage, (Item)tokenMeta, itemSize, InvalidOffsetNumber, false, false);
     if (offno == InvalidOffsetNumber) {
         pfree(tokenMeta);
@@ -168,7 +175,236 @@ static FORCE_INLINE int ComparePostingFunc(const void *left, const void *right)
 {
     BM25TokenPostingPage leftToken = (BM25TokenPostingPage)left;
     BM25TokenPostingPage rightToken = (BM25TokenPostingPage)right;
-    return leftToken->docId - rightToken->docId;
+    uint32 a = leftToken->docId;
+    uint32 b = rightToken->docId;
+    return (a < b) ? -1 : (a > b) ? 1 : 0;
+}
+
+/* Collect BM25TokenPostingItem from VarBlock chain for ReorderPostingVarBlock */
+typedef struct VarBlockPostingCollector {
+    VarBlockReadContext ctx;
+    BM25TokenPostingItem *items;
+    uint32 count;
+    uint32 capacity;
+} VarBlockPostingCollector;
+
+/* Bundles inputs for ReorderPostingVarBlock (single-arg form for G.FUD.05) */
+typedef struct BM25ReorderVarBlockArgs {
+    Relation index;
+    ForkNumber forkNum;
+    ItemPointerData *chainHead;
+    ItemPointerData *chainTail;
+    uint32 docCount;
+    bool building;
+} BM25ReorderVarBlockArgs;
+
+/* Relation + sorted stream state for VarBlockRewriteSortedOneChunk */
+typedef struct VarBlockSortedRewriteState {
+    Relation index;
+    ForkNumber forkNum;
+    BM25TokenPostingItem *items;
+    uint32 count;
+    uint32 *idx;
+    bool building;
+} VarBlockSortedRewriteState;
+
+/* In-place sorted rewrite over an existing chain (G.FUD.05) */
+typedef struct BM25VarBlockSortedRewriteArgs {
+    Relation index;
+    ForkNumber forkNum;
+    const ItemPointerData *chainHead;
+    BM25TokenPostingItem *items;
+    uint32 count;
+    bool building;
+} BM25VarBlockSortedRewriteArgs;
+
+static void VarBlockCollectPostingCallback(const VarBlockChunkHeader *hdr, const char *payload,
+    VarBlockReadContext *arg)
+{
+    VarBlockPostingCollector *coll = (VarBlockPostingCollector *)arg;
+    uint32 len = hdr->payload_len;
+    for (uint32 i = 0; i + BM25_POSTING_ITEM_ALIGNED_SIZE <= len; i += BM25_POSTING_ITEM_ALIGNED_SIZE) {
+        if (coll->count >= coll->capacity) {
+            ereport(ERROR,
+                (errmsg("bm25 varblock posting collect overflow (capacity %u), chain longer than token docCount",
+                    coll->capacity)));
+        }
+        coll->items[coll->count++] = *(const BM25TokenPostingItem *)(payload + i);
+    }
+}
+
+static void AppendPostingToVarBlockTail(Relation index, ForkNumber forkNum, ItemPointerData *tailCtid,
+    const BM25TokenPostingItem *item, bool building)
+{
+    BlockNumber blkno = ItemPointerGetBlockNumber(tailCtid);
+    OffsetNumber offno = ItemPointerGetOffsetNumber(tailCtid);
+    Buffer buf = ReadBufferExtended(index, forkNum, blkno, RBM_NORMAL, NULL);
+    LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
+    Page page = BufferGetPage(buf);
+    ItemId id = PageGetItemId(page, offno);
+    VarBlockChunkHeader *hdr = (VarBlockChunkHeader *)PageGetItem(page, id);
+    Size chunkTotal = VarBlockSize(hdr->level);
+    Size payloadCapacity = chunkTotal - sizeof(VarBlockChunkHeader);
+
+    if (hdr->payload_len + BM25_POSTING_ITEM_ALIGNED_SIZE > payloadCapacity) {
+        UnlockReleaseBuffer(buf);
+        ItemPointerData newTail = VarBlockExtendChain(index, forkNum, tailCtid, building);
+        *tailCtid = newTail;
+        AppendPostingToVarBlockTail(index, forkNum, tailCtid, item, building);
+        return;
+    }
+
+    if (building) {
+        char *payload = (char *)hdr + sizeof(VarBlockChunkHeader);
+        errno_t rc = memcpy_s(payload + hdr->payload_len, payloadCapacity - hdr->payload_len,
+            item, BM25_POSTING_ITEM_ALIGNED_SIZE);
+        if (rc != EOK) {
+            UnlockReleaseBuffer(buf);
+            ereport(ERROR, (errmsg("VarBlock append: memcpy_s failed")));
+        }
+        hdr->payload_len += (uint16)BM25_POSTING_ITEM_ALIGNED_SIZE;
+        MarkBufferDirty(buf);
+    } else {
+        GenericXLogState *state = GenericXLogStart(index);
+        Page wpage = GenericXLogRegisterBuffer(state, buf, GENERIC_XLOG_FULL_IMAGE);
+        ItemId wid = PageGetItemId(wpage, offno);
+        VarBlockChunkHeader *whdr = (VarBlockChunkHeader *)PageGetItem(wpage, wid);
+        char *payload = (char *)whdr + sizeof(VarBlockChunkHeader);
+        errno_t rc = memcpy_s(payload + whdr->payload_len, payloadCapacity - whdr->payload_len,
+            item, BM25_POSTING_ITEM_ALIGNED_SIZE);
+        if (rc != EOK) {
+            GenericXLogAbort(state);
+            UnlockReleaseBuffer(buf);
+            ereport(ERROR, (errmsg("VarBlock append: memcpy_s failed")));
+        }
+        whdr->payload_len += (uint16)BM25_POSTING_ITEM_ALIGNED_SIZE;
+        GenericXLogFinish(state);
+    }
+    UnlockReleaseBuffer(buf);
+}
+
+/*
+ * Rewrite one chunk in the chain: validate item, copy sorted postings into payload, commit buffer.
+ * Returns next_ctid from the chunk header.
+ */
+static ItemPointerData VarBlockRewriteSortedOneChunk(VarBlockSortedRewriteState *st, ItemPointerData curChunk)
+{
+    BlockNumber blkno = ItemPointerGetBlockNumber(&curChunk);
+    OffsetNumber offno = ItemPointerGetOffsetNumber(&curChunk);
+    Buffer buf = ReadBufferExtended(st->index, st->forkNum, blkno, RBM_NORMAL, NULL);
+    LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
+    GenericXLogState *state = nullptr;
+    Page page = nullptr;
+    BM25GetPage(st->index, &page, buf, &state, st->building);
+
+    OffsetNumber maxoff = PageGetMaxOffsetNumber(page);
+    if (offno < FirstOffsetNumber || offno > maxoff) {
+        if (!st->building) {
+            GenericXLogAbort(state);
+        }
+        UnlockReleaseBuffer(buf);
+        ereport(ERROR, (errmsg("VarBlock reorder: invalid offset (%u,%u)", blkno, offno)));
+    }
+    ItemId iid = PageGetItemId(page, offno);
+    if (!ItemIdIsUsed(iid) || !ItemIdIsNormal(iid) ||
+        ItemIdGetLength(iid) < sizeof(VarBlockChunkHeader)) {
+        if (!st->building) {
+            GenericXLogAbort(state);
+        }
+        UnlockReleaseBuffer(buf);
+        ereport(ERROR, (errmsg("VarBlock reorder: bad item at (%u,%u)", blkno, offno)));
+    }
+
+    VarBlockChunkHeader *whdr = (VarBlockChunkHeader *)PageGetItem(page, iid);
+    ItemPointerData next = whdr->next_ctid;
+    Size chunkTotal = VarBlockSize(whdr->level);
+    Size payloadCapacity = chunkTotal - sizeof(VarBlockChunkHeader);
+    char *payload = (char *)whdr + sizeof(VarBlockChunkHeader);
+    uint16 newLen = 0;
+
+    while (*st->idx < st->count && newLen + BM25_POSTING_ITEM_ALIGNED_SIZE <= payloadCapacity) {
+        errno_t rc = memcpy_s(payload + newLen, payloadCapacity - newLen, &st->items[*st->idx],
+            BM25_POSTING_ITEM_ALIGNED_SIZE);
+        if (rc != EOK) {
+            if (!st->building) {
+                GenericXLogAbort(state);
+            }
+            UnlockReleaseBuffer(buf);
+            ereport(ERROR, (errmsg("VarBlock reorder: memcpy_s failed")));
+        }
+        newLen += (uint16)BM25_POSTING_ITEM_ALIGNED_SIZE;
+        (*st->idx)++;
+    }
+    whdr->payload_len = newLen;
+    BM25CommitBuf(buf, &state, st->building);
+    return next;
+}
+
+/*
+ * Pack sorted postings into the existing VarBlock chain (same CTIDs as ReorderPosting keeps
+ * the same page chain). Chunk capacities and next_ctid links are unchanged; only payload bytes
+ * and payload_len are rewritten. WAL / dirty-bit handling matches ReorderPosting via BM25GetPage.
+ */
+static void VarBlockRewriteSortedIntoExistingChain(const BM25VarBlockSortedRewriteArgs *args)
+{
+    Assert(args->chainHead != NULL && ItemPointerIsValid(args->chainHead) && args->count > 0 && args->items != NULL);
+    const int maxChain = 10000000; /* keep in sync with VARBLOCK_MAX_CHAIN_LENGTH in varblock.cpp */
+    uint32 idx = 0;
+    VarBlockSortedRewriteState st = { args->index, args->forkNum, args->items, args->count, &idx, args->building };
+    ItemPointerData cur = *args->chainHead;
+    int nvisited = 0;
+
+    while (ItemPointerIsValid(&cur)) {
+        if (++nvisited > maxChain) {
+            ereport(ERROR,
+                (errmsg("VarBlock chain exceeds maximum length during reorder (possible cycle or corruption)")));
+        }
+        cur = VarBlockRewriteSortedOneChunk(&st, cur);
+    }
+
+    if (idx != args->count) {
+        ereport(ERROR,
+            (errmsg("bm25 varblock reorder wrote %u postings but expected %u (chain capacity mismatch)",
+                idx, args->count)));
+    }
+}
+
+static void ReorderPostingVarBlock(const BM25ReorderVarBlockArgs *args)
+{
+    VarBlockPostingCollector collector;
+    collector.ctx.reserved = 0;
+    collector.count = 0;
+    collector.capacity = args->docCount;
+    collector.items = (args->docCount > 0) ?
+        (BM25TokenPostingItem *)palloc(sizeof(BM25TokenPostingItem) * args->docCount) :
+        NULL;
+    VarBlockReadChain(args->index, args->forkNum, args->chainHead, VarBlockCollectPostingCallback, &collector.ctx);
+    if (collector.count == 0) {
+        if (collector.items != NULL) {
+            pfree(collector.items);
+        }
+        VarBlockFreeChain(args->index, args->forkNum, args->chainHead, args->building);
+        ItemPointerSetInvalid(args->chainHead);
+        ItemPointerSetInvalid(args->chainTail);
+        return;
+    }
+    if (collector.count != args->docCount) {
+        ereport(WARNING,
+            (errmsg("bm25 varblock posting count mismatch during reorder, expected %u got %u",
+                args->docCount, collector.count)));
+    }
+    qsort(collector.items, (size_t)collector.count, sizeof(BM25TokenPostingItem), ComparePostingFunc);
+
+    /*
+     * Same idea as ReorderPosting: read all postings, sort, then rewrite in place on the
+     * existing storage chain. head/tail CTIDs stay valid; no VarBlockFreeChain / new allocation.
+     */
+    BM25VarBlockSortedRewriteArgs rwArgs = { args->index, args->forkNum, args->chainHead, collector.items,
+        collector.count, args->building };
+    VarBlockRewriteSortedIntoExistingChain(&rwArgs);
+    if (collector.items != NULL) {
+        pfree(collector.items);
+    }
 }
 
 static void ReorderPosting(Relation index, BlockNumber postingBlkno, uint32 docCount, bool building = true)
@@ -220,8 +456,33 @@ static void ReorderPosting(Relation index, BlockNumber postingBlkno, uint32 docC
     return;
 }
 
+static void ReorderBucketVarBlockItems(Relation index, Page cpage, OffsetNumber maxoffno)
+{
+    for (OffsetNumber offno = FirstOffsetNumber; offno <= maxoffno; offno = OffsetNumberNext(offno)) {
+        BM25TokenMetaPage item = (BM25TokenMetaPage)PageGetItem(cpage, PageGetItemId(cpage, offno));
+        if (!ItemPointerIsValid(&item->postingChainHead)) {
+            continue;
+        }
+        BM25ReorderVarBlockArgs vbReorderArgs = { index, MAIN_FORKNUM, &item->postingChainHead,
+            &item->postingChainTail, item->docCount, true };
+        ReorderPostingVarBlock(&vbReorderArgs);
+        if (!ItemPointerIsValid(&item->postingChainHead)) {
+            item->docCount = 0;
+        }
+    }
+}
+
+static void ReorderBucketPageItems(Relation index, Page cpage, OffsetNumber maxoffno)
+{
+    for (OffsetNumber offno = FirstOffsetNumber; offno <= maxoffno; offno = OffsetNumberNext(offno)) {
+        BM25TokenMetaPage item = (BM25TokenMetaPage)PageGetItem(cpage, PageGetItemId(cpage, offno));
+        ReorderPosting(index, item->postingBlkno, item->docCount);
+    }
+}
+
 static void InsertItemToPostingList(Relation index, BM25PageLocationInfo &tokenMetaLocation,
-    BM25TokenData &tokenData, uint32 docLength, uint32 docId, float score, ForkNumber forkNum, bool building)
+    BM25TokenData &tokenData, uint32 docLength, uint32 docId, float score, ForkNumber forkNum, bool building,
+    bool useVarBlockPosting, bool docIdIsMonotonicNew)
 {
     Page cpageTokenMeta;
     BlockNumber postingBlkno = InvalidBlockNumber;
@@ -232,15 +493,50 @@ static void InsertItemToPostingList(Relation index, BM25PageLocationInfo &tokenM
     BM25GetPage(index, &cpageTokenMeta, cbufTokenMeta, &metaState, building);
     BM25TokenMetaPage tokenMeta = (BM25TokenMetaPage)PageGetItem(cpageTokenMeta,
         PageGetItemId(cpageTokenMeta, tokenMetaLocation.offno));
+    tokenMeta->maxScore = (score > tokenMeta->maxScore) ? score : tokenMeta->maxScore;
+    (tokenMeta->docCount)++;
+    docCount = tokenMeta->docCount;
+    const bool needSortedPostingRewrite = !building && !docIdIsMonotonicNew;
+
+    if (useVarBlockPosting) {
+        if (!ItemPointerIsValid(&tokenMeta->postingChainHead)) {
+            ItemPointerData head = VarBlockAllocFirstChunk(index, forkNum, 0, building);
+            tokenMeta->postingChainHead = head;
+            tokenMeta->postingChainTail = head;
+        } else {
+            /*
+             * Crash after VarBlockExtendChain linked a new chunk but before tokenMeta commit
+             * can leave postingChainTail stale; walk next_ctid to the real tail before append.
+             */
+            ItemPointerData syncStart = ItemPointerIsValid(&tokenMeta->postingChainTail) ?
+                tokenMeta->postingChainTail : tokenMeta->postingChainHead;
+            ItemPointerData realTail = VarBlockFindTailCtid(index, forkNum, &syncStart);
+            if (ItemPointerIsValid(&realTail)) {
+                tokenMeta->postingChainTail = realTail;
+            }
+        }
+        BM25TokenPostingItem postingItem;
+        postingItem.docId = docId;
+        postingItem.docLength = (uint16)(docLength > PG_UINT16_MAX ? PG_UINT16_MAX : docLength);
+        postingItem.freq = (uint16)(tokenData.tokenFreq > PG_UINT16_MAX ? PG_UINT16_MAX : tokenData.tokenFreq);
+        AppendPostingToVarBlockTail(index, forkNum, &tokenMeta->postingChainTail, &postingItem, building);
+        if (needSortedPostingRewrite) {
+            BM25ReorderVarBlockArgs vbReorderArgs = { index, forkNum, &tokenMeta->postingChainHead,
+                &tokenMeta->postingChainTail, docCount, false };
+            ReorderPostingVarBlock(&vbReorderArgs);
+            if (!ItemPointerIsValid(&tokenMeta->postingChainHead)) {
+                tokenMeta->docCount = 0;
+            }
+        }
+        BM25CommitBuf(cbufTokenMeta, &metaState, building);
+        return;
+    }
+
     if (tokenMeta->postingBlkno == InvalidBlockNumber) {
         tokenMeta->postingBlkno = CreateBM25CommonPage(index, forkNum, building);
         tokenMeta->lastInsertBlkno = tokenMeta->postingBlkno;
     }
     postingBlkno = tokenMeta->postingBlkno;
-    tokenMeta->maxScore = (score > tokenMeta->maxScore) ? score : tokenMeta->maxScore;
-    (tokenMeta->docCount)++;
-    docCount = tokenMeta->docCount;
-
     BlockNumber insertPage = tokenMeta->lastInsertBlkno;
     Buffer cbuf;
     Page cpage;
@@ -285,7 +581,7 @@ static void InsertItemToPostingList(Relation index, BM25PageLocationInfo &tokenM
         elog(ERROR, "failed to add index item [BM25TokenPostingItem] to \"%s\"", RelationGetRelationName(index));
     }
     BM25CommitBuf(cbuf, &state, building);
-    if (!building) {
+    if (needSortedPostingRewrite) {
         ReorderPosting(index, postingBlkno, docCount, false);
     }
 
@@ -294,7 +590,8 @@ static void InsertItemToPostingList(Relation index, BM25PageLocationInfo &tokenM
 }
 
 static void InsertToIvertedList(Relation index, uint32 docId, BM25TokenizedDocData &tokenizedDoc, float avgdl,
-    BM25EntryPages &bm25EntryPages, ForkNumber forkNum, bool building)
+    BM25EntryPages &bm25EntryPages, ForkNumber forkNum, bool building, bool useVarBlockPosting,
+    bool docIdIsMonotonicNew)
 {
     BM25Scorer scorer = BM25Scorer(u_sess->attr.attr_sql.bm25_k1, u_sess->attr.attr_sql.bm25_b, avgdl);
     float docLen = 0;
@@ -308,7 +605,7 @@ static void InsertToIvertedList(Relation index, uint32 docId, BM25TokenizedDocDa
         InsertItemToTokenMetaList(index, bm25EntryPages, bucketIdx, tokenizedDoc.tokenDatas[tokenIdx],
             tokenMetaLocation, forkNum, building);
         InsertItemToPostingList(index, tokenMetaLocation, tokenizedDoc.tokenDatas[tokenIdx], tokenizedDoc.docLength,
-            docId, score, forkNum, building);
+            docId, score, forkNum, building, useVarBlockPosting, docIdIsMonotonicNew);
     }
     return;
 }
@@ -350,12 +647,12 @@ static void AllocateForwardIdxForToken(Relation index, uint32 tokenCount, BM25En
         BM25CommitBuf(buf, &state, building);
     }
     /* need expand data page for forward list */
-    if (metaForwardPage->capacity - metaForwardPage->size < tokenCount) {
+    if (metaForwardPage->capacity < metaForwardPage->size + (uint64)tokenCount) {
         buf = ReadBuffer(index, metaForwardPage->lastPage);
         LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
         BM25GetPage(index, &page, buf, &state, building);
         /* start append */
-        while (metaForwardPage->capacity - metaForwardPage->size < tokenCount) {
+        while (metaForwardPage->capacity < metaForwardPage->size + (uint64)tokenCount) {
             BM25AppendPage(index, &buf, &page, MAIN_FORKNUM, &state, building);
             BlockNumber newblk = BufferGetBlockNumber(buf);
             metaForwardPage->lastPage = newblk;
@@ -372,7 +669,8 @@ static void AllocateForwardIdxForToken(Relation index, uint32 tokenCount, BM25En
 }
 
 static void InsertDocForwardItem(Relation index, uint32 docId, BM25TokenizedDocData &tokenizedDoc,
-    BM25EntryPages &bm25EntryPages, uint64 forwardStart, uint64 forwardEnd, ForkNumber forkNum, bool building)
+    BM25EntryPages &bm25EntryPages, uint64 forwardStart, uint64 forwardEnd, ForkNumber forkNum, bool building,
+    uint32 indexVersion)
 {
     Buffer buf;
     Page page;
@@ -405,16 +703,16 @@ static void InsertDocForwardItem(Relation index, uint32 docId, BM25TokenizedDocD
         Assert(forwardEnd >= tokenIdx);
         curBlockIdx = tokenIdx / BM25_DOC_FORWARD_MAX_COUNT_IN_PAGE;
         if (curBlockIdx != preBlockIdx) {
-            forwardBlkno = BM25PageGetOpaque(page)->nextblkno;
             BM25CommitBuf(buf, &state, building);
+            forwardBlkno = SeekBlocknoForForwardToken(index, tokenIdx, docForwardBlknoTable);
             buf = ReadBuffer(index, forwardBlkno);
             LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
             BM25GetPage(index, &page, buf, &state, building);
             preBlockIdx = curBlockIdx;
         }
         offset = tokenIdx % BM25_DOC_FORWARD_MAX_COUNT_IN_PAGE;
-        BM25DocForwardItem *forwardItem =
-            (BM25DocForwardItem*)((char *)page + sizeof(PageHeaderData) + offset * BM25_DOCUMENT_FORWARD_ITEM_SIZE);
+        BM25DocForwardItem *forwardItem = (BM25DocForwardItem*)((char *)page +
+            BM25PageDocumentAreaOffset(indexVersion) + offset * BM25_DOCUMENT_FORWARD_ITEM_SIZE);
         forwardItem->tokenId = tokenizedDoc.tokenDatas[i].tokenId;
         forwardItem->tokenHash = tokenizedDoc.tokenDatas[i].hashValue;
         forwardItem->docId = docId;
@@ -461,7 +759,7 @@ static void ExpandDocumentListCapacityIfNeed(Relation index, BM25DocMetaPage doc
 }
 
 static void InsertDocumentItem(Relation index, uint32 docId, BM25TokenizedDocData &tokenizedDoc, ItemPointerData &ctid,
-    BM25EntryPages &bm25EntryPages, ForkNumber forkNum, bool building)
+    BM25EntryPages &bm25EntryPages, ForkNumber forkNum, bool building, uint32 indexVersion)
 {
     Buffer buf;
     Page page;
@@ -491,15 +789,15 @@ static void InsertDocumentItem(Relation index, uint32 docId, BM25TokenizedDocDat
     buf = ReadBuffer(index, docBlkno);
     LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
     BM25GetPage(index, &page, buf, &state, building);
-    BM25DocumentItem *docItem =
-        (BM25DocumentItem*)((char *)page + sizeof(PageHeaderData) + docOffset * BM25_DOCUMENT_ITEM_SIZE);
+    BM25DocumentItem *docItem = (BM25DocumentItem*)((char *)page + BM25PageDocumentAreaOffset(indexVersion) +
+        docOffset * BM25_DOCUMENT_ITEM_SIZE);
     unsigned short infomask = 0 | BM25_DOCUMENT_ITEM_SIZE;
     docItem->ctid.t_tid = ctid;
     docItem->ctid.t_info = infomask;
     docItem->docId = docId;
     docItem->docLength = tokenizedDoc.docLength;
     docItem->isActived = true;
-    if (docItem->tokenEndIdx == 0) {
+    if (building || docItem->tokenEndIdx == 0) {
         AllocateForwardIdxForToken(index, tokenizedDoc.tokenCount, bm25EntryPages, &forwardStart, &forwardEnd,
             forkNum, building);
         docItem->tokenStartIdx = forwardStart;
@@ -510,13 +808,15 @@ static void InsertDocumentItem(Relation index, uint32 docId, BM25TokenizedDocDat
     }
     BM25CommitBuf(buf, &state, building);
 
-    InsertDocForwardItem(index, docId, tokenizedDoc, bm25EntryPages, forwardStart, forwardEnd, forkNum, building);
+    InsertDocForwardItem(index, docId, tokenizedDoc, bm25EntryPages, forwardStart, forwardEnd, forkNum, building,
+        indexVersion);
 }
 
 static bool BM25InsertDocument(Relation index, Datum *values, ItemPointerData &ctid, BM25EntryPages &bm25EntryPages,
-    ForkNumber forkNum, bool building)
+    ForkNumber forkNum, bool building, uint32 indexVersion)
 {
     CHECK_FOR_INTERRUPTS();
+    const bool useVarBlockPosting = (indexVersion >= BM25_VERSION_VARBLOCK_POSTING);
     MemoryContext tempCtx = AllocSetContextCreate(CurrentMemoryContext,
                                                   "temp bm25 index context",
                                                   ALLOCSET_DEFAULT_MINSIZE,
@@ -531,11 +831,13 @@ static bool BM25InsertDocument(Relation index, Datum *values, ItemPointerData &c
         MemoryContextDelete(tempCtx);
         return false;
     }
-    uint32 docId = BM25AllocateDocId(index, building, tokenizedDoc.tokenCount);
+    bool docIdIsMonotonicNew = true;
+    uint32 docId = BM25AllocateDocId(index, building, tokenizedDoc.tokenCount, &docIdIsMonotonicNew);
     float avgdl = 1.f;
     BM25IncreaseDocAndTokenCount(index, tokenizedDoc.docLength, avgdl, building);
-    InsertToIvertedList(index, docId, tokenizedDoc, avgdl, bm25EntryPages, forkNum, building);
-    InsertDocumentItem(index, docId, tokenizedDoc, ctid, bm25EntryPages, forkNum, building);
+    InsertToIvertedList(index, docId, tokenizedDoc, avgdl, bm25EntryPages, forkNum, building, useVarBlockPosting,
+        docIdIsMonotonicNew);
+    InsertDocumentItem(index, docId, tokenizedDoc, ctid, bm25EntryPages, forkNum, building, indexVersion);
     if (tokenizedDoc.tokenDatas != nullptr) {
         pfree(tokenizedDoc.tokenDatas);
     }
@@ -562,7 +864,8 @@ static void BM25BuildCallback(Relation index, CALLBACK_ITEM_POINTER, Datum *valu
     oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
 
     /* insert document */
-    BM25InsertDocument(index, values, hup->t_self, buildstate->bm25EntryPages, buildstate->forkNum, true);
+    BM25InsertDocument(index, values, hup->t_self, buildstate->bm25EntryPages, buildstate->forkNum, true,
+        BM25_VERSION_VARBLOCK_POSTING);
     buildstate->indtuples++;
 
     /* Reset memory context */
@@ -585,6 +888,8 @@ static BlockNumber CreateDocMetaPage(Relation index, ForkNumber forkNum)
     docMetaPage->startDocPage = InvalidBlockNumber;
     docMetaPage->lastDocPage = InvalidBlockNumber;
     docMetaPage->docCapacity = 0;
+    docMetaPage->docBlknoTable = InvalidBlockNumber;
+    docMetaPage->docBlknoInsertPage = InvalidBlockNumber;
 
     BM25PageGetOpaque(page)->nextblkno = InvalidBlockNumber;
     BM25PageGetOpaque(page)->page_id = BM25_PAGE_ID;
@@ -614,6 +919,8 @@ static BlockNumber CreateDocForwardMetaPage(Relation index, ForkNumber forkNum)
     forwardMetaPage->lastPage = InvalidBlockNumber;
     forwardMetaPage->size = 0;
     forwardMetaPage->capacity = 0;
+    forwardMetaPage->docForwardBlknoTable = InvalidBlockNumber;
+    forwardMetaPage->docForwardBlknoInsertPage = InvalidBlockNumber;
 
     BM25PageGetOpaque(page)->nextblkno = InvalidBlockNumber;
     BM25PageGetOpaque(page)->page_id = BM25_PAGE_ID;
@@ -711,7 +1018,7 @@ static void CreateMetaPage(Relation index, BM25BuildState *buildstate, ForkNumbe
     /* Set metapage data */
     metap = BM25PageGetMeta(page);
     metap->magicNumber = BM25_MAGIC_NUMBER;
-    metap->version = BM25_VERSION;
+    metap->version = BM25_VERSION_VARBLOCK_POSTING;
     metap->entryPageList = CreateEntryPages(index, forkNum);
     metap->documentCount = 0;
     metap->tokenCount = 0;
@@ -843,20 +1150,31 @@ static double ParallelHeapScan(BM25BuildState *buildstate, int *nparticipanttupl
 
 static void ReorderBucket(Relation index, BlockNumber bucketBlkno)
 {
-    // loop buckets
+    BM25MetaPageData meta;
+    BM25GetMetaPageInfo(index, &meta);
+    const bool useVarBlock = (meta.version >= BM25_VERSION_VARBLOCK_POSTING);
+
     BlockNumber nextblkno = bucketBlkno;
     Buffer cbuf;
     Page cpage;
     while (BlockNumberIsValid(nextblkno)) {
         OffsetNumber maxoffno;
         cbuf = ReadBuffer(index, nextblkno);
-        LockBuffer(cbuf, BUFFER_LOCK_SHARE);
+        if (useVarBlock) {
+            LockBuffer(cbuf, BUFFER_LOCK_EXCLUSIVE);
+        } else {
+            LockBuffer(cbuf, BUFFER_LOCK_SHARE);
+        }
         cpage = BufferGetPage(cbuf);
         maxoffno = PageGetMaxOffsetNumber(cpage);
-        for (OffsetNumber offno = FirstOffsetNumber; offno <= maxoffno; offno = OffsetNumberNext(offno)) {
-            BM25TokenMetaPage item = (BM25TokenMetaPage)PageGetItem(cpage, PageGetItemId(cpage, offno));
-            ReorderPosting(index, item->postingBlkno, item->docCount);
+
+        if (useVarBlock) {
+            ReorderBucketVarBlockItems(index, cpage, maxoffno);
+            MarkBufferDirty(cbuf);
+        } else {
+            ReorderBucketPageItems(index, cpage, maxoffno);
         }
+
         nextblkno = BM25PageGetOpaque(cpage)->nextblkno;
         UnlockReleaseBuffer(cbuf);
     }
@@ -1009,6 +1327,26 @@ static void BuildBM25Index(BM25BuildState *buildstate, ForkNumber forkNum)
 }
 
 /*
+ * Create the FSM fork on the leader before parallel BM25 workers start. Otherwise many workers
+ * can hit RecordPageWithFreeSpace → smgrcreate(FSM) together and mdcreate(..., O_EXCL) fails with
+ * "File exists" (see parallel CREATE INDEX on tables with high parallel_workers).
+ */
+static void BM25EnsureFsmForkExists(Relation index, ForkNumber forkNum)
+{
+    if (forkNum != MAIN_FORKNUM) {
+        return;
+    }
+
+    Buffer buf = ReadBuffer(index, BM25_METAPAGE_BLKNO);
+    LockBuffer(buf, BUFFER_LOCK_SHARE);
+    Page page = BufferGetPage(buf);
+    Size avail = PageGetFreeSpace(page);
+    UnlockReleaseBuffer(buf);
+
+    RecordPageWithFreeSpace(index, BM25_METAPAGE_BLKNO, avail);
+}
+
+/*
  * Build the index
  */
 static void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, BM25BuildState *buildstate,
@@ -1016,6 +1354,7 @@ static void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, BM25
 {
     InitBM25BuildState(buildstate, heap, index, indexInfo, forkNum);
     CreateMetaPage(index, buildstate, forkNum);
+    BM25EnsureFsmForkExists(index, forkNum);
 
     BuildBM25Index(buildstate, forkNum);
 
@@ -1067,6 +1406,6 @@ bool bm25insert_internal(Relation index, Datum *values, ItemPointer heapCtid)
     if (!meta.lastBacthInsertFailed) {
         BM25BatchInsertRecord(index);
     }
-    BM25InsertDocument(index, values, *heapCtid, meta.entryPageList, MAIN_FORKNUM, false);
+    BM25InsertDocument(index, values, *heapCtid, meta.entryPageList, MAIN_FORKNUM, false, meta.version);
     return true;
 }

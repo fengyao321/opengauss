@@ -173,6 +173,7 @@ void BM25GetMetaPageInfo(Relation index, BM25MetaPage metap)
     metapBuf = BM25PageGetMeta(page);
     if (unlikely(metapBuf->magicNumber != BM25_MAGIC_NUMBER))
         elog(ERROR, "bm25 index is not valid");
+    Assert(metapBuf->version == BM25_VERSION || metapBuf->version == BM25_VERSION_VARBLOCK_POSTING);
     errno_t rc = memcpy_s(metap, sizeof(BM25MetaPageData), metapBuf, sizeof(BM25MetaPageData));
     securec_check(rc, "\0", "\0");
     UnlockReleaseBuffer(buf);
@@ -240,15 +241,21 @@ uint32 TryAllocateDocIdFromFreePage(Relation index, uint32 docTokenCount)
     return docId;
 }
 
-uint32 BM25AllocateDocId(Relation index, bool building, uint32 docTokenCount)
+uint32 BM25AllocateDocId(Relation index, bool building, uint32 docTokenCount, bool *docIdIsMonotonicNew)
 {
     uint32 docId = BM25_INVALID_DOC_ID;
+    if (docIdIsMonotonicNew != NULL) {
+        *docIdIsMonotonicNew = true;
+    }
     if (building) {
         return BM25AllocateNewDocId(index, building);
     }
     docId = TryAllocateDocIdFromFreePage(index, docTokenCount);
     if (docId == BM25_INVALID_DOC_ID) {
         return BM25AllocateNewDocId(index, building);
+    }
+    if (docIdIsMonotonicNew != NULL) {
+        *docIdIsMonotonicNew = false;
     }
     return docId;
 }
@@ -300,7 +307,8 @@ void RecordDocBlkno2DocBlknoTable(Relation index, BM25DocMetaPage docMetaPage,
     BlockNumber curTableBlkno = docMetaPage->docBlknoInsertPage;
     OffsetNumber offno;
     GenericXLogState *state = nullptr;
-    uint32 itemSize = MAXALIGN(sizeof(BlockNumber));
+    /* Store exactly BlockNumber bytes; don't over-copy stack padding */
+    uint32 itemSize = sizeof(BlockNumber);
 
     /* first page */
     if (!BlockNumberIsValid(curTableBlkno)) {
@@ -388,7 +396,8 @@ void RecordDocForwardBlkno2DocForwardBlknoTable(Relation index, BM25DocForwardMe
     BlockNumber curTableBlkno = metaForwardPage->docForwardBlknoInsertPage;
     OffsetNumber offno;
     GenericXLogState *state = nullptr;
-    uint32 itemSize = MAXALIGN(sizeof(BlockNumber));
+    /* Store exactly BlockNumber bytes; don't over-copy stack padding */
+    uint32 itemSize = sizeof(BlockNumber);
 
     /* first page */
     if (!BlockNumberIsValid(curTableBlkno)) {
@@ -419,14 +428,15 @@ void RecordDocForwardBlkno2DocForwardBlknoTable(Relation index, BM25DocForwardMe
     BM25CommitBuf(buf, &state, building);
 }
 
-BlockNumber SeekBlocknoForForwardToken(Relation index, uint32 forwardIdx, BlockNumber docForwardBlknoTable)
+BlockNumber SeekBlocknoForForwardToken(Relation index, uint64 forwardIdx, BlockNumber docForwardBlknoTable)
 {
     Buffer buf;
     Page page;
     BlockNumber curTableBlkno = docForwardBlknoTable;
     BlockNumber docForwardBlkno = InvalidBlockNumber;
-    uint32 scanedForwardBlknoNum = 0;
-    uint32 docForwardBlknoIndex = forwardIdx / BM25_DOC_FORWARD_MAX_COUNT_IN_PAGE + 1;
+    uint64 scanedForwardBlknoNum = 0;
+    const uint64 slotsPerForwardPage = (uint64)BM25_DOC_FORWARD_MAX_COUNT_IN_PAGE;
+    uint64 docForwardBlknoIndex = forwardIdx / slotsPerForwardPage + (uint64)1;
 
     while (BlockNumberIsValid(curTableBlkno)) {
         OffsetNumber maxoffno;
@@ -434,13 +444,15 @@ BlockNumber SeekBlocknoForForwardToken(Relation index, uint32 forwardIdx, BlockN
         LockBuffer(buf, BUFFER_LOCK_SHARE);
         page = BufferGetPage(buf);
         maxoffno = PageGetMaxOffsetNumber(page);
-        if (scanedForwardBlknoNum + maxoffno >= docForwardBlknoIndex) {
-            uint16 offset = docForwardBlknoIndex - scanedForwardBlknoNum;
-            docForwardBlkno = *((BlockNumber*)PageGetItem(page, PageGetItemId(page, offset)));
+        if (scanedForwardBlknoNum + (uint64)maxoffno >= docForwardBlknoIndex) {
+            uint64 offset64 = docForwardBlknoIndex - scanedForwardBlknoNum;
+            Assert(offset64 <= (uint64)MaxOffsetNumber);
+            OffsetNumber itemno = (OffsetNumber)offset64;
+            docForwardBlkno = *((BlockNumber*)PageGetItem(page, PageGetItemId(page, itemno)));
             UnlockReleaseBuffer(buf);
             break;
         }
-        scanedForwardBlknoNum += maxoffno;
+        scanedForwardBlknoNum += (uint64)maxoffno;
         curTableBlkno = BM25PageGetOpaque(page)->nextblkno;
         UnlockReleaseBuffer(buf);
     }

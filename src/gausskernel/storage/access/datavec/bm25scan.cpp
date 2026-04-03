@@ -35,14 +35,22 @@
 #include "db4ai/bayesnet.h"
 #include "access/datavec/bm25heap.h"
 #include "access/datavec/bm25.h"
+#include "access/datavec/varblock.h"
+#include "storage/buf/bufmgr.h"
+#include "storage/buf/bufpage.h"
 
 const uint32 DEFAULT_EXPAND_TIME = 8;
 const float BM25_DEFAULT_OFFSET = 0.5f;
+
+/* docId mask bitmap: one bit per document, packed byte-wise */
+#define BM25_DOCID_MASK_BITS_PER_BYTE 8u
 
 typedef struct BM25QueryToken {
     BlockNumber tokenPostingBlock;
     float qTokenMaxScore;
     float qTokenIDFVal;
+    ItemPointerData postingChainHead;
+    bool useVarBlock;
 } BM25QueryToken;
 
 typedef struct BM25QueryTokensInfo {
@@ -76,10 +84,18 @@ static void FindTokenInfo(BM25MetaPageData &meta, Page page, BM25TokenizedDocDat
         if ((tokenMeta->hashValue == tokenizedQuery.tokenDatas[tokenIdx].hashValue) &&
             (strncmp(tokenMeta->token, tokenizedQuery.tokenDatas[tokenIdx].tokenValue, BM25_MAX_TOKEN_LEN - 1) == 0)) {
             queryTokens[tokenIdx].qTokenMaxScore = tokenMeta->maxScore;
-            queryTokens[tokenIdx].tokenPostingBlock = tokenMeta->postingBlkno;
             queryTokens[tokenIdx].qTokenIDFVal = tokenizedQuery.tokenDatas[tokenIdx].tokenFreq *
                 std::log((1 + ((float)meta.documentCount - (float)tokenMeta->docCount + BM25_DEFAULT_OFFSET) /
                 ((float)tokenMeta->docCount + BM25_DEFAULT_OFFSET)));
+            if (meta.version >= BM25_VERSION_VARBLOCK_POSTING && ItemPointerIsValid(&tokenMeta->postingChainHead)) {
+                queryTokens[tokenIdx].postingChainHead = tokenMeta->postingChainHead;
+                queryTokens[tokenIdx].useVarBlock = true;
+                queryTokens[tokenIdx].tokenPostingBlock = InvalidBlockNumber;
+            } else {
+                queryTokens[tokenIdx].tokenPostingBlock = tokenMeta->postingBlkno;
+                queryTokens[tokenIdx].useVarBlock = false;
+                ItemPointerSetInvalid(&queryTokens[tokenIdx].postingChainHead);
+            }
             tokenFoundCount++;
             if (tokenFoundCount >= tokenizedQuery.tokenCount)
                 return;
@@ -102,6 +118,8 @@ static BM25QueryToken *ScanIndexForTokenInfo(Relation index, const char *sentenc
     BlockNumber *bucketsLocation = (BlockNumber*)palloc0(sizeof(BlockNumber) * tokenizedQuery.tokenCount);
     for (size_t tokenIdx = 0; tokenIdx < tokenizedQuery.tokenCount; tokenIdx++) {
         queryTokens[tokenIdx].tokenPostingBlock = InvalidBlockNumber;
+        ItemPointerSetInvalid(&queryTokens[tokenIdx].postingChainHead);
+        queryTokens[tokenIdx].useVarBlock = false;
         bucketsLocation[tokenIdx] = InvalidBlockNumber;
     }
 
@@ -169,7 +187,9 @@ static BM25QueryTokensInfo GetQueryTokens(Relation index, const char* sentence)
     BM25QueryToken *resQueryTokens = (BM25QueryToken*)palloc0(sizeof(BM25QueryToken) * tokenFoundCount);
     uint32 tokenFillIdx = 0;
     for (size_t tokenIdx = 0; tokenIdx < tokenCount; tokenIdx++) {
-        if (!BlockNumberIsValid(queryTokens[tokenIdx].tokenPostingBlock)) {
+        bool hasPosting = BlockNumberIsValid(queryTokens[tokenIdx].tokenPostingBlock) ||
+            (queryTokens[tokenIdx].useVarBlock && ItemPointerIsValid(&queryTokens[tokenIdx].postingChainHead));
+        if (!hasPosting) {
             continue;
         }
         resQueryTokens[tokenFillIdx] = queryTokens[tokenIdx];
@@ -285,58 +305,180 @@ private:
     size_t scoreHashCapacity;
 };
 
-void BM25ScanCursor::Next(bool isInit)
+static inline bool BM25IsDocFiltered(const unsigned char *docIdfilter, uint32 docId)
+{
+    return docIdfilter &&
+        ((docIdfilter[docId / BM25_DOCID_MASK_BITS_PER_BYTE] >> (docId % BM25_DOCID_MASK_BITS_PER_BYTE)) & 1u);
+}
+
+static bool BM25NextFromVarBlock(BM25ScanCursor *cursor)
+{
+    while (ItemPointerIsValid(&cursor->curChunkCtid)) {
+        if (!BufferIsValid(cursor->buf)) {
+            cursor->buf = ReadBufferExtended(cursor->index, MAIN_FORKNUM,
+                ItemPointerGetBlockNumber(&cursor->curChunkCtid), RBM_NORMAL, NULL);
+            LockBuffer(cursor->buf, BUFFER_LOCK_SHARE);
+            cursor->page = BufferGetPage(cursor->buf);
+        }
+        ItemId id = PageGetItemId(cursor->page, ItemPointerGetOffsetNumber(&cursor->curChunkCtid));
+        VarBlockChunkHeader *hdr = (VarBlockChunkHeader *)PageGetItem(cursor->page, id);
+        char *payload = (char *)hdr + sizeof(VarBlockChunkHeader);
+        uint32 len = hdr->payload_len;
+        while (cursor->curPayloadOffset + BM25_POSTING_ITEM_ALIGNED_SIZE <= len) {
+            BM25TokenPostingItem *item = (BM25TokenPostingItem *)(payload + cursor->curPayloadOffset);
+            uint32 docId = item->docId;
+            cursor->curPayloadOffset += BM25_POSTING_ITEM_ALIGNED_SIZE;
+            if (BM25IsDocFiltered(cursor->docIdfilter, docId)) {
+                continue;
+            }
+            cursor->curDocId = item->docId;
+            cursor->tokenFreqInDoc = (float)item->freq;
+            cursor->curDocLength = (float)item->docLength;
+            return true;
+        }
+        cursor->curChunkCtid = hdr->next_ctid;
+        cursor->curPayloadOffset = 0;
+        UnlockReleaseBuffer(cursor->buf);
+        cursor->buf = InvalidBuffer;
+        cursor->page = NULL;
+    }
+    return false;
+}
+
+static bool BM25SeekInVarBlock(BM25ScanCursor *cursor, uint32 docId)
+{
+    cursor->curChunkCtid = cursor->postingChainHead;
+    cursor->curPayloadOffset = 0;
+    if (BufferIsValid(cursor->buf)) {
+        UnlockReleaseBuffer(cursor->buf);
+        cursor->buf = InvalidBuffer;
+        cursor->page = NULL;
+    }
+    while (ItemPointerIsValid(&cursor->curChunkCtid)) {
+        if (!BufferIsValid(cursor->buf)) {
+            cursor->buf = ReadBufferExtended(cursor->index, MAIN_FORKNUM,
+                ItemPointerGetBlockNumber(&cursor->curChunkCtid), RBM_NORMAL, NULL);
+            LockBuffer(cursor->buf, BUFFER_LOCK_SHARE);
+            cursor->page = BufferGetPage(cursor->buf);
+        }
+        ItemId id = PageGetItemId(cursor->page, ItemPointerGetOffsetNumber(&cursor->curChunkCtid));
+        VarBlockChunkHeader *hdr = (VarBlockChunkHeader *)PageGetItem(cursor->page, id);
+        char *payload = (char *)hdr + sizeof(VarBlockChunkHeader);
+        uint32 len = hdr->payload_len;
+        for (; cursor->curPayloadOffset + BM25_POSTING_ITEM_ALIGNED_SIZE <= len;
+            cursor->curPayloadOffset += BM25_POSTING_ITEM_ALIGNED_SIZE) {
+            BM25TokenPostingItem *item = (BM25TokenPostingItem *)(payload + cursor->curPayloadOffset);
+            if (item->docId < docId || BM25IsDocFiltered(cursor->docIdfilter, item->docId)) {
+                continue;
+            }
+            cursor->curDocId = item->docId;
+            cursor->tokenFreqInDoc = (float)item->freq;
+            cursor->curDocLength = (float)item->docLength;
+            cursor->curPayloadOffset += BM25_POSTING_ITEM_ALIGNED_SIZE;
+            return true;
+        }
+        cursor->curChunkCtid = hdr->next_ctid;
+        cursor->curPayloadOffset = 0;
+        UnlockReleaseBuffer(cursor->buf);
+        cursor->buf = InvalidBuffer;
+        cursor->page = NULL;
+    }
+    return false;
+}
+
+static bool BM25SeekInPostingPages(BM25ScanCursor *cursor, uint32 docId)
+{
+    while (BlockNumberIsValid(cursor->curBlkno)) {
+        OffsetNumber maxoffno = PageGetMaxOffsetNumber(cursor->page);
+        for (OffsetNumber offno = cursor->curOffset; offno <= maxoffno; offno = OffsetNumberNext(offno)) {
+            BM25TokenPostingPage postingItem =
+                (BM25TokenPostingPage)PageGetItem(cursor->page, PageGetItemId(cursor->page, offno));
+            uint32 hitDocId = postingItem->docId;
+            if (hitDocId < docId || BM25IsDocFiltered(cursor->docIdfilter, hitDocId)) {
+                continue;
+            }
+            cursor->curDocId = hitDocId;
+            cursor->tokenFreqInDoc = postingItem->freq;
+            cursor->curDocLength = postingItem->docLength;
+            cursor->curOffset = offno;
+            return true;
+        }
+        cursor->curBlkno = BM25PageGetOpaque(cursor->page)->nextblkno;
+        UnlockReleaseBuffer(cursor->buf);
+        cursor->buf = InvalidBuffer;
+        if (BlockNumberIsValid(cursor->curBlkno)) {
+            cursor->buf = ReadBuffer(cursor->index, cursor->curBlkno);
+            LockBuffer(cursor->buf, BUFFER_LOCK_SHARE);
+            cursor->page = BufferGetPage(cursor->buf);
+            cursor->curOffset = FirstOffsetNumber;
+        }
+    }
+    return false;
+}
+
+static void BM25NextFromPostingPages(BM25ScanCursor *cursor, bool isInit)
 {
     BM25TokenPostingPage postingItem;
     bool found = false;
 
-    if (isInit) {
-        Assert(BlockNumberIsValid(curBlkno));
-        buf = ReadBuffer(index, curBlkno);
-        LockBuffer(buf, BUFFER_LOCK_SHARE);
-        page = BufferGetPage(buf);
+    if (!BlockNumberIsValid(cursor->curBlkno)) {
+        cursor->curDocId = BM25_INVALID_DOC_ID;
+        return;
     }
 
-    while (BlockNumberIsValid(curBlkno)) {
-        OffsetNumber maxoffno = PageGetMaxOffsetNumber(page);
-        OffsetNumber nextoffno = InvalidOffsetNumber;
-        if (!OffsetNumberIsValid(curOffset)) {
-            nextoffno = FirstOffsetNumber;
-        } else {
-            nextoffno = OffsetNumberNext(curOffset);
-        }
+    if (isInit) {
+        cursor->buf = ReadBuffer(cursor->index, cursor->curBlkno);
+        LockBuffer(cursor->buf, BUFFER_LOCK_SHARE);
+        cursor->page = BufferGetPage(cursor->buf);
+    }
+
+    while (BlockNumberIsValid(cursor->curBlkno)) {
+        OffsetNumber maxoffno = PageGetMaxOffsetNumber(cursor->page);
+        OffsetNumber nextoffno = OffsetNumberIsValid(cursor->curOffset) ?
+            OffsetNumberNext(cursor->curOffset) : FirstOffsetNumber;
         while (OffsetNumberIsValid(nextoffno) && nextoffno <= maxoffno) {
-            postingItem = (BM25TokenPostingPage)PageGetItem(page, PageGetItemId(page, nextoffno));
+            postingItem = (BM25TokenPostingPage)PageGetItem(cursor->page, PageGetItemId(cursor->page, nextoffno));
             uint32 docId = postingItem->docId;
-            bool filtered = (docIdfilter[docId >> 3] >> (docId % 8)) & 1;
-            if (filtered) {
+            if (BM25IsDocFiltered(cursor->docIdfilter, docId)) {
                 nextoffno = OffsetNumberNext(nextoffno);
                 continue;
             }
-            curDocId = postingItem->docId;
-            tokenFreqInDoc = postingItem->freq;
-            curDocLength = postingItem->docLength;
-            curOffset = nextoffno;
+            cursor->curDocId = postingItem->docId;
+            cursor->tokenFreqInDoc = postingItem->freq;
+            cursor->curDocLength = postingItem->docLength;
+            cursor->curOffset = nextoffno;
             found = true;
             break;
         }
         if (found) {
             break;
         }
-        curBlkno = BM25PageGetOpaque(page)->nextblkno;
-        curOffset = InvalidOffsetNumber;
-        UnlockReleaseBuffer(buf);
-        buf = InvalidBuffer;
-        if (BlockNumberIsValid(curBlkno)) {
-            buf = ReadBuffer(index, curBlkno);
-            LockBuffer(buf, BUFFER_LOCK_SHARE);
-            page = BufferGetPage(buf);
+        cursor->curBlkno = BM25PageGetOpaque(cursor->page)->nextblkno;
+        cursor->curOffset = InvalidOffsetNumber;
+        UnlockReleaseBuffer(cursor->buf);
+        cursor->buf = InvalidBuffer;
+        if (BlockNumberIsValid(cursor->curBlkno)) {
+            cursor->buf = ReadBuffer(cursor->index, cursor->curBlkno);
+            LockBuffer(cursor->buf, BUFFER_LOCK_SHARE);
+            cursor->page = BufferGetPage(cursor->buf);
         }
     }
 
-    if (!BlockNumberIsValid(curBlkno)) {
-        curDocId = BM25_INVALID_DOC_ID;
+    if (!BlockNumberIsValid(cursor->curBlkno)) {
+        cursor->curDocId = BM25_INVALID_DOC_ID;
     }
+}
+
+void BM25ScanCursor::Next(bool isInit)
+{
+    if (useVarBlock) {
+        if (!BM25NextFromVarBlock(this)) {
+            curDocId = BM25_INVALID_DOC_ID;
+        }
+        return;
+    }
+
+    BM25NextFromPostingPages(this, isInit);
 }
 
 void BM25ScanCursor::Seek(uint32 docId)
@@ -346,29 +488,15 @@ void BM25ScanCursor::Seek(uint32 docId)
     }
 
     Assert(docId != BM25_INVALID_DOC_ID);
-    while (BlockNumberIsValid(curBlkno)) {
-        OffsetNumber maxoffno = PageGetMaxOffsetNumber(page);
-        for (OffsetNumber offno = curOffset; offno <= maxoffno; offno = OffsetNumberNext(offno)) {
-            BM25TokenPostingPage postingItem = (BM25TokenPostingPage)PageGetItem(page, PageGetItemId(page, offno));
-            if (postingItem->docId >= docId) {
-                curDocId = postingItem->docId;
-                tokenFreqInDoc = postingItem->freq;
-                curDocLength = postingItem->docLength;
-                curOffset = offno;
-                return;
-            }
+
+    if (useVarBlock) {
+        if (!BM25SeekInVarBlock(this, docId)) {
+            curDocId = BM25_INVALID_DOC_ID;
         }
-        curBlkno = BM25PageGetOpaque(page)->nextblkno;
-        UnlockReleaseBuffer(buf);
-        buf = InvalidBuffer;
-        if (BlockNumberIsValid(curBlkno)) {
-            buf = ReadBuffer(index, curBlkno);
-            LockBuffer(buf, BUFFER_LOCK_SHARE);
-            page = BufferGetPage(buf);
-            curOffset = FirstOffsetNumber;
-        }
+        return;
     }
-    if (!BlockNumberIsValid(curBlkno)) {
+
+    if (!BM25SeekInPostingPages(this, docId)) {
         curDocId = BM25_INVALID_DOC_ID;
     }
 }
@@ -385,11 +513,17 @@ static Vector<BM25ScanCursor> MakeBM25ScanCursors(Relation index, BM25QueryToken
     unsigned char* docIdMask)
 {
     Vector<BM25ScanCursor> cursors;
+    float maxScoreRatio = u_sess->attr.attr_sql.max_score_ratio;
     for (uint32 i = 0; i < querySize; ++i) {
-        BM25ScanCursor cursor(index, queryTokens[i].tokenPostingBlock,
-            queryTokens[i].qTokenMaxScore * queryTokens[i].qTokenIDFVal * u_sess->attr.attr_sql.max_score_ratio,
-            queryTokens[i].qTokenIDFVal, docIdMask);
-        cursors.push_back(cursor);
+        if (queryTokens[i].useVarBlock && ItemPointerIsValid(&queryTokens[i].postingChainHead)) {
+            cursors.push_back(BM25ScanCursor(index, &queryTokens[i].postingChainHead,
+                queryTokens[i].qTokenMaxScore * queryTokens[i].qTokenIDFVal * maxScoreRatio,
+                queryTokens[i].qTokenIDFVal, docIdMask));
+        } else {
+            cursors.push_back(BM25ScanCursor(index, queryTokens[i].tokenPostingBlock,
+                queryTokens[i].qTokenMaxScore * queryTokens[i].qTokenIDFVal * maxScoreRatio,
+                queryTokens[i].qTokenIDFVal, docIdMask));
+        }
     }
     return cursors;
 }
@@ -528,7 +662,9 @@ static FORCE_INLINE int CompareBM25ScanDataByDocId(const void *left, const void 
 {
     BM25ScanData* leftRes = (BM25ScanData*)left;
     BM25ScanData* rightRes = (BM25ScanData*)right;
-    return leftRes->docId - rightRes->docId;
+    uint32 a = leftRes->docId;
+    uint32 b = rightRes->docId;
+    return (a < b) ? -1 : (a > b) ? 1 : 0;
 }
 
 static FORCE_INLINE int CompareBM25ScanDataByScore(const void *left, const void *right)
@@ -538,12 +674,13 @@ static FORCE_INLINE int CompareBM25ScanDataByScore(const void *left, const void 
     return rightRes->score - leftRes->score > 0 ? 1 : -1;
 }
 
-static void DocIdsGetHeapCtids(Relation index, BM25EntryPages &entryPages, BM25ScanOpaque so)
+static void DocIdsGetHeapCtids(Relation index, BM25EntryPages &entryPages, BM25ScanOpaque so, uint32 indexVersion)
 {
     Buffer buf;
     Page page;
     uint32 curBlkno;
     uint32 curdDocId;
+    const Size docAreaOff = BM25PageDocumentAreaOffset(indexVersion);
     qsort(so->candDocs, (size_t)so->candNums, sizeof(BM25ScanData), CompareBM25ScanDataByDocId);
 
     /* doc meta page */
@@ -566,8 +703,8 @@ static void DocIdsGetHeapCtids(Relation index, BM25EntryPages &entryPages, BM25S
         LockBuffer(buf, BUFFER_LOCK_SHARE);
         page = BufferGetPage(buf);
 
-        BM25DocumentItem *docItem = (BM25DocumentItem*)((char *)page + sizeof(PageHeaderData) +
-            offset * BM25_DOCUMENT_ITEM_SIZE);
+        BM25DocumentItem *docItem =
+            (BM25DocumentItem*)((char *)page + docAreaOff + offset * BM25_DOCUMENT_ITEM_SIZE);
         if (!docItem->isActived) {
             so->candDocs[i].docId = BM25_INVALID_DOC_ID;
             UnlockReleaseBuffer(buf);
@@ -604,7 +741,7 @@ static void BM25IndexScan(Relation index, BM25QueryTokensInfo &queryTokenInfo, u
         so->candDocs[i].docId = docId;
         so->candDocs[i].score = heap.top().val;
         so->candNums++;
-        so->docIdMask[docId >> 3] |= 1 << (docId % 8);
+        so->docIdMask[docId / BM25_DOCID_MASK_BITS_PER_BYTE] |= 1u << (docId % BM25_DOCID_MASK_BITS_PER_BYTE);
         heap.pop();
     }
 }
@@ -803,7 +940,7 @@ bool bm25gettuple_internal(IndexScanDesc scan, ScanDirection dir)
 
         float avgdl = (meta.tokenCount * 1.0) / meta.documentCount;
         BM25IndexScan(scan->indexRelation, queryTokenInfo, meta.nextDocId, avgdl, so);
-        DocIdsGetHeapCtids(scan->indexRelation, meta.entryPageList, so);
+        DocIdsGetHeapCtids(scan->indexRelation, meta.entryPageList, so, meta.version);
         ConstructScanScoreKeys(scan->indexRelation, so, queryString);
         if (queryTokenInfo.queryTokens != nullptr) {
             pfree(queryTokenInfo.queryTokens);

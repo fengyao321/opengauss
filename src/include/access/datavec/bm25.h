@@ -25,6 +25,7 @@
 #define BM25_H
 
 #include "postgres.h"
+#include "storage/buf/bufpage.h"
 #include "access/genam.h"
 #include "access/generic_xlog.h"
 #include "lib/pairingheap.h"
@@ -35,7 +36,21 @@
 #include "access/datavec/vecindex.h"
 
 #define BM25_VERSION 1
+#define BM25_VERSION_VARBLOCK_POSTING 2
 #define BM25_MAGIC_NUMBER 0x14FF1A8
+
+/*
+ * Raw BM25DocumentItem / BM25DocForwardItem arrays on index pages: indexes built before
+ * BM25_VERSION_VARBLOCK_POSTING used sizeof(PageHeaderData); newer indexes use the aligned
+ * page header end (see bufpage.h PageGetContents). Must match on-disk layout for indexVersion.
+ */
+static inline Size BM25PageDocumentAreaOffset(uint32 indexVersion)
+{
+    if (indexVersion >= BM25_VERSION_VARBLOCK_POSTING) {
+        return (Size)MAXALIGN(SizeOfPageHeaderData);
+    }
+    return sizeof(PageHeaderData);
+}
 #define BM25_PAGE_ID 0xFF85
 
 #define BM25PageGetOpaque(page) ((BM25PageOpaque)PageGetSpecialPointer(page))
@@ -54,6 +69,7 @@
 #define BM25_DOC_FORWARD_MAX_COUNT_IN_PAGE (BM25_PAGE_DATASIZE / BM25_DOCUMENT_FORWARD_ITEM_SIZE)
 #define BM25_MAX_TOKEN_LEN 100
 #define BM25_BUCKET_PAGE_ITEM_SIZE 2
+#define BM25_POSTING_ITEM_ALIGNED_SIZE MAXALIGN(sizeof(BM25TokenPostingItem))
 
 typedef struct BM25ScanData {
     uint32 docId;
@@ -202,6 +218,9 @@ typedef struct BM25TokenMetaItem {
     BlockNumber lastInsertBlkno;
     float maxScore;
     char token[BM25_MAX_TOKEN_LEN];
+    /* VarBlock posting chain (version >= BM25_VERSION_VARBLOCK_POSTING) */
+    ItemPointerData postingChainHead;
+    ItemPointerData postingChainTail;
 } BM25TokenMetaItem;
 
 typedef BM25TokenMetaItem *BM25TokenMetaPage;
@@ -286,8 +305,39 @@ public:
           tokenFreqInDoc(0.0f),
           curDocLength(0.0f),
           index(indexRel),
-          docIdfilter(docIdMask)
+          docIdfilter(docIdMask),
+          useVarBlock(false),
+          curPayloadOffset(0)
     {
+        ItemPointerSetInvalid(&postingChainHead);
+        ItemPointerSetInvalid(&curChunkCtid);
+        Next(true);
+    }
+    BM25ScanCursor(Relation indexRel, const ItemPointerData *postingChainHeadArg, float tokenMaxScore, float idfVal,
+        unsigned char* docIdMask)
+        : tokenPostingBlock(InvalidBlockNumber),
+          qTokenMaxScore(tokenMaxScore),
+          qTokenIDFVal(idfVal),
+          curBlkno(InvalidBlockNumber),
+          curOffset(InvalidOffsetNumber),
+          curDocId(BM25_INVALID_DOC_ID),
+          tokenFreqInDoc(0.0f),
+          curDocLength(0.0f),
+          index(indexRel),
+          docIdfilter(docIdMask),
+          useVarBlock(true),
+          curPayloadOffset(0)
+    {
+        if (postingChainHeadArg != NULL && ItemPointerIsValid(postingChainHeadArg)) {
+            postingChainHead = *postingChainHeadArg;
+            curChunkCtid = *postingChainHeadArg;
+        } else {
+            ItemPointerSetInvalid(&postingChainHead);
+            ItemPointerSetInvalid(&curChunkCtid);
+            useVarBlock = false;
+        }
+        buf = InvalidBuffer;
+        page = NULL;
         Next(true);
     }
 
@@ -295,7 +345,7 @@ public:
     void Seek(uint32 docId);
     void Close();
 
-    BlockNumber tokenPostingBlock; /* first block number of inverted list */
+    BlockNumber tokenPostingBlock; /* first block number of inverted list (version 1) */
     float qTokenMaxScore;
     float qTokenIDFVal;
 
@@ -309,6 +359,12 @@ public:
     unsigned char* docIdfilter;
     Buffer buf;
     Page page;
+
+    /* VarBlock posting chain (version >= BM25_VERSION_VARBLOCK_POSTING) */
+    ItemPointerData postingChainHead;
+    bool useVarBlock;
+    ItemPointerData curChunkCtid;
+    uint32 curPayloadOffset;
 };  // struct BM25ScanCursor
 
 struct BM25Scorer : public BaseObject {
@@ -339,7 +395,11 @@ void BM25GetMetaPageInfo(Relation index, BM25MetaPage metap);
 void BM25AppendPage(Relation index, Buffer *buf, Page *page, ForkNumber forkNum, GenericXLogState **state,
     bool building);
 void BM25GetMetaPageInfo(Relation index, BM25MetaPage metap);
-uint32 BM25AllocateDocId(Relation index, bool building, uint32 docTokenCount);
+/*
+ * docIdIsMonotonicNew: if non-NULL, set to true when docId comes from nextDocId (append preserves
+ * posting sort); false when taken from the free list (may need full reorder to keep docId order).
+ */
+uint32 BM25AllocateDocId(Relation index, bool building, uint32 docTokenCount, bool *docIdIsMonotonicNew);
 uint32 BM25AllocateTokenId(Relation index);
 void BM25IncreaseDocAndTokenCount(Relation index, uint32 tokenCount, float &avgdl, bool building);
 void RecordDocBlkno2DocBlknoTable(Relation index, BM25DocMetaPage docMetaPage,
@@ -349,7 +409,7 @@ bool FindTokenMeta(BM25TokenData &tokenData, BM25PageLocationInfo &tokenMetaLoca
 BM25TokenizedDocData BM25DocumentTokenize(const char* doc, const char* dictPath = nullptr, bool cutForSearch = false);
 void RecordDocForwardBlkno2DocForwardBlknoTable(Relation index, BM25DocForwardMetaPage metaForwardPage,
     BlockNumber newDocForwardBlkno, bool building, ForkNumber forkNum);
-BlockNumber SeekBlocknoForForwardToken(Relation index, uint32 forwardIdx, BlockNumber docForwardBlknoTable);
+BlockNumber SeekBlocknoForForwardToken(Relation index, uint64 forwardIdx, BlockNumber docForwardBlknoTable);
 void BM25BatchInsertRecord(Relation index);
 void BM25BatchInsertAbort();
 void BM25BatchInsertResetRecord();
