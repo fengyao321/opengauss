@@ -161,6 +161,7 @@ static const char *BuiltinTrancheNames[] = {
     "GlobalWorkloadLock",
     "NormalizedSqlLock",
     "StartBlockMappingLock",
+    "PgStatHashLock",
     "BufferIOLock",
     "BufferContentLock",
     "UndoPerZoneLock",
@@ -2794,4 +2795,5 @@ Datum gs_lwlock_status(PG_FUNCTION_ARGS)
 
     SRF_RETURN_DONE(funcctx);
 }
+
 

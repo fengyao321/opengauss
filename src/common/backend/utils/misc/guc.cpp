@@ -12615,27 +12615,13 @@ static void assign_effective_io_concurrency(int newval, void* extra)
 
 static void assign_pgstat_temp_directory(const char* newval, void* extra)
 {
-    /* check_canonical_path already canonicalized newval for us */
-    char* tname = NULL;
-    char* fname = NULL;
-    int rcs = 0;
-
-    tname = (char*)guc_malloc(ERROR, strlen(newval) + 12); /* /pgstat.tmp */
-    rcs = snprintf_s(tname, strlen(newval) + 12, strlen(newval) + 11, "%s/pgstat.tmp", newval);
-    securec_check_ss(rcs, "\0", "\0");
-    fname = (char*)guc_malloc(ERROR, strlen(newval) + 13); /* /pgstat.stat */
-    rcs = snprintf_s(fname, strlen(newval) + 13, strlen(newval) + 12, "%s/pgstat.stat", newval);
-    securec_check_ss(rcs, "\0", "\0");
-
-    if (u_sess->stat_cxt.pgstat_stat_tmpname)
-        pfree(u_sess->stat_cxt.pgstat_stat_tmpname);
-
-    u_sess->stat_cxt.pgstat_stat_tmpname = tname;
-
-    if (u_sess->stat_cxt.pgstat_stat_filename)
-        pfree(u_sess->stat_cxt.pgstat_stat_filename);
-
-    u_sess->stat_cxt.pgstat_stat_filename = fname;
+    /*
+     * Session-level pgstat files are deprecated; stats live in shmem and
+     * only global/pgstat.stat is used for persistence. Keep this assign
+     * for backward compatibility with existing config.
+     */
+    (void)newval;
+    (void)extra;
 }
 
 static bool check_application_name(char** newval, void** extra, GucSource source)

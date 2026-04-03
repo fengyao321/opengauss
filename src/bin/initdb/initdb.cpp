@@ -4055,7 +4055,6 @@ int main(int argc, char* argv[])
         "base/1",
         "pg_replslot",
         "pg_tblspc",
-        "pg_stat_tmp",
         "pg_llog",
         "pg_llog/snapshots",
         "pg_llog/mappings",
