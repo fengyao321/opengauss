@@ -34,10 +34,11 @@ typedef struct {
     size_t size;
 } EmbeddingMap;
 
+void* GetOrCreateTokenizer(const char* dictBasePath);
 bool CreateTokenizer();
 void DestroyTokenizer();
 bool ConvertString2Embedding(const char* srcStr, EmbeddingMap *embeddingMap, bool isKeywordExtractor,
-    bool cutForSearch = false);
+    bool cutForSearch = false, const char* dictBasePath = nullptr);
 
 #ifdef __cplusplus
 }
