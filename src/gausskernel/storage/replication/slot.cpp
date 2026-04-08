@@ -1103,6 +1103,9 @@ void ReplicationSlotsComputeRequiredLSN(ReplicationSlotState *repl_slt_state)
         SpinLockAcquire(&s->mutex);
         XLogRecPtr restart_lsn;
         bool isNoNeedCheck = (t_thrd.xlog_cxt.server_mode != PRIMARY_MODE &&
+#ifdef ENABLE_NEON
+            t_thrd.xlog_cxt.server_mode != NORMAL_MODE &&
+#endif
             !(t_thrd.xlog_cxt.server_mode == STANDBY_MODE && t_thrd.xlog_cxt.is_hadr_main_standby) &&
             t_thrd.xlog_cxt.server_mode != PENDING_MODE && s->data.database == InvalidOid &&
             GET_SLOT_PERSISTENCY(s->data) != RS_BACKUP);
