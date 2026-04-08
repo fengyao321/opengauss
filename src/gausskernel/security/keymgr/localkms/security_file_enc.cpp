@@ -166,7 +166,7 @@ static CmkemErrCode create_file_and_write(const char *real_path, const unsigned 
     }
     
     written = write(fd, content, content_len);
-    if (written != content_len) {
+    if (written < 0 || (size_t)written != content_len) {
         cmkem_errmsg("failed to write content to file '%s'.\n", real_path);
         (void)close(fd);
         return CMKEM_WRITE_FILE_ERR;

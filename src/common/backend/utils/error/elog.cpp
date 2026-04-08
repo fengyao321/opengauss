@@ -4850,7 +4850,6 @@ static void tolower_func(char *convert_query)
 
 static void apply_funcs3_mask(char *string, char** end, char replace, size_t* step)
 {
-    errno_t rc = EOK;
     if (*end == NULL || **end == '\0') {
         return;
     }

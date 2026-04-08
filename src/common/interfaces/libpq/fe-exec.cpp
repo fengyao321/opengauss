@@ -2630,8 +2630,8 @@ int PQputCopyData(PGconn* conn, const char* buffer, int nbytes)
 
     if (nbytes > 0) {
         char *encBuffer = NULL;
-        int encBufferLen;
 #ifdef HAVE_CE
+        int encBufferLen;
         if (conn->client_logic->enable_client_encryption) {
             encBufferLen = 0;
             CopyProcessStatus status = process_copy_chunk(conn, buffer, nbytes, &encBuffer, &encBufferLen);
@@ -4147,7 +4147,7 @@ unsigned char* PQunescapeBytea(const unsigned char* strtext, size_t* retbuflen)
 /* function of concurrently executing query */
 class ConnectionPool {
 public:
-    explicit ConnectionPool(int poolSize) : size(poolSize), connections(nullptr), mutexes(nullptr) {}
+    explicit ConnectionPool(int poolSize) : connections(nullptr), mutexes(nullptr), size(poolSize) {}
 
     ~ConnectionPool()
     {

@@ -1656,7 +1656,6 @@ void SonicHashAgg::judgeMemoryOverflow(
     calcHashContextSize(m_memControl.hashContext, &used_size, &free_size);
     bool sys_busy = gs_sysmemory_busy(used_size * dop, false);
     bool rackBusy = RackMemoryBusy(used_size * dop);
-    int64 rackAvail = GetAvailRackMemory(dop) * 1024L;
     int64 localTotalMemory = SET_NODEMEM(u_sess->attr.attr_memory.work_mem, dop) * 1024L;
     u_sess->local_memory_exhaust = used_size > localTotalMemory;
 

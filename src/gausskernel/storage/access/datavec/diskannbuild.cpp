@@ -278,7 +278,7 @@ static BlockNumber InsertVectorIntoPage(Relation index, Vector* vec, double sqrS
            BLCKSZ - MAXALIGN(SizeOfPageHeaderData) - MAXALIGN(sizeof(DiskAnnPageOpaqueData)) - sizeof(ItemIdData));
 
     /* initialize page */
-    BlockNumber blk = DiskAnnPageExtension(index, metaPage->extendPageLocker, buf);
+    DiskAnnPageExtension(index, metaPage->extendPageLocker, buf);
     if (building) {
         page = DiskAnnInitRegisterPage(index, buf);
     } else {
@@ -734,7 +734,6 @@ void InsertFrozenPoint(Relation index, BlockNumber frozen, bool building)
 static void GeneratePQData(DiskAnnBuildState* buildstate)
 {
     int numSamples;
-    Relation index = buildstate->index;
 
     /* Skip samples for unlogged table */
     if (buildstate->heap == NULL) {

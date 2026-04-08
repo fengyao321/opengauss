@@ -300,7 +300,6 @@ bool PageCompression::WriteBufferToCurrentBlock(char *buf, BlockNumber blkNumber
  */
 size_t CalRealWriteSize(char *buffer)
 {
-    PageHeader phdr = (PageHeader)buffer;
     /* blank page */
     if (PageIsNew(buffer)) {
         return BLCKSZ;

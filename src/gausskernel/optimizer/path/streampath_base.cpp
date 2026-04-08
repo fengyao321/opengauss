@@ -1247,7 +1247,6 @@ void AsofJoinPathGen::addAsofjoinPathToList()
 Path* AsofJoinPathGen::createAsofJoinPath()
 {
     AsofPath* pathnode = makeNode(AsofPath);
-    bool try_eq_related_indirectly = false;
 
     initialCostAsofjoin();
 
