@@ -396,6 +396,9 @@ static bool enableSplitTable = false;
 #if defined(USE_ASSERT_CHECKING) || defined(FASTCHECK)
 static bool disable_progress = false;
 #endif
+/* temporary gs_dump session override for shark D-format compatibility */
+static bool g_sharkDumpCompatOptionsOverridden = false;
+static char* g_sharkDumpSavedCompatOptions = NULL;
 
 /* Used to count the number of -t input */
 int gTableCount = 0;
@@ -542,6 +545,8 @@ static void dumpEncoding(Archive* AH);
 static void dumpStdStrings(Archive* AH);
 static void DumpBehaviorCompat(Archive* archive);
 static void DumpDFormatBehaviorCompat(Archive* archive);
+static void SetupSharkDumpCompatOptions(Archive* AH);
+static void ResetSharkDumpCompatOptions(Archive* AH);
 static void DummpLengthSemantics(Archive* AH);
 static void binary_upgrade_set_type_oids_by_type_oid(
     Archive* Afout, PQExpBuffer upgrade_buffer, Oid pg_type_oid, bool error_table);
@@ -1270,6 +1275,8 @@ int main(int argc, char** argv)
      */
     if (plainText)
         RestoreArchive(fout);
+
+    ResetSharkDumpCompatOptions(fout);
 
     free_dump();
 
@@ -2207,6 +2214,8 @@ static void setup_connection(Archive* AH)
     if (AH->remoteVersion >= 70300)
         ExecuteSqlStatement(AH, "SET statement_timeout = 0");
 
+    SetupSharkDumpCompatOptions(AH);
+
     /*
      * Quote all identifiers, if requested.
      */
@@ -2252,9 +2261,97 @@ static void setup_connection(Archive* AH)
 	else if (AH->workerNum > 1)
 	{
         res = ExecuteSqlQueryForSingleRow(AH, "SELECT pg_catalog.pg_export_snapshot()");
-		AH->sync_snapshot_id = gs_strdup(PQgetvalue(res, 0, 0));;
+			AH->sync_snapshot_id = gs_strdup(PQgetvalue(res, 0, 0));;
         PQclear(res);
 	}
+}
+
+static void SetupSharkDumpCompatOptions(Archive* AH)
+{
+    PGresult* res = NULL;
+    const char* curOptions = NULL;
+
+    if (AH == NULL || GetConnection(AH) == NULL) {
+        return;
+    }
+
+    if (!findDBCompatibility(AH, PQdb(GetConnection(AH)), "D") || !hasSpecificExtension(AH, "shark")) {
+        return;
+    }
+
+    res = ExecuteSqlQueryForSingleRow(AH, "SHOW d_format_behavior_compat_options;");
+    curOptions = (res != NULL) ? PQgetvalue(res, 0, 0) : "";
+
+    GS_FREE(g_sharkDumpSavedCompatOptions);
+    g_sharkDumpSavedCompatOptions = gs_strdup((curOptions != NULL) ? curOptions : "");
+    PQclear(res);
+
+    /*
+     * gs_dump internal SQL uses array-subscript syntax like typname[0]. With
+     * enable_sbr_identifier enabled, brackets are parsed as delimited
+     * identifiers and dump queries fail with syntax errors.
+     *
+     * Keep other options unchanged: only remove enable_sbr_identifier for this
+     * dump session, then restore original value in reset path.
+     */
+    if (strstr(g_sharkDumpSavedCompatOptions, "enable_sbr_identifier") != NULL) {
+        char* filteredOptions = gs_strdup(g_sharkDumpSavedCompatOptions);
+        char* pos = NULL;
+        const char* target = "enable_sbr_identifier";
+        size_t targetLen = strlen(target);
+        int rc = 0;
+        bool removed = false;
+
+        while ((pos = strstr(filteredOptions, target)) != NULL) {
+            char* start = pos;
+            char* end = pos + targetLen;
+
+            if (start > filteredOptions && *(start - 1) == ',') {
+                start--;
+            } else if (*end == ',') {
+                end++;
+            }
+
+            rc = memmove_s(start, strlen(start) + 1, end, strlen(end) + 1);
+            securec_check_c(rc, "\0", "\0");
+            removed = true;
+        }
+
+        if (removed) {
+            PQExpBuffer query = createPQExpBuffer();
+            appendPQExpBufferStr(query, "SET d_format_behavior_compat_options = ");
+            appendStringLiteralConn(query, filteredOptions, GetConnection(AH));
+            ExecuteSqlStatement(AH, query->data);
+            destroyPQExpBuffer(query);
+            g_sharkDumpCompatOptionsOverridden = true;
+        }
+
+        GS_FREE(filteredOptions);
+    }
+}
+
+static void ResetSharkDumpCompatOptions(Archive* AH)
+{
+    PGconn* conn = NULL;
+    PQExpBuffer query = NULL;
+
+    if (g_sharkDumpSavedCompatOptions == NULL || AH == NULL) {
+        return;
+    }
+
+    if (g_sharkDumpCompatOptionsOverridden) {
+        conn = GetConnection(AH);
+        if (conn != NULL) {
+            query = createPQExpBuffer();
+            appendPQExpBufferStr(query, "SET d_format_behavior_compat_options = ");
+            appendStringLiteralConn(query, g_sharkDumpSavedCompatOptions, conn);
+            ExecuteSqlStatement(AH, query->data);
+            destroyPQExpBuffer(query);
+        }
+        g_sharkDumpCompatOptionsOverridden = false;
+    }
+
+    GS_FREE(g_sharkDumpSavedCompatOptions);
 }
 
 static ArchiveFormat parseArchiveFormat(ArchiveMode* mode)
@@ -4683,16 +4780,24 @@ static void DumpDFormatBehaviorCompat(Archive* archive)
     }
     ddr_Assert(archive != NULL);
     PGconn* conn = GetConnection(archive);
-    PGresult* res;
+    PGresult* res = NULL;
     PQExpBuffer qry = createPQExpBuffer();
 
-    res = PQexec(conn, "show d_format_behavior_compat_options;");
-    if (res != NULL && PQresultStatus(res) == PGRES_TUPLES_OK) {
-        appendPQExpBuffer(qry, "SET d_format_behavior_compat_options = '%s';\n", PQgetvalue(res, 0, 0));
+    if (g_sharkDumpSavedCompatOptions != NULL) {
+        appendPQExpBufferStr(qry, "SET d_format_behavior_compat_options = ");
+        appendStringLiteralAH(qry, g_sharkDumpSavedCompatOptions, archive);
+        appendPQExpBufferStr(qry, ";\n");
     } else {
-        appendPQExpBuffer(qry, "SET d_format_behavior_compat_options = '';\n");
+        res = PQexec(conn, "show d_format_behavior_compat_options;");
+        if (res != NULL && PQresultStatus(res) == PGRES_TUPLES_OK) {
+            appendPQExpBufferStr(qry, "SET d_format_behavior_compat_options = ");
+            appendStringLiteralAH(qry, PQgetvalue(res, 0, 0), archive);
+            appendPQExpBufferStr(qry, ";\n");
+        } else {
+            appendPQExpBuffer(qry, "SET d_format_behavior_compat_options = '';\n");
+        }
+        PQclear(res);
     }
-    PQclear(res);
 
     ArchiveEntry(archive,
         nilCatalogId,

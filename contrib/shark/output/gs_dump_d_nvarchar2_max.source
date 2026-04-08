@@ -16,26 +16,30 @@ create view view3 as select 'asdf'::nvarchar2(max)::nvarchar(1);
 0
 \c restore_d_max_database
 \d+ test1
-                            Table "public.test1"
- Column |      Type      | Modifiers | Storage  | Stats target | Description 
---------+----------------+-----------+----------+--------------+-------------
- col1   | nvarchar2(1)   |           | extended |              | 
- col2   | nvarchar2(1)   |           | extended |              | 
- col3   | nvarchar2(50)  |           | extended |              | 
- col4   | nvarchar2(max) |           | extended |              | 
+                                              Table "public.test1"
+ Column |      Type      |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------+-----------------------------------------------+----------+--------------+-------------
+ col1   | nvarchar2(1)   | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ col2   | nvarchar2(1)   | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ col3   | nvarchar2(50)  | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ col4   | nvarchar2(max) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 \d+ test2
-                            Table "public.test2"
- Column |      Type      | Modifiers | Storage  | Stats target | Description 
---------+----------------+-----------+----------+--------------+-------------
- col1   | nvarchar2(1)   |           | extended |              | 
- col2   | nvarchar2(1)   |           | extended |              | 
- col3   | nvarchar2(50)  |           | extended |              | 
- col4   | nvarchar2(max) |           | extended |              | 
+                                              Table "public.test2"
+ Column |      Type      |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------+-----------------------------------------------+----------+--------------+-------------
+ col1   | nvarchar2(1)   | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ col2   | nvarchar2(1)   | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ col3   | nvarchar2(50)  | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ col4   | nvarchar2(max) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 \d+ view1
                        View "public.view1"

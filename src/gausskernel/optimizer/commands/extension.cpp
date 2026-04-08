@@ -826,6 +826,20 @@ static void execute_extension_script(Oid extensionOid, ExtensionControlFile* con
         (void)set_config_option("client_min_messages", "warning", PGC_USERSET, PGC_S_SESSION, GUC_ACTION_SAVE, true, 0);
     if (log_min_messages < WARNING)
         (void)set_config_option("log_min_messages", "warning", PGC_SUSET, PGC_S_SESSION, GUC_ACTION_SAVE, true, 0);
+    if (pg_strcasecmp(control->name, "shark") == 0) {
+        /*
+         * Shark extension bootstrap needs legacy empty compat options while
+         * parsing/executing its install script. Save/restore is bounded by
+         * save_nestlevel and AtEOXact_GUC below.
+         */
+        (void)set_config_option("d_format_behavior_compat_options",
+            "",
+            PGC_USERSET,
+            PGC_S_SESSION,
+            GUC_ACTION_SAVE,
+            true,
+            0);
+    }
 
     /*
      * Set up the search path to contain the target schema, then the schemas

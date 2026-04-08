@@ -42,13 +42,13 @@ select * from test_table where name = 'abc';
 drop table test_table;
 create table t_charset_0 (c1 varchar(20));
 select pg_get_tabledef('t_charset_0');
-             pg_get_tabledef             
------------------------------------------
- SET search_path = public;              +
- CREATE TABLE t_charset_0 (             +
-     c1 character varying(20)           +
- )                                      +
- WITH (orientation=row, compression=no);
+                               pg_get_tabledef                                
+------------------------------------------------------------------------------
+ SET search_path = public;                                                   +
+ CREATE TABLE t_charset_0 (                                                  +
+     c1 character varying(20) CHARACTER SET "UTF8" COLLATE utf8mb4_general_ci+
+ )                                                                           +
+ WITH (orientation=row, compression=no, collate=1537);
 (1 row)
 
 set d_format_behavior_compat_options = 'default_collation';
@@ -214,7 +214,7 @@ create table t_charset_27(like t_charset_18 including reloptions);
 select relname, reloptions from pg_class where relname like 't_charset_%' order by 1;
    relname    |                  reloptions                   
 --------------+-----------------------------------------------
- t_charset_0  | {orientation=row,compression=no}
+ t_charset_0  | {orientation=row,compression=no,collate=1537}
  t_charset_1  | {orientation=row,compression=no,collate=1538}
  t_charset_10 | {orientation=row,compression=no,collate=1537}
  t_charset_11 | {orientation=row,compression=no,collate=1539}

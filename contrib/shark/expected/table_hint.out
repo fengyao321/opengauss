@@ -731,9 +731,9 @@ NOTICE:  The nowait option is currently ignored
 NOTICE:  The nolock option is currently ignored
 -- table hint as identifier
 show d_format_behavior_compat_options;
- d_format_behavior_compat_options 
-----------------------------------
- 
+     d_format_behavior_compat_options     
+------------------------------------------
+ enable_sbr_identifier, default_collation
 (1 row)
 
 create table testabc(nowait int);

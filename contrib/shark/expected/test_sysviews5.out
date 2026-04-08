@@ -26,15 +26,17 @@ set current_schema to test_views1;
 create table test1(id int, name varchar(2), primary key(id));
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "test1_pkey" for table "test1"
 \d+ test1 
-                             Table "test_views1.test1"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- id     | integer              | not null  | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                               Table "test_views1.test1"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ id     | integer              | not null                                      | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "test1_pkey" PRIMARY KEY, btree (id) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select name, principal_id, type, type_desc, create_date, modify_date, is_ms_shipped, is_published, is_schema_published
   from sys.objects where type = 'PK' and parent_object_id = object_id('test1', 'U');
@@ -95,15 +97,17 @@ select is_system_named, is_enforced from sys.key_constraints pk inner join pg_co
 create table test2(id int, name varchar(2), unique(name));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test2_name_key" for table "test2"
 \d+ test2
-                             Table "test_views1.test2"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- id     | integer              |           | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                               Table "test_views1.test2"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ id     | integer              |                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "test2_name_key" UNIQUE CONSTRAINT, btree (name) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select name, principal_id, type, type_desc, create_date, modify_date, is_ms_shipped, is_published, is_schema_published
   from sys.objects where type = 'UQ' and parent_object_id = object_id('test2', 'U');
@@ -182,15 +186,17 @@ select count(*) from sys.key_constraints pk inner join pg_namespace pn
 create table test5(id int, name varchar(2), primary key(id, name));
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "test5_pkey" for table "test5"
 \d+ test5
-                             Table "test_views1.test5"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- id     | integer              | not null  | plain    |              | 
- name   | character varying(2) | not null  | extended |              | 
+                                                   Table "test_views1.test5"
+ Column |         Type         |                       Modifiers                        | Storage  | Stats target | Description 
+--------+----------------------+--------------------------------------------------------+----------+--------------+-------------
+ id     | integer              | not null                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci not null | extended |              | 
 Indexes:
     "test5_pkey" PRIMARY KEY, btree (id, name) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named, is_enforced from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'test5_pkey';
@@ -202,15 +208,17 @@ select is_system_named, is_enforced from sys.key_constraints pk inner join pg_co
 create table test6(id int, name varchar(2), unique(id, name));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test6_id_name_key" for table "test6"
 \d+ test6
-                             Table "test_views1.test6"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- id     | integer              |           | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                               Table "test_views1.test6"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ id     | integer              |                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "test6_id_name_key" UNIQUE CONSTRAINT, btree (id, name) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named, is_enforced from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'test6_id_name_key';
@@ -222,17 +230,19 @@ select is_system_named, is_enforced from sys.key_constraints pk inner join pg_co
 create table test7(id int, name varchar(2), col3 int, col4 int, unique(id, name, col3, col4));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test7_id_name_col3_col4_key" for table "test7"
 \d+ test7
-                             Table "test_views1.test7"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- id     | integer              |           | plain    |              | 
- name   | character varying(2) |           | extended |              | 
- col3   | integer              |           | plain    |              | 
- col4   | integer              |           | plain    |              | 
+                                               Table "test_views1.test7"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ id     | integer              |                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
+ col3   | integer              |                                               | plain    |              | 
+ col4   | integer              |                                               | plain    |              | 
 Indexes:
     "test7_id_name_col3_col4_key" UNIQUE CONSTRAINT, btree (id, name, col3, col4) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named, is_enforced from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'test7_id_name_col3_col4_key';
@@ -323,7 +333,9 @@ create table test_check1(id int check(id > 2));
 Check constraints:
     "test_check1_id_check" CHECK (id > 2)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select name, principal_id, type, type_desc, create_date, modify_date, is_ms_shipped, is_published, is_schema_published
   from sys.objects where type = 'C' and parent_object_id = object_id('test_check1', 'U');
@@ -393,7 +405,9 @@ create table test_check2(id int, idd int, iddd int, check(idd > 2 and id < 4 and
 Check constraints:
     "test_check2_check" CHECK (idd > 2 AND id < 4 AND iddd = 1)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select name, principal_id, type, type_desc, create_date, modify_date, is_ms_shipped, is_published, is_schema_published
   from sys.objects where type = 'C' and parent_object_id = object_id('test_check2', 'U');
@@ -472,15 +486,17 @@ select is_disabled, is_not_for_replication, is_not_trusted, parent_column_id, de
 create table "Test3"("Id" int, name varchar(2), primary key("Id"));
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "Test3_pkey" for table "Test3"
 \d+ "Test3" 
-                             Table "test_views1.Test3"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- Id     | integer              | not null  | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                               Table "test_views1.Test3"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ Id     | integer              | not null                                      | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "Test3_pkey" PRIMARY KEY, btree ("Id") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'Test3_pkey';
@@ -492,15 +508,17 @@ select is_system_named from sys.key_constraints pk inner join pg_constraint con
 create table "Test 4"("Id" int, name varchar(2), primary key("Id"));
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "Test 4_pkey" for table "Test 4"
 \d+ "Test 4"
-                            Table "test_views1.Test 4"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- Id     | integer              | not null  | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                              Table "test_views1.Test 4"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ Id     | integer              | not null                                      | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "Test 4_pkey" PRIMARY KEY, btree ("Id") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'Test 4_pkey';
@@ -512,15 +530,17 @@ select is_system_named from sys.key_constraints pk inner join pg_constraint con
 create table "Test4"("Id" int, name varchar(2), constraint "Test4_pkey" primary key("Id"));
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "Test4_pkey" for table "Test4"
 \d+ "Test4"
-                             Table "test_views1.Test4"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- Id     | integer              | not null  | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                               Table "test_views1.Test4"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ Id     | integer              | not null                                      | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "Test4_pkey" PRIMARY KEY, btree ("Id") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'Test4_pkey';
@@ -533,15 +553,17 @@ drop table if exists "Test4";
 create table "Test4"("Id" int, name varchar(2), constraint "test4_pkey" primary key("Id"));
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "test4_pkey" for table "Test4"
 \d+ "Test4"
-                             Table "test_views1.Test4"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- Id     | integer              | not null  | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                               Table "test_views1.Test4"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ Id     | integer              | not null                                      | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "test4_pkey" PRIMARY KEY, btree ("Id") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'test4_pkey';
@@ -557,15 +579,17 @@ LINE 1: ...e "Test41"("Id" int primary key, name varchar(2), constraint...
 create table "Test5"("Id" int, name varchar(2), unique("Id"));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "Test5_Id_key" for table "Test5"
 \d+ "Test5" 
-                             Table "test_views1.Test5"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- Id     | integer              |           | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                               Table "test_views1.Test5"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ Id     | integer              |                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "Test5_Id_key" UNIQUE CONSTRAINT, btree ("Id") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'Test5_Id_key';
@@ -577,15 +601,17 @@ select is_system_named from sys.key_constraints pk inner join pg_constraint con
 create table "Test51"("Id" int, name varchar(2), unique("Id"), constraint test51_id_unique_key unique("Id"));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test51_id_unique_key" for table "Test51"
 \d+ "Test51" 
-                            Table "test_views1.Test51"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- Id     | integer              |           | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                              Table "test_views1.Test51"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ Id     | integer              |                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "test51_id_unique_key" UNIQUE CONSTRAINT, btree ("Id") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'test51_id_unique_key';
@@ -598,15 +624,17 @@ create table "Test52"("Id" int, name varchar(2), unique("Id"), constraint test52
 constraint test52_id_unique_key1 unique("Id"));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test52_id_unique_key" for table "Test52"
 \d+ "Test52" 
-                            Table "test_views1.Test52"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- Id     | integer              |           | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                              Table "test_views1.Test52"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ Id     | integer              |                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "test52_id_unique_key" UNIQUE CONSTRAINT, btree ("Id") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'test52_id_unique_key';
@@ -620,16 +648,18 @@ constraint test53_id_unique_key1 unique("Id", name));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test53_id_unique_key" for table "Test53"
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test53_id_unique_key1" for table "Test53"
 \d+ "Test53" 
-                            Table "test_views1.Test53"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- Id     | integer              |           | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                              Table "test_views1.Test53"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ Id     | integer              |                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "test53_id_unique_key" UNIQUE CONSTRAINT, btree ("Id") TABLESPACE pg_default
     "test53_id_unique_key1" UNIQUE CONSTRAINT, btree ("Id", name) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'test53_id_unique_key';
@@ -650,16 +680,18 @@ constraint test54_id_unique_key1 unique("Id", name));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test54_id_unique_key" for table "Test54"
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test54_id_unique_key1" for table "Test54"
 \d+ "Test54" 
-                            Table "test_views1.Test54"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- Id     | integer              |           | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                              Table "test_views1.Test54"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ Id     | integer              |                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "test54_id_unique_key" UNIQUE CONSTRAINT, btree ("Id") TABLESPACE pg_default
     "test54_id_unique_key1" UNIQUE CONSTRAINT, btree ("Id", name) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'test54_id_unique_key';
@@ -680,16 +712,18 @@ constraint test55_id_unique_key1 unique("Id", name));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "Test55_Id_key" for table "Test55"
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test55_id_unique_key1" for table "Test55"
 \d+ "Test55" 
-                            Table "test_views1.Test55"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- Id     | integer              |           | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                              Table "test_views1.Test55"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ Id     | integer              |                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "Test55_Id_key" UNIQUE CONSTRAINT, btree ("Id") TABLESPACE pg_default
     "test55_id_unique_key1" UNIQUE CONSTRAINT, btree ("Id", name) TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'Test55_Id_key';
@@ -716,17 +750,19 @@ NOTICE:  CREATE TABLE / UNIQUE will create implicit index "Test56_Id_key" for ta
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test56_id_unique_key1" for table "Test56"
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test56_id_unique_key13" for table "Test56"
 \d+ "Test56"
-                            Table "test_views1.Test56"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- Id     | integer              |           | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                              Table "test_views1.Test56"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ Id     | integer              |                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "Test56_Id_key" UNIQUE CONSTRAINT, btree ("Id") TABLESPACE pg_default
     "test56_id_unique_key1" UNIQUE CONSTRAINT, btree ("Id", name) TABLESPACE pg_default
     "test56_id_unique_key13" UNIQUE CONSTRAINT, btree (name, "Id") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'Test56_Id_key';
@@ -752,15 +788,17 @@ select is_system_named from sys.key_constraints pk inner join pg_constraint con
 create table "Test 6"("Id" int, name varchar(2), unique("Id"));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "Test 6_Id_key" for table "Test 6"
 \d+ "Test 6"
-                            Table "test_views1.Test 6"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- Id     | integer              |           | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                              Table "test_views1.Test 6"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ Id     | integer              |                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "Test 6_Id_key" UNIQUE CONSTRAINT, btree ("Id") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'Test 6_Id_key';
@@ -772,15 +810,17 @@ select is_system_named from sys.key_constraints pk inner join pg_constraint con
 create table "Test6"("Id" int, name varchar(2), constraint "Test6_Id_key" unique("Id"));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "Test6_Id_key" for table "Test6"
 \d+ "Test6"
-                             Table "test_views1.Test6"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- Id     | integer              |           | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                               Table "test_views1.Test6"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ Id     | integer              |                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "Test6_Id_key" UNIQUE CONSTRAINT, btree ("Id") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'Test6_Id_key';
@@ -793,15 +833,17 @@ drop table if exists "Test6";
 create table "Test6"("Id" int, name varchar(2), constraint "test6_Id_key" unique("Id"));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test6_Id_key" for table "Test6"
 \d+ "Test6"
-                             Table "test_views1.Test6"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- Id     | integer              |           | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                               Table "test_views1.Test6"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ Id     | integer              |                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "test6_Id_key" UNIQUE CONSTRAINT, btree ("Id") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'test6_Id_key';
@@ -813,15 +855,17 @@ select is_system_named from sys.key_constraints pk inner join pg_constraint con
 create table "Test7"("I d" int, name varchar(2), constraint "Test7_I d_key" unique("I d"));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "Test7_I d_key" for table "Test7"
 \d+ "Test7"
-                             Table "test_views1.Test7"
- Column |         Type         | Modifiers | Storage  | Stats target | Description 
---------+----------------------+-----------+----------+--------------+-------------
- I d    | integer              |           | plain    |              | 
- name   | character varying(2) |           | extended |              | 
+                                               Table "test_views1.Test7"
+ Column |         Type         |                   Modifiers                   | Storage  | Stats target | Description 
+--------+----------------------+-----------------------------------------------+----------+--------------+-------------
+ I d    | integer              |                                               | plain    |              | 
+ name   | character varying(2) | character set UTF8 collate utf8mb4_general_ci | extended |              | 
 Indexes:
     "Test7_I d_key" UNIQUE CONSTRAINT, btree ("I d") TABLESPACE pg_default
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.key_constraints pk inner join pg_constraint con
   on pk.unique_index_id = con.conindid where con.conname = 'Test7_I d_key';
@@ -841,7 +885,9 @@ create table "Test_check1"("Id" int, idd int, iddd int, check(idd > 2 and "Id" <
 Check constraints:
     "Test_check1_check" CHECK (idd > 2 AND "Id" < 4 AND iddd = 1)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.check_constraints where name = 'Test_check1_check';
  is_system_named 
@@ -860,7 +906,9 @@ create table "Test_check2"("Id" int, idd int, iddd int, check("Id" < 4));
 Check constraints:
     "Test_check2_Id_check" CHECK ("Id" < 4)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.check_constraints where name = 'Test_check2_Id_check';
  is_system_named 
@@ -879,7 +927,9 @@ create table "Test_check3"("I d" int, idd int, iddd int, check("I d" < 4));
 Check constraints:
     "Test_check3_I d_check" CHECK ("I d" < 4)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.check_constraints where name = 'Test_check3_I d_check';
  is_system_named 
@@ -898,7 +948,9 @@ create table "Test_check4"("I d" int, idd int, iddd int, constraint "Test_check4
 Check constraints:
     "Test_check4_I d_check" CHECK ("I d" < 4)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.check_constraints where name = 'Test_check4_I d_check';
  is_system_named 
@@ -917,7 +969,9 @@ create table "Test_check5"("I d" int, idd int, iddd int, constraint "test_check5
 Check constraints:
     "test_check5_i d_check" CHECK ("I d" < 4)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.check_constraints where name = 'test_check5_i d_check';
  is_system_named 
@@ -938,7 +992,9 @@ Check constraints:
     "test_check6_i d_check" CHECK ("I d" < 4)
     "test_check6_i d_check1" CHECK ("I d" > (-10))
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.check_constraints where name = 'test_check6_i d_check';
  is_system_named 
@@ -964,7 +1020,9 @@ Check constraints:
     "Test_check7_I d_check" CHECK ("I d" < 4)
     "Test_check7_I d_check1" CHECK ("I d" > (-10))
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.check_constraints where name = 'Test_check7_I d_check';
  is_system_named 
@@ -998,7 +1056,9 @@ Check constraints:
     "Test_check9_I d_check1" CHECK ("I d" > (-10))
     "Test_check9_I d_check2" CHECK ("I d" < 10)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.check_constraints where name = 'Test_check9_I d_check';
  is_system_named 
@@ -1034,7 +1094,9 @@ Check constraints:
     "Test_check10_I d_check2" CHECK ("I d" < 10)
     "Test_check10_iddd_check2" CHECK (iddd < 10)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.check_constraints where name = 'Test_check10_I d_check';
  is_system_named 
@@ -1073,7 +1135,9 @@ Check constraints:
     "test_check11_check" CHECK (idd > 2 AND id < 4 AND iddd = 1)
     "test_check11_check1" CHECK (idd > 2 AND id < 4 AND iddd = 1)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.check_constraints where name = 'test_check11_check';
  is_system_named 
@@ -1100,7 +1164,9 @@ Check constraints:
     "test_check12_check" CHECK (idd > 2 AND id < 4 AND iddd = 1)
     "test_check12_check1" CHECK (idd > 2 AND iddd = 1)
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 select is_system_named from sys.check_constraints where name = 'test_check12_check';
  is_system_named 

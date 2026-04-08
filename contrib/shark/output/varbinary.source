@@ -595,7 +595,9 @@ create table test1_default(id int,var1 varbinary(10),var2 varbinary(20)default '
  var1   | varbinary(10) |                                       | extended |              | 
  var2   | varbinary(20) | default 0x3078313631363136::varbinary | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 insert into test1_default (id, var1) VALUES (1, 0x123456);
 select id,var1,var2::varchar from test1_default;
@@ -622,7 +624,9 @@ create table testvarbinary(c1 varbinary, c2 varbinary(1), c3 varbinary(max));
  c2     | varbinary(1)   |           | extended |              | 
  c3     | varbinary(max) |           | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 -- test dump
 create DATABASE restore_varbinary DBCOMPATIBILITY 'D';
@@ -684,7 +688,9 @@ select * from restore_varbinary.public.t3;
  c2     | varbinary(1)   |           | extended |              | 
  c3     | varbinary(max) |           | extended |              | 
 Has OIDs: no
-Options: orientation=row, compression=no
+Options: orientation=row, compression=no, collate=1537
+Character Set: UTF8
+Collate: utf8mb4_general_ci
 
 \c postgres
 DROP DATABASE test_varbinary;
