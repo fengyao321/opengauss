@@ -1696,6 +1696,7 @@ static PLpgSQL_function* do_compile(FunctionCallInfo fcinfo, HeapTuple proc_tup,
      * Complete the function's info
      */
     func->fn_nargs = proc_struct->pronargs;
+    func->fn_argvarnos = (int*)palloc0(sizeof(int) * func->fn_nargs);
     for (i = 0; i < func->fn_nargs; i++) {
         func->fn_argvarnos[i] = in_arg_varnos[i];
     }
@@ -5952,6 +5953,9 @@ TupleDesc getCursorTupleDesc(PLpgSQL_expr* expr, bool isOnlySelect, bool isOnlyP
                     expr->func->datums = NULL;
                     expr->func->ndatums = 0;
                     if (u_sess->plsql_cxt.curr_compile_context->plpgsql_curr_compile == NULL) {
+                        if (expr->func != NULL && expr->func->fn_argvarnos != NULL) {
+                            pfree_ext(expr->func->fn_argvarnos);
+                        }
                         pfree(expr->func);
                     }
                     expr->func = NULL;
@@ -5975,6 +5979,9 @@ TupleDesc getCursorTupleDesc(PLpgSQL_expr* expr, bool isOnlySelect, bool isOnlyP
         expr->func->datums = NULL;
         expr->func->ndatums = 0;
         if (u_sess->plsql_cxt.curr_compile_context->plpgsql_curr_compile == NULL) {
+            if (expr->func != NULL && expr->func->fn_argvarnos != NULL) {
+                pfree_ext(expr->func->fn_argvarnos);
+            }
             pfree(expr->func);
         }
         expr->func = NULL;
@@ -5993,6 +6000,9 @@ TupleDesc getCursorTupleDesc(PLpgSQL_expr* expr, bool isOnlySelect, bool isOnlyP
         expr->func->datums = NULL;
         expr->func->ndatums = 0;
         if (u_sess->plsql_cxt.curr_compile_context->plpgsql_curr_compile == NULL) {
+            if (expr->func != NULL && expr->func->fn_argvarnos != NULL) {
+                pfree_ext(expr->func->fn_argvarnos);
+            }
             pfree(expr->func);
         }
         expr->func = NULL;
