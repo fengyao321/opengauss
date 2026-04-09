@@ -3638,6 +3638,7 @@ static bool NewRteForRewriteTargetView_walker(Node* node, NewRteForRewriteTarget
             * the executor still performs appropriate permissions checks for the
             * query caller's use of the view.
             */
+            view_rte->requiredPerms |= base_rte->requiredPerms;
             new_rte->checkAsUser = RelationIsValid(view) ?
                 view->rd_rel->relowner : view_rte->checkAsUser;
             new_rte->requiredPerms = view_rte->requiredPerms;
