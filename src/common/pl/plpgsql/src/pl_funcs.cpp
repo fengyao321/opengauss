@@ -1229,6 +1229,9 @@ void plpgsql_free_function_memory(PLpgSQL_function* func, bool fromPackage)
         func->invalItems = NULL;
     }
 
+    if (func->fn_argvarnos != NULL) {
+        pfree_ext(func->fn_argvarnos);
+    }
     // release subprograms which belong to current function
     if (func->proc_list != NULL) {
         list_free_deep(func->proc_list);

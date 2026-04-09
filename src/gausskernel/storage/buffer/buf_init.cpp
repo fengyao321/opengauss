@@ -233,7 +233,7 @@ void InitBufferPool(void)
     }
 
 #ifndef ENABLE_LITE_MODE
-    if (!ENABLE_DMS) {
+    if (!ENABLE_DMS && g_instance.attr.attr_storage.enable_ustore) {
         InitCRBufPool();
     }
 #endif
