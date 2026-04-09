@@ -8456,6 +8456,9 @@ void deal_fronted_lost()
 // Update ATF global task counter when Session executes a task
 void GlobalTaskCounterInc() 
 {
+    if (!ENABLE_ATF_TIMEOUT) {
+        return;
+    }
     knl_g_atf_context *instance = &g_instance.atf_cxt;
 
     // Acquire exclusive lock to protect global task state
