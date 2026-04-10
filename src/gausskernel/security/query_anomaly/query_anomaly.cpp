@@ -25,6 +25,47 @@ pthread_mutex_t g_command_type_per_node_type_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool g_command_type_per_node_type_initialized = false;
 static StatementType g_command_type_per_node_type[MAX_NODE_TYPE_COUNT];
 
+static void mask_risky_query_string_literals(char* query)
+{
+    if (query == nullptr) {
+        return;
+    }
+
+    bool in_single_quote = false;
+    for (char* cursor = query; *cursor != '\0'; ++cursor) {
+        if (*cursor != '\'') {
+            if (in_single_quote) {
+                *cursor = '*';
+            }
+            continue;
+        }
+
+        if (!in_single_quote) {
+            in_single_quote = true;
+            continue;
+        }
+
+        if (*(cursor + 1) == '\'') {
+            ++cursor;
+            continue;
+        }
+
+        in_single_quote = false;
+    }
+}
+
+static char* mask_risky_query_text(const char* source_query)
+{
+    char* mask_string = nullptr;
+    MASK_PASSWORD_START(mask_string, source_query);
+
+    char* masked_query = MemoryContextStrdup(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_SECURITY), mask_string);
+    mask_risky_query_string_literals(masked_query);
+    MASK_PASSWORD_END(mask_string, source_query);
+
+    return masked_query;
+}
+
 /*
  * @brief Checks if to implement query anomaly
  */
@@ -267,14 +308,16 @@ void init_anomaly_detection_check_rules()
  */
 static void report_risky_query_error(const char* msg_prefix, const char* source_query, size_t affected_rows)
 {
-    if (strlen(source_query) <= MAX_EREPORT_QUERY_LEN) {
-        ereport(LOG, (errmsg("%s. Affected rows: %lu. Query: %s", msg_prefix, affected_rows, source_query)));
+    char* masked_query = mask_risky_query_text(source_query);
+    if (strlen(masked_query) <= MAX_EREPORT_QUERY_LEN) {
+        ereport(LOG, (errmsg("%s. Affected rows: %lu. Query: %s", msg_prefix, affected_rows, masked_query)));
     } else {
         char shortened_query[MAX_EREPORT_QUERY_LEN] = {0};
-        errno_t is_ok = strncpy_s(shortened_query, sizeof(shortened_query), source_query, sizeof(shortened_query) - 1);
+        errno_t is_ok = strncpy_s(shortened_query, sizeof(shortened_query), masked_query, sizeof(shortened_query) - 1);
         securec_check(is_ok, "\0", "\0");
         ereport(LOG, (errmsg("%s. Affected rows: %lu. Query: %s...", msg_prefix, affected_rows, shortened_query)));
     }
+    pfree_ext(masked_query);
 }
 
 /**
@@ -285,17 +328,16 @@ static void report_risky_query_error(const char* msg_prefix, const char* source_
  */
  static void report_risky_query_error(const char* msg_prefix, const char* source_query)
 {
-    char* mask_string = nullptr;
-    MASK_PASSWORD_START(mask_string, source_query);
-    if (strlen(mask_string) <= MAX_EREPORT_QUERY_LEN) {
-        ereport(LOG, (errmsg("%s. Query: %s", msg_prefix, mask_string)));
+    char* masked_query = mask_risky_query_text(source_query);
+    if (strlen(masked_query) <= MAX_EREPORT_QUERY_LEN) {
+        ereport(LOG, (errmsg("%s. Query: %s", msg_prefix, masked_query)));
     } else {
         char shortened_query[MAX_EREPORT_QUERY_LEN] = {0};
-        errno_t is_ok = strncpy_s(shortened_query, sizeof(shortened_query), mask_string, sizeof(shortened_query) - 1);
+        errno_t is_ok = strncpy_s(shortened_query, sizeof(shortened_query), masked_query, sizeof(shortened_query) - 1);
         securec_check(is_ok, "\0", "\0");
         ereport(LOG, (errmsg("%s. Query: %s...", msg_prefix, shortened_query)));
     }
-    MASK_PASSWORD_END(mask_string, source_query);
+    pfree_ext(masked_query);
 }
 
 
