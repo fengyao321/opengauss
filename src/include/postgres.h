@@ -1000,6 +1000,7 @@ extern void InitThreadLocalWhenSessionExit();
 extern void RemoveTempNamespace();
 extern void deal_fronted_lost();
 extern void handle_commit_previous_metirc_context();
+extern void GlobalTaskCounterInc();
 #ifndef ENABLE_MULTIPLE_NODES
 #define CacheIsProcNameArgNsp(cc_id) ((cc_id) == PROCNAMEARGSNSP || (cc_id) == PROCALLARGS)
 #else 

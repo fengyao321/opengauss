@@ -55,6 +55,7 @@ typedef struct knl_instance_attr_common {
     bool enable_cachedplan_mgr;
     bool enable_global_syscache;
     int max_files_per_process;
+    int atf_task_counter_timeout_sec;
     int pgstat_track_activity_query_size;
     int GtmHostPortArray[MAX_GTM_HOST_NUM];
     int MaxDataNodes;

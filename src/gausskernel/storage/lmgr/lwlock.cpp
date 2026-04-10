@@ -228,7 +228,8 @@ static const char *BuiltinTrancheNames[] = {
     "MultixactMemberSlruBankLock",
     "CRBufAssignLock",
     "CRBufMappingLock",
-    "CRBufLruLock"
+    "CRBufLruLock",
+    "ATFGlobalTaskLock"
 };
 
 static void RegisterLWLockTranches(void);

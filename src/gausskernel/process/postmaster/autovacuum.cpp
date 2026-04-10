@@ -1961,7 +1961,15 @@ static void do_autovacuum(void)
     TupleDesc pg_class_desc;
     vacuum_object* vacObj = NULL;
     errno_t rc = EOK;
-
+    knl_g_atf_context *instance = &g_instance.atf_cxt;
+    LWLockAcquire(instance->global_task_lock, LW_SHARED);
+    if (!instance->all_task_done) {
+        LWLockRelease(instance->global_task_lock);
+        ereport(DEBUG2, (errmsg("Canceled an autovacuum because an AFT rebuild transaction is in progress.")));
+        return;
+    }
+    LWLockRelease(instance->global_task_lock);
+    
     /*
      * StartTransactionCommand and CommitTransactionCommand will automatically
      * switch to other contexts.  We need this one to keep the list of

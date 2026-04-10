@@ -337,6 +337,7 @@ enum BuiltinTrancheIds
     LWTRANCHE_CR_BUF_ASSIGN,
     LWTRANCHE_CR_BUF_MAPPING,
     LWTRANCHE_CR_BUF_LRU,
+    LWTRANCHE_ATF_GLOBAL_TASK,
     /*
      * Each trancheId above should have a corresponding item in BuiltinTrancheNames;
      */

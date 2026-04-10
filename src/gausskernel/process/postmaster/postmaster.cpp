@@ -7734,6 +7734,7 @@ static void reaper(SIGNAL_ARGS)
 
             /* at this point we are really open for business */
             if (!SS_REPLAYED_BY_ONDEMAND) {
+                GlobalTaskCounterInc();
                 write_stderr("%s LOG: database system is ready to accept connections\n",
                     GetReaperLogPrefix(logBuf, ReaperLogBufSize));
                 if (g_instance.dms_cxt.SSRecoveryInfo.disaster_cluster_promoting) {
