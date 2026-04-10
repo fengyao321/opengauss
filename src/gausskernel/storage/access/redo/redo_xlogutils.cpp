@@ -1716,7 +1716,6 @@ XLogRedoAction XLogBlockGetOperatorBuffer(XLogBlockHead *blockhead, void *blockr
 
         bool willinit = XLogBlockDataGetBlockFlags(blockdatarec) & BKPBLOCK_WILL_INIT;
         bool buf_willinit = XLogBlockDataGetBlockFlags(blockdatarec) & REGBUF_WILL_INIT;
-        RedoBufferTag *blockinfo = &bufferinfo->blockinfo;
         if ((willinit == false) && (notfound == true)) {
             // muyulinzhong 存疑
             if (!ENABLE_REPAIR) {

@@ -390,7 +390,7 @@ static char* GetHostName()
         }
         hostName = static_cast<char*>(malloc(strlen(content) + 1));
         errno_t rc = strcpy_s(hostName, strlen(content) + 1, content);
-        securec_check(rc, "\0", "\0");
+        securec_check_c(rc, "", "");
     } else {
 #ifdef FRONTEND
         fprintf(stderr, _("Unable to read file /etc/hostname"));

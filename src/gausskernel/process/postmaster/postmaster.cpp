@@ -1890,7 +1890,6 @@ void InitProcessGlobals(void)
 {
     ThreadId MyProcPid = gs_thread_self();
     TimestampTz MyStartTimestamp = GetCurrentTimestamp();
-    pg_time_t MyStartTime = timestamptz_to_time_t(MyStartTimestamp);
 
     /*
      * Set a different global seed in every process.  We want something
@@ -3559,7 +3558,6 @@ static void CheckLogDir(void)
 
     DIR* dir = NULL;
     errno_t rc;
-    struct stat statBuf;
     char log_path[MAXPGPATH] = {0};
 
     /* assign gs_log to sys_log_path, use it as alarm directory */

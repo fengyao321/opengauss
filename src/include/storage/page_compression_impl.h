@@ -1379,7 +1379,7 @@ int TemplateCompressPage(const char* src, char* dst, int dst_size, RelFileCompre
     size_t sizeOfHeaderData = GetSizeOfHeadData(pagetype);
     bool real_ByteConvert = false;
     errno_t rc;
-    THR_LOCAL char src_copy[BLCKSZ];
+    static THR_LOCAL char src_copy[BLCKSZ];
     Assert(dst_size > GetSizeOfCprsHeadData(pagetype));
     size_t compressd_buffer_size = dst_size - GetSizeOfCprsHeadData(pagetype);
 

@@ -140,7 +140,7 @@ static const char* JsonbSuperHeaderTypeName(JsonbValue* jbv)
     } else if (JsonbSuperHeaderIsObject(jbv->binary.data)) {
         return "object";
     } else {
-        elog(ERROR, "invalid jsonb container type: 0x%08x", jbv->binary.data);
+        elog(ERROR, "invalid jsonb container type: %p", (void*)jbv->binary.data);
         return "unknown";
     }
 }

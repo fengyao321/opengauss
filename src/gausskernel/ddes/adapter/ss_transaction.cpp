@@ -730,9 +730,10 @@ void SSBCastDropRelAllBufferForUnlog(RelFileNode *rnodes, int rnode_len)
                           sizeof(RelFileNode) * rnode_len);
     securec_check_c(rc, "", "");
 
+    Assert(size <= (size_t)UINT_MAX);
     dms_broadcast_info_t dms_broad_info = {
         .data = (char *)msg,
-        .len = size,
+        .len = (unsigned int)size,
         .output = NULL,
         .output_len = NULL,
         .scope = DMS_BROADCAST_ONLINE_LIST,     // broadcast all online nodes

@@ -263,7 +263,6 @@ void SMBPullOnePageWithBuf(BufferDesc *bufHdr)
     XLogRecPtr expectLsn;
     errno_t rc = EOK;
     SMBBufItem *item;
-    SMBBufMetaMem *mgr = g_instance.smb_cxt.SMBBufMgr;
     SMBAnalyseBucket *bucket = SMBAlyGetBucket(bufHdr->tag);
 
     if (CheckPagePullDoneFromSMBAndLock(bucket, bufHdr->tag)) {
@@ -314,7 +313,6 @@ static smb_recovery::SMBPageState SMBPullOnePage(BufferTag tag, int id)
     Page curPage;
     XLogRecPtr expectLsn = InvalidXLogRecPtr;
     errno_t rc = EOK;
-    SMBBufMetaMem *mgr = g_instance.smb_cxt.SMBBufMgr;
     page = SMBWriterGetPage(id);
 
     auto cur_page_lsn = PageGetLSN(page);
