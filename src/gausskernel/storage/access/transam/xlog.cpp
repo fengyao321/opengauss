@@ -358,6 +358,9 @@ typedef struct XLogSwitchInfo {
 
 volatile bool IsPendingXactsRecoveryDone = false;
 
+/* atomic varaiable used for wal writer */
+pg_atomic_uint32 wal_thread_wakeup_flag = 0;
+
 #ifdef ENABLE_NEON
 /* Neon-specific recovery support */
 bool NeonRecoveryRequested = false;
@@ -476,6 +479,7 @@ XLogRecPtr mpfl_read_max_flush_lsn();
 void mpfl_new_file();
 void mpfl_ulink_file();
 bool mpfl_pread_file(int fd, void *buf, int32 size, int64 offset);
+static void WakeupWalWriter(void);
 
 #ifdef __aarch64__
 static XLogRecPtr XLogInsertRecordGroup(XLogRecData *rdata, XLogRecPtr fpw_lsn, bool need_flush);
@@ -815,11 +819,7 @@ static XLogRecPtr XLogInsertRecordGroup(XLogRecData *rdata, XLogRecPtr fpw_lsn, 
     }
     pg_write_barrier();
 
-    if (g_instance.wal_cxt.isWalWriterSleeping) {
-        pthread_mutex_lock(&g_instance.wal_cxt.criticalEntryMutex);
-        pthread_cond_signal(&g_instance.wal_cxt.criticalEntryCV);
-        pthread_mutex_unlock(&g_instance.wal_cxt.criticalEntryMutex);
-    }
+    WakeupWalWriter();
 
     END_CRIT_SECTION();
 
@@ -1272,11 +1272,7 @@ static XLogRecPtr XLogInsertRecordSingle(XLogRecData *rdata, XLogRecPtr fpw_lsn,
             (void)pg_atomic_write_u64((volatile uint64 *)(&status_entry_ptr->endLSN), need_flush ? EndPos | WAL_COMMIT_BIT : EndPos);
         }
 
-        if (g_instance.wal_cxt.isWalWriterSleeping) {
-            pthread_mutex_lock(&g_instance.wal_cxt.criticalEntryMutex);
-            pthread_cond_signal(&g_instance.wal_cxt.criticalEntryCV);
-            pthread_mutex_unlock(&g_instance.wal_cxt.criticalEntryMutex);
-        }
+        WakeupWalWriter();
     } else {
         /*
          * This was an xlog-switch record, but the current insert location was
@@ -21452,4 +21448,18 @@ void XlogArchUwal(XLogRecPtr archRqstPtr)
         XLogArchiveNotifySeg(archLogSegNo);
     }
     return;
+}
+
+static void WakeupWalWriter(void)
+{
+    uint32 expected = 0;
+    if (g_instance.wal_cxt.isWalWriterSleeping) {
+        if (!pg_atomic_compare_exchange_u32(&wal_thread_wakeup_flag, &expected, 1)) {
+            /* return value is 0; other thread has already in */
+            return;
+        }
+        pthread_mutex_lock(&g_instance.wal_cxt.criticalEntryMutex);
+        pthread_cond_signal(&g_instance.wal_cxt.criticalEntryCV);
+        pthread_mutex_unlock(&g_instance.wal_cxt.criticalEntryMutex);
+    }
 }

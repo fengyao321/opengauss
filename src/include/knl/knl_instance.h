@@ -1662,7 +1662,7 @@ typedef struct knl_instance_context {
     knl_g_conn_context conn_cxt;
     knl_g_libpq_context libpq_cxt;
     struct knl_g_wlm_context* wlm_cxt;
-    knl_g_ckpt_context ckpt_cxt;
+    knl_g_ckpt_context ckpt_cxt __attribute__((aligned(128)));
     knl_g_ckpt_context* ckpt_cxt_ctl;
     knl_g_bgwriter_context bgwriter_cxt;
     knl_g_repair_context repair_cxt;

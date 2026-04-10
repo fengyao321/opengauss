@@ -305,6 +305,7 @@ void WalWriterMain(void)
                 &g_instance.wal_cxt.walInsertStatusTable[nextStatusEntry];
             if (g_instance.wal_cxt.isWalWriterUp && pCriticalEntry->endLSN == 0) {
                 sleep_times_counter++;
+                pg_atomic_write_u32(&wal_thread_wakeup_flag, 0);
                 (void)pthread_mutex_lock(&g_instance.wal_cxt.criticalEntryMutex);
                 g_instance.wal_cxt.isWalWriterSleeping = true;
                 while (pCriticalEntry->endLSN == 0 && !t_thrd.walwriter_cxt.shutdown_requested) {
