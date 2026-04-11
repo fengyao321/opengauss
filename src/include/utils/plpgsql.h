@@ -1611,6 +1611,7 @@ typedef struct PLpgSQL_package { /* Complete compiled package   */
     knl_u_plpgsql_pkg_context* u_pkg;
     Oid namespaceOid;
     bool isInit;
+    bool isInitializing;
 
     /**
      * gs_dependencies_fn.h

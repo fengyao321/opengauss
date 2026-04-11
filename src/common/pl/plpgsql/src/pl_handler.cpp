@@ -1975,6 +1975,9 @@ void PackageInit(PLpgSQL_package* pkg, bool isCreate, bool isSpec, bool isNeedCo
         if (likely(pkg->isInit)) {
             return;
         }
+        if (unlikely(pkg->isInitializing)) {
+            return;
+        }
     }
     int package_line = 0;
     package_line = u_sess->plsql_cxt.package_as_line;
@@ -2082,10 +2085,12 @@ void PackageInit(PLpgSQL_package* pkg, bool isCreate, bool isSpec, bool isNeedCo
     bool save_isPerform = u_sess->parser_cxt.isPerform;
     PG_TRY();
     {
+        pkg->isInitializing = true;
         u_sess->plsql_cxt.is_package_instantiation = true;
         if (needExecDoStmt && u_sess->plsql_cxt.need_init) {
             init_do_stmt(pkg, isCreate, cell, oldCompileStatus, curr_compile, temp_tableof_index, oldcxt);
         }
+        pkg->isInitializing = false;
         if (isCreate && enable_plpgsql_gsdependency_guc() && !IsInitdb) {
             SPI_savepoint_release("PackageInit");
             stp_cleanup_subxact_resource(stackId);
@@ -2104,6 +2109,7 @@ void PackageInit(PLpgSQL_package* pkg, bool isCreate, bool isSpec, bool isNeedCo
     PG_CATCH();
     {
         u_sess->parser_cxt.isPerform = save_isPerform;
+        pkg->isInitializing = false;
         stp_reset_xact_state_and_err_msg(oldStatus, needResetErrMsg);
         u_sess->plsql_cxt.is_package_instantiation = false;
         free_temp_func_tableof_index(temp_tableof_index);
@@ -2271,7 +2277,8 @@ static void init_do_stmt(PLpgSQL_package *pkg, bool isCreate, ListCell *cell, in
             curr_compile->compile_tmp_cxt = MemoryContextSwitchTo(pkg->pkg_cxt);
             DoStmt* doStmt = (DoStmt*)lfirst(cell);
             if (!isCreate) {
-                if (!doStmt->isExecuted) {
+                bool shouldExec = pkg->is_bodycompiled ? !doStmt->isSpec : doStmt->isSpec;
+                if (shouldExec && !doStmt->isExecuted) {
                     (void)CompileStatusSwtichTo(COMPILIE_PKG_ANON_BLOCK);
                     temp_tableof_index = u_sess->plsql_cxt.func_tableof_index;
                     u_sess->plsql_cxt.func_tableof_index = NULL;
