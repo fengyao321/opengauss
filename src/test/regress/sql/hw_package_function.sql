@@ -894,6 +894,43 @@ select pkg002.testfun02(1);
 
 drop package pkg001;
 drop package pkg002;
+
+create or replace package pkg004 is
+var22 int:=1;
+function testfun02(var24 int) return integer;
+end pkg004;
+/
+
+create or replace package body pkg004 is
+var25 int:=pkg003.testfun01(1);
+function testfun02(var24 int) return integer
+as
+begin
+return var22 + var25;
+end;
+end pkg004;
+/
+
+create or replace package pkg003 is
+var1 int:=1;
+function testfun01(var4 int) return integer;
+end pkg003;
+/
+
+create or replace package body pkg003 is
+var1_2 int:=pkg004.testfun02(1);
+function testfun01(var4 int) return integer
+as
+begin
+return var4 + 1;
+end;
+end pkg003;
+/
+
+select pkg004.testfun02(1);
+
+drop package pkg003;
+drop package pkg004;
 reset client_min_messages;
 set behavior_compat_options='';
 

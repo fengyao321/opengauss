@@ -808,6 +808,8 @@ static PLpgSQL_package* do_pkg_compile(Oid pkgOid, HeapTuple pkg_tup, PLpgSQL_pa
     char context_name[NAMEDATALEN] = {0};
     int rc = 0;
     const int alloc_size = 256;
+    int old_n_initvars = 0;
+    int* old_initvarnos = NULL;
     Datum namespaceOidDatum;
     Oid namespaceOid = InvalidOid;
     /*
@@ -876,6 +878,10 @@ static PLpgSQL_package* do_pkg_compile(Oid pkgOid, HeapTuple pkg_tup, PLpgSQL_pa
     }
     saved_pseudo_current_userId = u_sess->misc_cxt.Pseudo_CurrentUserId;
     u_sess->misc_cxt.Pseudo_CurrentUserId = &pkg->pkg_owner;
+    if (!isSpec) {
+        old_n_initvars = pkg->n_initvars;
+        old_initvarnos = pkg->initvarnos;
+    }
     pkg->is_spec_compiling = isSpec;
     MemoryContext temp = NULL;
     if (u_sess->plsql_cxt.curr_compile_context != NULL) {
@@ -1084,7 +1090,36 @@ static PLpgSQL_package* do_pkg_compile(Oid pkgOid, HeapTuple pkg_tup, PLpgSQL_pa
             }
         }
     }
-    
+
+    if (!isSpec && old_n_initvars > 0) {
+        int new_n_initvars = pkg->n_initvars;
+        int* merged_initvarnos = (int*)palloc(sizeof(int) * (old_n_initvars + new_n_initvars));
+        errno_t rc = memcpy_s(merged_initvarnos, sizeof(int) * old_n_initvars,
+            old_initvarnos, sizeof(int) * old_n_initvars);
+        securec_check(rc, "", "");
+        if (new_n_initvars > 0) {
+            rc = memcpy_s(merged_initvarnos + old_n_initvars, sizeof(int) * new_n_initvars,
+                pkg->initvarnos, sizeof(int) * new_n_initvars);
+            securec_check(rc, "", "");
+        }
+        pkg->n_initvars = old_n_initvars + new_n_initvars;
+        pkg->initvarnos = merged_initvarnos;
+    }
+
+    List* spec_init_list = NIL;
+    if (!isSpec && pkg->proc_list != NULL) {
+        ListCell* old_lc = NULL;
+        foreach (old_lc, pkg->proc_list) {
+            if (!IsA(lfirst(old_lc), DoStmt)) {
+                continue;
+            }
+            DoStmt* doStmt = (DoStmt*)lfirst(old_lc);
+            if (doStmt->isSpec) {
+                spec_init_list = lappend(spec_init_list, doStmt);
+            }
+        }
+    }
+
     if (isSpec) {
         pkg->public_ns = curr_compile->ns_top;
         pkg->is_bodycompiled = false;
@@ -1093,7 +1128,16 @@ static PLpgSQL_package* do_pkg_compile(Oid pkgOid, HeapTuple pkg_tup, PLpgSQL_pa
         pkg->private_ns = curr_compile->ns_top;
         pkg->is_bodycompiled = true;
     }
-    pkg->proc_list = curr_compile->plpgsql_curr_compile_package->proc_list;
+    pkg->proc_list = list_concat(spec_init_list, curr_compile->plpgsql_curr_compile_package->proc_list);
+    ListCell* lc = NULL;
+    foreach (lc, pkg->proc_list) {
+        if (IsA(lfirst(lc), DoStmt)) {
+            DoStmt* doStmt = (DoStmt*)lfirst(lc);
+            doStmt->isExecuted = false;
+        }
+    }
+    pkg->isInit = false;
+    pkg->isInitializing = false;
     if (!isSpec) {
         pkg->is_bodycompiled = true;
     } 
