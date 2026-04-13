@@ -895,8 +895,27 @@ void InitializeSessionUserId(const char* rolename, bool ispoolerreuse, Oid usero
      * In opengauss, we allow twophasecleaner to connect to database
      * as superusers for cleaning up temporary tables.
      */
-    if (!HeapTupleIsValid(roleTup) && u_sess->proc_cxt.IsInnerMaintenanceTools) {
-        roleTup = SearchSysCache1(AUTHOID, UInt32GetDatum(BOOTSTRAP_SUPERUSERID));
+    if (!HeapTupleIsValid(roleTup)) {
+    char roleIdStr[INIT_SESSION_MAX_INT32_BUFF] = {0};
+    if (rolename == NULL) {
+        int rc = sprintf_s(roleIdStr, INIT_SESSION_MAX_INT32_BUFF, "%u", useroid);
+        securec_check_ss(rc, "", "");
+        rolename = roleIdStr;
+    }
+    
+    if (!(g_instance.status > NoShutdown) && user_login_hook) {
+        user_login_hook(u_sess->proc_cxt.MyProcPort->database_name, rolename, false, true);
+    }
+    int rcs = snprintf_truncated_s(details,
+        sizeof(details),
+        "login db(%s) failed-the role(%s)does not exist",
+        u_sess->proc_cxt.MyProcPort->database_name,
+        rolename);
+    securec_check_ss(rcs, "\0", "\0");
+    pgaudit_user_login(FALSE, u_sess->proc_cxt.MyProcPort->database_name, details);
+
+    ereport(ERROR,
+        (errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION), errmsg("Invalid username/password,login denied.")));
 
         char userName[NAMEDATALEN];
         MemoryContext oldcontext = NULL;
