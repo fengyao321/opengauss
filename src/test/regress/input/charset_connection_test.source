@@ -182,7 +182,7 @@ select '高斯aa' = '高斯AA';
 select pg_sleep(1);
 
 \! mkdir @abs_srcdir@/tmp_check/charset_connection_test_backup/
-\! @abs_bindir@/gs_basebackup -hlocalhost -p@portstring@ -D @abs_srcdir@/tmp_check/charset_connection_test_backup/ 2>&1 |grep successfully
+\! @abs_bindir@/gs_basebackup -h 127.0.0.1 -p@portstring@ -D @abs_srcdir@/tmp_check/charset_connection_test_backup/ >/dev/null 2>&1; echo $?
 
 \! rm -rf @abs_srcdir@/tmp_check/charset_connection_test_backup/
 
