@@ -707,9 +707,9 @@ static void GetActiveBackendList(PGconn* conn, ActiveBackendInfo** activeBackend
 
     rc = sprintf_s(STMT_ACTIVE_BACKEND_LIST,
         sizeof(STMT_ACTIVE_BACKEND_LIST),
-        "SELECT SESSIONID, TEMPID, TIMELINEID FROM PG_DATABASE D, "
-        "PG_STAT_GET_ACTIVITY_FOR_TEMPTABLE() AS S WHERE "
-        "S.DATID = D.OID AND D.DATNAME = '%s'",
+        "select sessionid, tempid, timelineid from pg_database d, "
+        "pg_stat_get_activity_for_temptable() AS s where "
+        "s.datid = d.oid and d.datname = '%s'",
         PQdb(conn));
     securec_check_ss_c(rc, "\0", "\0");
 
