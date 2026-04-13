@@ -824,3 +824,6 @@ test: ledger_table_case
 
 # wlm_memory_trace
 test: wlm_memory_trace
+
+# test remotetype=coordinator trust bypass security
+test: remotetype_trust_security

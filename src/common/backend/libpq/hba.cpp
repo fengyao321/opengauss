@@ -1439,6 +1439,12 @@ bool IsLoopBackAddr(Port* port)
     }
 }
 
+static bool IsSpqPluginLoaded(void)
+{
+    const char *libs = g_instance.attr.attr_common.shared_preload_libraries_string;
+    return libs != NULL && strstr(libs, "spq") != NULL;
+}
+
 /* Mask the user be a NULL user if the uid is zero */
 #define USER_NULL_MASK 0xFFFFFFFF
 /* Max size of username operator system can return */
@@ -1654,8 +1660,8 @@ static void check_hba(hbaPort* port)
 #ifdef ENABLE_NEON
                 /* NEON: allow trust method for all remote connections */
 #else
-                if (IsConnPortFromCoord(port) || u_sess->proc_cxt.IsInnerMaintenanceTools) {
-                    /* exception 1, just pass */
+                if ((IsConnPortFromCoord(port) && IsSpqPluginLoaded()) || u_sess->proc_cxt.IsInnerMaintenanceTools) {
+                    /* exception 1, allow trust for CN connections only when SPQ plugin is loaded */
                 } else if (IsLoopBackAddr(port)) {
                     /* exception 2, for local loop back connections, hba->remote_trust should be false */
                     hba->auth_method = get_default_auth_method(port->user_name);
@@ -1680,8 +1686,9 @@ static void check_hba(hbaPort* port)
 #endif
             }
 
-            /* Remote connection launched by coordinator should use trust method, skip rules with other method. */
-            if (IsConnPortFromCoord(port) && hba->auth_method != uaTrust) {
+            /* Remote connection launched by coordinator should use trust method, skip rules with other method.
+             * Only applies when SPQ plugin is loaded. */
+            if (IsConnPortFromCoord(port) && IsSpqPluginLoaded() && hba->auth_method != uaTrust) {
                 continue;
             }
         }
