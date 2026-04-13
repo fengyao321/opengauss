@@ -27,6 +27,7 @@ import shutil
 import time
 import random
 import string
+import subprocess
 #This port is invalid. The user will specify the port when using gs_plansimulator.
 base_port = 7500
 g_gtm_port = 0
@@ -34,7 +35,8 @@ port_ = base_port
 g_file_node_info = "cndn.cnf"
 bin_path = os.getenv('GAUSSHOME') + '/'
 g_data_path = "data"
-g_valgrind = ""
+# When non-empty, prefix for gaussdb datanode argv (no shell).
+g_valgrind_prefix = []
 
 coordnode_port=[]
 coordnode_control_port=[]
@@ -47,6 +49,30 @@ datanode_control_port=[]
 datanode_pooler_port=[]
 datanode_stream_ctl_port=[]
 datanode_sctp_port=[]
+
+
+def _exe(name):
+	return os.path.join(bin_path, "bin", name)
+
+
+def _run(argv):
+	"""Invoke argv without shell (prevents injection via path/options)."""
+	return subprocess.call(argv)
+
+
+def _run_bg(argv, log_path=None):
+	"""Start argv in background; optional stdout+stderr to log_path."""
+	logf = None
+	try:
+		if log_path:
+			logf = open(log_path, "w")
+			p = subprocess.Popen(argv, stdout=logf, stderr=subprocess.STDOUT, close_fds=True)
+		else:
+			p = subprocess.Popen(argv, close_fds=True)
+		return p
+	finally:
+		if logf:
+			logf.close()
 
 
 class Pterodb():
@@ -68,9 +94,8 @@ class Pterodb():
 			os.mkdir(self.data_dir)
 			print "rm dir ok"
 		# init GTM
-		gtm_cmd_init = bin_path + "bin/gs_initgtm -D " + self.data_dir + "/gtm_data -Z gtm";
-		print gtm_cmd_init
-		os.system(gtm_cmd_init)
+		gtm_cmd_init = [_exe("gs_initgtm"), "-D", os.path.join(self.data_dir, "gtm_data"), "-Z", "gtm"]
+		_run(gtm_cmd_init)
 		global g_gtm_port
 		g_gtm_port = base_port + self.coordinator_num * 8 + self.data_node_num * 8
 		conf_file = self.data_dir + "/gtm_data/gtm.conf"
@@ -78,14 +103,18 @@ class Pterodb():
 		self.__modify_conf_port(conf_file, 100, 1)
 		pwd = self.get_rand_string()
 		for i in range(1, self.coordinator_num+1):
-			coor_cmd_init = bin_path + "bin/gs_initdb -w " + pwd + " -D " + self.data_dir + "/coordinator" + str(i) + " --nodename=coordinator" + str(i)
-			os.system(coor_cmd_init)
+			coor_cmd_init = [_exe("gs_initdb"), "-w", pwd, "-D",
+				os.path.join(self.data_dir, "coordinator" + str(i)),
+				"--nodename=coordinator" + str(i)]
+			_run(coor_cmd_init)
 			conf_file = self.data_dir + "/coordinator"+ str(i) + "/postgresql.conf"
 			self.__modify_conf_port(conf_file, i-1, -1)
 
 		for i in range(1, self.data_node_num+1):
-			datanode_cmd_init = bin_path + "bin/gs_initdb -w " + pwd + " -D " + self.data_dir + "/data_node" + str(i) + " --nodename=datanode" + str(i)
-			os.system(datanode_cmd_init)
+			datanode_cmd_init = [_exe("gs_initdb"), "-w", pwd, "-D",
+				os.path.join(self.data_dir, "data_node" + str(i)),
+				"--nodename=datanode" + str(i)]
+			_run(datanode_cmd_init)
 			conf_file = self.data_dir + "/data_node"+ str(i) + "/postgresql.conf"
 			self.__modify_conf_port(conf_file, i, 0)
 
@@ -191,43 +220,51 @@ class Pterodb():
 		time.sleep(5)
 		#execute create node sql
 		for i in range(1, self.coordinator_num+1):
-			cmd = bin_path + "bin/gsql -p " + str(coordnode_port[i-1]) + " postgres -f create_nodes.sql"
-			print cmd
-			os.system(cmd)
+			cmd = [_exe("gsql"), "-p", str(coordnode_port[i-1]), "postgres", "-f", "create_nodes.sql"]
+			_run(cmd)
 		# create nodegroup
 		port = base_port
-		cmd = bin_path + "bin/gsql -p " + str(port) + " postgres -c '" + nodegroup + "'"
-		print cmd
-		os.system(cmd)
+		cmd = [_exe("gsql"), "-p", str(port), "postgres", "-c", nodegroup]
+		_run(cmd)
 
 		# mark installation group
 		for i in range(1, self.coordinator_num+1):
 			port = coordnode_port[i-1]
 			update_sql = "UPDATE pgxc_group SET is_installation = true WHERE group_name = 'group1';"
-			cmd = bin_path + "bin/gsql -p " + str(port) + " postgres -c \"" + update_sql + "\""
-			print "install group:" + cmd
-			os.system(cmd)
+			cmd = [_exe("gsql"), "-p", str(port), "postgres", "-c", update_sql]
+			_run(cmd)
 
 	def __create_default_db(self):
-		cmd = bin_path + "bin/gsql -p " + str(base_port) + " postgres -c 'create database test'"
-		os.system(cmd)
+		cmd = [_exe("gsql"), "-p", str(base_port), "postgres", "-c", "create database test"]
+		_run(cmd)
 
 	def __rm_pid_file(self):
-		cmd = "rm -rf "
 		# cn
 		for i in range(1, self.coordinator_num+1):
-			rm_cmd = cmd + self.data_dir + "/coordinator" + str(i) + "/postmaster.pid"
-			print rm_cmd
-			os.system(rm_cmd)
+			rm_path = os.path.join(self.data_dir, "coordinator" + str(i), "postmaster.pid")
+			print "rm", rm_path
+			try:
+				if os.path.exists(rm_path):
+					os.remove(rm_path)
+			except OSError:
+				pass
 		# dn
 		for i in range(1, self.data_node_num+1):
-			rm_cmd = cmd + self.data_dir + "/data_node" + str(i) + "/postmaster.pid"
-			print rm_cmd
-			os.system(rm_cmd)
+			rm_path = os.path.join(self.data_dir, "data_node" + str(i), "postmaster.pid")
+			print "rm", rm_path
+			try:
+				if os.path.exists(rm_path):
+					os.remove(rm_path)
+			except OSError:
+				pass
 		#gtm
-		rm_cmd = cmd + self.data_dir + "/gtm_data/gtm.pid"
-		print rm_cmd
-		os.system(rm_cmd)
+		rm_path = os.path.join(self.data_dir, "gtm_data", "gtm.pid")
+		print "rm", rm_path
+		try:
+			if os.path.exists(rm_path):
+				os.remove(rm_path)
+		except OSError:
+			pass
 
 	#save coor_num and datanode num
 	def __save_nodes_info(self):
@@ -256,39 +293,37 @@ class Pterodb():
 		#clean evn
 		self.__rm_pid_file()
 		#start gtm
-		gtm_cmd = bin_path + "bin/gs_gtm -D " + self.data_dir + "/gtm_data &"
-		print gtm_cmd
-		os.system(gtm_cmd)
+		gtm_cmd = [_exe("gs_gtm"), "-D", os.path.join(self.data_dir, "gtm_data")]
+		_run_bg(gtm_cmd)
 		time.sleep(1)
 		#start coor
 		for i in range(1, self.coordinator_num+1):
-			coor_cmd = bin_path + "bin/gaussdb --coordinator -D " + self.data_dir + "/coordinator" + str(i) + "   > logcn" + str(i) + " 2>&1 &"
-			print coor_cmd
-			os.system(coor_cmd)
+			coor_cmd = [_exe("gaussdb"), "--coordinator", "-D",
+				os.path.join(self.data_dir, "coordinator" + str(i))]
+			_run_bg(coor_cmd, log_path="logcn" + str(i))
 			time.sleep(1)
 		#start data_node
 		for i in range(1, self.data_node_num+1):
-			datanode_cmd = g_valgrind + bin_path + "bin/gaussdb --datanode  -D " + self.data_dir + "/data_node" + str(i) + "   > logdn" + str(i) + " 2>&1 &"
-			print datanode_cmd
-			os.system(datanode_cmd)
+			datanode_cmd = list(g_valgrind_prefix) + [_exe("gaussdb"), "--datanode", "-D",
+				os.path.join(self.data_dir, "data_node" + str(i))]
+			_run_bg(datanode_cmd, log_path="logdn" + str(i))
 		time.sleep(1)
 
 	def __stop_server(self):
 
 		#stop coor
 		for i in range(1, self.coordinator_num+1):
-			coor_cmd = bin_path + "bin/gs_ctl stop -D " + self.data_dir + "/coordinator" + str(i) + " -Z coordinator"
-			print coor_cmd
-			os.system(coor_cmd)
+			coor_cmd = [_exe("gs_ctl"), "stop", "-D",
+				os.path.join(self.data_dir, "coordinator" + str(i)), "-Z", "coordinator"]
+			_run(coor_cmd)
 		#stop data node
 		for i in range(1, self.data_node_num+1):
-			datanode_cmd = bin_path + "bin/gs_ctl stop -D "+ self.data_dir + "/data_node" + str(i) + " -Z datanode"
-			print datanode_cmd
-			os.system(datanode_cmd)
+			datanode_cmd = [_exe("gs_ctl"), "stop", "-D",
+				os.path.join(self.data_dir, "data_node" + str(i)), "-Z", "datanode"]
+			_run(datanode_cmd)
 		#stop gtm
-		gtm_cmd = bin_path + "bin/gtm_ctl stop -Z gtm -D " + self.data_dir + "/gtm_data"
-		print gtm_cmd
-		os.system(gtm_cmd)
+		gtm_cmd = [_exe("gtm_ctl"), "stop", "-Z", "gtm", "-D", os.path.join(self.data_dir, "gtm_data")]
+		_run(gtm_cmd)
 	
 	def run(self, run_type):
 		if(run_type == 0):
@@ -322,8 +357,8 @@ def main():
 
 	coordinator_num = 0
 	datanode_num = 0
-	global g_valgrind;
-	global g_file_node_info;
+	global g_valgrind_prefix
+	global g_file_node_info
 
 	data_dir = g_data_path
 	#1 start
@@ -336,7 +371,7 @@ def main():
 		elif o in ("-h", "--help"):
 			usage()
 			sys.exit()
-		elif o in ("-D", "data_dir"):
+		elif o in ("-D", "--data_dir"):
 			data_dir = a
 		elif o in ("-c", "--coordinator"):
 			coordinator_num = int(a)
@@ -347,7 +382,7 @@ def main():
 		elif o in ("-o", "--stop"):
 			run_type = 2
 		elif o in ("-g", "--memcheck"):
-			g_valgrind = "valgrind --tool=memcheck --leak-check=full  --log-file=memcheck.log "
+			g_valgrind_prefix = ["valgrind", "--tool=memcheck", "--leak-check=full", "--log-file=memcheck.log"]
 		else:
 			print "unhandled option"
 			sys.exit()
