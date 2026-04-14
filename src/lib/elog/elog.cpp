@@ -757,7 +757,31 @@ static void report_command(FILE *fp, auditConfig *audit_cfg) {
             continue;
         }
 
-        rc = strcat_s(command, MAXPGPATH, argv[i]);
+        /* Mask password in key=value conninfo strings (e.g. "host=... password=xxx dbname=...") */
+        char *pw_pos = strstr(argv[i], "password=");
+        if (pw_pos != NULL) {
+            char sanitized[MAXPGPATH] = {0};
+            size_t prefix_len = (size_t)(pw_pos - argv[i]) + strlen("password=");
+            rc = strncpy_s(sanitized, MAXPGPATH, argv[i], prefix_len);
+            securec_check_c(rc, "\0", "\0");
+            rc = strcat_s(sanitized, MAXPGPATH, "***");
+            securec_check_c(rc, "\0", "\0");
+            char *val_end = NULL;
+            char *val_start = pw_pos + strlen("password=");
+            if (*val_start == '\'') {
+                val_end = strchr(val_start + 1, '\'');
+                if (val_end != NULL) val_end++;
+            } else {
+                val_end = strchr(val_start, ' ');
+            }
+            if (val_end != NULL) {
+                rc = strcat_s(sanitized, MAXPGPATH, val_end);
+                securec_check_c(rc, "\0", "\0");
+            }
+            rc = strcat_s(command, MAXPGPATH, sanitized);
+        } else {
+            rc = strcat_s(command, MAXPGPATH, argv[i]);
+        }
         securec_check_c(rc, "\0", "\0");
         if (i<argc - 1) {
             rc = strcat_s(command, MAXPGPATH, " ");

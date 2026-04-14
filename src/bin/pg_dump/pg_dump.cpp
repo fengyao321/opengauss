@@ -999,10 +999,15 @@ int main(int argc, char** argv)
     /* Turn off log collection parameters to improve execution performance */
     ExecuteSqlStatement(fout, "set resource_track_level='none'");
     find_current_connection_node_type(fout);
-    // Get the database which will be dumped
-    if (NULL == dbname) {
+    /* Always replace dbname with the actual database name from the connection,
+     * to avoid logging the full conninfo string which may contain password. */
+    {
         ArchiveHandle* AH = (ArchiveHandle*)fout;
-        dbname = gs_strdup(PQdb(AH->connection));
+        const char* real_dbname = PQdb(AH->connection);
+        if (real_dbname != NULL) {
+            free(const_cast<char*>(dbname));
+            dbname = gs_strdup(real_dbname);
+        }
     }
     if (NULL == instport) {
         ArchiveHandle* AH = (ArchiveHandle*)fout;
