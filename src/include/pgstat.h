@@ -498,12 +498,15 @@ typedef struct PgStat_MsgHdr {
 } PgStat_MsgHdr;
 
 /* ----------
- * Space available in a message.  This will keep the UDP packets below 1K,
- * which should fit unfragmented into the MTU of the lo interface on most
- * platforms. Does anybody care for platforms where it doesn't?
+ * Space available in a message after PgStat_MsgHdr.
+ * Legacy PostgreSQL used ~1K to fit UDP on loopback. openGauss pgstat defaults to
+ * in-process delivery (PGSTAT_SHMEM_FAKE_SOCKET), so a larger payload packs more
+ * entries per TABSTAT and amortizes send/recv; increase stack use in
+ * pgstat_report_stat (two PgStat_MsgTabstat). If a real datagram path is used,
+ * ensure the transport supports this size.
  * ----------
  */
-#define PGSTAT_MSG_PAYLOAD (1000 - sizeof(PgStat_MsgHdr))
+#define PGSTAT_MSG_PAYLOAD (4096 - sizeof(PgStat_MsgHdr))
 
 /* ----------
  * PgStat_MsgDummy				A dummy message, ignored by the collector

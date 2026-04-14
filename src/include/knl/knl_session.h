@@ -1876,6 +1876,9 @@ typedef struct knl_u_stat_context {
     int64 pgStatPendingConflictBufferpin;
     int64 pgStatPendingConflictStartupDeadlock;
     uint64 pgStatPendingEpoch;
+    /* Batched PGSTAT_MTYPE_DATA_CHANGED: merge in-session, flush by tab_lock partition */
+    MemoryContext pgStatPendingDataChangedCtx;
+    HTAB* pgStatPendingDataChangedHash;
     bool isTopLevelPlSql;
     int64* localTimeInfoArray;
     uint64* localNetInfo;

@@ -104,6 +104,11 @@
 
 #define pg_stat_relation(flag) (InvalidOid == (flag))
 
+typedef struct PgStatPendingDataChangedEntry {
+    PgStatSharedTabKey key;
+    TimestampTz changed_time;
+} PgStatPendingDataChangedEntry;
+
 /* ----------
  * Timer definitions.
  * ----------
@@ -119,6 +124,9 @@
 #define PGSTAT_MAX_WAIT_TIME                      \
     10000 /* Maximum time to wait for a stats \ \ \
            * file update; in milliseconds. */
+
+/* Flush batched data_changed when pending distinct keys reach this count (limits long-xact delay). */
+#define PGSTAT_PENDING_DATA_CHANGED_FLUSH_ENTRIES 256
 
 #define PGSTAT_INQ_INTERVAL                        \
     640 /* How often to ping the collector for \ \ \
@@ -368,9 +376,16 @@ static HTAB* pgstat_read_statsfile(Oid onlydb, bool permanent);
 static void backend_read_statsfile(void);
 static void pgstat_load_statsfile_into_shmem(void);
 static bool pgstat_pending_have_updates(void);
+static bool pgstat_pending_db_have_updates(void);
+static bool pgstat_pending_data_changed_have_updates(void);
+static void pgstat_pending_clear_db_counters(void);
 static void pgstat_pending_clear(void);
 static void pgstat_pending_epoch_ensure(void);
 static void pgstat_flush_pending(bool force);
+static void pgstat_pending_data_changed_clear(void);
+static void pgstat_pending_data_changed_ensure(void);
+static void pgstat_pending_data_changed_add(Oid dbid, Oid tableoid, uint32 statFlag, TimestampTz changed_time);
+static void pgstat_flush_pending_data_changed(void);
 
 static void pgstat_send_tabstat(PgStat_MsgTabstat* tsmsg);
 static void pgstat_send_funcstats(void);
@@ -490,8 +505,9 @@ static void pgstat_load_statsfile_into_shmem(void)
 /* ----------
  * Pending high-frequency DB stats: accumulate locally, flush at xact end or in pgstat_report_stat.
  * Reduces shmem lock traffic for deadlock/tempfile/conflict/mem_reserved.
+ * Pending data_changed: merge per (db,rel,statFlag) in-session; flush by tab_lock partition batch.
  * ---------- */
-static bool pgstat_pending_have_updates(void)
+static bool pgstat_pending_db_have_updates(void)
 {
     if (u_sess == NULL) {
         return false;
@@ -505,7 +521,20 @@ static bool pgstat_pending_have_updates(void)
             u_sess->stat_cxt.pgStatPendingConflictStartupDeadlock != 0);
 }
 
-static void pgstat_pending_clear(void)
+static bool pgstat_pending_data_changed_have_updates(void)
+{
+    if (u_sess == NULL || u_sess->stat_cxt.pgStatPendingDataChangedHash == NULL) {
+        return false;
+    }
+    return hash_get_num_entries(u_sess->stat_cxt.pgStatPendingDataChangedHash) > 0;
+}
+
+static bool pgstat_pending_have_updates(void)
+{
+    return pgstat_pending_db_have_updates() || pgstat_pending_data_changed_have_updates();
+}
+
+static void pgstat_pending_clear_db_counters(void)
 {
     if (u_sess == NULL) {
         return;
@@ -519,6 +548,145 @@ static void pgstat_pending_clear(void)
     u_sess->stat_cxt.pgStatPendingConflictSnapshot = 0;
     u_sess->stat_cxt.pgStatPendingConflictBufferpin = 0;
     u_sess->stat_cxt.pgStatPendingConflictStartupDeadlock = 0;
+}
+
+static void pgstat_pending_data_changed_clear(void)
+{
+    if (u_sess == NULL) {
+        return;
+    }
+    if (u_sess->stat_cxt.pgStatPendingDataChangedCtx != NULL) {
+        MemoryContextReset(u_sess->stat_cxt.pgStatPendingDataChangedCtx);
+    }
+    u_sess->stat_cxt.pgStatPendingDataChangedHash = NULL;
+}
+
+static void pgstat_pending_clear(void)
+{
+    pgstat_pending_clear_db_counters();
+    pgstat_pending_data_changed_clear();
+}
+
+static void pgstat_pending_data_changed_ensure(void)
+{
+    if (u_sess == NULL) {
+        return;
+    }
+    if (u_sess->stat_cxt.pgStatPendingDataChangedHash != NULL) {
+        return;
+    }
+    if (u_sess->stat_cxt.pgStatPendingDataChangedCtx == NULL) {
+        u_sess->stat_cxt.pgStatPendingDataChangedCtx =
+            AllocSetContextCreate(u_sess->top_mem_cxt, "PGStatPendingDataChanged", ALLOCSET_DEFAULT_SIZES);
+    }
+
+    HASHCTL ctl;
+    errno_t rc = memset_s(&ctl, sizeof(ctl), 0, sizeof(ctl));
+    securec_check(rc, "\0", "\0");
+    ctl.keysize = sizeof(PgStatSharedTabKey);
+    ctl.entrysize = sizeof(PgStatPendingDataChangedEntry);
+    ctl.hash = tag_hash;
+    ctl.hcxt = u_sess->stat_cxt.pgStatPendingDataChangedCtx;
+
+    u_sess->stat_cxt.pgStatPendingDataChangedHash =
+        hash_create("pgstat pending data_changed", 128, &ctl, HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
+}
+
+static void pgstat_pending_data_changed_add(Oid dbid, Oid tableoid, uint32 statFlag, TimestampTz changed_time)
+{
+    if (u_sess == NULL) {
+        return;
+    }
+    pgstat_pending_epoch_ensure();
+    pgstat_pending_data_changed_ensure();
+    PgStatSharedTabKey key;
+    key.databaseid = dbid;
+    key.tableid = tableoid;
+    key.statFlag = statFlag;
+
+    bool found = false;
+    PgStatPendingDataChangedEntry* ent = (PgStatPendingDataChangedEntry*)hash_search(
+        u_sess->stat_cxt.pgStatPendingDataChangedHash, &key, HASH_ENTER, &found);
+    if (ent == NULL) {
+        return;
+    }
+    if (!found || changed_time > ent->changed_time) {
+        ent->key = key;
+        ent->changed_time = changed_time;
+    }
+}
+
+static void pgstat_flush_pending_data_changed(void)
+{
+    if (u_sess == NULL) {
+        return;
+    }
+    if (g_instance.stat_cxt.pgStatSock == PGINVALID_SOCKET || pgstat_get_shared_state() == NULL) {
+        return;
+    }
+    if (!pgstat_pending_data_changed_have_updates()) {
+        return;
+    }
+
+    const int nent = (int)hash_get_num_entries(u_sess->stat_cxt.pgStatPendingDataChangedHash);
+    if (nent <= 0) {
+        return;
+    }
+
+    PgStatPendingDataChangedEntry** arr =
+        (PgStatPendingDataChangedEntry**)palloc(sizeof(PgStatPendingDataChangedEntry*) * (Size)nent);
+    HASH_SEQ_STATUS seq;
+    hash_seq_init(&seq, u_sess->stat_cxt.pgStatPendingDataChangedHash);
+    PgStatPendingDataChangedEntry* e = NULL;
+    int i = 0;
+    while ((e = (PgStatPendingDataChangedEntry*)hash_seq_search(&seq)) != NULL) {
+        Assert(i < nent);
+        arr[i++] = e;
+    }
+    if (i <= 0) {
+        pfree(arr);
+        return;
+    }
+
+    /*
+     * Bucket by tab partition (O(n)) instead of qsort (O(n log n)). Order within a
+     * partition does not matter: each pending key is unique and we only apply max ts.
+     */
+    int* next_idx = (int*)palloc(sizeof(int) * (Size)i);
+    int bucket_head[PGSTAT_TAB_NPARTITIONS];
+    for (int p = 0; p < PGSTAT_TAB_NPARTITIONS; p++) {
+        bucket_head[p] = -1;
+    }
+    for (int j = 0; j < i; j++) {
+        uint32 part = pgstat_tab_partition_index(&arr[j]->key);
+        next_idx[j] = bucket_head[part];
+        bucket_head[part] = j;
+    }
+
+    for (uint32 part = 0; part < (uint32)PGSTAT_TAB_NPARTITIONS; part++) {
+        int idx = bucket_head[part];
+        if (idx < 0) {
+            continue;
+        }
+        LWLock* tab_lock = pgstat_shared_tab_lock_for_key(&arr[idx]->key);
+        /* pgstat_get_shared_state() was verified above; lock must exist for a valid key. */
+        Assert(tab_lock != NULL);
+        LWLockAcquire(tab_lock, LW_EXCLUSIVE);
+        while (idx >= 0) {
+            bool found = false;
+            PgStatSharedTabEntry* tabentry =
+                pgstat_shared_get_tab_entry_under_tablock(&arr[idx]->key, true, &found);
+            if (tabentry != NULL && arr[idx]->changed_time > tabentry->data_changed_timestamp) {
+                tabentry->data_changed_timestamp = arr[idx]->changed_time;
+            }
+            idx = next_idx[idx];
+        }
+        LWLockRelease(tab_lock);
+    }
+
+    pfree(next_idx);
+    pfree(arr);
+    pgstat_pending_data_changed_clear();
 }
 
 static void pgstat_pending_epoch_ensure(void)
@@ -538,13 +706,13 @@ static void pgstat_flush_pending(bool force)
     if (u_sess == NULL) {
         return;
     }
-    if (!force && !pgstat_pending_have_updates()) {
+    const bool have_db = pgstat_pending_db_have_updates();
+    const bool have_dc = pgstat_pending_data_changed_have_updates();
+    if (!force && !have_db && !have_dc) {
         return;
     }
     if (!u_sess->attr.attr_common.pgstat_track_counts) {
-        return;
-    }
-    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId)) {
+        pgstat_pending_clear();
         return;
     }
 
@@ -554,6 +722,17 @@ static void pgstat_flush_pending(bool force)
     }
     if (u_sess->stat_cxt.pgStatPendingEpoch != pgstat_shared_get_epoch()) {
         pgstat_pending_clear();
+        return;
+    }
+
+    if (have_dc) {
+        pgstat_flush_pending_data_changed();
+    }
+
+    if (!pgstat_pending_db_have_updates()) {
+        return;
+    }
+    if (!OidIsValid(u_sess->proc_cxt.MyDatabaseId)) {
         return;
     }
 
@@ -582,7 +761,7 @@ static void pgstat_flush_pending(bool force)
     }
 
     pgstat_shared_release_lock(db_lock);
-    pgstat_pending_clear();
+    pgstat_pending_clear_db_counters();
 }
 
 /*
@@ -1373,17 +1552,19 @@ void PgstatReportPrunestat(Oid tableoid, uint32 statFlag,
  */
 void pgstat_report_data_changed(Oid tableoid, uint32 statFlag, bool shared)
 {
-    PgStat_MsgDataChanged msg;
-
     if (g_instance.stat_cxt.pgStatSock == PGINVALID_SOCKET || !u_sess->attr.attr_common.pgstat_track_counts)
         return;
 
-    pgstat_setheader(&msg.m_hdr, PGSTAT_MTYPE_DATA_CHANGED);
-    msg.m_databaseid = shared ? InvalidOid : u_sess->proc_cxt.MyDatabaseId;
-    msg.m_tableoid = tableoid;
-    msg.m_statFlag = statFlag;
-    msg.m_changed_time = GetCurrentTimestamp();
-    pgstat_send(&msg, sizeof(msg));
+    Oid dbid = shared ? InvalidOid : u_sess->proc_cxt.MyDatabaseId;
+    pgstat_pending_data_changed_add(dbid, tableoid, statFlag, GetCurrentTimestamp());
+
+    if (u_sess->stat_cxt.pgStatPendingDataChangedHash != NULL &&
+        hash_get_num_entries(u_sess->stat_cxt.pgStatPendingDataChangedHash) >= PGSTAT_PENDING_DATA_CHANGED_FLUSH_ENTRIES) {
+        pgstat_pending_epoch_ensure();
+        if (u_sess->stat_cxt.pgStatPendingEpoch == pgstat_shared_get_epoch()) {
+            pgstat_flush_pending_data_changed();
+        }
+    }
 }
 
 /* ---------
@@ -6297,6 +6478,105 @@ static void overflow_check(int64 stat_value, int64 add_value)
     }
 }
 
+/*
+ * Sort TABSTAT message entry indices by pgstat tab partition, then key, then
+ * original index (so duplicate keys keep message order).
+ */
+static int pgstat_recv_tabstat_idx_cmp(const void* a, const void* b, void* arg)
+{
+    PgStat_MsgTabstat* msg = (PgStat_MsgTabstat*)arg;
+    int ia = *(const int*)a;
+    int ib = *(const int*)b;
+    PgStat_TableEntry* ea = &msg->m_entry[ia];
+    PgStat_TableEntry* eb = &msg->m_entry[ib];
+    PgStatSharedTabKey ka = {msg->m_databaseid, ea->t_id, ea->t_statFlag};
+    PgStatSharedTabKey kb = {msg->m_databaseid, eb->t_id, eb->t_statFlag};
+    uint32 pa = pgstat_tab_partition_index(&ka);
+    uint32 pb = pgstat_tab_partition_index(&kb);
+    if (pa != pb) {
+        return (pa < pb) ? -1 : 1;
+    }
+    if (ka.tableid != kb.tableid) {
+        return (ka.tableid < kb.tableid) ? -1 : 1;
+    }
+    if (ka.statFlag != kb.statFlag) {
+        return (ka.statFlag < kb.statFlag) ? -1 : 1;
+    }
+    return (ia < ib) ? -1 : ((ia > ib) ? 1 : 0);
+}
+
+/*
+ * Apply one child table/partition entry; caller must hold the tab partition LWLock.
+ */
+static void pgstat_recv_tabstat_apply_child(PgStat_MsgTabstat* msg, int idx)
+{
+    PgStat_TableEntry* tabmsg = &(msg->m_entry[idx]);
+    bool found = false;
+    PgStatSharedTabKey tab_key = {msg->m_databaseid, tabmsg->t_id, tabmsg->t_statFlag};
+    PgStatSharedTabEntry* tabentry = pgstat_shared_get_tab_entry_under_tablock(&tab_key, true, &found);
+    if (tabentry == NULL) {
+        return;
+    }
+
+    if (!found) {
+        tabentry->numscans = tabmsg->t_counts.t_numscans;
+        tabentry->lastscan = tabmsg->t_counts.t_lastscan;
+        tabentry->tuples_returned = tabmsg->t_counts.t_tuples_returned;
+        tabentry->tuples_fetched = tabmsg->t_counts.t_tuples_fetched;
+        tabentry->tuples_inserted = tabmsg->t_counts.t_tuples_inserted;
+        tabentry->tuples_updated = tabmsg->t_counts.t_tuples_updated;
+        tabentry->tuples_deleted = tabmsg->t_counts.t_tuples_deleted;
+        tabentry->tuples_inplace_updated = tabmsg->t_counts.t_tuples_inplace_updated;
+        tabentry->tuples_hot_updated = tabmsg->t_counts.t_tuples_hot_updated;
+        if (tabmsg->t_counts.t_truncated) {
+            tabentry->n_live_tuples = 0;
+            tabentry->n_dead_tuples = 0;
+        }
+        tabentry->n_live_tuples = tabmsg->t_counts.t_delta_live_tuples;
+        tabentry->n_dead_tuples = tabmsg->t_counts.t_delta_dead_tuples;
+        tabentry->changes_since_analyze = tabmsg->t_counts.t_changed_tuples;
+        tabentry->blocks_fetched = tabmsg->t_counts.t_blocks_fetched;
+        tabentry->blocks_hit = tabmsg->t_counts.t_blocks_hit;
+        tabentry->cu_mem_hit = tabmsg->t_counts.t_cu_mem_hit;
+        tabentry->cu_hdd_sync = tabmsg->t_counts.t_cu_hdd_sync;
+        tabentry->cu_hdd_asyn = tabmsg->t_counts.t_cu_hdd_asyn;
+        /* vacuum/analyze/prune all fields are memset to 0 in pgstat_shared_init_tab_entry,
+         * no need to assign again.
+         */
+    } else {
+        tabentry->numscans += tabmsg->t_counts.t_numscans;
+        tabentry->tuples_returned += tabmsg->t_counts.t_tuples_returned;
+        tabentry->tuples_fetched += tabmsg->t_counts.t_tuples_fetched;
+        tabentry->tuples_inserted += tabmsg->t_counts.t_tuples_inserted;
+        tabentry->tuples_updated += tabmsg->t_counts.t_tuples_updated;
+        tabentry->tuples_deleted += tabmsg->t_counts.t_tuples_deleted;
+        tabentry->tuples_inplace_updated += tabmsg->t_counts.t_tuples_inplace_updated;
+        tabentry->tuples_hot_updated += tabmsg->t_counts.t_tuples_hot_updated;
+        if (tabmsg->t_counts.t_truncated) {
+            tabentry->n_live_tuples = 0;
+            tabentry->n_dead_tuples = 0;
+        }
+        if (tabentry->analyze_timestamp == 0 || tabentry->analyze_timestamp < tabentry->data_changed_timestamp) {
+            tabentry->n_live_tuples += tabmsg->t_counts.t_delta_live_tuples;
+            tabentry->n_dead_tuples += tabmsg->t_counts.t_delta_dead_tuples;
+        }
+        tabentry->changes_since_analyze += tabmsg->t_counts.t_changed_tuples;
+        tabentry->blocks_fetched += tabmsg->t_counts.t_blocks_fetched;
+        tabentry->blocks_hit += tabmsg->t_counts.t_blocks_hit;
+        tabentry->cu_mem_hit += tabmsg->t_counts.t_cu_mem_hit;
+        tabentry->cu_hdd_sync += tabmsg->t_counts.t_cu_hdd_sync;
+        tabentry->cu_hdd_asyn += tabmsg->t_counts.t_cu_hdd_asyn;
+    }
+
+    if (tabmsg->t_counts.t_numscans) {
+        if (tabmsg->t_counts.t_lastscan > tabentry->lastscan)
+            tabentry->lastscan = tabmsg->t_counts.t_lastscan;
+    }
+
+    tabentry->n_live_tuples = Max(tabentry->n_live_tuples, 0);
+    tabentry->n_dead_tuples = Max(tabentry->n_dead_tuples, 0);
+}
+
 /* ----------
  * pgstat_recv_tabstat() -
  *
@@ -6361,77 +6641,47 @@ static void pgstat_recv_tabstat(PgStat_MsgTabstat* msg, int len)
 
     pgstat_shared_release_lock(db_lock);
 
-    /* Process all table entries in the message. */
+    /* Child entries: one tab partition lock per partition group (sorted indices). */
+    if (msg->m_nentries > 0) {
+        int* idxs = (int*)palloc(sizeof(int) * (Size)msg->m_nentries);
+        for (int i = 0; i < msg->m_nentries; i++) {
+            idxs[i] = i;
+        }
+        qsort_arg(idxs, (size_t)msg->m_nentries, sizeof(int), pgstat_recv_tabstat_idx_cmp, msg);
+
+        int a = 0;
+        while (a < msg->m_nentries) {
+            PgStat_TableEntry* tabmsg_a = &(msg->m_entry[idxs[a]]);
+            PgStatSharedTabKey key_a = {msg->m_databaseid, tabmsg_a->t_id, tabmsg_a->t_statFlag};
+            uint32 part = pgstat_tab_partition_index(&key_a);
+            int b = a + 1;
+            while (b < msg->m_nentries) {
+                PgStat_TableEntry* tabmsg_b = &(msg->m_entry[idxs[b]]);
+                PgStatSharedTabKey key_b = {msg->m_databaseid, tabmsg_b->t_id, tabmsg_b->t_statFlag};
+                if (pgstat_tab_partition_index(&key_b) != part) {
+                    break;
+                }
+                b++;
+            }
+
+            LWLock* tab_lock = pgstat_shared_tab_lock_for_key(&key_a);
+            Assert(tab_lock != NULL);
+            LWLockAcquire(tab_lock, LW_EXCLUSIVE);
+            for (int k = a; k < b; k++) {
+                pgstat_recv_tabstat_apply_child(msg, idxs[k]);
+            }
+            LWLockRelease(tab_lock);
+            a = b;
+        }
+        pfree(idxs);
+    }
+
+    /*
+     * Parent rollup for partitioned tables: must preserve original message order
+     * when multiple children share one parent in the same batch.
+     */
     for (int i = 0; i < msg->m_nentries; i++) {
         PgStat_TableEntry* tabmsg = &(msg->m_entry[i]);
-        bool found = false;
-        LWLock* tab_lock = NULL;
-        PgStatSharedTabKey tab_key = {msg->m_databaseid, tabmsg->t_id, tabmsg->t_statFlag};
-        PgStatSharedTabEntry* tabentry = pgstat_get_tab_entry(&tab_key, true, LW_EXCLUSIVE, &tab_lock, &found);
-        if (tabentry == NULL) {
-            continue;
-        }
-
-        if (!found) {
-            tabentry->numscans = tabmsg->t_counts.t_numscans;
-            tabentry->lastscan = tabmsg->t_counts.t_lastscan;
-            tabentry->tuples_returned = tabmsg->t_counts.t_tuples_returned;
-            tabentry->tuples_fetched = tabmsg->t_counts.t_tuples_fetched;
-            tabentry->tuples_inserted = tabmsg->t_counts.t_tuples_inserted;
-            tabentry->tuples_updated = tabmsg->t_counts.t_tuples_updated;
-            tabentry->tuples_deleted = tabmsg->t_counts.t_tuples_deleted;
-            tabentry->tuples_inplace_updated = tabmsg->t_counts.t_tuples_inplace_updated;
-            tabentry->tuples_hot_updated = tabmsg->t_counts.t_tuples_hot_updated;
-            if (tabmsg->t_counts.t_truncated) {
-                tabentry->n_live_tuples = 0;
-                tabentry->n_dead_tuples = 0;
-            }
-            tabentry->n_live_tuples = tabmsg->t_counts.t_delta_live_tuples;
-            tabentry->n_dead_tuples = tabmsg->t_counts.t_delta_dead_tuples;
-            tabentry->changes_since_analyze = tabmsg->t_counts.t_changed_tuples;
-            tabentry->blocks_fetched = tabmsg->t_counts.t_blocks_fetched;
-            tabentry->blocks_hit = tabmsg->t_counts.t_blocks_hit;
-            tabentry->cu_mem_hit = tabmsg->t_counts.t_cu_mem_hit;
-            tabentry->cu_hdd_sync = tabmsg->t_counts.t_cu_hdd_sync;
-            tabentry->cu_hdd_asyn = tabmsg->t_counts.t_cu_hdd_asyn;
-            /* vacuum/analyze/prune all fields are memset to 0 in pgstat_shared_init_tab_entry,
-             * no need to assign again.
-             */
-        } else {
-            tabentry->numscans += tabmsg->t_counts.t_numscans;
-            tabentry->tuples_returned += tabmsg->t_counts.t_tuples_returned;
-            tabentry->tuples_fetched += tabmsg->t_counts.t_tuples_fetched;
-            tabentry->tuples_inserted += tabmsg->t_counts.t_tuples_inserted;
-            tabentry->tuples_updated += tabmsg->t_counts.t_tuples_updated;
-            tabentry->tuples_deleted += tabmsg->t_counts.t_tuples_deleted;
-            tabentry->tuples_inplace_updated += tabmsg->t_counts.t_tuples_inplace_updated;
-            tabentry->tuples_hot_updated += tabmsg->t_counts.t_tuples_hot_updated;
-            if (tabmsg->t_counts.t_truncated) {
-                tabentry->n_live_tuples = 0;
-                tabentry->n_dead_tuples = 0;
-            }
-            if (tabentry->analyze_timestamp == 0 || tabentry->analyze_timestamp < tabentry->data_changed_timestamp) {
-                tabentry->n_live_tuples += tabmsg->t_counts.t_delta_live_tuples;
-                tabentry->n_dead_tuples += tabmsg->t_counts.t_delta_dead_tuples;
-            }
-            tabentry->changes_since_analyze += tabmsg->t_counts.t_changed_tuples;
-            tabentry->blocks_fetched += tabmsg->t_counts.t_blocks_fetched;
-            tabentry->blocks_hit += tabmsg->t_counts.t_blocks_hit;
-            tabentry->cu_mem_hit += tabmsg->t_counts.t_cu_mem_hit;
-            tabentry->cu_hdd_sync += tabmsg->t_counts.t_cu_hdd_sync;
-            tabentry->cu_hdd_asyn += tabmsg->t_counts.t_cu_hdd_asyn;
-        }
-
-        if (tabmsg->t_counts.t_numscans) {
-            if (tabmsg->t_counts.t_lastscan > tabentry->lastscan)
-                tabentry->lastscan = tabmsg->t_counts.t_lastscan;
-        }
-
-        tabentry->n_live_tuples = Max(tabentry->n_live_tuples, 0);
-        tabentry->n_dead_tuples = Max(tabentry->n_dead_tuples, 0);
-
-        pgstat_shared_release_lock(tab_lock);
-
         if (pg_stat_relation(tabmsg->t_statFlag))
             continue;
 
@@ -6713,7 +6963,8 @@ static void pgstat_recv_data_changed(PgStat_MsgDataChanged* msg, int len)
         return;
     }
 
-    tabentry->data_changed_timestamp = msg->m_changed_time;
+    if (msg->m_changed_time > tabentry->data_changed_timestamp)
+        tabentry->data_changed_timestamp = msg->m_changed_time;
     pgstat_shared_release_lock(tab_lock);
 }
 
