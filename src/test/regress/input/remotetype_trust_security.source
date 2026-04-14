@@ -1,0 +1,33 @@
+--
+-- Test: remotetype=coordinator should not bypass trust auth when SPQ plugin is not loaded
+--
+
+-- Verify SPQ plugin is not loaded in shared_preload_libraries
+show shared_preload_libraries;
+
+-- Create a test user with known password
+create user test_remotetype_sec password 'Test@1234';
+
+-- Back up pg_hba.conf
+\! /usr/bin/cp @abs_srcdir@/tmp_check/datanode1/pg_hba.conf @abs_srcdir@/tmp_check/datanode1/pg_hba_bk.conf
+
+-- Add a remote trust rule for 127.0.0.1
+\! echo 'host  all  all  127.0.0.1/32  trust' >> @abs_srcdir@/tmp_check/datanode1/pg_hba.conf
+\! @abs_bindir@/gs_ctl reload -D @abs_srcdir@/tmp_check/datanode1 > /dev/null 2>&1
+\! sleep 3
+
+-- Test 1: Normal TCP connection with correct password should succeed
+\! @abs_bindir@/gsql -p @portstring@ -h 127.0.0.1 -d regression -U test_remotetype_sec -W 'Test@1234' -c "select 'normal_conn_ok' as result;" 2>&1
+
+-- Test 2: TCP connection with remotetype=coordinator and WRONG password should FAIL
+-- (With the security fix, trust is not bypassed when SPQ is not loaded,
+--  so sha256 auth is enforced and wrong password is rejected)
+\! PGOPTIONS="-c remotetype=coordinator" @abs_bindir@/gsql -p @portstring@ -h 127.0.0.1 -d regression -U test_remotetype_sec -W 'wrong_password' -c "select 'trust_bypass_failed' as result;" 2>&1
+
+-- Restore pg_hba.conf
+\! /usr/bin/mv -f @abs_srcdir@/tmp_check/datanode1/pg_hba_bk.conf @abs_srcdir@/tmp_check/datanode1/pg_hba.conf
+\! @abs_bindir@/gs_ctl reload -D @abs_srcdir@/tmp_check/datanode1 > /dev/null 2>&1
+\! sleep 2
+
+-- Clean up
+drop user test_remotetype_sec;

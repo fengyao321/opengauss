@@ -5597,8 +5597,11 @@ int ProcessStartupPacket(Port* port, bool SSLdone)
     }
 
     /* Set connection_from_coordinator. If it's true, we skip redundant verifications. Currently, it's only
-    used to skip password verifications of set role and alter role launched by coordinator to data nodes. */
-    if (port->cmdline_options != NULL && strstr(port->cmdline_options, "remotetype=coordinator") != NULL) {
+    used to skip password verifications of set role and alter role launched by coordinator to data nodes.
+    Only recognize remotetype=coordinator when SPQ plugin is loaded, to prevent unauthorized trust bypass. */
+    if (port->cmdline_options != NULL && strstr(port->cmdline_options, "remotetype=coordinator") != NULL &&
+        g_instance.attr.attr_common.shared_preload_libraries_string != NULL &&
+        strstr(g_instance.attr.attr_common.shared_preload_libraries_string, "spq") != NULL) {
         u_sess->attr.attr_common.connection_from_coordinator = true;
     } else {
         u_sess->attr.attr_common.connection_from_coordinator = false;

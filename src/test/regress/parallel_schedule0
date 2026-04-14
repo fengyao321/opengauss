@@ -1174,3 +1174,6 @@ test: to_timestamp_default cast
 test: seg_shrink_table
 
 test: dump_alter_index_invisible nls_lower
+
+# test remotetype=coordinator trust bypass security
+test: remotetype_trust_security
