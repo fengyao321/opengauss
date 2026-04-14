@@ -289,6 +289,70 @@ PgStatSharedDBEntry* pgstat_shared_get_db_entry(Oid dbid, bool create, LWLockMod
     return entry;
 }
 
+uint32 pgstat_tab_partition_index(const PgStatSharedTabKey* key)
+{
+    return pgstat_hash_tabkey(key) % (uint32)PGSTAT_TAB_NPARTITIONS;
+}
+
+LWLock* pgstat_shared_tab_lock_for_key(const PgStatSharedTabKey* key)
+{
+    PgStatSharedState* s = pgstat_get_shared_state();
+    if (s == NULL) {
+        return NULL;
+    }
+    return pgstat_tab_lock(s, key);
+}
+
+/*
+ * Like pgstat_shared_get_tab_entry, but caller must already hold the tab partition LWLock
+ * for this key (same lock as pgstat_shared_tab_lock_for_key(key)).
+ */
+PgStatSharedTabEntry* pgstat_shared_get_tab_entry_under_tablock(const PgStatSharedTabKey* key, bool create,
+    bool* found)
+{
+    PgStatSharedState* s = pgstat_get_shared_state();
+    if (s == NULL) {
+        return NULL;
+    }
+
+    LWLock* l = pgstat_tab_lock(s, key);
+    Assert(LWLockHeldByMe(l));
+
+    HASHACTION action = create ? HASH_ENTER : HASH_FIND;
+    bool local_found = false;
+    PgStatSharedTabEntry* entry = (PgStatSharedTabEntry*)hash_search(s->tab_hash, key, action, &local_found);
+
+    if (entry == NULL) {
+        if (create) {
+            ereport(WARNING,
+                (errmsg("pgstat tab entry creation failed (hash may be full), database %u table %u statFlag %u",
+                    key->databaseid, key->tableid, key->statFlag)));
+        }
+        if (found) {
+            *found = false;
+        }
+        return NULL;
+    }
+
+    if (!local_found && create) {
+        pgstat_shared_init_tab_entry(entry, key);
+        {
+            long num_entries = hash_get_num_entries(s->tab_hash);
+            if (num_entries >= (long)(PGSTAT_SHMEM_TAB_HASH_SIZE * PGSTAT_SHMEM_HASH_NEAR_FULL_RATIO)) {
+                ereport(WARNING,
+                    (errmsg("pgstat tab hash near full: current entries %ld, limit %d; "
+                             "new relations may not be recorded, consider running VACUUM or increasing capacity",
+                        num_entries, PGSTAT_SHMEM_TAB_HASH_SIZE)));
+            }
+        }
+    }
+
+    if (found) {
+        *found = local_found;
+    }
+    return entry;
+}
+
 PgStatSharedTabEntry* pgstat_shared_get_tab_entry(const PgStatSharedTabKey* key, bool create, LWLockMode mode,
     LWLock** lock, bool* found)
 {

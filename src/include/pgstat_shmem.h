@@ -26,7 +26,7 @@
 #include "utils/hsearch.h"
 
 #define PGSTAT_DB_NPARTITIONS 16
-#define PGSTAT_TAB_NPARTITIONS 64
+#define PGSTAT_TAB_NPARTITIONS 512
 #define PGSTAT_FUNC_NPARTITIONS 16
 
 typedef struct PgStatSharedDBEntry {
@@ -154,6 +154,10 @@ extern Size PgStatShmemUsedSize(void);
 extern void PgStatShmemInit(void);
 
 extern PgStatSharedDBEntry* pgstat_shared_get_db_entry(Oid dbid, bool create, LWLockMode mode, LWLock** lock,
+    bool* found);
+extern uint32 pgstat_tab_partition_index(const PgStatSharedTabKey* key);
+extern LWLock* pgstat_shared_tab_lock_for_key(const PgStatSharedTabKey* key);
+extern PgStatSharedTabEntry* pgstat_shared_get_tab_entry_under_tablock(const PgStatSharedTabKey* key, bool create,
     bool* found);
 extern PgStatSharedTabEntry* pgstat_shared_get_tab_entry(const PgStatSharedTabKey* key, bool create,
     LWLockMode mode, LWLock** lock, bool* found);

@@ -961,6 +961,8 @@ static void knl_u_stat_init(knl_u_stat_context* stat_cxt)
     stat_cxt->pgStatPendingConflictBufferpin = 0;
     stat_cxt->pgStatPendingConflictStartupDeadlock = 0;
     stat_cxt->pgStatPendingEpoch = 0;
+    stat_cxt->pgStatPendingDataChangedCtx = NULL;
+    stat_cxt->pgStatPendingDataChangedHash = NULL;
     stat_cxt->isTopLevelPlSql = true;
 
     stat_cxt->pgStatCollectThdStatusContext = NULL;
