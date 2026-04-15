@@ -96,6 +96,12 @@ update employees set salary = salary +1;
 \! @abs_srcdir@/script/find_risky_query_event.sh "Risky query large update" "update employees set salary = salary +1;" "@abs_srcdir@/tmp_check/@datanode1@/pg_log"
 \echo
 
+update employees set email = 'Token_ABC_123';
+\! @abs_srcdir@/script/find_risky_query_event.sh "Risky query access resource label" "update employees set email = '*************';" "@abs_srcdir@/tmp_check/@datanode1@/pg_log"
+\! @abs_srcdir@/script/find_risky_query_event.sh "Risky query update with no 'where clause'" "update employees set email = '*************';" "@abs_srcdir@/tmp_check/@datanode1@/pg_log"
+\! @abs_srcdir@/script/find_risky_query_event.sh "Risky query large update" "update employees set email = '*************';" "@abs_srcdir@/tmp_check/@datanode1@/pg_log"
+\echo
+
 delete from employees;
 \! @abs_srcdir@/script/find_risky_query_event.sh "Risky query access resource label" "delete from employees;" "@abs_srcdir@/tmp_check/@datanode1@/pg_log"
 \! @abs_srcdir@/script/find_risky_query_event.sh "Risky query delete with no 'where clause'" "delete from employees;" "@abs_srcdir@/tmp_check/@datanode1@/pg_log"

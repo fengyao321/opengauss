@@ -1142,6 +1142,11 @@ Logging Risky query access resource label OK
 Logging Risky query update with no 'where clause' OK
 Logging Risky query large update OK
 
+update employees set email = 'Token_ABC_123';
+Logging Risky query access resource label OK
+Logging Risky query update with no 'where clause' OK
+Logging Risky query large update OK
+
 delete from employees;
 Logging Risky query access resource label OK
 Logging Risky query delete with no 'where clause' OK
