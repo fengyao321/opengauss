@@ -791,11 +791,13 @@ void FlushLsgSamples(HnswBuildState *buildstate);
 void HnswGetLsgInfoFromMetaPage(Relation index, uint32* lsgCodeBookSize, uint16* nBlks, uint32* lsgDim,
                                 uint32* lsgSampleSize, bool* enableLsg);
 int ComputePQTable(VectorArray samples, PQParams *params);
-int ComputeVectorPQCode(float *vector, const PQParams *params, uint8 *pqCode);
-int GetPQDistanceTableSdc(const PQParams *params, float *pqDistanceTable);
-int GetPQDistanceTableAdc(float *vector, const PQParams *params, float *pqDistanceTable);
+int ComputeVectorPQCode(float *vector, const PQParams *params, uint8 *pqCode, size_t pqCode_size);
+int GetPQDistanceTableSdc(const PQParams *params, float *pqDistanceTable, size_t pqDistanceTable_size);
+int GetPQDistanceTableAdc(float *vector, const PQParams *params, float *pqDistanceTable,
+                           size_t pqDistanceTable_size);
 int GetPQDistance(const uint8 *basecode, const uint8 *querycode, const PQParams *params,
-                  const float *pqDistanceTable, float *pqDistance);
+                  const float *pqDistanceTable, float *pqDistance, size_t basecode_size,
+                  size_t querycode_size, size_t pqDistanceTable_size, size_t pqDistance_size);
 void InitPQParamsOnDisk(PQParams *params, Relation index, FmgrInfo *procinfo, int dim, bool *enablePQ, bool trymmap);
 void InitLsgSamplesOnDisk(Relation index, FmgrInfo *procinfo, LsgCalculator** LocScalingParam, bool *enableLsg);
 void HnswGetRbqInfoFromMetaPage(Relation index, bool *enableRabitQ, bool *useFHT, uint16 *reOffset,
