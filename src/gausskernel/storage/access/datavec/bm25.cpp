@@ -141,7 +141,7 @@ static void Bm25ValidateDictFile(const char* resolvedDir, const char* fileName)
  * On error, ereport(ERROR) and never return.
  * Caller must pfree the result.
  */
-static char* Bm25ValidateDictPath(const char* dictPath)
+char* Bm25ValidateDictPath(const char* dictPath)
 {
     char resolved[PATH_MAX + 1];
     size_t i;
