@@ -1766,8 +1766,9 @@ void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildSt
         if (buildstate->pqMode == HNSW_PQMODE_SDC) {
             int pqM = buildstate->pqM;
             int pqKsub = buildstate->pqKsub;
-            buildstate->pqDistanceTable = (float *)palloc(pqM * pqKsub * pqKsub * sizeof(float));
-            GetPQDistanceTableSdc(buildstate->params, buildstate->pqDistanceTable);
+            size_t pqDistTblSize = (size_t)pqM * pqKsub * pqKsub * sizeof(float);
+            buildstate->pqDistanceTable = (float *)palloc(pqDistTblSize);
+            GetPQDistanceTableSdc(buildstate->params, buildstate->pqDistanceTable, pqDistTblSize);
         }
     }
 
