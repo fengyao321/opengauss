@@ -504,13 +504,14 @@ static bool gsplsql_build_gs_type_dependency(GsDependObjDesc* obj_desc, GsDepend
     return gsplsql_build_gs_dependency(obj_desc, ref_obj_desc, depend_datum);
 }
 
-static bool gsplsql_match_obj_desc(const GsDependObjDesc* lhs, const GsDependObjDesc* rhs, bool match_name)
+static bool gsplsql_match_obj_desc(const GsDependObjDesc* lhs, const GsDependObjDesc* rhs)
 {
     if (NULL != lhs->schemaName || NULL != rhs->schemaName) {
         if (NULL != lhs->schemaName && NULL != rhs->schemaName &&
             0 != strcmp(lhs->schemaName, rhs->schemaName)) {
             return false;
-        } else {
+        } else if ((NULL != lhs->schemaName && NULL == rhs->schemaName) ||
+            (NULL == lhs->schemaName && NULL != rhs->schemaName)) {
             return false;
         }
     }
@@ -518,17 +519,9 @@ static bool gsplsql_match_obj_desc(const GsDependObjDesc* lhs, const GsDependObj
         if (NULL != lhs->packageName && NULL != rhs->packageName &&
             0 != strcmp(lhs->packageName, rhs->packageName)) {
             return false;
-        } else {
+        } else if ((NULL != lhs->packageName && NULL == rhs->packageName) ||
+            (NULL == lhs->packageName && NULL != rhs->packageName)) {
             return false;
-        }
-    }
-    if (match_name) {
-        if (NULL != lhs->name || NULL != rhs->name) {
-            if (NULL != lhs->name && NULL != rhs->name) {
-                return 0 == strcmp(lhs->packageName, rhs->packageName);
-            } else {
-                return false;
-            }
         }
     }
     return true;
@@ -547,7 +540,7 @@ bool gsplsql_undefine_in_same_pkg(GsDependObjDesc* obj_desc, Oid undefObjOid)
                 errmsg("dependencies object %u does not exist.", undefObjOid)));
         return false;
     }
-    ret = gsplsql_match_obj_desc(obj_desc, &ref_obj_desc, false) && (NULL != ref_obj_desc.packageName);
+    ret = (NULL != ref_obj_desc.packageName) && gsplsql_match_obj_desc(obj_desc, &ref_obj_desc);
     free_gs_depend_obj_desc(&ref_obj_desc);
     if (ret) {
         gsplsql_delete_unrefer_depend_obj_oid(undefObjOid, false);
