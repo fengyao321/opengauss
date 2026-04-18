@@ -8030,11 +8030,7 @@ static bool recoveryStopsHere(XLogReaderState *record, bool *includeThis)
                     (errmsg("recovery stopping before WAL location (LSN) \"%X/%X\"",
                             (uint32)(t_thrd.xlog_cxt.recoveryStopLSN >> 32), (uint32)t_thrd.xlog_cxt.recoveryStopLSN)));
         }
-
-        if (stopsHere) {
-            TruncateAndRemoveXLogForRoachRestore(record);
-        }
-
+        
         return true;
     }
 
