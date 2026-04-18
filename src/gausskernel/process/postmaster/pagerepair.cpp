@@ -79,7 +79,6 @@ static void PageRepairShutDownHandler(SIGNAL_ARGS);
 static void PageRepairQuickDie(SIGNAL_ARGS);
 static void PageRepairHandleInterrupts(void);
 
-static void SeqRemoteReadFile();
 static void checkOtherFile(RepairFileKey key, uint32 max_segno, uint64 size);
 static void PushBadFileToRemoteHashTbl(RepairFileKey key);
 
@@ -1584,79 +1583,5 @@ static void checkOtherFile(RepairFileKey key, uint32 max_segno, uint64 size)
     }
     pfree(path);
     pfree(segpath);
-    return;
-}
-
-const int MAX_FILE_REPAIR_NUM = 10;
-static void SeqRemoteReadFile()
-{
-    HTAB *repair_hash = g_instance.repair_cxt.file_repair_hashtbl;
-    RepairFileEntry *entry = NULL;
-    HASH_SEQ_STATUS status;
-    uint32 need_repair_num = 0;
-    errno_t rc = 0;
-    RepairFileKey remote_read[MAX_FILE_REPAIR_NUM] = {0};
-
-    pg_memory_barrier();
-    if (!RecoveryIsSuspend() || XLogRecPtrIsInvalid(g_instance.startup_cxt.suspend_lsn)) {
-        return;
-    }
-
-    rc = memset_s(remote_read, sizeof(RepairFileEntry) * MAX_FILE_REPAIR_NUM, 0,
-        sizeof(RepairFileEntry) * MAX_FILE_REPAIR_NUM);
-    securec_check(rc, "", "");
-    /* wait the xlog repaly finish */
-    WaitRepalyFinish();
-
-    LWLockAcquire(FILE_REPAIR_LOCK, LW_EXCLUSIVE);
-
-    hash_seq_init(&status, repair_hash);
-    while ((entry = (RepairFileEntry *)hash_seq_search(&status)) != NULL) {
-        switch (entry->file_state) {
-            /* page repair thread only handle need remote read file */
-            case WAIT_FILE_CHECK_REPAIR:
-            case WAIT_FILE_REPAIR:
-            case WAIT_FOREGT_INVALID_PAGE:
-            case WAIT_CLEAN:
-            case WAIT_RENAME:
-                break;
-            case WAIT_FILE_REPAIR_SEGMENT:
-            case WAIT_FILE_REMOTE_READ:
-                entry->file_state = WAIT_FILE_REMOTE_READ;
-                if (need_repair_num >= MAX_FILE_REPAIR_NUM) {
-                    break;
-                } else {
-                    rc = memcpy_s(&remote_read[need_repair_num], sizeof(RepairFileEntry),
-                        entry, sizeof(RepairFileEntry));
-                    securec_check(rc, "", "");
-                }
-                break;
-            default:
-                LWLockRelease(FILE_REPAIR_LOCK);
-                ereport(ERROR, (errmsg("[file repair] error file state during remote read")));
-                break;
-        }
-        
-    }
-    LWLockRelease(FILE_REPAIR_LOCK);
-    for (uint32 i = 0; i < need_repair_num; i++) {
-        RepairFileKey temp = remote_read[i];
-        StandbyRemoteReadFile(temp);
-    }
-
-    LWLockAcquire(FILE_REPAIR_LOCK, LW_EXCLUSIVE);
-    hash_seq_init(&status, repair_hash);
-    while ((entry = (RepairFileEntry *)hash_seq_search(&status)) != NULL) {
-        if (entry->file_state == WAIT_FILE_REPAIR_SEGMENT || entry->file_state == WAIT_FILE_REMOTE_READ ||
-            entry->file_state == WAIT_RENAME) {
-            need_repair_num++;
-        }
-    }
-    LWLockRelease(FILE_REPAIR_LOCK);
-    if (need_repair_num == 0) {
-        SetRecoverySuspend(false);
-        ereport(LOG, (errmodule(MOD_REDO),
-            errmsg("pagerepair thread set recovery suspend to false, the need repair num is zero")));
-    }
     return;
 }
