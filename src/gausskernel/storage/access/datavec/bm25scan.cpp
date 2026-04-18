@@ -201,7 +201,8 @@ static BM25QueryTokensInfo GetQueryTokens(Relation index, const char* sentence)
     pfree(queryTokens);
     BM25QueryTokensInfo tokensInfo{0};
     tokensInfo.queryTokens = resQueryTokens;
-    tokensInfo.size = tokenFoundCount;
+    /* Only tokens with real postings are filled into resQueryTokens. */
+    tokensInfo.size = tokenFillIdx;
     return tokensInfo;
 }
 
@@ -347,13 +348,25 @@ static bool BM25NextFromVarBlock(BM25ScanCursor *cursor)
 
 static bool BM25SeekInVarBlock(BM25ScanCursor *cursor, uint32 docId)
 {
-    cursor->curChunkCtid = cursor->postingChainHead;
-    cursor->curPayloadOffset = 0;
-    if (BufferIsValid(cursor->buf)) {
-        UnlockReleaseBuffer(cursor->buf);
-        cursor->buf = InvalidBuffer;
-        cursor->page = NULL;
+    /*
+     * VarBlock postings are stored in a sorted chain.
+     * In DAAT(MaxScore), Seek requests usually move forward (non-decreasing docId).
+     * Avoid resetting to head on every Seek; only reset on backward seek.
+     */
+    if (cursor->curDocId == BM25_INVALID_DOC_ID) {
+        return false;
     }
+
+    if (docId < cursor->curDocId) {
+        cursor->curChunkCtid = cursor->postingChainHead;
+        cursor->curPayloadOffset = 0;
+        if (BufferIsValid(cursor->buf)) {
+            UnlockReleaseBuffer(cursor->buf);
+            cursor->buf = InvalidBuffer;
+            cursor->page = NULL;
+        }
+    }
+
     while (ItemPointerIsValid(&cursor->curChunkCtid)) {
         if (!BufferIsValid(cursor->buf)) {
             cursor->buf = ReadBufferExtended(cursor->index, MAIN_FORKNUM,
@@ -483,7 +496,7 @@ void BM25ScanCursor::Next(bool isInit)
 
 void BM25ScanCursor::Seek(uint32 docId)
 {
-    if (docId == curDocId) {
+    if (curDocId != BM25_INVALID_DOC_ID && docId <= curDocId) {
         return;
     }
 
