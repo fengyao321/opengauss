@@ -108,6 +108,9 @@ typedef struct Bm25Options {
     char *dictPath;  /* base directory for custom Jieba dictionary */
 } Bm25Options;
 
+/* Validate dict_path and return canonical path (caller should pfree). */
+char* Bm25ValidateDictPath(const char* dictPath);
+
 static inline char* Bm25OptionsGetDictPath(void* basePtr)
 {
     if (basePtr == NULL)

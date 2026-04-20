@@ -21,7 +21,12 @@
 #include <securec.h>
 #include "zlib.h"
 #include "cppjieba/Jieba.hpp"
+#include "postgres.h"
 #include "tokenizer.h"
+
+/* Implemented in gausskernel/storage/access/datavec/bm25.cpp; do not include bm25.h here
+ * (it pulls heavy headers such as plpython.h and breaks contrib_jiebatokenizer build). */
+extern char* Bm25ValidateDictPath(const char* dictPath);
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -148,6 +153,13 @@ void* GetOrCreateTokenizer(const char* dictBasePath)
     } else {
         cacheKey = dictBasePath;
     }
+
+    char* resolvedBaseDir = Bm25ValidateDictPath(cacheKey.c_str());
+    if (resolvedBaseDir == nullptr) {
+        return nullptr;
+    }
+    cacheKey = resolvedBaseDir;
+    pfree(resolvedBaseDir);
 
     std::lock_guard<std::mutex> lock(g_tokenizerMutex);
     auto it = g_tokenizerCache.find(cacheKey);
