@@ -1361,17 +1361,15 @@ static void copy_hba_line(HbaLine* hba)
 
 static void check_hba_replication(hbaPort* port)
 {
+    Oid roleid;
     ListCell* cell = NULL;
     ListCell* line = NULL;
     HbaLine* hba = NULL;
     bool gotRepl = false;
 
+    /* Get the target role's OID. Note we do not error out for bad role. */
+    roleid = get_role_oid(port->user_name, true);
     hba = (HbaLine*)palloc0(sizeof(HbaLine));
-    /* we do not bother local connection with GSS authentification */
-    if (IS_AF_UNIX(port->raddr.addr.ss_family)) {
-        goto DIRECT_TRUST;
-    }
-
     /* hba_rwlock will be released when ereport ERROR or FATAL. */
     PG_ENSURE_ERROR_CLEANUP(hba_rwlock_cleanup, (Datum)0);
     (void)pthread_rwlock_rdlock(&hba_rwlock);
@@ -1383,16 +1381,75 @@ static void check_hba_replication(hbaPort* port)
         errno_t rc = memcpy_s(hba, sizeof(HbaLine), lfirst(line), sizeof(HbaLine));
         securec_check(rc, "\0", "\0");
 
+        /* Check connection type first. */
+        if (hba->conntype == ctLocal) {
+            if (!IS_AF_UNIX(port->raddr.addr.ss_family)) {
+                continue;
+            }
+        } else {
+            if (IS_AF_UNIX(port->raddr.addr.ss_family)) {
+                continue;
+            }
+
+            /* Check SSL state for host/hostssl/hostnossl rules. */
+#ifdef USE_SSL
+            if (port->ssl != NULL) {
+                if (hba->conntype == ctHostNoSSL) {
+                    continue;
+                }
+            } else {
+                if (hba->conntype == ctHostSSL) {
+                    continue;
+                }
+            }
+#else
+            if (hba->conntype == ctHostSSL) {
+                continue;
+            }
+#endif
+
+            /* Check client IP against the rule. */
+            switch (hba->ip_cmp_method) {
+                case ipCmpMask:
+                    if (hba->hostname != NULL) {
+                        if (!check_hostname(port, hba->hostname)) {
+                            continue;
+                        }
+                    } else if (!check_ip(&port->raddr, (struct sockaddr*)&hba->addr,
+                                   (struct sockaddr*)&hba->mask)) {
+                        continue;
+                    }
+                    break;
+                case ipCmpAll:
+                    break;
+                case ipCmpSameHost:
+                case ipCmpSameNet:
+                    if (!check_same_host_or_net(&port->raddr, hba->ip_cmp_method)) {
+                        continue;
+                    }
+                    break;
+                default:
+                    continue;
+            }
+        }
+
         foreach (cell, hba->databases) {
             HbaToken* tok = NULL;
             tok = (HbaToken*)lfirst(cell);
-            if (token_is_keyword(tok, "replication") && hba->conntype != ctLocal) {
-                if (hba->auth_method != uaGSS && !AM_WAL_HADR_SENDER && !AM_WAL_HADR_CN_SENDER) {
-                    hba->auth_method = uaTrust;
+            if (token_is_keyword(tok, "replication")) {
+                if (!check_role(port->user_name, roleid, hba->roles)) {
+                    continue;
                 }
-                ereport(LOG,
-                    (errcode(ERRCODE_CONFIG_FILE_ERROR),
-                        errmsg("walsender current auth_method is : %d", hba->auth_method)));
+                if (hba->conntype != ctLocal) {
+                    /*
+                    * Replication connections must honor the auth method selected
+                    * by the matched pg_hba.conf rule. Do not force matched
+                    * password-based rules like sha256 back to trust.
+                    */
+                    ereport(LOG,
+                        (errcode(ERRCODE_CONFIG_FILE_ERROR),
+                            errmsg("walsender current auth_method is : %d", hba->auth_method)));
+                }
                 gotRepl = true;
                 break;
             }
@@ -1402,15 +1459,17 @@ static void check_hba_replication(hbaPort* port)
         }
     }
 
+    if (!gotRepl) {
+        if (IS_AF_UNIX(port->raddr.addr.ss_family)) {
+            hba->auth_method = uaTrust;
+        } else {
+            hba->auth_method = uaImplicitReject;
+        }
+    }
     copy_hba_line(hba);
     (void)pthread_rwlock_unlock(&hba_rwlock);
     PG_END_ENSURE_ERROR_CLEANUP(hba_rwlock_cleanup, (Datum)0);
-
-DIRECT_TRUST:
-    /* cannot get invalid method, trust as default. */
-    if (!gotRepl) {
-        hba->auth_method = uaTrust;
-    }
+    
     port->hba = hba;
     return;
 }

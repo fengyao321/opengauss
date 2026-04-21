@@ -595,8 +595,8 @@ select pg_sleep(1);
 (1 row)
 
 \! mkdir @abs_srcdir@/tmp_check/charset_connection_test_backup/
-\! @abs_bindir@/gs_basebackup -hlocalhost -p@portstring@ -D @abs_srcdir@/tmp_check/charset_connection_test_backup/ 2>&1 |grep successfully
---?.*gs_basebackup: base backup successfully
+\! @abs_bindir@/gs_basebackup -h 127.0.0.1 -p@portstring@ -D @abs_srcdir@/tmp_check/charset_connection_test_backup/ >/dev/null 2>&1; echo $?
+0
 \! rm -rf @abs_srcdir@/tmp_check/charset_connection_test_backup/
 \! @abs_bindir@/gs_guc reload -Z datanode -D @abs_srcdir@/tmp_check/datanode1 -c "b_format_behavior_compat_options=''" >/dev/null 2>&1
 select pg_sleep(1);
