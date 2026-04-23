@@ -1561,7 +1561,6 @@ ObjectAddress ProcedureCreate(const char* procedureName, Oid procNamespace, Oid 
                         errmsg("more than one function \"%s\" already exist, "
                                "please drop function first",
                             procedureName)));
-
             oldtup = SearchSysCache1(PROCOID, ObjectIdGetDatum(listfunc->oid));
         } else {
             oldtup = NULL;

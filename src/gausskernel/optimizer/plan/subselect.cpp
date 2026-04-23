@@ -5709,7 +5709,8 @@ convert_expr_sublink_with_limit_clause(PlannerInfo *root,
         pullUpEqualQuals)
     {
         /* Guc rewrite_rule need set to magicset.*/
-        if (((u_sess->attr.attr_sql.rewrite_rule & MAGIC_SET) && permit_from_rewrite_hint(root, MAGIC_SET)) && !contain_subplans((Node*)subQuery->jointree))
+        if (((u_sess->attr.attr_sql.rewrite_rule & MAGIC_SET) && permit_from_rewrite_hint(root, MAGIC_SET))
+            && !contain_subplans((Node*)subQuery->jointree))
         {
             /* Get can push down to subquery's quals. */
             push_quals = push_down_qual(root, all_quals, pullUpEqualQuals);
