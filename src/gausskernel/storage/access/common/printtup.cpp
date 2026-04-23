@@ -26,6 +26,7 @@
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "tcop/pquery.h"
+#include "utils/builtins.h"
 #include "utils/float.h"
 #include "utils/lsyscache.h"
 #include "utils/numeric.h"
@@ -34,7 +35,6 @@
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #include "fmgr.h"
-#include "utils/builtins.h"
 #endif
 #include "distributelayer/streamProducer.h"
 #include "executor/exec/execStream.h"
@@ -79,6 +79,70 @@ static void finalizeLocalStream(DestReceiver *self);
 
 inline void AddCheckInfo(StringInfo buf);
 inline MemoryContext changeToTmpContext(DestReceiver *self);
+
+static inline bool get_fast_text_output_info(Oid atttypid, Oid* typoutput, bool* typisvarlena, bool* need_finfo)
+{
+    *need_finfo = false;
+    switch (atttypid) {
+        case INT1OID:
+            *typoutput = F_INT1OUT;
+            *typisvarlena = false;
+            return true;
+        case INT2OID:
+            *typoutput = F_INT2OUT;
+            *typisvarlena = false;
+            return true;
+        case INT4OID:
+            *typoutput = F_INT4OUT;
+            *typisvarlena = false;
+            return true;
+        case INT8OID:
+            *typoutput = F_INT8OUT;
+            *typisvarlena = false;
+            return true;
+        case FLOAT4OID:
+            *typoutput = F_FLOAT4OUT;
+            *typisvarlena = false;
+            return true;
+        case FLOAT8OID:
+            *typoutput = F_FLOAT8OUT;
+            *typisvarlena = false;
+            return true;
+        case BPCHAROID:
+            *typoutput = F_BPCHAROUT;
+            *typisvarlena = true;
+            *need_finfo = u_sess->attr.attr_sql.dolphin;
+            return true;
+        case VARCHAROID:
+        case NVARCHAR2OID:
+            *typoutput = F_VARCHAROUT;
+            *typisvarlena = true;
+            return true;
+        case NUMERICOID:
+            *typoutput = F_NUMERIC_OUT;
+            *typisvarlena = true;
+            return true;
+        case DATEOID:
+            *typoutput = F_DATE_OUT;
+            *typisvarlena = false;
+            *need_finfo = u_sess->attr.attr_sql.dolphin;
+            return true;
+        case VECTOROID:
+            *typoutput = F_VECTOR_OUT;
+            *typisvarlena = true;
+            return true;
+        case TIMESTAMPOID:
+            *typoutput = F_TIMESTAMP_OUT;
+            *typisvarlena = false;
+            return true;
+        case TIMESTAMPTZOID:
+            *typoutput = F_TIMESTAMPTZ_OUT;
+            *typisvarlena = false;
+            return true;
+        default:
+            return false;
+    }
+}
 
 /* ----------------------------------------------------------------
  *		printtup / debugtup support
@@ -898,8 +962,16 @@ static void printtup_prepare_info(DR_printtup *myState, TupleDesc typeinfo, int 
 
         thisState->format = format;
         if (format == 0) {
-            getTypeOutputInfo(typeinfo->attrs[i].atttypid, &thisState->typoutput, &thisState->typisvarlena);
-            fmgr_info(thisState->typoutput, &thisState->finfo);
+            bool need_finfo = false;
+
+            if (!get_fast_text_output_info(typeinfo->attrs[i].atttypid, &thisState->typoutput,
+                &thisState->typisvarlena, &need_finfo)) {
+                getTypeOutputInfo(typeinfo->attrs[i].atttypid, &thisState->typoutput, &thisState->typisvarlena);
+                need_finfo = true;
+            }
+            if (need_finfo) {
+                fmgr_info(thisState->typoutput, &thisState->finfo);
+            }
             thisState->encoding = get_valid_charset_by_collation(typeinfo->attrs[i].attcollation);
             construct_conversion_fmgr_info(
                 thisState->encoding, u_sess->mb_cxt.ClientEncoding->encoding, (void*)&thisState->convert_finfo);
@@ -1257,6 +1329,26 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
 #endif
                 need_free = false;
                 switch (thisState->typoutput) {
+                    case F_INT1OUT: {
+                        outputstr = u_sess->utils_cxt.int4output_buffer;
+                        pg_ctoa(DatumGetUInt8(attr), outputstr);
+#ifndef ENABLE_MULTIPLE_NODES
+                        t_thrd.xact_cxt.callPrint = false;
+#endif
+                        pq_sendcountedtext_printtup(buf, outputstr, std::strlen(outputstr), thisState->encoding,
+                                                    (void *)&thisState->convert_finfo);
+                        continue;
+                    }
+                    case F_INT2OUT: {
+                        outputstr = u_sess->utils_cxt.int4output_buffer;
+                        pg_itoa(DatumGetInt16(attr), outputstr);
+#ifndef ENABLE_MULTIPLE_NODES
+                        t_thrd.xact_cxt.callPrint = false;
+#endif
+                        pq_sendcountedtext_printtup(buf, outputstr, std::strlen(outputstr), thisState->encoding,
+                                                    (void *)&thisState->convert_finfo);
+                        continue;
+                    }
                     case F_INT4OUT: {
                         outputstr = u_sess->utils_cxt.int4output_buffer;
                         int length = 0;
@@ -1328,6 +1420,10 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
                         timestamp_out(ts, outputstr);
                         break;
                     }
+                    case F_TIMESTAMPTZ_OUT:
+                        outputstr = DatumGetCString(DirectFunctionCall1(timestamptz_out, attr));
+                        need_free = true;
+                        break;
                     default:
                         outputstr = OutputFunctionCall(&thisState->finfo, attr);
                         need_free = true;
