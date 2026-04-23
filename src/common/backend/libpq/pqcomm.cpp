@@ -559,11 +559,11 @@ void pq_close(int code, Datum arg)
 static void StreamDoUnlink(int code, Datum arg)
 {
     if ((int)arg == PSQL_LISTEN_SOCKET) {
-        Assert(t_thrd.libpq_cxt.sock_path[0]);
-        unlink(t_thrd.libpq_cxt.sock_path);
+        Assert(t_thrd.libpq_cxt.libpq_cold->sock_path[0]);
+        unlink(t_thrd.libpq_cxt.libpq_cold->sock_path);
     } else if ((int)arg == HA_LISTEN_SOCKET) {
-        Assert(t_thrd.libpq_cxt.ha_sock_path[0]);
-        unlink(t_thrd.libpq_cxt.ha_sock_path);
+        Assert(t_thrd.libpq_cxt.libpq_cold->ha_sock_path[0]);
+        unlink(t_thrd.libpq_cxt.libpq_cold->ha_sock_path);
     }
 }
 #endif /* HAVE_UNIX_SOCKETS */
@@ -615,7 +615,7 @@ int StreamServerPort(int family, char* hostName, unsigned short portNumber, cons
         if (Lock_AF_UNIX(portNumber, unixSocketName, is_create_psql_sock) != STATUS_OK) {
             return STATUS_ERROR;
         }
-        service = (is_create_psql_sock ? t_thrd.libpq_cxt.sock_path : t_thrd.libpq_cxt.ha_sock_path);
+        service = (is_create_psql_sock ? t_thrd.libpq_cxt.libpq_cold->sock_path : t_thrd.libpq_cxt.libpq_cold->ha_sock_path);
     } else
 #endif /* HAVE_UNIX_SOCKETS */
     {
@@ -830,13 +830,13 @@ int StreamServerPort(int family, char* hostName, unsigned short portNumber, cons
                 result = inet_net_ntop(AF_INET6,
                     &((struct sockaddr_in6*)sinp)->sin6_addr,
                     128,
-                    t_thrd.postmaster_cxt.LocalAddrList[t_thrd.postmaster_cxt.LocalIpNum],
+                    t_thrd.postmaster_cxt.addr_cold->LocalAddrList[t_thrd.postmaster_cxt.LocalIpNum],
                     IP_LEN);
             } else if (addr->ai_family == AF_INET) {
                 result = inet_net_ntop(AF_INET,
                     &((struct sockaddr_in*)sinp)->sin_addr,
                     32,
-                    t_thrd.postmaster_cxt.LocalAddrList[t_thrd.postmaster_cxt.LocalIpNum],
+                    t_thrd.postmaster_cxt.addr_cold->LocalAddrList[t_thrd.postmaster_cxt.LocalIpNum],
                     IP_LEN);
             }
             if (result == NULL) {
@@ -845,7 +845,7 @@ int StreamServerPort(int family, char* hostName, unsigned short portNumber, cons
                 ereport(DEBUG5, (errmodule(MOD_COMM_FRAMEWORK),
                     errmsg("[reload listen IP]set LocalIpNum[%d] %s",
                     t_thrd.postmaster_cxt.LocalIpNum,
-                    t_thrd.postmaster_cxt.LocalAddrList[t_thrd.postmaster_cxt.LocalIpNum])));
+                    t_thrd.postmaster_cxt.addr_cold->LocalAddrList[t_thrd.postmaster_cxt.LocalIpNum])));
                 t_thrd.postmaster_cxt.LocalIpNum++;
             }
         }
@@ -896,11 +896,11 @@ static int Lock_AF_UNIX(unsigned short portNumber, const char* unixSocketName, b
     char* sock_path = NULL;
 
     if (is_create_psql_sock) {
-        UNIXSOCK_PATH(t_thrd.libpq_cxt.sock_path, portNumber, unixSocketName);
-        sock_path = t_thrd.libpq_cxt.sock_path;
+        UNIXSOCK_PATH(t_thrd.libpq_cxt.libpq_cold->sock_path, portNumber, unixSocketName);
+        sock_path = t_thrd.libpq_cxt.libpq_cold->sock_path;
     } else {
-        UNIXSOCK_PATH(t_thrd.libpq_cxt.ha_sock_path, portNumber, unixSocketName);
-        sock_path = t_thrd.libpq_cxt.ha_sock_path;
+        UNIXSOCK_PATH(t_thrd.libpq_cxt.libpq_cold->ha_sock_path, portNumber, unixSocketName);
+        sock_path = t_thrd.libpq_cxt.libpq_cold->ha_sock_path;
     }
 
     if (strlen(sock_path) >= UNIXSOCK_PATH_BUFLEN) {
@@ -938,7 +938,7 @@ static int Setup_AF_UNIX(bool is_create_psql_sock)
     /* Arrange to unlink the socket file at exit */
     on_proc_exit(StreamDoUnlink, is_create_psql_sock ? (Datum)PSQL_LISTEN_SOCKET : (Datum)HA_LISTEN_SOCKET);
 
-    const char* sock_path = (is_create_psql_sock ? t_thrd.libpq_cxt.sock_path : t_thrd.libpq_cxt.ha_sock_path);
+    const char* sock_path = (is_create_psql_sock ? t_thrd.libpq_cxt.libpq_cold->sock_path : t_thrd.libpq_cxt.libpq_cold->ha_sock_path);
 
     /*
      * Fix socket ownership/permission if requested.  Note we must do this
@@ -1151,8 +1151,8 @@ void TouchSocketFileInternel(const char* sock_path)
 
 void TouchSocketFile(void)
 {
-    TouchSocketFileInternel(t_thrd.libpq_cxt.sock_path);
-    TouchSocketFileInternel(t_thrd.libpq_cxt.ha_sock_path);
+    TouchSocketFileInternel(t_thrd.libpq_cxt.libpq_cold->sock_path);
+    TouchSocketFileInternel(t_thrd.libpq_cxt.libpq_cold->ha_sock_path);
 }
 
 /* --------------------------------

@@ -2509,15 +2509,15 @@ void DebugFileOpen(void)
     int fd = 0;
     int istty = 0;
 
-    if (t_thrd.proc_cxt.OutputFileName[0]) {
+    if (t_thrd.proc_cxt.proc_cold->OutputFileName[0]) {
         /*
          * A debug-output file name was given.
          *
          * Make sure we can write the file, and find out if it's a tty.
          */
-        if ((fd = open(t_thrd.proc_cxt.OutputFileName, O_CREAT | O_APPEND | O_WRONLY, 0600)) < 0) {
+        if ((fd = open(t_thrd.proc_cxt.proc_cold->OutputFileName, O_CREAT | O_APPEND | O_WRONLY, 0600)) < 0) {
             ereport(FATAL,
-                (errcode_for_file_access(), errmsg("could not open file \"%s\": %m", t_thrd.proc_cxt.OutputFileName)));
+                (errcode_for_file_access(), errmsg("could not open file \"%s\": %m", t_thrd.proc_cxt.proc_cold->OutputFileName)));
         }
         istty = isatty(fd);
         close(fd);
@@ -2525,10 +2525,10 @@ void DebugFileOpen(void)
         /*
          * Redirect our stderr to the debug output file.
          */
-        if (!freopen(t_thrd.proc_cxt.OutputFileName, "a", stderr)) {
+        if (!freopen(t_thrd.proc_cxt.proc_cold->OutputFileName, "a", stderr)) {
             ereport(FATAL,
                 (errcode_for_file_access(),
-                    errmsg("could not reopen file \"%s\" as stderr: %m", t_thrd.proc_cxt.OutputFileName)));
+                    errmsg("could not reopen file \"%s\" as stderr: %m", t_thrd.proc_cxt.proc_cold->OutputFileName)));
         }
 
         /*
@@ -2538,10 +2538,10 @@ void DebugFileOpen(void)
          * before).
          */
         if (istty && IsUnderPostmaster) {
-            if (!freopen(t_thrd.proc_cxt.OutputFileName, "a", stdout)) {
+            if (!freopen(t_thrd.proc_cxt.proc_cold->OutputFileName, "a", stdout)) {
                 ereport(FATAL,
                     (errcode_for_file_access(),
-                        errmsg("could not reopen file \"%s\" as stdout: %m", t_thrd.proc_cxt.OutputFileName)));
+                        errmsg("could not reopen file \"%s\" as stdout: %m", t_thrd.proc_cxt.proc_cold->OutputFileName)));
             }
         }
     }

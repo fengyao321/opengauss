@@ -993,6 +993,11 @@ static void process_pipe_input(char* auditbuffer, int* bytes_in_auditbuffer)
 {
     char* cursor = auditbuffer;
     int count = *bytes_in_auditbuffer;
+    knl_t_audit_pipe_cold_context* pipe_cold = NULL;
+
+    Assert(t_thrd.role == AUDITOR);
+    Assert(t_thrd.audit.pipe_cold != NULL);
+    pipe_cold = t_thrd.audit.pipe_cold;
 
     /* While we have enough for a header, process data... */
     while (count >= (int)sizeof(PipeProtoHeader)) {
@@ -1016,7 +1021,7 @@ static void process_pipe_input(char* auditbuffer, int* bytes_in_auditbuffer)
                 break;
             }
             /* Locate any existing buffer for this source pid */
-            buffer_list = t_thrd.audit.buffer_lists[p.pid % NBUFFER_LISTS];
+            buffer_list = pipe_cold->buffer_lists[p.pid % NBUFFER_LISTS];
             foreach (cell, buffer_list) {
                 save_buffer* buf = (save_buffer*)lfirst(cell);
 
@@ -1047,7 +1052,7 @@ static void process_pipe_input(char* auditbuffer, int* bytes_in_auditbuffer)
                          */
                         free_slot = (save_buffer*)palloc(sizeof(save_buffer));
                         buffer_list = lappend(buffer_list, free_slot);
-                        t_thrd.audit.buffer_lists[p.pid % NBUFFER_LISTS] = buffer_list;
+                        pipe_cold->buffer_lists[p.pid % NBUFFER_LISTS] = buffer_list;
                     }
                     free_slot->pid = p.pid;
                     str = &(free_slot->data);
@@ -1121,10 +1126,15 @@ static void process_pipe_input(char* auditbuffer, int* bytes_in_auditbuffer)
 static void flush_pipe_input(char* auditbuffer, int* bytes_in_auditbuffer)
 {
     int i;
+    knl_t_audit_pipe_cold_context* pipe_cold = NULL;
+
+    Assert(t_thrd.role == AUDITOR);
+    Assert(t_thrd.audit.pipe_cold != NULL);
+    pipe_cold = t_thrd.audit.pipe_cold;
 
     /* Dump any incomplete protocol messages */
     for (i = 0; i < NBUFFER_LISTS; i++) {
-        List* list = t_thrd.audit.buffer_lists[i];
+        List* list = pipe_cold->buffer_lists[i];
         ListCell* cell = NULL;
 
         foreach (cell, list) {
@@ -1596,7 +1606,7 @@ void pgaudit_gen_auditfile_warning(pg_time_t remain_time, uint4 filesize)
         ereport(WARNING,
                 (errmsg("audit file total count(%u) exceed guc parameter(audit_file_remain_threshold: %d)",
                         g_instance.audit_cxt.audit_indextbl->count, u_sess->attr.attr_security.Audit_RemainThreshold)));
-    ereport(WARNING, (errmsg("%s", t_thrd.audit.pgaudit_filepath)));
+    ereport(WARNING, (errmsg("%s", knl_t_audit_filepath(&t_thrd.audit))));
 }
 
 bool should_keep_basedon_timepolicy(pg_time_t remain_time, uint4 filesize, uint32 index, const AuditIndexItem *item)
@@ -1639,6 +1649,7 @@ static void pgaudit_cleanup(void)
     uint32 index = 0;
     AuditIndexItem* item = NULL;
     bool truncated = false;
+    char* pgaudit_filepath = knl_t_audit_filepath(&t_thrd.audit);
     LWLockAcquire(AuditIndexFileLock, LW_EXCLUSIVE);
     if (g_instance.audit_cxt.audit_indextbl == NULL) {
         LWLockRelease(AuditIndexFileLock);
@@ -1667,11 +1678,11 @@ static void pgaudit_cleanup(void)
         }
 
         /* trunate audit file */
-        int rc = snprintf_s(t_thrd.audit.pgaudit_filepath, MAXPGPATH, MAXPGPATH - 1, pgaudit_filename,
+        int rc = snprintf_s(pgaudit_filepath, MAXPGPATH, MAXPGPATH - 1, pgaudit_filename,
             g_instance.attr.attr_security.Audit_directory, item->filenum);
         securec_check_intval(rc, , );
         struct stat statbuf;
-        if (stat(t_thrd.audit.pgaudit_filepath, &statbuf) == 0 && unlink(t_thrd.audit.pgaudit_filepath) < 0) {
+        if (stat(pgaudit_filepath, &statbuf) == 0 && unlink(pgaudit_filepath) < 0) {
             ereport(WARNING, (errmsg("could not remove audit file: %m")));
             break;
         }
@@ -1690,10 +1701,9 @@ static void pgaudit_cleanup(void)
 
         /* generate audit info for removing an audit file, we only do this thing under auditor thread */
         if (t_thrd.role != AUDITOR) {
-            rc = snprintf_truncated_s(t_thrd.audit.pgaudit_filepath, MAXPGPATH, "remove an audit file(number: %u)",
-                                      fnum);
+            rc = snprintf_truncated_s(pgaudit_filepath, MAXPGPATH, "remove an audit file(number: %u)", fnum);
             securec_check_ss(rc, "\0", "\0");
-            audit_report(AUDIT_INTERNAL_EVENT, AUDIT_OK, "file", t_thrd.audit.pgaudit_filepath);
+            audit_report(AUDIT_INTERNAL_EVENT, AUDIT_OK, "file", pgaudit_filepath);
         }
         /* stop till the current writting index */
         uint32 earliest_idx = g_instance.audit_cxt.audit_indextbl->latest_idx - g_instance.audit_cxt.thread_num;
@@ -2758,11 +2768,12 @@ static void pgaudit_reset_indexfile()
     /* If file remain threshold parameter changed more little, than need to cleanup the audit data first */
     uint32 old_maxnum = g_instance.audit_cxt.audit_indextbl->maxnum;
     if (old_maxnum > (uint32)u_sess->attr.attr_security.Audit_RemainThreshold + 1) {
-        int rc = snprintf_s(t_thrd.audit.pgaudit_filepath, MAXPGPATH, MAXPGPATH - 1, "%s/%s",
+        char* pgaudit_filepath = knl_t_audit_filepath(&t_thrd.audit);
+        int rc = snprintf_s(pgaudit_filepath, MAXPGPATH, MAXPGPATH - 1, "%s/%s",
             g_instance.attr.attr_security.Audit_directory, audit_indextbl_file);
         securec_check_intval(rc,,);
 
-        if (unlink(t_thrd.audit.pgaudit_filepath) < 0)
+        if (unlink(pgaudit_filepath) < 0)
             ereport(WARNING, (errmsg("could not remove audit index table file: %m")));
 
         pgaudit_cleanup();
@@ -3111,18 +3122,18 @@ static void pgaudit_query_file(Tuplestorestate *state, TupleDesc tdesc, uint32 f
     TimestampTz datetime;
     AuditMsgHdr header;
     AuditData* adata = NULL;
+    char* pgaudit_filepath = knl_t_audit_filepath(&t_thrd.audit);
 
     if (state == NULL || tdesc == NULL)
         return;
 
-    int rcs =
-        snprintf_s(t_thrd.audit.pgaudit_filepath, MAXPGPATH, MAXPGPATH - 1, pgaudit_filename, audit_directory, fnum);
+    int rcs = snprintf_s(pgaudit_filepath, MAXPGPATH, MAXPGPATH - 1, pgaudit_filename, audit_directory, fnum);
     securec_check_intval(rcs,,);
     /* Open the audit file to scan the audit record. */
-    fp = AllocateFile(t_thrd.audit.pgaudit_filepath, PG_BINARY_R);
+    fp = AllocateFile(pgaudit_filepath, PG_BINARY_R);
     if (fp == NULL) {
         ereport(LOG,
-            (errcode_for_file_access(), errmsg("could not open audit file \"%s\": %m", t_thrd.audit.pgaudit_filepath)));
+            (errcode_for_file_access(), errmsg("could not open audit file \"%s\": %m", pgaudit_filepath)));
         return;
     }
 
@@ -3142,7 +3153,7 @@ static void pgaudit_query_file(Tuplestorestate *state, TupleDesc tdesc, uint32 f
         (void)fseek(fp, -1, SEEK_CUR);
         size_t header_available = fread(&header, sizeof(AuditMsgHdr), 1, fp);
         if (header_available != 1 || pgaudit_invalid_header(&header, newVersion)) {
-            ereport(LOG, (errmsg("invalid data in audit file \"%s\"", t_thrd.audit.pgaudit_filepath)));
+            ereport(LOG, (errmsg("invalid data in audit file \"%s\"", pgaudit_filepath)));
             /* label the currupt file num, then it may be reinit in audit thread but not here. */
             pgaudit_mark_corrupt_info(fnum);
             break;
@@ -3156,7 +3167,7 @@ static void pgaudit_query_file(Tuplestorestate *state, TupleDesc tdesc, uint32 f
         if (nread != 1) {
             ereport(LOG,
                 (errcode_for_file_access(),
-                    errmsg("could not read audit file \"%s\": %m", t_thrd.audit.pgaudit_filepath)));
+                    errmsg("could not read audit file \"%s\": %m", pgaudit_filepath)));
             /* label the currupt file num, then it may be reinit in audit thread but not here. */
             pgaudit_mark_corrupt_info(fnum);
             pfree(adata);
@@ -3173,7 +3184,7 @@ static void pgaudit_query_file(Tuplestorestate *state, TupleDesc tdesc, uint32 f
         pfree(adata);
     } while (true);
 
-    pgaudit_close_file(fp, t_thrd.audit.pgaudit_filepath);
+    pgaudit_close_file(fp, pgaudit_filepath);
 }
 
 /*
@@ -3186,8 +3197,9 @@ static void pgaudit_delete_file(uint32 fnum, TimestampTz begtime, TimestampTz en
     ssize_t nread = 0;
     TimestampTz datetime;
     AuditMsgHdr header;
+    char* pgaudit_filepath = knl_t_audit_filepath(&t_thrd.audit);
 
-    int rc = snprintf_s(t_thrd.audit.pgaudit_filepath,
+    int rc = snprintf_s(pgaudit_filepath,
         MAXPGPATH,
         MAXPGPATH - 1,
         pgaudit_filename,
@@ -3196,10 +3208,10 @@ static void pgaudit_delete_file(uint32 fnum, TimestampTz begtime, TimestampTz en
     securec_check_intval(rc,,);
 
     /* Open the audit file to scan the audit record. */
-    fd = open(t_thrd.audit.pgaudit_filepath, O_RDWR, pgaudit_filemode);
+    fd = open(pgaudit_filepath, O_RDWR, pgaudit_filemode);
     if (fd < 0) {
         ereport(LOG,
-            (errcode_for_file_access(), errmsg("could not open audit file \"%s\": %m", t_thrd.audit.pgaudit_filepath)));
+            (errcode_for_file_access(), errmsg("could not open audit file \"%s\": %m", pgaudit_filepath)));
         return;
     }
 
@@ -3216,7 +3228,7 @@ static void pgaudit_delete_file(uint32 fnum, TimestampTz begtime, TimestampTz en
             header.fields == PGAUDIT_QUERY_COLS ||
             header.fields == PGAUDIT_QUERY_COLS_NEW)) {
             /* make sure we are compatible with the older version audit file */
-            ereport(LOG, (errmsg("invalid data in audit file \"%s\"", t_thrd.audit.pgaudit_filepath)));
+            ereport(LOG, (errmsg("invalid data in audit file \"%s\"", pgaudit_filepath)));
             break;
         }
 
@@ -3557,8 +3569,9 @@ static void CheckAuditFile(void)
     fnum = item->filenum;
     LWLockRelease(AuditIndexFileLock);
 
-    rc = snprintf_s(t_thrd.audit.pgaudit_filepath, MAXPGPATH, MAXPGPATH - 1, pgaudit_filename,
-                    g_instance.attr.attr_security.Audit_directory, fnum);
+    char* pgaudit_filepath = knl_t_audit_filepath(&t_thrd.audit);
+    rc = snprintf_s(pgaudit_filepath, MAXPGPATH, MAXPGPATH - 1, pgaudit_filename,
+        g_instance.attr.attr_security.Audit_directory, fnum);
     securec_check_ss(rc, "\0", "\0");
 
     /*
@@ -3567,8 +3580,7 @@ static void CheckAuditFile(void)
      * we'll truncate it. And in there we'll reinit it too.
      * allow error here as process have been rnning but not startup
      */
-    if (lstat(t_thrd.audit.pgaudit_filepath, &statBuf) == -1 ||
-        (lstat(t_thrd.audit.pgaudit_filepath, &statBuf) == 0 && statBuf.st_size == 0)) {
+    if (lstat(pgaudit_filepath, &statBuf) == -1 || (lstat(pgaudit_filepath, &statBuf) == 0 && statBuf.st_size == 0)) {
         if (t_thrd.audit.sysauditFile != NULL) {
             fclose(t_thrd.audit.sysauditFile);
             t_thrd.audit.sysauditFile = NULL;
@@ -3581,10 +3593,10 @@ static void CheckAuditFile(void)
         ereport(WARNING, (errmsg("invalid data in audit file fnum %d", fnum)));
 
         /* truncate the current file */
-        int fd = open(t_thrd.audit.pgaudit_filepath, O_RDWR | O_TRUNC, pgaudit_filemode);
+        int fd = open(pgaudit_filepath, O_RDWR | O_TRUNC, pgaudit_filemode);
         if (fd < 0) {
             ereport(ERROR, (errcode_for_file_access(),
-                errmsg("could not truncate audit file \"%s\": %m", t_thrd.audit.pgaudit_filepath)));
+                errmsg("could not truncate audit file \"%s\": %m", pgaudit_filepath)));
         } else {
             close(fd);
         }

@@ -84,6 +84,13 @@ typedef struct DictDesc
 
 #define DICT_CACHE_SIZE 1024
 
+typedef struct knl_t_streaming_dict_cache {
+    HTAB* dict_htable[DICT_CACHE_SIZE];
+    MemoryContext dict_context;
+    bool dict_inited;
+    DictDesc dictdesc[DICT_CACHE_SIZE];
+} knl_t_streaming_dict_cache;
+
 typedef struct knl_t_streaming_context {
     volatile bool is_streaming_engine;
     volatile bool loaded;    /* streaming engine loaded flag */
@@ -104,11 +111,7 @@ typedef struct knl_t_streaming_context {
     Oid streaming_exec_lock_oid;
     MemoryContext ContQueryTransactionContext;
     MemoryContext ContQueryBatchContext;
-
-    HTAB *dict_htable[DICT_CACHE_SIZE];
-    MemoryContext dict_context;
-    bool dict_inited;
-    DictDesc dictdesc[DICT_CACHE_SIZE];
+    knl_t_streaming_dict_cache* dict_cache;
 } knl_t_streaming_context;
 
 typedef struct knl_g_streaming_context {

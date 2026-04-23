@@ -73,6 +73,208 @@ THR_LOCAL knl_thrd_context t_thrd;
 
 extern void temp_file_context_init(knl_t_libpq_context* libpq_cxt);
 
+static inline MemoryContext knl_thread_top_cxt_for_cold_alloc()
+{
+    return (t_thrd.top_mem_cxt != NULL) ? t_thrd.top_mem_cxt : CurrentMemoryContext;
+}
+
+static inline void* knl_thread_palloc0_for_cold_alloc(Size size)
+{
+    MemoryContext target = knl_thread_top_cxt_for_cold_alloc();
+    bool reseal = (target != NULL && target->is_sealed);
+
+    if (reseal) {
+        MemoryContextUnSeal(target);
+    }
+
+    MemoryContext old = MemoryContextSwitchTo(target);
+    void* ptr = palloc0(size);
+    MemoryContextSwitchTo(old);
+
+    if (reseal) {
+        MemoryContextSeal(target);
+    }
+
+    return ptr;
+}
+
+static inline knl_t_proc_cold_context* knl_t_proc_cold_ensure(knl_t_proc_context* proc_cxt)
+{
+    if (proc_cxt->proc_cold == NULL) {
+        proc_cxt->proc_cold =
+            (knl_t_proc_cold_context*)knl_thread_palloc0_for_cold_alloc(sizeof(knl_t_proc_cold_context));
+    }
+    return proc_cxt->proc_cold;
+}
+
+static void knl_t_proc_cold_init(knl_t_proc_context* proc_cxt)
+{
+    knl_t_proc_cold_context* cold = knl_t_proc_cold_ensure(proc_cxt);
+    errno_t rc = memset_s(cold, sizeof(knl_t_proc_cold_context), 0, sizeof(knl_t_proc_cold_context));
+    securec_check(rc, "\0", "\0");
+}
+
+static inline knl_t_libpq_cold_context* knl_t_libpq_cold_ensure(knl_t_libpq_context* libpq_cxt)
+{
+    if (libpq_cxt->libpq_cold == NULL) {
+        libpq_cxt->libpq_cold =
+            (knl_t_libpq_cold_context*)knl_thread_palloc0_for_cold_alloc(sizeof(knl_t_libpq_cold_context));
+    }
+    return libpq_cxt->libpq_cold;
+}
+
+static void knl_t_libpq_cold_init(knl_t_libpq_context* libpq_cxt)
+{
+    knl_t_libpq_cold_context* cold = knl_t_libpq_cold_ensure(libpq_cxt);
+    errno_t rc = memset_s(cold, sizeof(knl_t_libpq_cold_context), 0, sizeof(knl_t_libpq_cold_context));
+    securec_check(rc, "\0", "\0");
+}
+
+static inline knl_t_postmaster_addr_cold_context* knl_t_postmaster_addr_cold_ensure(
+    knl_t_postmaster_context* postmaster_cxt)
+{
+    if (postmaster_cxt->addr_cold == NULL) {
+        postmaster_cxt->addr_cold = (knl_t_postmaster_addr_cold_context*)knl_thread_palloc0_for_cold_alloc(
+            sizeof(knl_t_postmaster_addr_cold_context));
+    }
+    return postmaster_cxt->addr_cold;
+}
+
+static void knl_t_postmaster_addr_cold_init(knl_t_postmaster_context* postmaster_cxt)
+{
+    knl_t_postmaster_addr_cold_context* cold = knl_t_postmaster_addr_cold_ensure(postmaster_cxt);
+    errno_t rc = memset_s(cold, sizeof(knl_t_postmaster_addr_cold_context), 0, sizeof(knl_t_postmaster_addr_cold_context));
+    securec_check(rc, "\0", "\0");
+}
+
+static inline knl_t_walreceiver_path_cold_context* knl_t_walreceiver_path_cold_ensure(
+    knl_t_walreceiver_context* walreceiver_cxt)
+{
+    if (walreceiver_cxt->path_cold == NULL) {
+        walreceiver_cxt->path_cold = (knl_t_walreceiver_path_cold_context*)knl_thread_palloc0_for_cold_alloc(
+            sizeof(knl_t_walreceiver_path_cold_context));
+    }
+    return walreceiver_cxt->path_cold;
+}
+
+static void knl_t_walreceiver_path_cold_init(knl_t_walreceiver_context* walreceiver_cxt)
+{
+    knl_t_walreceiver_path_cold_context* cold = knl_t_walreceiver_path_cold_ensure(walreceiver_cxt);
+    errno_t rc = memset_s(cold, sizeof(knl_t_walreceiver_path_cold_context), 0, sizeof(knl_t_walreceiver_path_cold_context));
+    securec_check(rc, "\0", "\0");
+}
+
+static inline knl_t_walsender_path_cold_context* knl_t_walsender_path_cold_ensure(knl_t_walsender_context* walsender_cxt)
+{
+    if (walsender_cxt->path_cold == NULL) {
+        walsender_cxt->path_cold = (knl_t_walsender_path_cold_context*)knl_thread_palloc0_for_cold_alloc(
+            sizeof(knl_t_walsender_path_cold_context));
+    }
+    return walsender_cxt->path_cold;
+}
+
+static void knl_t_walsender_path_cold_init(knl_t_walsender_context* walsender_cxt)
+{
+    knl_t_walsender_path_cold_context* cold = knl_t_walsender_path_cold_ensure(walsender_cxt);
+    errno_t rc = memset_s(cold, sizeof(knl_t_walsender_path_cold_context), 0, sizeof(knl_t_walsender_path_cold_context));
+    securec_check(rc, "\0", "\0");
+}
+
+static inline knl_t_pgxc_cold_context* knl_t_pgxc_cold_ensure(knl_t_pgxc_context* pgxc_cxt)
+{
+    if (pgxc_cxt->pgxc_cold == NULL) {
+        pgxc_cxt->pgxc_cold =
+            (knl_t_pgxc_cold_context*)knl_thread_palloc0_for_cold_alloc(sizeof(knl_t_pgxc_cold_context));
+    }
+    return pgxc_cxt->pgxc_cold;
+}
+
+static void knl_t_pgxc_cold_init(knl_t_pgxc_context* pgxc_cxt)
+{
+    knl_t_pgxc_cold_context* cold = knl_t_pgxc_cold_ensure(pgxc_cxt);
+    errno_t rc = memset_s(cold, sizeof(knl_t_pgxc_cold_context), 0, sizeof(knl_t_pgxc_cold_context));
+    securec_check(rc, "\0", "\0");
+}
+
+knl_t_audit_path_cold_context* knl_t_audit_path_cold_ensure(knl_t_audit_context* audit)
+{
+    if (audit->path_cold == NULL) {
+        audit->path_cold =
+            (knl_t_audit_path_cold_context*)knl_thread_palloc0_for_cold_alloc(sizeof(knl_t_audit_path_cold_context));
+    }
+    return audit->path_cold;
+}
+
+static inline knl_t_audit_pipe_cold_context* knl_t_audit_pipe_cold_ensure(knl_t_audit_context* audit)
+{
+    if (audit->pipe_cold == NULL) {
+        audit->pipe_cold =
+            (knl_t_audit_pipe_cold_context*)knl_thread_palloc0_for_cold_alloc(sizeof(knl_t_audit_pipe_cold_context));
+    }
+    return audit->pipe_cold;
+}
+
+static void knl_t_audit_pipe_cold_init(knl_t_audit_context* audit)
+{
+    knl_t_audit_pipe_cold_context* cold = knl_t_audit_pipe_cold_ensure(audit);
+    errno_t rc = memset_s(cold, sizeof(knl_t_audit_pipe_cold_context), 0, sizeof(knl_t_audit_pipe_cold_context));
+    securec_check(rc, "\0", "\0");
+}
+
+static inline knl_t_logger_cold_context* knl_t_logger_cold_ensure(knl_t_logger_context* logger)
+{
+    if (logger->logger_cold == NULL) {
+        logger->logger_cold =
+            (knl_t_logger_cold_context*)knl_thread_palloc0_for_cold_alloc(sizeof(knl_t_logger_cold_context));
+    }
+    return logger->logger_cold;
+}
+
+static void knl_t_logger_cold_init(knl_t_logger_context* logger)
+{
+    knl_t_logger_cold_context* cold = knl_t_logger_cold_ensure(logger);
+    errno_t rc = memset_s(cold, sizeof(knl_t_logger_cold_context), 0, sizeof(knl_t_logger_cold_context));
+    securec_check(rc, "\0", "\0");
+}
+
+static inline knl_t_dynahash_scan_cold_context* knl_t_dynahash_scan_cold_ensure(knl_t_dynahash_context* dyhash_cxt)
+{
+    if (dyhash_cxt->scan_cold == NULL) {
+        dyhash_cxt->scan_cold = (knl_t_dynahash_scan_cold_context*)knl_thread_palloc0_for_cold_alloc(
+            sizeof(knl_t_dynahash_scan_cold_context));
+    }
+    return dyhash_cxt->scan_cold;
+}
+
+static void knl_t_dynahash_scan_cold_init(knl_t_dynahash_context* dyhash_cxt)
+{
+    knl_t_dynahash_scan_cold_context* cold = knl_t_dynahash_scan_cold_ensure(dyhash_cxt);
+    errno_t rc = memset_s(cold, sizeof(knl_t_dynahash_scan_cold_context), 0, sizeof(knl_t_dynahash_scan_cold_context));
+    securec_check(rc, "\0", "\0");
+}
+
+static inline knl_t_streaming_dict_cache* knl_t_streaming_dict_cache_ensure(knl_t_streaming_context* streaming_cxt)
+{
+    if (streaming_cxt->dict_cache == NULL) {
+        streaming_cxt->dict_cache = (knl_t_streaming_dict_cache*)palloc0(sizeof(knl_t_streaming_dict_cache));
+    }
+    return streaming_cxt->dict_cache;
+}
+
+static void knl_t_streaming_dict_cache_init(knl_t_streaming_context* streaming_cxt)
+{
+    knl_t_streaming_dict_cache* dict_cache = knl_t_streaming_dict_cache_ensure(streaming_cxt);
+    errno_t rc = memset_s(dict_cache, sizeof(knl_t_streaming_dict_cache), 0, sizeof(knl_t_streaming_dict_cache));
+    securec_check(rc, "\0", "\0");
+}
+
+static inline bool IsStreamingWorkerRole(knl_thread_role role)
+{
+    return role == STREAM_WORKER || role == THREADPOOL_STREAM || role == STREAMING_BACKEND ||
+        role == STREAMING_ROUTER_BACKEND || role == STREAMING_WORKER_BACKEND || role == STREAMING_COLLECTOR_BACKEND ||
+        role == STREAMING_QUEUE_BACKEND || role == STREAMING_REAPER_BACKEND;
+}
+
 static void knl_t_aes_init(knl_t_aes_context* aes_cxt)
 {
     size_t arrlen = sizeof(GS_UCHAR) * RANDOM_LEN;
@@ -546,6 +748,7 @@ static void knl_t_dynahash_init(knl_t_dynahash_context* dyhash_cxt)
 {
     dyhash_cxt->CurrentDynaHashCxt = NULL;
     dyhash_cxt->num_seq_scans = 0;
+    knl_t_dynahash_scan_cold_init(dyhash_cxt);
 }
 
 static void knl_t_interrupt_init(knl_t_interrupt_context* int_cxt)
@@ -568,6 +771,7 @@ static void knl_t_interrupt_init(knl_t_interrupt_context* int_cxt)
 
 static void knl_t_proc_init(knl_t_proc_context* proc_cxt)
 {
+    knl_t_proc_cold_init(proc_cxt);
     proc_cxt->MyProgName = "unknown";
     proc_cxt->MyBackendId = InvalidBackendId;
     proc_cxt->MyStartTime = 0;
@@ -603,6 +807,11 @@ static void knl_t_wlm_init(knl_t_wlmthrd_context* wlm_cxt)
 
 static void knl_t_audit_init(knl_t_audit_context* audit)
 {
+    audit->path_cold = NULL;
+    audit->pipe_cold = NULL;
+    if (t_thrd.role == AUDITOR) {
+        knl_t_audit_pipe_cold_init(audit);
+    }
     audit->audit_indextbl = NULL;
     audit->sysauditFile = NULL;
     audit->policyauditFile = NULL;
@@ -615,7 +824,6 @@ static void knl_t_audit_init(knl_t_audit_context* audit)
     audit->got_SIGHUP = false;
     audit->rotation_requested = false;
     audit->space_beyond_size = (10 * 1024 * 1024);
-    audit->pgaudit_filepath[0] = '\0';
     audit->cur_thread_idx = -1;
 }
 
@@ -689,6 +897,11 @@ static void knl_t_barrier_arch_init(knl_t_barrier_arch_context* barrier_arch)
 
 static void knl_t_logger_init(knl_t_logger_context* logger)
 {
+    if (t_thrd.role == SYSLOGGER) {
+        knl_t_logger_cold_init(logger);
+    } else {
+        logger->logger_cold = NULL;
+    }
     logger->pipe_eof_seen = false;
     logger->rotation_disabled = false;
     logger->syslogFile = NULL;
@@ -947,6 +1160,7 @@ static void knl_t_utils_init(knl_t_utils_context* utils_cxt)
 static void knl_t_pgxc_init(knl_t_pgxc_context* pgxc_cxt)
 {
     errno_t rc;
+    knl_t_pgxc_cold_init(pgxc_cxt);
 
     pgxc_cxt->current_installation_nodegroup = NULL;
     pgxc_cxt->current_redistribution_nodegroup = NULL;
@@ -968,9 +1182,9 @@ static void knl_t_pgxc_init(knl_t_pgxc_context* pgxc_cxt)
 
     pgxc_cxt->temp_object_included = false;
     pgxc_cxt->dbcleanup_info = (abort_callback_type*)palloc0(sizeof(abort_callback_type));
-    rc = memset_s(pgxc_cxt->socket_buffer, SOCKET_BUFFER_LEN, 0, SOCKET_BUFFER_LEN);
+    rc = memset_s(pgxc_cxt->pgxc_cold->socket_buffer, SOCKET_BUFFER_LEN, 0, SOCKET_BUFFER_LEN);
     securec_check(rc, "\0", "\0");
-    rc = memset_s(pgxc_cxt->begin_cmd, BEGIN_CMD_BUFF_SIZE, 0, BEGIN_CMD_BUFF_SIZE);
+    rc = memset_s(pgxc_cxt->pgxc_cold->begin_cmd, BEGIN_CMD_BUFF_SIZE, 0, BEGIN_CMD_BUFF_SIZE);
     securec_check(rc, "\0", "\0");
 }
 
@@ -1283,12 +1497,13 @@ static void knl_t_comm_init(knl_t_comm_context* comm_cxt)
 static void knl_t_libpq_init(knl_t_libpq_context* libpq_cxt)
 {
     errno_t rc;
+    knl_t_libpq_cold_init(libpq_cxt);
 
     Assert(libpq_cxt != NULL);
     libpq_cxt->listen_fd_for_recv_flow_ctrl = -1;
-    rc = memset_s(libpq_cxt->sock_path, MAXPGPATH, 0, MAXPGPATH);
+    rc = memset_s(libpq_cxt->libpq_cold->sock_path, MAXPGPATH, 0, MAXPGPATH);
     securec_check(rc, "\0", "\0");
-    rc = memset_s(libpq_cxt->ha_sock_path, MAXPGPATH, 0, MAXPGPATH);
+    rc = memset_s(libpq_cxt->libpq_cold->ha_sock_path, MAXPGPATH, 0, MAXPGPATH);
     securec_check(rc, "\0", "\0");
     libpq_cxt->PqSendBuffer = NULL;
     libpq_cxt->PqCommBusy = false;
@@ -1316,16 +1531,23 @@ static void knl_t_contrib_init(knl_t_contrib_context* contrib_cxt)
 static void knl_t_walreceiver_init(knl_t_walreceiver_context* walreceiver_cxt)
 {
     errno_t rc;
+    if (t_thrd.role == WALRECEIVER) {
+        knl_t_walreceiver_path_cold_init(walreceiver_cxt);
+    } else {
+        walreceiver_cxt->path_cold = NULL;
+    }
 
     walreceiver_cxt->got_SIGHUP = false;
     walreceiver_cxt->got_SIGTERM = false;
     walreceiver_cxt->start_switchover = false;
-    rc = memset_s(walreceiver_cxt->gucconf_file, MAXPGPATH, 0, MAXPGPATH);
-    securec_check(rc, "\0", "\0");
-    rc = memset_s(walreceiver_cxt->temp_guc_conf_file, MAXPGPATH, 0, MAXPGPATH);
-    securec_check(rc, "\0", "\0");
-    rc = memset_s(walreceiver_cxt->gucconf_lock_file, MAXPGPATH, 0, MAXPGPATH);
-    securec_check(rc, "\0", "\0");
+    if (walreceiver_cxt->path_cold != NULL) {
+        rc = memset_s(walreceiver_cxt->path_cold->gucconf_file, MAXPGPATH, 0, MAXPGPATH);
+        securec_check(rc, "\0", "\0");
+        rc = memset_s(walreceiver_cxt->path_cold->temp_guc_conf_file, MAXPGPATH, 0, MAXPGPATH);
+        securec_check(rc, "\0", "\0");
+        rc = memset_s(walreceiver_cxt->path_cold->gucconf_lock_file, MAXPGPATH, 0, MAXPGPATH);
+        securec_check(rc, "\0", "\0");
+    }
     walreceiver_cxt->reserve_item = {0};
     walreceiver_cxt->check_file_timeout = 60 * 60 * 1000;
     walreceiver_cxt->walRcvCtlBlock = NULL;
@@ -1512,6 +1734,7 @@ static void knl_t_port_init(knl_t_port_context* port_cxt)
 static void knl_t_walsender_init(knl_t_walsender_context* walsender_cxt)
 {
     errno_t rc;
+    knl_t_walsender_path_cold_init(walsender_cxt);
 
     walsender_cxt->load_cu_buffer = NULL;
     walsender_cxt->load_cu_buffer_size = 64 * 1024 * 1024;
@@ -1538,11 +1761,11 @@ static void knl_t_walsender_init(knl_t_walsender_context* walsender_cxt)
     walsender_cxt->walsender_ready_to_stop = false;
     walsender_cxt->response_switchover_requested = false;
     walsender_cxt->server_run_mode = NORMAL_MODE;
-    rc = memset_s(walsender_cxt->gucconf_file, MAXPGPATH, 0, MAXPGPATH);
+    rc = memset_s(walsender_cxt->path_cold->gucconf_file, MAXPGPATH, 0, MAXPGPATH);
     securec_check(rc, "\0", "\0");
-    rc = memset_s(walsender_cxt->gucconf_lock_file, MAXPGPATH, 0, MAXPGPATH);
+    rc = memset_s(walsender_cxt->path_cold->gucconf_lock_file, MAXPGPATH, 0, MAXPGPATH);
     securec_check(rc, "\0", "\0");
-    rc = memset_s(walsender_cxt->slotname, NAMEDATALEN, 0, NAMEDATALEN);
+    rc = memset_s(walsender_cxt->path_cold->slotname, NAMEDATALEN, 0, NAMEDATALEN);
     securec_check(rc, "\0", "\0");
     walsender_cxt->ws_dummy_data_read_file_fd = NULL;
     walsender_cxt->ws_dummy_data_read_file_num = 1;
@@ -1583,6 +1806,7 @@ static void knl_t_tsearch_init(knl_t_tsearch_context* tsearch_cxt)
 
 static void knl_t_postmaster_init(knl_t_postmaster_context* postmaster_cxt)
 {
+    knl_t_postmaster_addr_cold_init(postmaster_cxt);
     postmaster_cxt->ProcessStartupPacketForLogicConn = false;
     postmaster_cxt->sock_for_libcomm = -1;
     postmaster_cxt->port_for_libcomm = NULL;
@@ -1713,6 +1937,9 @@ static void knl_t_streaming_init(knl_t_streaming_context* streaming_cxt)
     errno_t rc = EOK;
     rc = memset_s(streaming_cxt, sizeof(knl_t_streaming_context), 0, sizeof(knl_t_streaming_context));
     securec_check(rc, "\0", "\0");
+    if (IsStreamingWorkerRole(t_thrd.role)) {
+        knl_t_streaming_dict_cache_init(streaming_cxt);
+    }
     return;
 }
 
@@ -2064,6 +2291,24 @@ void knl_thread_init(knl_thread_role role)
     KnlTSmbWriterInit(&t_thrd.smbWriterCxt);
 }
 
+void knl_thread_layout_dump(void)
+{
+    elog(LOG,
+        "knl_thread layout: sizeof(knl_thrd_context)=%zu, sizeof(knl_t_streaming_context)=%zu, "
+        "sizeof(knl_t_streaming_dict_cache)=%zu, off(int_cxt)=%zu, off(proc_cxt)=%zu, off(xact_cxt)=%zu, "
+        "off(storage_cxt)=%zu, off(shemem_ptr_cxt)=%zu, off(xlog_cxt)=%zu, off(utils_cxt)=%zu",
+        sizeof(knl_thrd_context),
+        sizeof(knl_t_streaming_context),
+        sizeof(knl_t_streaming_dict_cache),
+        offsetof(knl_thrd_context, int_cxt),
+        offsetof(knl_thrd_context, proc_cxt),
+        offsetof(knl_thrd_context, xact_cxt),
+        offsetof(knl_thrd_context, storage_cxt),
+        offsetof(knl_thrd_context, shemem_ptr_cxt),
+        offsetof(knl_thrd_context, xlog_cxt),
+        offsetof(knl_thrd_context, utils_cxt));
+}
+
 __attribute__ ((__used__)) knl_thrd_context *GetCurrentThread()
 {
     return &t_thrd;
@@ -2114,4 +2359,3 @@ void VerifyMemoryContext()
             gs_thread_self())));
     }
 }
-

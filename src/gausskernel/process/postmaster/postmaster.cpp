@@ -1495,7 +1495,7 @@ static void reload_listen_addresses_err_info()
             i, g_instance.listen_cxt.ListenSocket[i],
             g_instance.listen_cxt.all_listen_addr_list[i],
             g_instance.listen_cxt.all_listen_port_list[i],
-            t_thrd.postmaster_cxt.all_listen_addr_can_stop[i] ? "true" : "false",
+            t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[i] ? "true" : "false",
             g_instance.listen_cxt.listen_chanel_type[i])));
     }
 }
@@ -1547,8 +1547,8 @@ static void rebuild_listen_address_socket()
     }
 
     for (i = 0; i < MAXLISTEN; i++) {
-        t_thrd.postmaster_cxt.all_listen_addr_can_stop[i] = true;
-        t_thrd.postmaster_cxt.local_listen_addr_can_stop[i] = true;
+        t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[i] = true;
+        t_thrd.postmaster_cxt.addr_cold->local_listen_addr_can_stop[i] = true;
     }
 
     int checked_num = 0;
@@ -1603,12 +1603,12 @@ static void rebuild_listen_address_socket()
                 pfree(rawstring);
                 return;
             } else if (family == AF_UNIX) {
-                t_thrd.postmaster_cxt.all_listen_addr_can_stop[i] = false;
+                t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[i] = false;
                 continue;
             }
 
             if (CheckSockAddr(&saddr, curhost, g_instance.attr.attr_network.PostPortNumber)) {
-                t_thrd.postmaster_cxt.all_listen_addr_can_stop[i] = false;
+                t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[i] = false;
                 ereport(WARNING, (errmodule(MOD_COMM_FRAMEWORK),
                     errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                     errmsg("[reload listen IP]\"listen_addresses\" already listen IP %s, port %d",
@@ -1617,7 +1617,7 @@ static void rebuild_listen_address_socket()
             }
 
             if (CheckSockAddr(&saddr, curhost, g_instance.attr.attr_network.PoolerPort)) {
-                t_thrd.postmaster_cxt.all_listen_addr_can_stop[i] = false;
+                t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[i] = false;
                 ereport(WARNING, (errmodule(MOD_COMM_FRAMEWORK),
                     errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                     errmsg("[reload listen IP]\"listen_addresses\" already listen IP %s, port %d",
@@ -1653,12 +1653,12 @@ static void rebuild_listen_address_socket()
             continue;
         }
 
-        if (!t_thrd.postmaster_cxt.all_listen_addr_can_stop[i]) {
+        if (!t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[i]) {
             continue;
         }
         /* If socket is ext_listen_addresses, should not close it */
         if (is_ext_listen_addresses) {
-            t_thrd.postmaster_cxt.all_listen_addr_can_stop[i] = false;
+            t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[i] = false;
             continue;
         }
         /*
@@ -1666,7 +1666,7 @@ static void rebuild_listen_address_socket()
          * <listen_addresses, dolphin_server_port>, so we will close this socket if listen_addresses changed.
          */
         if (is_dolphin_listen_addresses) {
-            t_thrd.postmaster_cxt.all_listen_addr_can_stop[i] = true;
+            t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[i] = true;
             continue;
         }
         struct sockaddr saddr;
@@ -1685,13 +1685,13 @@ static void rebuild_listen_address_socket()
         }
         /* listen_addresses only listen port and port + 1. Other port number should not be closed */
         if (port != g_instance.attr.attr_network.PostPortNumber && port != g_instance.attr.attr_network.PoolerPort) {
-            t_thrd.postmaster_cxt.all_listen_addr_can_stop[i] = false;
+            t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[i] = false;
             continue;
         }
         /* If listen_addresses includes '*', we will close repl socket and rebuild */
         if (!haswildcard && (cmp_ip_with_replication(sock_ip, port, t_thrd.postmaster_cxt.ReplConnArray, family) ||
             cmp_ip_with_replication(sock_ip, port, t_thrd.postmaster_cxt.CrossClusterReplConnArray, family))) {
-            t_thrd.postmaster_cxt.all_listen_addr_can_stop[i] = false;
+            t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[i] = false;
         }
     }
 
@@ -1699,7 +1699,7 @@ static void rebuild_listen_address_socket()
     for (i = 0; i < t_thrd.postmaster_cxt.LocalIpNum; i++) {
         for (j = 0; j < MAXLISTEN; j++) {
             int sock = g_instance.listen_cxt.ListenSocket[j];
-            if (sock == PGINVALID_SOCKET || t_thrd.postmaster_cxt.all_listen_addr_can_stop[j]) {
+            if (sock == PGINVALID_SOCKET || t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[j]) {
                 continue;
             }
             struct sockaddr saddr;
@@ -1716,8 +1716,8 @@ static void rebuild_listen_address_socket()
             } else if (family == AF_UNIX) {
                 continue;
             }
-            if (strcmp(sock_ip, t_thrd.postmaster_cxt.LocalAddrList[i]) == 0) {
-                t_thrd.postmaster_cxt.local_listen_addr_can_stop[i] = false;
+            if (strcmp(sock_ip, t_thrd.postmaster_cxt.addr_cold->LocalAddrList[i]) == 0) {
+                t_thrd.postmaster_cxt.addr_cold->local_listen_addr_can_stop[i] = false;
             }
         }
     }
@@ -1731,7 +1731,7 @@ static void rebuild_listen_address_socket()
          * [j] indicates the first position of all socket list which can be closed.
          * If listen addr could not stop, we should reserve it and swap it with [j], and move j backward.
          */
-        if (!t_thrd.postmaster_cxt.all_listen_addr_can_stop[i]) {
+        if (!t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[i]) {
             if (i > j) {
                 swap_pointer_context(g_instance.listen_cxt.all_listen_addr_list[i], IP_LEN,
                     g_instance.listen_cxt.all_listen_addr_list[j], IP_LEN);
@@ -1741,8 +1741,8 @@ static void rebuild_listen_address_socket()
                     &g_instance.listen_cxt.ListenSocket[j], sizeof(int));
                 swap_pointer_context(&g_instance.listen_cxt.listen_sock_type[i], sizeof(int),
                     &g_instance.listen_cxt.listen_sock_type[j], sizeof(int));
-                swap_pointer_context(&t_thrd.postmaster_cxt.all_listen_addr_can_stop[i], sizeof(bool),
-                    &t_thrd.postmaster_cxt.all_listen_addr_can_stop[j], sizeof(bool));
+                swap_pointer_context(&t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[i], sizeof(bool),
+                    &t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[j], sizeof(bool));
                 swap_pointer_context(&g_instance.listen_cxt.listen_chanel_type[i], sizeof(int),
                     &g_instance.listen_cxt.listen_chanel_type[j], sizeof(int));
             }
@@ -1752,12 +1752,12 @@ static void rebuild_listen_address_socket()
          * [k] indicates the first position of local addr list which can be removed.
          * If listen addr could not stop, we should reserve it and swap it with [k], and move k backward.
          */
-        if (!t_thrd.postmaster_cxt.local_listen_addr_can_stop[i]) {
+        if (!t_thrd.postmaster_cxt.addr_cold->local_listen_addr_can_stop[i]) {
             if (i > k) {
-                swap_pointer_context(t_thrd.postmaster_cxt.LocalAddrList[i], IP_LEN,
-                    t_thrd.postmaster_cxt.LocalAddrList[k], IP_LEN);
-                swap_pointer_context(&t_thrd.postmaster_cxt.local_listen_addr_can_stop[i], sizeof(bool),
-                    &t_thrd.postmaster_cxt.local_listen_addr_can_stop[k], sizeof(bool));
+                swap_pointer_context(t_thrd.postmaster_cxt.addr_cold->LocalAddrList[i], IP_LEN,
+                    t_thrd.postmaster_cxt.addr_cold->LocalAddrList[k], IP_LEN);
+                swap_pointer_context(&t_thrd.postmaster_cxt.addr_cold->local_listen_addr_can_stop[i], sizeof(bool),
+                    &t_thrd.postmaster_cxt.addr_cold->local_listen_addr_can_stop[k], sizeof(bool));
             }
             k++;
         }
@@ -1768,7 +1768,7 @@ static void rebuild_listen_address_socket()
         if (g_instance.listen_cxt.ListenSocket[i] == PGINVALID_SOCKET) {
             continue;
         }
-        rc = memset_s(t_thrd.postmaster_cxt.LocalAddrList[i], IP_LEN, '\0', IP_LEN);
+        rc = memset_s(t_thrd.postmaster_cxt.addr_cold->LocalAddrList[i], IP_LEN, '\0', IP_LEN);
         securec_check(rc, "", "");
     }
 
@@ -2626,7 +2626,7 @@ int PostmasterMain(int argc, char* argv[])
      */
     for (i = 0; i < MAXLISTEN; i++) {
         g_instance.listen_cxt.ListenSocket[i] = PGINVALID_SOCKET;
-        t_thrd.postmaster_cxt.all_listen_addr_can_stop[i] = false;
+        t_thrd.postmaster_cxt.addr_cold->all_listen_addr_can_stop[i] = false;
     }
 
     char *listen_addresses =
@@ -3407,7 +3407,7 @@ static void getInstallationPaths(const char* argv0)
 #ifdef EXEC_BACKEND
 
     /* Locate executable backend before we change working directory */
-    if (find_other_exec(argv0, "gaussdb", PG_BACKEND_VERSIONSTR, t_thrd.proc_cxt.postgres_exec_path) < 0) {
+    if (find_other_exec(argv0, "gaussdb", PG_BACKEND_VERSIONSTR, t_thrd.proc_cxt.proc_cold->postgres_exec_path) < 0) {
         ereport(FATAL, (errmsg("%s: could not locate matching openGauss executable", argv0)));
     }
 
@@ -3417,7 +3417,7 @@ static void getInstallationPaths(const char* argv0)
      * Locate the pkglib directory --- this has to be set early in case we try
      * to load any modules from it in response to postgresql.conf entries.
      */
-    get_pkglib_path(my_exec_path, t_thrd.proc_cxt.pkglib_path);
+    get_pkglib_path(my_exec_path, t_thrd.proc_cxt.proc_cold->pkglib_path);
 
     /*
      * Verify that there's a readable directory there; otherwise the openGauss
@@ -3426,12 +3426,12 @@ static void getInstallationPaths(const char* argv0)
      * some directory that's not a sibling of the installation lib/
      * directory.)
      */
-    pdir = AllocateDir(t_thrd.proc_cxt.pkglib_path);
+    pdir = AllocateDir(t_thrd.proc_cxt.proc_cold->pkglib_path);
 
     if (pdir == NULL) {
         ereport(ERROR,
             (errcode_for_file_access(),
-                errmsg("could not open directory \"%s\": %m", t_thrd.proc_cxt.pkglib_path),
+                errmsg("could not open directory \"%s\": %m", t_thrd.proc_cxt.proc_cold->pkglib_path),
                 errhint("This may indicate an incomplete PostgreSQL installation, or that the file \"%s\" has been "
                         "moved away from its proper location.",
                     my_exec_path)));
@@ -12525,7 +12525,7 @@ static bool save_backend_variables(BackendParameters* param, Port* port, HANDLE 
 
     param->LocalIpNum = t_thrd.postmaster_cxt.LocalIpNum;
     int rc =
-        memcpy_s(param->LocalAddrList, (MAXLISTEN * IP_LEN), t_thrd.postmaster_cxt.LocalAddrList, (MAXLISTEN * IP_LEN));
+        memcpy_s(param->LocalAddrList, (MAXLISTEN * IP_LEN), t_thrd.postmaster_cxt.addr_cold->LocalAddrList, (MAXLISTEN * IP_LEN));
     securec_check(rc, "", "");
     param->HaShmData = t_thrd.postmaster_cxt.HaShmData;
 
@@ -12560,7 +12560,7 @@ static bool save_backend_variables(BackendParameters* param, Port* port, HANDLE 
     securec_check(ss_rc, "\0", "\0");
     strlcpy(param->my_exec_path, my_exec_path, MAXPGPATH);
 
-    strlcpy(param->pkglib_path, t_thrd.proc_cxt.pkglib_path, MAXPGPATH);
+    strlcpy(param->pkglib_path, t_thrd.proc_cxt.proc_cold->pkglib_path, MAXPGPATH);
 
     param->myTempNamespace = u_sess->catalog_cxt.myTempNamespace;
     param->myTempToastNamespace = u_sess->catalog_cxt.myTempToastNamespace;
@@ -12680,7 +12680,7 @@ static void restore_backend_variables(BackendParameters* param, Port* port)
 
     t_thrd.postmaster_cxt.LocalIpNum = param->LocalIpNum;
     rc =
-        memcpy_s(t_thrd.postmaster_cxt.LocalAddrList, (MAXLISTEN * IP_LEN), param->LocalAddrList, (MAXLISTEN * IP_LEN));
+        memcpy_s(t_thrd.postmaster_cxt.addr_cold->LocalAddrList, (MAXLISTEN * IP_LEN), param->LocalAddrList, (MAXLISTEN * IP_LEN));
     securec_check(rc, "", "");
     t_thrd.postmaster_cxt.HaShmData = param->HaShmData;
     t_thrd.time_cxt.pg_start_time = param->PgStartTime;
@@ -12704,7 +12704,7 @@ static void restore_backend_variables(BackendParameters* param, Port* port)
     securec_check(ss_rc, "\0", "\0");
     strlcpy(my_exec_path, param->my_exec_path, MAXPGPATH);
 
-    strlcpy(t_thrd.proc_cxt.pkglib_path, param->pkglib_path, MAXPGPATH);
+    strlcpy(t_thrd.proc_cxt.proc_cold->pkglib_path, param->pkglib_path, MAXPGPATH);
 
     if (StreamThreadAmI()) {
         u_sess->catalog_cxt.myTempNamespace = param->myTempNamespace;
@@ -13014,9 +13014,9 @@ bool IsLocalAddr(Port* port)
         return true;
     }
     for (i = 0; i != t_thrd.postmaster_cxt.LocalIpNum; ++i) {
-        if (0 == strcmp(local_ip, t_thrd.postmaster_cxt.LocalAddrList[i]) ||
-            (AF_INET == laddr->sa_family && 0 == strcmp("0.0.0.0", t_thrd.postmaster_cxt.LocalAddrList[i])) ||
-            (AF_INET6 == laddr->sa_family && 0 == strcmp("::", t_thrd.postmaster_cxt.LocalAddrList[i]))) {
+        if (0 == strcmp(local_ip, t_thrd.postmaster_cxt.addr_cold->LocalAddrList[i]) ||
+            (AF_INET == laddr->sa_family && 0 == strcmp("0.0.0.0", t_thrd.postmaster_cxt.addr_cold->LocalAddrList[i])) ||
+            (AF_INET6 == laddr->sa_family && 0 == strcmp("::", t_thrd.postmaster_cxt.addr_cold->LocalAddrList[i]))) {
 
             return true;
         }
@@ -13026,13 +13026,13 @@ bool IsLocalAddr(Port* port)
     }
     for (i = 0; i != t_thrd.postmaster_cxt.LocalIpNum; ++i) {
         ereport(DEBUG1, (errmodule(MOD_COMM_FRAMEWORK),
-            errmsg("LocalAddrIP %s, local_ip %s", t_thrd.postmaster_cxt.LocalAddrList[i], local_ip)));
+            errmsg("LocalAddrIP %s, local_ip %s", t_thrd.postmaster_cxt.addr_cold->LocalAddrList[i], local_ip)));
     }
     return false;
 #else
     for (i = 0; i != t_thrd.postmaster_cxt.LocalIpNum; ++i) {
         ereport(DEBUG1, (errmodule(MOD_COMM_FRAMEWORK),
-            errmsg("LocalAddrIP %s, local_ip %s", t_thrd.postmaster_cxt.LocalAddrList[i], local_ip)));
+            errmsg("LocalAddrIP %s, local_ip %s", t_thrd.postmaster_cxt.addr_cold->LocalAddrList[i], local_ip)));
     }
     return true;
 #endif
@@ -13993,7 +13993,7 @@ static int init_stream_comm()
     error = gs_set_basic_info(local_ip,
         g_instance.attr.attr_common.PGXCNodeName,
         u_sess->attr.attr_network.comm_max_datanode + g_instance.attr.attr_network.MaxCoords,
-        t_thrd.libpq_cxt.sock_path);
+        t_thrd.libpq_cxt.libpq_cold->sock_path);
 
     if (error != 0) {
         ereport(FATAL, (errmsg("set basic info of stream failed!")));

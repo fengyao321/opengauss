@@ -771,7 +771,7 @@ static void ParallelReorderBufferRestoreCleanup(ParallelReorderBufferTXN *txn, X
         XLogRecPtr recptr;
         recptr = (cur * XLogSegSize);
         errno_t rc = sprintf_s(path, sizeof(path), "%s/%s/snap/xid-%lu-lsn-%X-%X.snap", replslot_path,
-            t_thrd.walsender_cxt.slotname, txn->xid, (uint32)(recptr >> 32), uint32(recptr));
+            t_thrd.walsender_cxt.path_cold->slotname, txn->xid, (uint32)(recptr >> 32), uint32(recptr));
         securec_check_ss(rc, "", "");
         if (unlink(path) != 0 && errno != ENOENT) {
             ereport(ERROR, (errmodule(MOD_LOGICAL_DECODE), errcode_for_file_access(),
@@ -921,7 +921,7 @@ static void ParallelReorderBufferSerializeTXN(ParallelReorderBuffer *prb, Parall
              */
 
             nRet = sprintf_s(path, MAXPGPATH, "%s/%s/snap/xid-%lu-lsn-%X-%X.snap", replslot_path,
-                             t_thrd.walsender_cxt.slotname, txn->xid, (uint32)(recptr >> 32),
+                             t_thrd.walsender_cxt.path_cold->slotname, txn->xid, (uint32)(recptr >> 32),
                              (uint32)recptr);
 
             securec_check_ss(nRet, "", "");
@@ -1050,7 +1050,7 @@ static Size ParallelReorderBufferRestoreChanges(ParallelReorderBuffer *prb, Para
              */
 
             rc = sprintf_s(path, sizeof(path), "%s/%s/snap/xid-%lu-lsn-%X-%X.snap", replslot_path,
-                           t_thrd.walsender_cxt.slotname, txn->xid, (uint32)(recptr >> 32),
+                           t_thrd.walsender_cxt.path_cold->slotname, txn->xid, (uint32)(recptr >> 32),
                            (uint32)recptr);
 
             securec_check_ss(rc, "", "");

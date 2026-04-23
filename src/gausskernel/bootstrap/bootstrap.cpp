@@ -281,7 +281,7 @@ void BootStrapProcessMain(int argc, char* argv[])
                 SetConfigOption("xlog_file_path", optCtxt.optarg, PGC_POSTMASTER, PGC_S_ARGV);
                 break;
             case 'r':
-                errorno = strcpy_s(t_thrd.proc_cxt.OutputFileName, MAXPGPATH, optCtxt.optarg);
+                errorno = strcpy_s(t_thrd.proc_cxt.proc_cold->OutputFileName, MAXPGPATH, optCtxt.optarg);
                 securec_check(errorno, "\0", "\0");
                 break;
             case 'x':
