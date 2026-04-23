@@ -415,7 +415,6 @@ static void knl_t_obs_init(knl_t_obs_context* obs_cxt)
 static void knl_t_cbm_init(knl_t_cbm_context* cbm_cxt)
 {
     cbm_cxt->XlogCbmSys = NULL;
-
     cbm_cxt->got_SIGHUP = false;
     cbm_cxt->shutdown_requested = false;
     cbm_cxt->CBMReaderIndex = -1;
@@ -856,19 +855,8 @@ static void knl_t_vacuum_init(knl_t_vacuum_context* vacuum_cxt)
     vacuum_cxt->in_vacuum = false;
 }
 
-#ifdef ENABLE_HTAP
-static void knl_t_imcstore_vacuum_init(knl_t_imcstore_vacuum_context* vacuum_cxt)
-{
-    vacuum_cxt->got_SIGHUP = false;
-    vacuum_cxt->got_SIGTERM = false;
-    vacuum_cxt->got_SIGUSR2 = false;
-}
-#endif
-
 static void knl_t_arch_init(knl_t_arch_context* arch)
 {
-    arch->got_SIGHUP = false;
-    arch->got_SIGTERM = false;
     arch->wakened = false;
     arch->ready_to_stop = false;
     arch->last_sigterm_time = 0;
@@ -886,10 +874,8 @@ static void knl_t_arch_init(knl_t_arch_context* arch)
 
 static void knl_t_barrier_arch_init(knl_t_barrier_arch_context* barrier_arch)
 {
-    barrier_arch->got_SIGHUP = false;
-    barrier_arch->got_SIGTERM = false;
-    barrier_arch->wakened = false;
     barrier_arch->ready_to_stop = false;
+    barrier_arch->wakened = false;
     barrier_arch->slot_name = NULL;
     barrier_arch->lastArchiveLoc = InvalidXLogRecPtr;
 }
@@ -912,7 +898,6 @@ static void knl_t_logger_init(knl_t_logger_context* logger)
     logger->last_file_name = NULL;
     logger->last_csv_file_name = NULL;
     logger->last_asp_file_name = NULL;
-    logger->got_SIGHUP = false;
     logger->rotation_requested = false;
     logger->total_syslogs_size = 0;
 }
@@ -935,9 +920,6 @@ static void knl_t_bulkload_init(knl_t_bulkload_context* bulk_cxt)
 static void knl_t_job_init(knl_t_job_context* job_cxt)
 {
     job_cxt->JobScheduleShmem = NULL;
-    job_cxt->got_SIGHUP = false;
-    job_cxt->got_SIGUSR2 = false;
-    job_cxt->got_SIGTERM = false;
     job_cxt->JobScheduleMemCxt = NULL;
     job_cxt->ExpiredJobList = NULL;
     job_cxt->ExpiredJobListCtx = NULL;
@@ -955,8 +937,6 @@ static void knl_t_datarcvwriter_init(knl_t_datarcvwriter_context* datarcvwriter_
 {
     datarcvwriter_cxt->data_writer_rel_tab = NULL;
     datarcvwriter_cxt->dataRcvWriterFlushPageErrorCount = 0;
-    datarcvwriter_cxt->gotSIGHUP = false;
-    datarcvwriter_cxt->shutdownRequested = false;
     datarcvwriter_cxt->AmDataReceiverForDummyStandby = false;
     datarcvwriter_cxt->dummy_data_writer_file_num = 0;
 }
@@ -988,8 +968,6 @@ static void knl_t_slot_init(knl_t_slot_context* slot_cxt)
 static void knl_t_datareceiver_init(knl_t_datareceiver_context* datareceiver_cxt)
 {
     datareceiver_cxt->DataReplFlag = 1;
-    datareceiver_cxt->got_SIGHUP = false;
-    datareceiver_cxt->got_SIGTERM = false;
     datareceiver_cxt->reply_message = (StandbyDataReplyMessage*)palloc0(sizeof(StandbyDataReplyMessage));
     datareceiver_cxt->dataStreamingConn = NULL;
     datareceiver_cxt->AmDataReceiverForDummyStandby = false;
@@ -1008,8 +986,6 @@ static void knl_t_datasender_init(knl_t_datasender_context* datasender_cxt)
     datasender_cxt->dummy_data_read_file_num = 1;
     datasender_cxt->dummy_data_read_file_fd = NULL;
     datasender_cxt->ping_sent = false;
-    datasender_cxt->got_SIGHUP = false;
-    datasender_cxt->datasender_shutdown_requested = false;
     datasender_cxt->datasender_ready_to_stop = false;
 }
 
@@ -1078,8 +1054,6 @@ static void knl_t_dataqueue_init(knl_t_dataqueue_context* dataqueue_cxt)
 
 static void knl_t_walrcvwriter_init(knl_t_walrcvwriter_context* walrcvwriter_cxt)
 {
-    walrcvwriter_cxt->gotSIGHUP = false;
-    walrcvwriter_cxt->shutdownRequested = false;
     walrcvwriter_cxt->WAL_WRITE_UNIT_BYTES = 1024 * 1024;
     walrcvwriter_cxt->ws_dummy_data_writer_file_num = 0;
 }
@@ -1200,8 +1174,6 @@ static void knl_t_conn_init(knl_t_conn_context* conn_cxt)
 
 static void knl_t_page_redo_init(knl_t_page_redo_context* page_redo_cxt)
 {
-    page_redo_cxt->shutdown_requested = false;
-    page_redo_cxt->got_SIGHUP = false;
     page_redo_cxt->sleep_long = false;
     page_redo_cxt->check_repair = false;
     page_redo_cxt->redo_worker_ptr = NULL;
@@ -1210,28 +1182,22 @@ static void knl_t_page_redo_init(knl_t_page_redo_context* page_redo_cxt)
 
 static void knl_t_exrto_recycle_init(knl_t_exrto_recycle_context* exrto_recycle_cxt)
 {
-    exrto_recycle_cxt->shutdown_requested = false;
-    exrto_recycle_cxt->got_SIGHUP = false;
     exrto_recycle_cxt->lsn_info.lsn_num = 0;
     exrto_recycle_cxt->lsn_info.lsn_array = NULL;
 }
 
 static void knl_t_parallel_decode_init(knl_t_parallel_decode_worker_context* parallel_decode_cxt)
 {
-    parallel_decode_cxt->got_SIGHUP = false;
     parallel_decode_cxt->sleep_long = false;
 }
 
 static void knl_t_parallel_decode_reader_init(knl_t_logical_read_worker_context* parallel_decode_reader_cxt)
 {
-    parallel_decode_reader_cxt->got_SIGHUP = false;
     parallel_decode_reader_cxt->sleep_long = false;
 }
 
 static void knl_t_startup_init(knl_t_startup_context* startup_cxt)
 {
-    startup_cxt->got_SIGHUP = false;
-    startup_cxt->shutdown_requested = false;
     startup_cxt->failover_triggered = false;
     startup_cxt->switchover_triggered = false;
     startup_cxt->primary_triggered = false;
@@ -1240,40 +1206,9 @@ static void knl_t_startup_init(knl_t_startup_context* startup_cxt)
     startup_cxt->NotifySigState = NULL;
 }
 
-static void knl_t_alarmchecker_init(knl_t_alarmchecker_context* alarm_cxt)
-{
-    alarm_cxt->gotSighup = false;
-    alarm_cxt->gotSigdie = false;
-}
-
-static void knl_t_lwlockmoniter_init(knl_t_lwlockmoniter_context* lwm_cxt)
-{
-    lwm_cxt->got_SIGHUP = false;
-    lwm_cxt->shutdown_requested = false;
-}
-
 static void knl_t_walwriter_init(knl_t_walwriter_context* walwriter_cxt)
 {
-    walwriter_cxt->got_SIGHUP = false;
-    walwriter_cxt->shutdown_requested = false;
     walwriter_cxt->lockhold = false;
-}
-
-static void knl_t_walwriterauxiliary_init(knl_t_walwriterauxiliary_context *const walwriterauxiliary_cxt)
-{
-    walwriterauxiliary_cxt->got_SIGHUP = false;
-    walwriterauxiliary_cxt->shutdown_requested = false;
-}
-
-static void knl_t_poolcleaner_init(knl_t_poolcleaner_context* poolcleaner_cxt)
-{
-    poolcleaner_cxt->shutdown_requested = false;
-    poolcleaner_cxt->got_SIGHUP = false;
-}
-
-static void knl_t_catchup_init(knl_t_catchup_context* catchup_cxt)
-{
-    catchup_cxt->catchup_shutdown_requested = false;
 }
 
 /* interval for calling AbsorbFsyncRequests in CheckpointWriteDelay */
@@ -1282,9 +1217,7 @@ static void knl_t_catchup_init(knl_t_catchup_context* catchup_cxt)
 static void knl_t_checkpoint_init(knl_t_checkpoint_context* checkpoint_cxt)
 {
     checkpoint_cxt->CheckpointerShmem = NULL;
-    checkpoint_cxt->got_SIGHUP = false;
     checkpoint_cxt->checkpoint_requested = false;
-    checkpoint_cxt->shutdown_requested = false;
     checkpoint_cxt->ckpt_active = false;
     checkpoint_cxt->absorbCounter = WRITES_PER_ABSORB;
     checkpoint_cxt->ckpt_done = 0;
@@ -1292,9 +1225,6 @@ static void knl_t_checkpoint_init(knl_t_checkpoint_context* checkpoint_cxt)
 
 static void knl_t_autovacuum_init(knl_t_autovacuum_context* autovacuum_cxt)
 {
-    autovacuum_cxt->got_SIGHUP = false;
-    autovacuum_cxt->got_SIGUSR2 = false;
-    autovacuum_cxt->got_SIGTERM = false;
     autovacuum_cxt->pgStatAutoVacInfo = NULL;
     autovacuum_cxt->autovacuum_coordinators_string = "";
     autovacuum_cxt->autovac_iops_limits = 0;
@@ -1307,17 +1237,13 @@ static void knl_t_autovacuum_init(knl_t_autovacuum_context* autovacuum_cxt)
 
 static void KnlTApplyLauncherInit(knl_t_apply_launcher_context* applyLauncherCxt)
 {
-    applyLauncherCxt->got_SIGHUP = false;
     applyLauncherCxt->newWorkerRequest = false;
-    applyLauncherCxt->got_SIGTERM = false;
     applyLauncherCxt->onCommitLauncherWakeup = false;
     applyLauncherCxt->applyLauncherShm = NULL;
 }
 
 static void KnlTApplyWorkerInit(knl_t_apply_worker_context* applyWorkerCxt)
 {
-    applyWorkerCxt->got_SIGHUP = false;
-    applyWorkerCxt->got_SIGTERM = false;
     applyWorkerCxt->lsnMapping.head.next = &applyWorkerCxt->lsnMapping.head;
     applyWorkerCxt->lsnMapping.head.prev = &applyWorkerCxt->lsnMapping.head;
     applyWorkerCxt->logicalRepRelMap = NULL;
@@ -1346,10 +1272,6 @@ static void KnlTPublicationInit(knl_t_publication_context* publicationCxt)
 
 static void KnlTUndolauncherInit(knl_t_undolauncher_context* undolauncherCxt)
 {
-    undolauncherCxt->got_SIGHUP = false;
-    undolauncherCxt->got_SIGUSR2 = false;
-    undolauncherCxt->got_SIGTERM = false;
-
     undolauncherCxt->UndoLauncherPid = 0;
 }
 
@@ -1366,17 +1288,8 @@ static void KnlTUndoInit (knl_t_undo_context* undoCtx)
     undoCtx->fetchRecord = false;
 }
 
-static void KnlTUndoworkerInit(knl_t_undoworker_context* undoworkerCxt)
-{
-    undoworkerCxt->got_SIGHUP = false;
-    undoworkerCxt->got_SIGUSR2 = false;
-    undoworkerCxt->got_SIGTERM = false;
-}
-
 static void KnlTUndorecyclerInit(knl_t_undorecycler_context* undorecyclerCxt)
 {
-    undorecyclerCxt->got_SIGHUP = false;
-    undorecyclerCxt->shutdown_requested = false;
     undorecyclerCxt->is_recovery_in_progress = false;
 }
 
@@ -1405,37 +1318,15 @@ static void KnlTRollbackRequestsInit(knl_t_rollback_requests_context* context)
     context->next_bucket_for_scan = 0;
 }
 
-static void KnlTGstatInit(knl_t_gstat_context* context)
-{
-    context->got_SIGHUP = false;
-    context->got_SIGUSR2 = false;
-    context->got_SIGTERM = false;
-}
-
 static void knl_t_aiocompleter_init(knl_t_aiocompleter_context* aio_cxt)
 {
-    aio_cxt->shutdown_requested = false;
     aio_cxt->config_requested = false;
-}
-
-static void knl_t_twophasecleaner_init(knl_t_twophasecleaner_context* tpcleaner_cxt)
-{
-    tpcleaner_cxt->got_SIGHUP = false;
-    tpcleaner_cxt->shutdown_requested = false;
-}
-
-static void knl_t_bgwriter_init(knl_t_bgwriter_context* bgwriter_cxt)
-{
-    bgwriter_cxt->got_SIGHUP = false;
-    bgwriter_cxt->shutdown_requested = false;
 }
 
 static void knl_t_pagewriter_init(knl_t_pagewriter_context* pagewriter_cxt)
 {
-    pagewriter_cxt->got_SIGHUP = false;
     pagewriter_cxt->sync_requested = false;
     pagewriter_cxt->sync_retry = false;
-    pagewriter_cxt->shutdown_requested = false;
     pagewriter_cxt->page_writer_after = WRITEBACK_MAX_PENDING_FLUSHES;
     pagewriter_cxt->pagewriter_id = -1;
 }
@@ -1443,17 +1334,13 @@ static void knl_t_pagewriter_init(knl_t_pagewriter_context* pagewriter_cxt)
 static void knl_t_barrier_creator_init(knl_t_barrier_creator_context* barrier_creator_cxt)
 {
     barrier_creator_cxt->archive_slot_names = NIL;
-    barrier_creator_cxt->got_SIGHUP = false;
     barrier_creator_cxt->is_first_barrier = false;
     barrier_creator_cxt->barrier_update_last_time_info = NULL;
-    barrier_creator_cxt->shutdown_requested = false;
     barrier_creator_cxt->first_cn_timeline = 0;
 }
 
 static void knl_t_xlogcopybackend_init(knl_t_sharestoragexlogcopyer_context* cxt)
 {
-    cxt->got_SIGHUP = false;
-    cxt->shutdown_requested = false;
     cxt->wakeUp = false;
     cxt->readFile = -1;
     cxt->readOff = 0;
@@ -1537,8 +1424,6 @@ static void knl_t_walreceiver_init(knl_t_walreceiver_context* walreceiver_cxt)
         walreceiver_cxt->path_cold = NULL;
     }
 
-    walreceiver_cxt->got_SIGHUP = false;
-    walreceiver_cxt->got_SIGTERM = false;
     walreceiver_cxt->start_switchover = false;
     if (walreceiver_cxt->path_cold != NULL) {
         rc = memset_s(walreceiver_cxt->path_cold->gucconf_file, MAXPGPATH, 0, MAXPGPATH);
@@ -1756,8 +1641,6 @@ static void knl_t_walsender_init(knl_t_walsender_context* walsender_cxt)
     walsender_cxt->output_data_msg_end_xlog = InvalidXLogRecPtr;
     walsender_cxt->ws_xlog_reader = NULL;
     walsender_cxt->waiting_for_ping_response = false;
-    walsender_cxt->got_SIGHUP = false;
-    walsender_cxt->walsender_shutdown_requested = false;
     walsender_cxt->walsender_ready_to_stop = false;
     walsender_cxt->response_switchover_requested = false;
     walsender_cxt->server_run_mode = NORMAL_MODE;
@@ -1869,13 +1752,11 @@ static void knl_t_pencentile_init(knl_t_percentile_context* percentile_cxt)
     percentile_cxt->need_exit = false;
     percentile_cxt->need_reset_timer = true;
     percentile_cxt->pgxc_all_handles = NULL;
-    percentile_cxt->got_SIGHUP = false;
 }
 
 static void knl_t_perf_snap_init(knl_t_perf_snap_context* perf_snap_cxt)
 {
     perf_snap_cxt->need_exit = false;
-    perf_snap_cxt->got_SIGHUP = false;
     perf_snap_cxt->last_snapshot_start_time = 0;
     perf_snap_cxt->curr_table_size = 0;
     perf_snap_cxt->curr_snapid = 0;
@@ -1890,7 +1771,6 @@ static void knl_t_ash_init(knl_t_ash_context* ash_cxt)
 {
     ash_cxt->last_ash_start_time = 0;
     ash_cxt->need_exit = false;
-    ash_cxt->got_SIGHUP = false;
     ash_cxt->slot = 0;
     ash_cxt->waitEventStr = NULL;
 }
@@ -1898,7 +1778,6 @@ static void knl_t_ash_init(knl_t_ash_context* ash_cxt)
 static void knl_t_statement_init(knl_t_statement_context* statement_cxt)
 {
     statement_cxt->need_exit = false;
-    statement_cxt->got_SIGHUP = false;
     statement_cxt->full_sql_retention_time = 0;
     statement_cxt->slow_sql_retention_time = 0;
     statement_cxt->instr_prev_post_parse_analyze_hook = NULL;
@@ -1925,8 +1804,6 @@ static void knl_t_stat_init(knl_t_stat_context* stat_cxt)
 
 static void knl_t_heartbeat_init(knl_t_heartbeat_context* heartbeat_cxt)
 {
-    heartbeat_cxt->got_SIGHUP = false;
-    heartbeat_cxt->shutdown_requested = false;
     heartbeat_cxt->state = NULL;
     heartbeat_cxt->total_failed_times = 0;
     heartbeat_cxt->last_failed_timestamp = 0;
@@ -1945,8 +1822,6 @@ static void knl_t_streaming_init(knl_t_streaming_context* streaming_cxt)
 
 static void knl_t_ts_compaction_init(knl_t_ts_compaction_context* compaction_cxt)
 {
-    compaction_cxt->got_SIGHUP = false;
-    compaction_cxt->shutdown_requested = false;
     compaction_cxt->sleep_long = true;
     compaction_cxt->compaction_mem_cxt = NULL;
     compaction_cxt->compaction_data_cxt = NULL;
@@ -1967,12 +1842,6 @@ static void knl_t_security_policy_init(knl_t_security_policy_context *const poli
 static void knl_t_security_ledger_init(knl_t_security_ledger_context * const ledger_cxt)
 {
     ledger_cxt->prev_ExecutorEnd = NULL;
-}
-
-static void knl_t_csnmin_sync_init(knl_t_csnmin_sync_context* csnminsync_cxt)
-{
-    csnminsync_cxt->got_SIGHUP = false;
-    csnminsync_cxt->shutdown_requested = false;
 }
 
 static void knl_t_bgworker_init(knl_t_bgworker_context* bgworker_cxt)
@@ -1999,12 +1868,6 @@ static void knl_t_page_compression_init(knl_t_page_compression_context* page_com
 static void knl_t_sql_patch_init(knl_t_sql_patch_context* sql_patch_cxt)
 {
     sql_patch_cxt->sql_patch_prev_post_parse_analyze_hook = NULL;
-}
-
-static void knl_t_sql_limit_init(knl_t_sql_limit_context* sql_limit_cxt)
-{
-    sql_limit_cxt->got_SIGHUP = false;
-    sql_limit_cxt->shutdown_requested = false;
 }
 
 static void knl_t_dms_context_init(knl_t_dms_context *dms_cxt)
@@ -2140,6 +2003,11 @@ void knl_thread_init(knl_thread_role role)
 {
     t_thrd.role = role;
     t_thrd.subrole = NO_SUBROLE;
+    /* Initialize unified worker signal flags */
+    t_thrd.worker_sig_flags.got_SIGHUP = false;
+    t_thrd.worker_sig_flags.got_SIGTERM = false;
+    t_thrd.worker_sig_flags.got_SIGUSR2 = false;
+    t_thrd.worker_sig_flags.shutdown_requested = false;
     t_thrd.proc = NULL;
     t_thrd.pgxact = NULL;
     t_thrd.bn = NULL;
@@ -2162,7 +2030,6 @@ void knl_thread_init(knl_thread_role role)
 
     knl_t_aes_init(&t_thrd.aes_cxt);
     knl_t_aiocompleter_init(&t_thrd.aio_cxt);
-    knl_t_alarmchecker_init(&t_thrd.alarm_cxt);
     knl_t_arch_init(&t_thrd.arch);
     knl_t_xlogcopybackend_init(&t_thrd.sharestoragexlogcopyer_cxt);
     knl_t_barrier_arch_init(&t_thrd.barrier_arch);
@@ -2170,7 +2037,6 @@ void knl_thread_init(knl_thread_role role)
     knl_t_audit_init(&t_thrd.audit);
     knl_t_autovacuum_init(&t_thrd.autovacuum_cxt);
     knl_t_basebackup_init(&t_thrd.basebackup_cxt);
-    knl_t_bgwriter_init(&t_thrd.bgwriter_cxt);
     knl_t_bootstrap_init(&t_thrd.bootstrap_cxt);
     knl_t_pagewriter_init(&t_thrd.pagewriter_cxt);
     knl_t_barrier_creator_init(&t_thrd.barrier_creator_cxt);
@@ -2182,7 +2048,6 @@ void knl_thread_init(knl_thread_role role)
     knl_t_conn_init(&t_thrd.conn_cxt);
     knl_t_contrib_init(&t_thrd.contrib_cxt);
     knl_t_cstore_init(&t_thrd.cstore_cxt);
-    knl_t_csnmin_sync_init(&t_thrd.csnminsync_cxt);
     knl_t_dataqueue_init(&t_thrd.dataqueue_cxt);
     knl_t_datarcvwriter_init(&t_thrd.datarcvwriter_cxt);
     knl_t_datareceiver_init(&t_thrd.datareceiver_cxt);
@@ -2199,7 +2064,6 @@ void knl_thread_init(knl_thread_role role)
     knl_t_logical_init(&t_thrd.logical_cxt);
     knl_t_log_init(&t_thrd.log_cxt);
     knl_t_libpq_init(&t_thrd.libpq_cxt);
-    knl_t_lwlockmoniter_init(&t_thrd.lwm_cxt);
     knl_t_mem_init(&t_thrd.mem_cxt);
     knl_t_obs_init(&t_thrd.obs_cxt);
     knl_t_pgxc_init(&t_thrd.pgxc_cxt);
@@ -2222,7 +2086,6 @@ void knl_thread_init(knl_thread_role role)
     knl_t_syncrepscanner_init(&t_thrd.syncrepscanner_cxt);
     knl_t_time_init(&t_thrd.time_cxt);
     knl_t_tsearch_init(&t_thrd.tsearch_cxt);
-    knl_t_twophasecleaner_init(&t_thrd.tpcleaner_cxt);
     knl_t_utils_init(&t_thrd.utils_cxt);
     knl_t_vacuum_init(&t_thrd.vacuum_cxt);
     knl_t_walrcvwriter_init(&t_thrd.walrcvwriter_cxt);
@@ -2230,8 +2093,6 @@ void knl_thread_init(knl_thread_role role)
     knl_t_walreceiverfuncs_init(&t_thrd.walreceiverfuncs_cxt);
     knl_t_walsender_init(&t_thrd.walsender_cxt);
     knl_t_walwriter_init(&t_thrd.walwriter_cxt);
-    knl_t_walwriterauxiliary_init(&t_thrd.walwriterauxiliary_cxt);
-    knl_t_catchup_init(&t_thrd.catchup_cxt);
     knl_t_wlm_init(&t_thrd.wlm_cxt);
     knl_t_xact_init(&t_thrd.xact_cxt);
     knl_t_xlog_init(&t_thrd.xlog_cxt);
@@ -2245,12 +2106,10 @@ void knl_thread_init(knl_thread_role role)
     knl_t_parallel_decode_reader_init(&t_thrd.logicalreadworker_cxt);
     knl_t_heartbeat_init(&t_thrd.heartbeat_cxt);
     knl_t_streaming_init(&t_thrd.streaming_cxt);
-    knl_t_poolcleaner_init(&t_thrd.poolcleaner_cxt);
     knl_t_ts_compaction_init(&t_thrd.ts_compaction_cxt);
     if (g_instance.attr.attr_storage.enable_ustore) {
         KnlTUndoInit(&t_thrd.undo_cxt);
         KnlTUndolauncherInit(&t_thrd.undolauncher_cxt);
-        KnlTUndoworkerInit(&t_thrd.undoworker_cxt);
         KnlTUndorecyclerInit(&t_thrd.undorecycler_cxt);
         KnlTUstoreInit(&t_thrd.ustore_cxt);
     }
@@ -2267,15 +2126,9 @@ void knl_thread_init(knl_thread_role role)
     KnlTApplyWorkerInit(&t_thrd.applyworker_cxt);
     KnlTPublicationInit(&t_thrd.publication_cxt);
 
-#ifdef ENABLE_HTAP
-    knl_t_imcstore_vacuum_init(&t_thrd.imcstore_vacuum_cxt);
-#endif
-
 #ifdef ENABLE_MOT
     knl_t_mot_init(&t_thrd.mot_cxt);
 #endif
-
-    KnlTGstatInit(&t_thrd.gstat_cxt);
 
 #ifdef DEBUG_UHEAP
     knl_t_uheap_stats_init(&t_thrd.uheap_stats_cxt);
@@ -2287,7 +2140,6 @@ void knl_thread_init(knl_thread_role role)
     knlTSPQCxtInit(&t_thrd.spq_ctx);
 #endif
     knl_t_inval_msg_init(&t_thrd.inval_msg_cxt);
-    knl_t_sql_limit_init(&t_thrd.sql_limit_cxt);
     KnlTSmbWriterInit(&t_thrd.smbWriterCxt);
 }
 

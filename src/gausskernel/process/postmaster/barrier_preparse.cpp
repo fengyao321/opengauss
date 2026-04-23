@@ -101,7 +101,7 @@ static void SetBarrieID(const char *barrierId, XLogRecPtr lsn)
 
 static void request_wal_stream_for_preparse(XLogRecPtr recptr)
 {
-    if (t_thrd.barrier_preparse_cxt.shutdown_requested) {
+    if (t_thrd.worker_sig_flags.shutdown_requested) {
         return;
     }
     if (!WalRcvInProgress() && g_instance.pid_cxt.WalReceiverPID == 0) {
@@ -130,7 +130,7 @@ static XLogRecPtr get_preparse_start_lsn()
 
     while (XLogRecPtrIsInvalid(start_lsn)) {
         GetXLogReplayRecPtr(NULL, &start_lsn);
-        if (t_thrd.barrier_preparse_cxt.shutdown_requested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             return start_lsn;
         }
     }
@@ -162,7 +162,7 @@ static void BarrierPreParseSigHupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.barrier_preparse_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
     }
@@ -173,7 +173,7 @@ static void BarrierPreParseShutdownHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.barrier_preparse_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
@@ -233,7 +233,7 @@ void SetBarrierPreParseLsn(XLogRecPtr startptr)
 
 bool check_preparse_result(XLogRecPtr *recptr)
 {
-    if (t_thrd.barrier_preparse_cxt.shutdown_requested) {
+    if (t_thrd.worker_sig_flags.shutdown_requested) {
         return false;
     }
     if (XLogRecPtrIsInvalid(g_instance.csn_barrier_cxt.latest_valid_record)) {
@@ -390,12 +390,12 @@ void BarrierPreParseMain(void)
         /* Clear any already-pending wakeups */
         ResetLatch(&t_thrd.proc->procLatch);
 
-        if (t_thrd.barrier_preparse_cxt.got_SIGHUP) {
-            t_thrd.barrier_preparse_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
-        if (t_thrd.barrier_preparse_cxt.shutdown_requested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             ereport(LOG, (errmsg("[BarrierPreParse] preparse thread shut down")));
             XLogReaderFree(xlogreader);
             proc_exit(0); /* done */
@@ -443,7 +443,7 @@ void BarrierPreParseMain(void)
                 }
             }
             startLSN = InvalidXLogRecPtr;
-        } while (!t_thrd.barrier_preparse_cxt.shutdown_requested);
+        } while (!t_thrd.worker_sig_flags.shutdown_requested);
 
         /* close xlogreadfd after circulation */
         CloseXlogFile();

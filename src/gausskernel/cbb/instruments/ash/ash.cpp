@@ -91,7 +91,7 @@ static void instr_asp_exit(SIGNAL_ARGS)
 /* SIGHUP handler for collector process */
 static void asp_sighup_handler(SIGNAL_ARGS)
 {
-    t_thrd.ash_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 }
 void JobAspIAm(void)
 {
@@ -464,7 +464,6 @@ static void GetWaitstatusRelnamePhase(const SessionHistEntry *beentry, StringInf
 
 static void GetWaitstatusLibpqwaitnodeCount(const SessionHistEntry *beentry, StringInfo waitStatus)
 {
-
     if (IS_PGXC_COORDINATOR) {
         NameData nodename = {{0}};
         appendStringInfo(waitStatus, "%s: %s, total %d",
@@ -1166,8 +1165,8 @@ static void SetThrdCxt(void)
 static void ReloadInfo()
 {
     /* Reload configuration if we got SIGHUP from the postmaster.*/
-    if (t_thrd.ash_cxt.got_SIGHUP) {
-        t_thrd.ash_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
     }
     if (IsGotPoolReload()) {

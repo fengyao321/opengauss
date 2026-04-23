@@ -274,12 +274,12 @@ void WalWriterMain(void)
         /*
          * Process any requests or signals received recently.
          */
-        if (t_thrd.walwriter_cxt.got_SIGHUP) {
-            t_thrd.walwriter_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
-        if (t_thrd.walwriter_cxt.shutdown_requested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             /* Normal exit from the walwriter is here */
             proc_exit(0); /* done */
         }
@@ -307,7 +307,7 @@ void WalWriterMain(void)
                 sleep_times_counter++;
                 (void)pthread_mutex_lock(&g_instance.wal_cxt.criticalEntryMutex);
                 g_instance.wal_cxt.isWalWriterSleeping = true;
-                while (pCriticalEntry->endLSN == 0 && !t_thrd.walwriter_cxt.shutdown_requested) {
+                while (pCriticalEntry->endLSN == 0 && !t_thrd.worker_sig_flags.shutdown_requested) {
                     (void)clock_gettime(CLOCK_MONOTONIC, &time_to_wait);
                     time_to_wait.tv_nsec += g_sleep_timeout_ms * NANOSECONDS_PER_MILLISECOND;
                     if (time_to_wait.tv_nsec >= NANOSECONDS_PER_SECOND) {
@@ -392,7 +392,7 @@ static void WalSigHupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.walwriter_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
@@ -405,7 +405,7 @@ static void WalShutdownHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.walwriter_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);

@@ -1228,7 +1228,7 @@ void dw_upgrade_single()
 static void HandlePageWriterExit()
 {
     /* Let the pagewriter sub thread exit, then main pagewriter thread exits */
-    if (t_thrd.pagewriter_cxt.shutdown_requested && g_instance.ckpt_cxt_ctl->page_writer_can_exit) {
+    if (t_thrd.worker_sig_flags.shutdown_requested && g_instance.ckpt_cxt_ctl->page_writer_can_exit) {
         g_instance.ckpt_cxt_ctl->page_writer_sub_can_exit = true;
         pg_write_barrier();
 
@@ -1264,8 +1264,8 @@ static void HandlePageWriterExit()
 
 static void HandlePageWriterMainInterrupts()
 {
-    if (t_thrd.pagewriter_cxt.got_SIGHUP) {
-        t_thrd.pagewriter_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
     }
 
@@ -1277,7 +1277,7 @@ static void HandlePageWriterMainInterrupts()
         t_thrd.pagewriter_cxt.sync_retry = false;
     }
     int thread_id = t_thrd.pagewriter_cxt.pagewriter_id;
-    if (t_thrd.pagewriter_cxt.shutdown_requested) {
+    if (t_thrd.worker_sig_flags.shutdown_requested) {
         g_instance.ckpt_cxt_ctl->pgwr_procs.writer_proc[thread_id].willShutdown = true;
     }
 }
@@ -1295,7 +1295,7 @@ static void ckpt_pagewriter_main_thread_loop(void)
         get_curr_candidate_nums(CAND_LIST_SEG);
     while (get_dirty_page_num() == 0 && candidate_num == (uint32)TOTAL_BUFFER_NUM &&
         g_instance.ckpt_cxt_ctl->incre_ckpt_sync_shmem->num_requests < MAX_SYNC_REQUEST_HALF &&
-        !t_thrd.pagewriter_cxt.shutdown_requested) {
+        !t_thrd.worker_sig_flags.shutdown_requested) {
         rc = WaitLatch(&t_thrd.proc->procLatch, WL_TIMEOUT | WL_POSTMASTER_DEATH, (long)TEN_MILLISECOND);
         if (rc & WL_POSTMASTER_DEATH) {
             /* release compression ctx */
@@ -1322,7 +1322,7 @@ static void ckpt_pagewriter_main_thread_loop(void)
         PgwrAbsorbFsyncRequests();
         /* Full checkpoint, don't sleep */
         sleep_time = get_pagewriter_sleep_time();
-        while (sleep_time > 0 && !t_thrd.pagewriter_cxt.shutdown_requested && !FULL_CKPT) {
+        while (sleep_time > 0 && !t_thrd.worker_sig_flags.shutdown_requested && !FULL_CKPT) {
             HandlePageWriterMainInterrupts();
             /* sleep 1ms check whether a full checkpoint is triggered */
             pg_usleep(MILLISECOND_TO_MICROSECOND);
@@ -1388,7 +1388,7 @@ static void ckpt_pagewriter_sub_thread_loop()
     int thread_id = t_thrd.pagewriter_cxt.pagewriter_id;
     WritebackContextInit(&wb_context, &t_thrd.pagewriter_cxt.page_writer_after);
 
-    if (t_thrd.pagewriter_cxt.shutdown_requested) {
+    if (t_thrd.worker_sig_flags.shutdown_requested) {
         g_instance.ckpt_cxt_ctl->pgwr_procs.writer_proc[thread_id].willShutdown = true;
     }
     pg_read_barrier();
@@ -1411,7 +1411,7 @@ static void ckpt_pagewriter_sub_thread_loop()
         proc_exit(0);
     }
 
-    if (!t_thrd.pagewriter_cxt.shutdown_requested) {
+    if (!t_thrd.worker_sig_flags.shutdown_requested) {
         /* Wait first */
         rc = WaitLatch(&t_thrd.proc->procLatch, WL_TIMEOUT | WL_LATCH_SET | WL_POSTMASTER_DEATH,
             (long)u_sess->attr.attr_storage.pageWriterSleep  /* ms */);
@@ -1890,7 +1890,7 @@ void ckpt_pagewriter_main(void)
             ckpt_pagewriter_main_thread_loop();
         } else {
             if (t_thrd.pagewriter_cxt.pagewriter_id == 1) {
-                if (!t_thrd.pagewriter_cxt.shutdown_requested) {
+                if (!t_thrd.worker_sig_flags.shutdown_requested) {
                     logSnapshotForLogicalDecoding();
                 }
             }
@@ -2728,7 +2728,7 @@ static void ckpt_pagewriter_sighup_handler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.pagewriter_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
     }
@@ -2778,7 +2778,7 @@ static void ckpt_pagewriter_request_shutdown_handler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.pagewriter_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
     }

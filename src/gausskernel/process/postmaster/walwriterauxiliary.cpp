@@ -213,12 +213,12 @@ void WalWriterAuxiliaryMain(void)
         /*
          * Process any requests or signals received recently.
          */
-        if (t_thrd.walwriterauxiliary_cxt.got_SIGHUP) {
-            t_thrd.walwriterauxiliary_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
-        if (t_thrd.walwriterauxiliary_cxt.shutdown_requested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             /* Normal exit from the walwriterauxiliary is here. */
             proc_exit(0); /* done */
         }
@@ -284,7 +284,7 @@ static void WalwriterauxiliarySigHupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.walwriterauxiliary_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
@@ -297,7 +297,7 @@ static void WalwriterauxiliaryShutdownHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.walwriterauxiliary_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);

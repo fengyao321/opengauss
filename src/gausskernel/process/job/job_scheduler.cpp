@@ -328,7 +328,7 @@ NON_EXEC_STATIC void JobScheduleMain()
     pgstat_report_appname("JobScheduler");
     pgstat_report_activity(STATE_IDLE, NULL);
 
-    if (t_thrd.job_cxt.got_SIGTERM) {
+    if (t_thrd.worker_sig_flags.got_SIGTERM) {
         /* Normal exit */
         ereport(LOG, (errmsg("job scheduler is shutting down")));
 
@@ -394,19 +394,20 @@ NON_EXEC_STATIC void JobScheduleMain()
         }
 
         /* the normal shutdown case */
-        if (t_thrd.job_cxt.got_SIGTERM)
+        if (t_thrd.worker_sig_flags.got_SIGTERM) {
             break;
+        }
 
         pgstat_report_activity(STATE_RUNNING, NULL);
-        if (t_thrd.job_cxt.got_SIGHUP) {
-            t_thrd.job_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             (void)MemoryContextSwitchTo(t_thrd.job_cxt.JobScheduleMemCxt);
             ProcessConfigFile(PGC_SIGHUP);
         }
 
         /* A job worker finished, or postmaster signalled failure to start a worker */
-        if (t_thrd.job_cxt.got_SIGUSR2) {
-            t_thrd.job_cxt.got_SIGUSR2 = false;
+        if (t_thrd.worker_sig_flags.got_SIGUSR2) {
+            t_thrd.worker_sig_flags.got_SIGUSR2 = false;
 
             /* if postmaster fork job_worker failed, we had better to try again */
             if (t_thrd.job_cxt.JobScheduleShmem->jsch_signal[ForkJobWorkerFailed]) {
@@ -511,7 +512,7 @@ static void jobschd_sighup_handler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.job_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
     }
@@ -531,7 +532,7 @@ static void jobschd_sigusr2_handler(SIGNAL_ARGS)
     int save_errno = errno;
     write_stderr("Job scheduler received sigusr2 when job worker startup failed.");
 
-    t_thrd.job_cxt.got_SIGUSR2 = true;
+    t_thrd.worker_sig_flags.got_SIGUSR2 = true;
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
     }
@@ -548,7 +549,7 @@ static void jobschd_sigusr2_handler(SIGNAL_ARGS)
  */
 static void jobschd_sigterm_handler(SIGNAL_ARGS)
 {
-    t_thrd.job_cxt.got_SIGTERM = true;
+    t_thrd.worker_sig_flags.got_SIGTERM = true;
     die(postgres_signal_arg);
 }
 

@@ -426,13 +426,13 @@ void HandleStartupInterruptsForExtremeRto()
         }
     }
 
-    if (unlikely(t_thrd.startup_cxt.got_SIGHUP)) {
-        t_thrd.startup_cxt.got_SIGHUP = false;
+    if (unlikely(t_thrd.worker_sig_flags.got_SIGHUP)) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         SendSingalToPageWorker(SIGHUP);
         ProcessConfigFile(PGC_SIGHUP);
     }
 
-    if (unlikely(t_thrd.startup_cxt.shutdown_requested)) {
+    if (unlikely(t_thrd.worker_sig_flags.shutdown_requested)) {
         if (g_instance.status != SmartShutdown) {
             if (ENABLE_ONDEMAND_REALTIME_BUILD &&
                 (SS_PERFORMING_SWITCHOVER || SS_STANDBY_MODE)) {

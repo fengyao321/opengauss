@@ -67,7 +67,7 @@ static void GlobalstatsSighupHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.gstat_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
 
@@ -79,7 +79,7 @@ static void GlobalstatsSigusr2Handler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.gstat_cxt.got_SIGUSR2 = true;
+    t_thrd.worker_sig_flags.got_SIGUSR2 = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
 
@@ -91,7 +91,7 @@ static void GlobalstatsSigtermHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.gstat_cxt.got_SIGTERM = true;
+    t_thrd.worker_sig_flags.got_SIGTERM = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
 
@@ -269,8 +269,9 @@ NON_EXEC_STATIC void GlobalStatsTrackerMain()
         RESUME_INTERRUPTS();
 
         /* if in shutdown mode, no need for anything further; just go away */
-        if (t_thrd.gstat_cxt.got_SIGTERM)
+        if (t_thrd.worker_sig_flags.got_SIGTERM) {
             goto shutdown;
+        }
 
         /*
          * Sleep at least 1 second after any error.  We don't want to be
@@ -279,7 +280,7 @@ NON_EXEC_STATIC void GlobalStatsTrackerMain()
         pg_usleep(1000000L);
     }
 
-    while (!t_thrd.gstat_cxt.got_SIGTERM) {
+    while (!t_thrd.worker_sig_flags.got_SIGTERM) {
         /* backup the old one so we can delete it when nobody needs it anymore */
         MemoryContext oldStatLocalContext = u_sess->stat_cxt.pgStatLocalContext;
 

@@ -80,7 +80,7 @@ static void instr_percentile_exit(SIGNAL_ARGS)
 /* SIGHUP handler for percentile process */
 static void instr_percentile_sighup_handler(SIGNAL_ARGS)
 {
-    t_thrd.percentile_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 }
 
 static void pgstat_alarm_handler(SIGNAL_ARGS)
@@ -213,8 +213,8 @@ NON_EXEC_STATIC void PercentileMain()
             processPoolerReload();
             ResetGotPoolReload(false);
         }
-        if (t_thrd.percentile_cxt.got_SIGHUP) {
-            t_thrd.percentile_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
@@ -354,8 +354,8 @@ void PercentileSpace::SubPercentileMain(void)
             processPoolerReload();
             ResetGotPoolReload(false);
         }
-        if (t_thrd.percentile_cxt.got_SIGHUP) {
-            t_thrd.percentile_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
         if (g_instance.stat_cxt.force_process) {

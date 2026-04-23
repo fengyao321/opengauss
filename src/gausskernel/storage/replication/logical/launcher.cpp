@@ -494,7 +494,7 @@ static void logicalrep_worker_onexit(int code, Datum arg)
 static void logicalrepLauncherSighub(SIGNAL_ARGS)
 {
     int saveErrno = errno;
-    t_thrd.applylauncher_cxt.got_SIGHUP = TRUE;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
@@ -819,8 +819,8 @@ void ApplyLauncherMain()
         if (rc & WL_POSTMASTER_DEATH)
             proc_exit(1);
 
-        if (t_thrd.applylauncher_cxt.got_SIGHUP) {
-            t_thrd.applylauncher_cxt.got_SIGHUP = FALSE;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 

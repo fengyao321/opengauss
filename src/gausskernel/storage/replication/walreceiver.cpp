@@ -260,8 +260,8 @@ void ProcessWalRcvInterrupts(void)
      */
     CHECK_FOR_INTERRUPTS();
 
-    if (t_thrd.walreceiver_cxt.got_SIGTERM) {
-        t_thrd.walreceiver_cxt.got_SIGTERM = false;
+    if (t_thrd.worker_sig_flags.got_SIGTERM) {
+        t_thrd.worker_sig_flags.got_SIGTERM = false;
         t_thrd.walreceiver_cxt.WalRcvImmediateInterruptOK = false;
         ereport(FATAL, (errcode(ERRCODE_ADMIN_SHUTDOWN),
                         errmsg("terminating walreceiver process due to administrator command")));
@@ -509,8 +509,8 @@ void WalRcvrProcessData(TimestampTz *last_recv_timestamp, bool *ping_sent)
     /* Process any requests or signals received recently */
     ProcessWalRcvInterrupts();
 
-    if (t_thrd.walreceiver_cxt.got_SIGHUP) {
-        t_thrd.walreceiver_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
     }
 
@@ -1046,8 +1046,8 @@ static void rcvAllXlog()
 
 static void WalRcvClearSignalFlag()
 {
-    t_thrd.walreceiver_cxt.got_SIGHUP = false;
-    t_thrd.walreceiver_cxt.got_SIGTERM = false;
+    t_thrd.worker_sig_flags.got_SIGHUP = false;
+    t_thrd.worker_sig_flags.got_SIGTERM = false;
     t_thrd.walreceiver_cxt.start_switchover = false;
 }
 
@@ -1134,13 +1134,13 @@ static void WalRcvDie(int code, Datum arg)
 /* SIGHUP: set flag to re-read config file at next convenient time */
 static void WalRcvSigHupHandler(SIGNAL_ARGS)
 {
-    t_thrd.walreceiver_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 }
 
 /* SIGTERM: set flag for main loop, or shutdown immediately if safe */
 static void WalRcvShutdownHandler(SIGNAL_ARGS)
 {
-    t_thrd.walreceiver_cxt.got_SIGTERM = true;
+    t_thrd.worker_sig_flags.got_SIGTERM = true;
 }
 
 /*
@@ -1197,7 +1197,7 @@ static void sigusr1_handler(SIGNAL_ARGS)
 /* Wal receiver is shut down? */
 bool WalRcvIsShutdown(void)
 {
-    return t_thrd.walreceiver_cxt.got_SIGTERM;
+    return t_thrd.worker_sig_flags.got_SIGTERM;
 }
 
 static void XLogWalRcvDataPageReplication(char *buf, Size len)

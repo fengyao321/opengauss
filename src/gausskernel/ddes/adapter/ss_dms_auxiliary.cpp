@@ -36,7 +36,7 @@ static void dms_auxiliary_request_shutdown_handler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.dms_aux_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
     }
@@ -152,7 +152,7 @@ void DmsAuxiliaryMain(void)
     (void)gs_signal_unblock_sigusr2();
 
     for (;;) {
-        if (t_thrd.dms_aux_cxt.shutdown_requested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             u_sess->attr.attr_common.ExitOnAnyError = true;
             proc_exit(0);
         }

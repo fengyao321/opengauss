@@ -296,7 +296,7 @@ static void ProcessSecureFilesForDisasterCluster(const char *path)
             ereport(ERROR, (errcode_for_file_access(), errmsg("Postmaster exited, aborting active base backup")));
         }
 
-        if (t_thrd.walsender_cxt.walsender_shutdown_requested || t_thrd.walsender_cxt.walsender_ready_to_stop) {
+        if (t_thrd.worker_sig_flags.shutdown_requested || t_thrd.walsender_cxt.walsender_ready_to_stop) {
             ereport(ERROR, (errcode_for_file_access(), errmsg("shutdown requested, aborting active base backup")));
         }
         if (t_thrd.postmaster_cxt.HaShmData &&
@@ -1581,8 +1581,9 @@ static int64 sendDir(const char *path, int basepathlen, bool sizeonly, List *tab
             ereport(ERROR, (errcode_for_file_access(), errmsg("Postmaster exited, aborting active base backup")));
         }
 
-        if (t_thrd.walsender_cxt.walsender_shutdown_requested || t_thrd.walsender_cxt.walsender_ready_to_stop)
+        if (t_thrd.worker_sig_flags.shutdown_requested || t_thrd.walsender_cxt.walsender_ready_to_stop) {
             ereport(ERROR, (errcode_for_file_access(), errmsg("shutdown requested, aborting active base backup")));
+        }
 
         if (t_thrd.postmaster_cxt.HaShmData &&
             (t_thrd.walsender_cxt.server_run_mode != t_thrd.postmaster_cxt.HaShmData->current_mode))

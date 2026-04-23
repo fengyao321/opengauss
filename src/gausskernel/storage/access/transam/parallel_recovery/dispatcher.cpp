@@ -3023,13 +3023,13 @@ static void HandleStartupProcInterruptsForParallelRedo(void)
     /*
      * Check if we were requested to re-read config file.
      */
-    if (t_thrd.startup_cxt.got_SIGHUP) {
-        t_thrd.startup_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
         SendSingalToPageWorker(SIGHUP);
     }
 
-    if (ENABLE_DMS && t_thrd.startup_cxt.shutdown_requested && SmartShutdown != g_instance.status &&
+    if (ENABLE_DMS && t_thrd.worker_sig_flags.shutdown_requested && SmartShutdown != g_instance.status &&
         g_instance.dms_cxt.SSRecoveryInfo.startup_need_exit_normally) {
         crps_destory_ctxs();
         proc_exit(0);
@@ -3038,7 +3038,7 @@ static void HandleStartupProcInterruptsForParallelRedo(void)
     /*
      * Check if we were requested to exit without finishing recovery.
      */
-    if (t_thrd.startup_cxt.shutdown_requested && SmartShutdown != g_instance.status) {
+    if (t_thrd.worker_sig_flags.shutdown_requested && SmartShutdown != g_instance.status) {
         if (t_thrd.xlog_cxt.StandbyModeRequested && SS_DISASTER_MAIN_STANDBY_NODE) {
             ereport(LOG, (errmsg("dorado standby cluster switchover shutdown startup at parallel redo\n")));
             DisownLatch(&t_thrd.shemem_ptr_cxt.XLogCtl->recoveryWakeupLatch);

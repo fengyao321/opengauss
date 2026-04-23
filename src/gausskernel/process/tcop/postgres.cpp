@@ -7987,29 +7987,15 @@ static void ResetSIGHUPFlag()
 {
     switch (t_thrd.role) {
         case ASH_WORKER:
-            t_thrd.ash_cxt.got_SIGHUP = false;
-            break;
         case APPLY_WORKER:
-            t_thrd.applyworker_cxt.got_SIGHUP = false;
-            break;
         case JOB_SCHEDULER:
-            t_thrd.job_cxt.got_SIGHUP = false;
-            break;
         case AUTOVACUUM_LAUNCHER:
-            t_thrd.autovacuum_cxt.got_SIGHUP = false;
-            break;
         case TXNSNAP_CAPTURER:
         case TXNSNAP_WORKER:
-            t_thrd.snapcapturer_cxt.got_SIGHUP = false;
-            break;
         case RBCLEANER:
-            t_thrd.rbcleaner_cxt.got_SIGHUP = false;
-            break;
         case UNDO_WORKER:
-            t_thrd.undoworker_cxt.got_SIGHUP = false;
-            break;
         case OGAI_WORKER:
-            t_thrd.undoworker_cxt.got_SIGHUP = false;
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             break;
         case WLM_WORKER:
         case WLM_MONITOR:
@@ -8028,22 +8014,15 @@ static bool CheckSIGHUPFlag()
 {
     switch (t_thrd.role) {
         case ASH_WORKER:
-            return t_thrd.ash_cxt.got_SIGHUP;
         case APPLY_WORKER:
-            return t_thrd.applyworker_cxt.got_SIGHUP;
         case JOB_SCHEDULER:
-            return t_thrd.job_cxt.got_SIGHUP;
         case AUTOVACUUM_LAUNCHER:
-            return t_thrd.autovacuum_cxt.got_SIGHUP;
         case TXNSNAP_CAPTURER:
         case TXNSNAP_WORKER:
-            return t_thrd.snapcapturer_cxt.got_SIGHUP;
         case RBCLEANER:
-            return t_thrd.rbcleaner_cxt.got_SIGHUP;
         case UNDO_WORKER:
-            return t_thrd.undoworker_cxt.got_SIGHUP;
         case OGAI_WORKER:
-            return t_thrd.ogaiworker_cxt.got_SIGHUP;
+            return t_thrd.worker_sig_flags.got_SIGHUP;
         case WLM_WORKER:
         case WLM_MONITOR:
         case WLM_ARBITER:

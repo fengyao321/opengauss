@@ -263,8 +263,8 @@ static void DataSndHandshake(void)
          * Check for any other interesting events that happened while we
          * slept.
          */
-        if (t_thrd.datasender_cxt.got_SIGHUP) {
-            t_thrd.datasender_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
@@ -751,14 +751,14 @@ static int DataSndLoop(void)
             gs_thread_exit(1);
 
         /* Process any requests or signals received recently */
-        if (t_thrd.datasender_cxt.got_SIGHUP) {
-            t_thrd.datasender_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             marked_stream_replication = u_sess->attr.attr_storage.enable_stream_replication;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
         /* Normal exit from the datasender is here */
-        if (t_thrd.datasender_cxt.datasender_shutdown_requested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             /* Inform the standby that DATA streaming is done */
             pq_puttextmessage('C', "COPY 0");
             (void)pq_flush();
@@ -926,7 +926,7 @@ static int DataSndLoop(void)
                 else
                     DataSend(&caughtup);
                 if (caughtup && !pq_is_send_pending()) {
-                    t_thrd.datasender_cxt.datasender_shutdown_requested = true;
+                    t_thrd.worker_sig_flags.shutdown_requested = true;
                 }
             }
         }
@@ -1236,7 +1236,7 @@ static void DataSndSigHupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.datasender_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.datasender_cxt.MyDataSnd)
         SetLatch(&t_thrd.datasender_cxt.MyDataSnd->latch);
 
@@ -1248,7 +1248,7 @@ static void DataSndShutdownHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.datasender_cxt.datasender_shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
     if (t_thrd.datasender_cxt.MyDataSnd)
         SetLatch(&t_thrd.datasender_cxt.MyDataSnd->latch);
 

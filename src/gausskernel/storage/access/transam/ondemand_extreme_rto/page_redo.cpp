@@ -474,12 +474,12 @@ PGPROC *GetPageRedoWorkerProc(PageRedoWorker *worker)
 
 void HandlePageRedoInterrupts()
 {
-    if (t_thrd.page_redo_cxt.got_SIGHUP) {
-        t_thrd.page_redo_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
     }
 
-    if (t_thrd.page_redo_cxt.shutdown_requested) {
+    if (t_thrd.worker_sig_flags.shutdown_requested) {
         ereport(LOG, (errmodule(MOD_REDO), errcode(ERRCODE_LOG),
                       errmsg("page worker id %u exit for request", g_redoWorker->id)));
 
@@ -3207,12 +3207,12 @@ void XLogReadPageWorkerMain()
 
 void HandleReadWorkerRunInterrupts()
 {
-    if (t_thrd.page_redo_cxt.got_SIGHUP) {
-        t_thrd.page_redo_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
     }
 
-    if (t_thrd.page_redo_cxt.shutdown_requested) {
+    if (t_thrd.worker_sig_flags.shutdown_requested) {
         ereport(LOG, (errmodule(MOD_REDO), errcode(ERRCODE_LOG),
                       errmsg("page worker id %u exit for request", g_redoWorker->id)));
 
@@ -3350,7 +3350,7 @@ void XLogReadManagerResponseSignal(uint32 tgigger)
 
 void XLogReadManagerProcInterrupt()
 {
-    if (t_thrd.page_redo_cxt.shutdown_requested) {
+    if (t_thrd.worker_sig_flags.shutdown_requested) {
         ereport(LOG, (errmodule(MOD_REDO), errcode(ERRCODE_LOG),
                       errmsg("page worker id %u exit for request", g_redoWorker->id)));
 
@@ -3360,8 +3360,8 @@ void XLogReadManagerProcInterrupt()
         proc_exit(1);
     }
 
-    if (t_thrd.page_redo_cxt.got_SIGHUP) {
-        t_thrd.page_redo_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
     }
 }
@@ -3920,7 +3920,7 @@ void ParallelRedoThreadMain()
 
 static void PageRedoShutdownHandler(SIGNAL_ARGS)
 {
-    t_thrd.page_redo_cxt.shutdown_requested = 1;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 }
 
 static void PageRedoQuickDie(SIGNAL_ARGS)
@@ -3970,7 +3970,7 @@ static void SetupSignalHandlers()
 /* Run from the worker thread. */
 static void SigHupHandler(SIGNAL_ARGS)
 {
-    t_thrd.page_redo_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 }
 
 /* Run from the worker thread. */

@@ -690,8 +690,8 @@ NON_EXEC_STATIC void FaultMonitorMain()
         ResetLatch(&t_thrd.proc->procLatch);
 
         /* Process any requests or signals received recently. */
-        if (t_thrd.lwm_cxt.got_SIGHUP) {
-            t_thrd.lwm_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
 
             long newTimeout = (long)u_sess->attr.attr_common.fault_mon_timeout * 60 * 1000;
@@ -705,7 +705,7 @@ NON_EXEC_STATIC void FaultMonitorMain()
             cur_timeout = newTimeout;
         }
 
-        if (t_thrd.lwm_cxt.shutdown_requested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             /* Normal exit from the lwlockmonitor is here */
             proc_exit(0);
         }
@@ -778,7 +778,7 @@ static void LWLockMonitorSigHupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.lwm_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
@@ -791,7 +791,7 @@ static void LWLockMonitorShutdownHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.lwm_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);

@@ -295,12 +295,12 @@ void BackgroundWriterMain(void)
 
         pgstat_report_activity(STATE_RUNNING, NULL);
 
-        if (t_thrd.bgwriter_cxt.got_SIGHUP) {
-            t_thrd.bgwriter_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
-        if (t_thrd.bgwriter_cxt.shutdown_requested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             /*
              * From here on, elog(ERROR) should end with exit(1), not send
              * control back to the sigsetjmp block above
@@ -479,7 +479,7 @@ static void bgwriter_sighup_handler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.bgwriter_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
@@ -492,7 +492,7 @@ static void bgwriter_request_shutdown_handler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.bgwriter_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
     t_thrd.int_cxt.ProcDiePending = true;
 
     if (t_thrd.proc)
@@ -618,12 +618,12 @@ void invalid_buffer_bgwriter_main()
     for (;;) {
         int rc;
 
-        if (t_thrd.bgwriter_cxt.got_SIGHUP) {
-            t_thrd.bgwriter_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
-        if (t_thrd.bgwriter_cxt.shutdown_requested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             ereport(LOG, (errmsg("invalidate buffer bgwriter thread shut down")));
             u_sess->attr.attr_common.ExitOnAnyError = true;
             proc_exit(0);

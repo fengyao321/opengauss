@@ -522,7 +522,7 @@ void AioCompltrMain(int compltrIdx)
          * allow the thread to exit quickly when its time comes.
          * Once shutdown is requested, there is no going back.
          */
-        if (t_thrd.aio_cxt.shutdown_requested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             timeout = shutdownTmeout;
 
             ereport(LOG, (errmsg("AIO Completer %d EXITED.", compltrIdx)));
@@ -605,7 +605,7 @@ static void CompltrQuickDie(SIGNAL_ARGS)
  */
 static void CompltrShutdown(SIGNAL_ARGS)
 {
-    t_thrd.aio_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 }
 
 /**

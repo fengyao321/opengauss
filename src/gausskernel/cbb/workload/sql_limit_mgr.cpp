@@ -443,7 +443,7 @@ Datum gs_delete_sql_limit(PG_FUNCTION_ARGS)
 
 static void SqlLimitSighupHandler(SIGNAL_ARGS)
 {
-    t_thrd.sql_limit_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
     }
@@ -452,7 +452,7 @@ static void SqlLimitSighupHandler(SIGNAL_ARGS)
 static void SqlLimitSigtermHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
-    t_thrd.sql_limit_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
@@ -496,13 +496,13 @@ void InitSqlLimit()
             break;
         }
 
-        if (t_thrd.sql_limit_cxt.got_SIGHUP) {
-            t_thrd.sql_limit_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
-        if (t_thrd.sql_limit_cxt.shutdown_requested) {
-            t_thrd.sql_limit_cxt.shutdown_requested = false;
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
+            t_thrd.worker_sig_flags.shutdown_requested = false;
             CleanSqlLimitCache();
             proc_exit(0);
         }
@@ -561,13 +561,13 @@ void SqlLimitMainLoop()
 
         ResetLatch(&t_thrd.proc->procLatch);
 
-        if (t_thrd.sql_limit_cxt.got_SIGHUP) {
-            t_thrd.sql_limit_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
-        if (t_thrd.sql_limit_cxt.shutdown_requested) {
-            t_thrd.sql_limit_cxt.shutdown_requested = false;
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
+            t_thrd.worker_sig_flags.shutdown_requested = false;
             CleanSqlLimitCache();
             proc_exit(0);
         }

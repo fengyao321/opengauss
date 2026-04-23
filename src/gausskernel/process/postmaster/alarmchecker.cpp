@@ -137,7 +137,6 @@ ThreadId startAlarmChecker(void)
 
 NON_EXEC_STATIC void AlarmCheckerMain()
 {
-
     /* we are a postmaster subprocess now */
     IsUnderPostmaster = true;
 
@@ -200,14 +199,15 @@ NON_EXEC_STATIC void AlarmCheckerMain()
         ResetLatch(&t_thrd.alarm_cxt.AlarmCheckerLatch);
 
         /* the normal shutdown case */
-        if (t_thrd.alarm_cxt.gotSigdie)
+        if (t_thrd.worker_sig_flags.got_SIGTERM) {
             break;
+        }
 
         /*
          * reload the postgresql.conf
          */
-        if (t_thrd.alarm_cxt.gotSighup) {
-            t_thrd.alarm_cxt.gotSighup = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
@@ -229,7 +229,7 @@ NON_EXEC_STATIC void AlarmCheckerMain()
  */
 /*
  * @@GaussDB@@
- * Brief		: handle SIGHUP signal and set t_thrd.alarm_cxt.gotSighup flag
+ * Brief		: handle SIGHUP signal and set t_thrd.worker_sig_flags.got_SIGHUP flag
  * Description	:
  * Notes		:
  */
@@ -237,7 +237,7 @@ static void acSighupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.alarm_cxt.gotSighup = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 
     SetLatch(&t_thrd.alarm_cxt.AlarmCheckerLatch);
 
@@ -246,7 +246,7 @@ static void acSighupHandler(SIGNAL_ARGS)
 
 /*
  * @@GaussDB@@
- * Brief		: handle SIGTERM, SIGINT signal and set t_thrd.alarm_cxt.gotSigdie flag
+ * Brief		: handle SIGTERM, SIGINT signal and set t_thrd.worker_sig_flags.got_SIGTERM flag
  * Description	:
  * Notes		:
  */
@@ -254,7 +254,7 @@ static void acSigquitHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.alarm_cxt.gotSigdie = true;
+    t_thrd.worker_sig_flags.got_SIGTERM = true;
 
     SetLatch(&t_thrd.alarm_cxt.AlarmCheckerLatch);
 

@@ -165,7 +165,7 @@ static void instr_snapshot_exit(SIGNAL_ARGS)
 /* SIGHUP handler for collector process */
 static void instr_snapshot_sighup_handler(SIGNAL_ARGS)
 {
-    t_thrd.perf_snap_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 }
 
 static void request_snapshot(SIGNAL_ARGS)
@@ -387,8 +387,8 @@ Datum kill_snapshot(PG_FUNCTION_ARGS)
 static void ReloadInfo()
 {
     /* Reload configuration if we got SIGHUP from the postmaster. */
-    if (t_thrd.perf_snap_cxt.got_SIGHUP) {
-        t_thrd.perf_snap_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
     }
     if (IsGotPoolReload()) {
@@ -1347,7 +1347,7 @@ static void SleepToNextTS(TimestampTz nextTimeStamp)
     while (GetCurrentTimestamp() < nextTimeStamp) {
         if (t_thrd.perf_snap_cxt.need_exit ||
             t_thrd.perf_snap_cxt.request_snapshot ||
-            t_thrd.perf_snap_cxt.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP) {
             break;
         }
         pg_usleep(ONE_SECOND);

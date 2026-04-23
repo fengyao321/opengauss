@@ -71,7 +71,7 @@ static void OgailauncherSighupHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.ogailauncher_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.ogailauncher_cxt.ogaiWorkerShmem)
         SetLatch(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->latch);
 
@@ -83,7 +83,7 @@ static void OgailauncherSigusr2Handler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.ogailauncher_cxt.got_SIGUSR2 = true;
+    t_thrd.worker_sig_flags.got_SIGUSR2 = true;
     if (t_thrd.ogailauncher_cxt.ogaiWorkerShmem)
         SetLatch(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->latch);
 
@@ -95,7 +95,7 @@ static void OgailauncherSigtermHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.ogailauncher_cxt.got_SIGTERM = true;
+    t_thrd.worker_sig_flags.got_SIGTERM = true;
     if (t_thrd.ogailauncher_cxt.ogaiWorkerShmem)
         SetLatch(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->latch);
 
@@ -172,7 +172,7 @@ static void PrepareOgaiWorker(OgaiWorkInfo work, int idx)
 
     t_thrd.ogailauncher_cxt.ogaiWorkerShmem->ogai_worker_status[idx].dbid = work->dbid;
 
-    while (!t_thrd.ogailauncher_cxt.got_SIGTERM) {
+    while (!t_thrd.worker_sig_flags.got_SIGTERM) {
         bool hit10s = (retryTimes % maxRetryTimes == 0);
         if (hit10s) {
             SendPostmasterSignal(PMSIGNAL_START_OGAI_WORKER);
@@ -316,7 +316,7 @@ NON_EXEC_STATIC void OgaiLauncherMain()
         RESUME_INTERRUPTS();
 
         /* if in shutdown mode, no need for anything further; just go away */
-        if (t_thrd.ogailauncher_cxt.got_SIGTERM) {
+        if (t_thrd.worker_sig_flags.got_SIGTERM) {
             goto shutdown;
         }
 
@@ -326,7 +326,7 @@ NON_EXEC_STATIC void OgaiLauncherMain()
         */
         pg_usleep(1000000L);
     }
-    while (!t_thrd.ogailauncher_cxt.got_SIGTERM) {
+    while (!t_thrd.worker_sig_flags.got_SIGTERM) {
         OgaiWorkInfoData work;
         int idx = -1;
 

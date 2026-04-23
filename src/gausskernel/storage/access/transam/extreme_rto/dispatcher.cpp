@@ -422,13 +422,13 @@ void StartupInterruptsForExtremeRto()
         }
     }
 
-    if (t_thrd.startup_cxt.got_SIGHUP) {
-        t_thrd.startup_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         SendSingalToPageWorker(SIGHUP);
         ProcessConfigFile(PGC_SIGHUP);
     }
 
-    if (t_thrd.startup_cxt.shutdown_requested) {
+    if (t_thrd.worker_sig_flags.shutdown_requested) {
         if (g_instance.status != SmartShutdown) {
             proc_exit(1);
         } else {

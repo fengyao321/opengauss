@@ -62,7 +62,7 @@ static void UndolauncherSighupHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.undolauncher_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.undolauncher_cxt.UndoWorkerShmem)
         SetLatch(&t_thrd.undolauncher_cxt.UndoWorkerShmem->latch);
 
@@ -74,7 +74,7 @@ static void UndolauncherSigusr2Handler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.undolauncher_cxt.got_SIGUSR2 = true;
+    t_thrd.worker_sig_flags.got_SIGUSR2 = true;
     if (t_thrd.undolauncher_cxt.UndoWorkerShmem)
         SetLatch(&t_thrd.undolauncher_cxt.UndoWorkerShmem->latch);
 
@@ -86,7 +86,7 @@ static void UndolauncherSigtermHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.undolauncher_cxt.got_SIGTERM = true;
+    t_thrd.worker_sig_flags.got_SIGTERM = true;
     if (t_thrd.undolauncher_cxt.UndoWorkerShmem)
         SetLatch(&t_thrd.undolauncher_cxt.UndoWorkerShmem->latch);
 
@@ -155,7 +155,7 @@ static void StartUndoWorker(UndoWorkInfo work)
     t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[idx].xid = work->xid;
     t_thrd.undolauncher_cxt.UndoWorkerShmem->undo_worker_status[idx].startUndoPtr = work->startUndoPtr;
 
-    while (!t_thrd.undolauncher_cxt.got_SIGTERM) {
+    while (!t_thrd.worker_sig_flags.got_SIGTERM) {
         bool hit10s = (retryTimes % maxRetryTimes == 0);
         if (hit10s) {
             SendPostmasterSignal(PMSIGNAL_START_UNDO_WORKER);
@@ -299,8 +299,9 @@ NON_EXEC_STATIC void UndoLauncherMain()
         RESUME_INTERRUPTS();
 
         /* if in shutdown mode, no need for anything further; just go away */
-        if (t_thrd.undolauncher_cxt.got_SIGTERM)
+        if (t_thrd.worker_sig_flags.got_SIGTERM) {
             goto shutdown;
+        }
 
         /*
          * Sleep at least 1 second after any error.  We don't want to be
@@ -309,7 +310,7 @@ NON_EXEC_STATIC void UndoLauncherMain()
         pg_usleep(1000000L);
     }
 
-    while (!t_thrd.undolauncher_cxt.got_SIGTERM) {
+    while (!t_thrd.worker_sig_flags.got_SIGTERM) {
         if (pmState == PM_WAIT_BACKENDS) {
             break;
         }

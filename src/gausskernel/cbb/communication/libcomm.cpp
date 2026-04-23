@@ -2755,7 +2755,7 @@ static void PoolCleanerShutdownHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.poolcleaner_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
@@ -2768,7 +2768,7 @@ static void PoolCleanerSighupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.poolcleaner_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
 
@@ -2856,7 +2856,7 @@ void commPoolCleanerMain()
     int* oldTryCounter = NULL;
 
     /* Normal exit */
-    if (t_thrd.poolcleaner_cxt.shutdown_requested) {
+    if (t_thrd.worker_sig_flags.shutdown_requested) {
         g_instance.pid_cxt.CommPoolerCleanPID = 0;
         proc_exit(0); /* done */
     }
@@ -2917,12 +2917,12 @@ void commPoolCleanerMain()
 
     last_start_time = mc_timers_ms() + nodeNameHashVal;
     for (;;) {
-        if (t_thrd.poolcleaner_cxt.shutdown_requested == true || g_instance.status > NoShutdown) {
+        if (t_thrd.worker_sig_flags.shutdown_requested || g_instance.status > NoShutdown) {
             break;
         }
 
-        if (t_thrd.poolcleaner_cxt.got_SIGHUP) {
-            t_thrd.poolcleaner_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
@@ -2946,4 +2946,3 @@ void commPoolCleanerMain()
     proc_exit(0);
 }
 #endif
-

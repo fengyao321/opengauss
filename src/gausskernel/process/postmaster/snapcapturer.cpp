@@ -106,7 +106,7 @@ static void TxnSnapSighupHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.snapcapturer_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
@@ -591,7 +591,7 @@ static void TxnSnapCapProcInterrupts(int rc)
     }
 
     /* the normal shutdown case */
-    if (t_thrd.snapcapturer_cxt.got_SIGTERM) {
+    if (t_thrd.worker_sig_flags.got_SIGTERM) {
         ereport(LOG, (errmodule(MOD_TIMECAPSULE),
             errmsg("txnsnapcapturer is shutting down.")));
         proc_exit(0);
@@ -602,8 +602,8 @@ static void TxnSnapCapProcInterrupts(int rc)
     /*
      * reload the postgresql.conf
      */
-    if (t_thrd.snapcapturer_cxt.got_SIGHUP) {
-        t_thrd.snapcapturer_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
     }
 }
@@ -863,7 +863,7 @@ NON_EXEC_STATIC void TxnSnapCapturerMain()
         RESUME_INTERRUPTS();
 
         /* if in shutdown mode, no need for anything further; just go away */
-        if (t_thrd.snapcapturer_cxt.got_SIGTERM) {
+        if (t_thrd.worker_sig_flags.got_SIGTERM) {
             goto shutdown;
         }
 
@@ -886,7 +886,7 @@ NON_EXEC_STATIC void TxnSnapCapturerMain()
     (void)gs_signal_unblock_sigusr2();
 
     /* loop until shutdown request */
-    while (!t_thrd.snapcapturer_cxt.got_SIGTERM) {
+    while (!t_thrd.worker_sig_flags.got_SIGTERM) {
         int rc;
 
         /* Clear any already-pending wakeups */
