@@ -1254,10 +1254,12 @@ static void RemoveLocalLock(LOCALLOCK *locallock)
 {
     HOLD_INTERRUPTS();
     locallock->numLockOwners = 0;
-    if (locallock->lockOwners)
-        pfree(locallock->lockOwners);
+    LOCALLOCKOWNER* tmpLockOwner = locallock->lockOwners;
     locallock->lockOwners = NULL;
-    RESUME_INTERRUPTS();
+    if (tmpLockOwner) {
+        pfree(tmpLockOwner);
+    }
+
     if (locallock->holdsStrongLockCount) {
         uint32 fasthashcode;
 
@@ -1269,6 +1271,7 @@ static void RemoveLocalLock(LOCALLOCK *locallock)
         locallock->holdsStrongLockCount = FALSE;
         SpinLockRelease(&t_thrd.storage_cxt.FastPathStrongRelationLocks->mutex);
     }
+    RESUME_INTERRUPTS();
     if (!hash_search(t_thrd.storage_cxt.LockMethodLocalHash, (void *)&(locallock->tag), HASH_REMOVE, NULL))
         ereport(WARNING, (errmsg("locallock table corrupted")));
 

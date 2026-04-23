@@ -835,6 +835,7 @@ static void knl_t_syncrep_init(knl_t_syncrep_context* syncrep_cxt)
     syncrep_cxt->SyncRepConfigGroups = 0;
     syncrep_cxt->SyncRepMaxPossib = 0;
     syncrep_cxt->announce_next_takeover = true;
+    syncrep_cxt->syncrep_reload_config = false;
 }
 
 static void knl_t_logical_init(knl_t_logical_context* logical_cxt)

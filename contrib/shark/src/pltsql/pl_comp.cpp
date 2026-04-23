@@ -288,6 +288,7 @@ recheck:
         }
         PG_CATCH();
         {
+            LockErrorCleanup();
 #ifndef ENABLE_MULTIPLE_NODES
             bool insertError = (u_sess->attr.attr_common.plsql_show_all_error ||
                                     u_sess->attr.attr_sql.check_function_bodies) &&
@@ -1143,6 +1144,7 @@ static PLpgSQL_function* do_compile(FunctionCallInfo fcinfo, HeapTuple proc_tup,
         }
         PG_CATCH();
         {
+            LockErrorCleanup();
             u_sess->parser_cxt.isPerform = save_isPerform;
             SPI_savepoint_rollbackAndRelease("createFunction", InvalidTransactionId);
             stp_cleanup_subxact_resource(stackId);

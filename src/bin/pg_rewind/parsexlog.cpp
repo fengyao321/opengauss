@@ -73,7 +73,7 @@ bool IncrementalVerifyCommit(XLogRecPtr recptr, pg_crc32 sCrc, uint32 term = 0);
  * Make note of the data blocks touched by the WAL records, and return them in
  * a page map.
  */
-void extractPageMap(const char* datadir, XLogRecPtr startpoint, TimeLineID tli)
+bool extractPageMap(const char* datadir, XLogRecPtr startpoint, TimeLineID tli)
 {
     XLogRecord* record = NULL;
     XLogReaderState* xlogreader = NULL;
@@ -85,7 +85,7 @@ void extractPageMap(const char* datadir, XLogRecPtr startpoint, TimeLineID tli)
     xlogreader = XLogReaderAllocate(&SimpleXLogPageRead, &readprivate);
     if (xlogreader == NULL) {
         pg_log(PG_ERROR, "out of memory\n");
-        return;
+        return false;
     }
   
     do {
@@ -107,6 +107,12 @@ void extractPageMap(const char* datadir, XLogRecPtr startpoint, TimeLineID tli)
             else
                 pg_log(
                     PG_WARNING, "could not read WAL record at %X/%X\n", (uint32)(startpoint >> 32), (uint32)startpoint);
+
+            if (strstr(errormsg, "incorrect resource manager data checksum in record")) {
+                XLogReaderFree(xlogreader);
+                CloseXlogFile();
+                return false;
+            }
             break;
         }
         extractPageInfo(xlogreader);
@@ -115,6 +121,7 @@ void extractPageMap(const char* datadir, XLogRecPtr startpoint, TimeLineID tli)
 
     XLogReaderFree(xlogreader);
     CloseXlogFile();
+    return true;
 }
 
 /*

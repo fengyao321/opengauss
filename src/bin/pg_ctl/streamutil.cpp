@@ -29,6 +29,7 @@
 #include "logging.h"
 
 PGconn* streamConn = NULL;
+pthread_mutex_t streamConnLock = PTHREAD_MUTEX_INITIALIZER;
 char* replication_slot = NULL;
 
 char* register_username = NULL;

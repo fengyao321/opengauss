@@ -11428,7 +11428,7 @@ static void sigusr1_handler(SIGNAL_ARGS)
     }
 
     if (CheckPostmasterSignal(PMSIGNAL_START_THREADPOOL_WORKER) &&
-        g_instance.status == NoShutdown) {
+        g_instance.status == NoShutdown && (pmState == PM_RUN || pmState == PM_HOT_STANDBY)) {
         if (g_threadPoolControler != NULL) {
             g_threadPoolControler->AddWorkerIfNecessary();
         }

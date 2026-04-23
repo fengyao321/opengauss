@@ -297,7 +297,12 @@ BuildErrorCode gs_increment_build(const char* pgdata, const char* connstr, char*
      * we would need to replay until the end of WAL here.
      */
     pg_log(PG_PROGRESS, "reading WAL in target\n");
-    extractPageMap(datadir_target, chkptredo, lastcommontli);
+    if (!extractPageMap(datadir_target, chkptredo, lastcommontli)) {
+        pg_log(PG_FATAL, "read WAL record failed, change to full build. \n");
+        g_inc_build_need_retry = false;
+        return BUILD_FATAL;
+    }
+
     PG_CHECKBUILD_AND_RETURN();
     filemap_finalize();
     calculate_totals();

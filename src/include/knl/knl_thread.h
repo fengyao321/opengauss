@@ -2608,6 +2608,7 @@ typedef struct knl_t_syncrep_context {
     int SyncRepMaxPossib;                       // max possible sync standby number
 
     bool announce_next_takeover;
+    bool syncrep_reload_config;
 } knl_t_syncrep_context;
 
 typedef struct knl_t_logical_context {

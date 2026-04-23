@@ -332,10 +332,12 @@ static int tblspaceIndex = 0;
 
 static void DisconnectConnection()
 {
+    pthread_mutex_lock(&streamConnLock);
     if (streamConn != NULL) {
         PQfinish(streamConn);
         streamConn = NULL;
     }
+    pthread_mutex_unlock(&streamConnLock);
 
 #ifndef WIN32
     /*

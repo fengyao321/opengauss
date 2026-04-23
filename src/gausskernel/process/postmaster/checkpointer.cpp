@@ -48,6 +48,7 @@
 #include "postmaster/bgwriter.h"
 #include "postmaster/pagewriter.h"
 #include "replication/syncrep.h"
+#include "replication/dcf_replication.h"
 #include "replication/ss_disaster_cluster.h"
 #include "storage/buf/bufmgr.h"
 #include "storage/ipc.h"
@@ -167,7 +168,7 @@ static void ChkptSigHupHandler(SIGNAL_ARGS);
 static void ReqCheckpointHandler(SIGNAL_ARGS);
 static void chkpt_sigusr1_handler(SIGNAL_ARGS);
 static void ReqShutdownHandler(SIGNAL_ARGS);
-
+static void WaitPageWriterStarted();
 /*
  * Main entry point for checkpointer process
  *
@@ -369,6 +370,10 @@ void CheckpointerMain(void)
 
     pgstat_report_appname("CheckPointer");
     pgstat_report_activity(STATE_IDLE, NULL);
+
+    if (!dummyStandbyMode && ENABLE_INCRE_CKPT) {
+        WaitPageWriterStarted();
+    }
 
     /*
      * Loop forever
@@ -1489,6 +1494,35 @@ bool CheckpointInProgress(void)
     ereport(LOG, (errmsg("CheckpointInProgress: ckpt_done=%d, ckpt_started=%d",
         cps->ckpt_done, cps->ckpt_started)));
     return inProgress;
+}
+
+static void WaitPageWriterStarted()
+{
+    const int MAX_RETRY_COUNT = 1000;
+    int retryCounts = 0;
+    while (true) {
+        if (t_thrd.checkpoint_cxt.shutdown_requested || (g_instance.demotion > NoDemote &&
+            pmState == PM_SHUTDOWN && g_instance.attr.attr_storage.dcf_attr.enable_dcf)) {
+            u_sess->attr.attr_common.ExitOnAnyError = true;
+
+            if (g_instance.attr.attr_storage.dcf_attr.enable_dcf || t_thrd.dcf_cxt.dcfCtxInfo->isDcfStarted) {
+                StopPaxosModule();
+            }
+            crps_destory_ctxs();
+            proc_exit(0);
+        }
+        if (pg_atomic_read_u32(&g_instance.ckpt_cxt_ctl->current_page_writer_count) > 0) {
+            ereport(LOG, (errmsg("Checkpointer finished waiting for pagewriter to start")));
+            break;
+        }
+
+        if (retryCounts >= MAX_RETRY_COUNT) {
+            ereport(PANIC, (errmsg("Checkpointer timed out waiting for pagewriter to start (exceeded 10 seconds)")));
+        }
+
+        pg_usleep(10000L);
+        retryCounts++;
+    }
 }
 
 #ifdef ENABLE_MOT

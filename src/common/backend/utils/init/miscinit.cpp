@@ -2123,6 +2123,10 @@ void ss_initdwsubdir(const char *dssdir)
         "%s/pg_doublewrite/pg_dw_ext_chunk", dssdir);
     securec_check_ss(rc, "", "");
 
+    rc = snprintf_s(g_instance.datadir_cxt.dw_subdir_cxt.dwTmpCheckFilePath, MAXPGPATH, MAXPGPATH - 1,
+        "%s/pg_doublewrite/pg_dw_check", dssdir);
+    securec_check_ss(rc, "", "");
+
     g_instance.datadir_cxt.dw_subdir_cxt.dwStorageType = (uint8)DEV_TYPE_DSS;
 }
 

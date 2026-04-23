@@ -564,6 +564,7 @@ void _PG_init(void)
         }
         PG_CATCH();
         {
+            LockErrorCleanup();
             hash_destroy(u_sess->plsql_cxt.plpgsql_HashTable);
             hash_destroy(u_sess->plsql_cxt.plpgsql_pkg_HashTable);
             hash_destroy(u_sess->SPI_cxt.SPICacheTable);
@@ -1465,6 +1466,7 @@ Datum plpgsql_inline_handler(PG_FUNCTION_ARGS)
     }
     PG_CATCH();
     {
+        LockErrorCleanup();
         if (u_sess->SPI_cxt._connected == 0) {
             t_thrd.utils_cxt.STPSavedResourceOwner = NULL;
         }
@@ -1744,6 +1746,7 @@ Datum plpgsql_validator(PG_FUNCTION_ARGS)
         }
         PG_CATCH();
         {
+            LockErrorCleanup();
             SetCurrCompilePgObjStatus(save_curr_status);
 #ifndef ENABLE_MULTIPLE_NODES
             u_sess->parser_cxt.isPerform = false;
@@ -1856,6 +1859,7 @@ PLpgSQL_package* plpgsql_package_validator(Oid packageOid, bool isSpec, bool isC
     }
     PG_CATCH();
     {
+        LockErrorCleanup();
         MemoryContextSwitchTo(oldcxt);
 #ifndef ENABLE_MULTIPLE_NODES
         if (isCreate) {
@@ -2016,6 +2020,7 @@ void PackageInit(PLpgSQL_package* pkg, bool isCreate, bool isSpec, bool isNeedCo
                     }
                     PG_CATCH();
                     {
+                        LockErrorCleanup();
                         set_create_plsql_type_end();
                         if (u_sess->plsql_cxt.create_func_error) {
                             u_sess->plsql_cxt.create_func_error = false;
@@ -2108,6 +2113,7 @@ void PackageInit(PLpgSQL_package* pkg, bool isCreate, bool isSpec, bool isNeedCo
     }
     PG_CATCH();
     {
+        LockErrorCleanup();
         u_sess->parser_cxt.isPerform = save_isPerform;
         pkg->isInitializing = false;
         stp_reset_xact_state_and_err_msg(oldStatus, needResetErrMsg);

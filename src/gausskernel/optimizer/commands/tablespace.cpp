@@ -95,6 +95,7 @@
 #include "replication/slot.h"
 #include "postmaster/rbcleaner.h"
 #include "storage/tcap.h"
+#include "storage/lmgr.h"
 
 static void create_tablespace_directories(const char* location, const Oid tablespaceoid);
 static bool destroy_tablespace_directories(Oid tablespaceoid, bool redo, bool is_exrto_read = false);
@@ -924,6 +925,7 @@ void DropTableSpace(DropTableSpaceStmt* stmt)
 
     tableam_scan_end(scandesc);
 
+    LockTableSpace(tablespaceoid, u_sess->proc_cxt.MyDatabaseId, ExclusiveLock);
     partrel = heap_open(PartitionRelationId, RowExclusiveLock);
     ScanKeyInit(&scankey[0],
         Anum_pg_partition_parttype,

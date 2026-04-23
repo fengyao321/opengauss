@@ -1325,6 +1325,7 @@ PLpgSQL_package* plpgsql_pkg_compile(Oid pkgOid, bool for_validator, bool isSpec
     }
     PG_CATCH();
     {
+        LockErrorCleanup();
         SetCurrCompilePgObjStatus(save_curr_status);
         u_sess->plsql_cxt.need_create_depend = save_need_create_depend;
         u_sess->plsql_cxt.is_pkg_compile = save_is_pkg_compile;

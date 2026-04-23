@@ -2242,19 +2242,19 @@ void instr_stmt_report_stat_at_handle_init()
 void instr_stmt_report_stat_at_handle_commit()
 {
     CHECK_STMT_HANDLE();
-
+    StatementStatContext* curHandle = CURRENT_STMT_METRIC_HANDLE;
     MemoryContext old_ctx = MemoryContextSwitchTo(BEENTRY_STMEMENET_CXT.stmt_stat_cxt);
-    CURRENT_STMT_METRIC_HANDLE->schema_name = pstrdup(u_sess->attr.attr_common.namespace_search_path);
-    CURRENT_STMT_METRIC_HANDLE->application_name = pstrdup(u_sess->attr.attr_common.application_name);
-    CURRENT_STMT_METRIC_HANDLE->tid = t_thrd.proc_cxt.MyProcPid;
+    curHandle->schema_name = pstrdup(u_sess->attr.attr_common.namespace_search_path);
+    curHandle->application_name = pstrdup(u_sess->attr.attr_common.application_name);
+    curHandle->tid = t_thrd.proc_cxt.MyProcPid;
 
     /* sql from remote node */
-    if (IsConnFromCoord() && CURRENT_STMT_METRIC_HANDLE->unique_query_id == 0 &&
+    if (IsConnFromCoord() && curHandle->unique_query_id == 0 &&
         u_sess->unique_sql_cxt.unique_sql_id != 0) {
         instr_stmt_report_query(u_sess->unique_sql_cxt.unique_sql_id);
     }
 
-    if (CURRENT_STMT_METRIC_HANDLE->txn_id == InvalidTransactionId) {
+    if (curHandle->txn_id == InvalidTransactionId) {
         instr_stmt_report_txid(GetCurrentTransactionIdIfAny());
     }
 

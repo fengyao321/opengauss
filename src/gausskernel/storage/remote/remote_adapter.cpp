@@ -472,6 +472,10 @@ Datum gs_read_file_size_from_remote(PG_FUNCTION_ARGS)
         ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), (errmsg("Invalid parameters count."))));
     }
     forknum = PG_GETARG_INT32(parano++);
+    if (forknum <= InvalidForkNumber || forknum > MAX_FORKNUM) {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), (errmsg("The input forknum is invalid."))));
+    }
+
     lsn = (uint64)PG_GETARG_TRANSACTIONID(parano++);
     timeout = PG_GETARG_INT32(parano++);
 

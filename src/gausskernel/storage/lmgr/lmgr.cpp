@@ -1093,6 +1093,12 @@ void DescribeLockTag(StringInfo buf, const LOCKTAG *tag)
                              tag->locktag_field2,
                              tag->locktag_field1);
             break;
+        case LOCKTAG_TABLESPACE:
+            appendStringInfo(buf,
+                             _("tablespace %u, database %u"),
+                             tag->locktag_field1,
+                             tag->locktag_field2);
+            break;
         default:
             appendStringInfo(buf, _("unrecognized locktag type %d"), (int)tag->locktag_type);
             break;
@@ -1431,4 +1437,18 @@ const char *GetLockNameFromTagType(uint16 locktag_type)
     if (locktag_type > LOCKTAG_LAST_TYPE)
         return "?\?\?";
     return LockTagTypeNames[locktag_type];
+}
+
+void LockTableSpace(Oid spcId, Oid dbId, LOCKMODE lockmode)
+{
+    LOCKTAG tag;
+    SET_LOCKTAG_TABLESPACE(tag, spcId, dbId);
+    (void)LockAcquire(&tag, lockmode, false, false);
+}
+
+void UnlockTableSpace(Oid spcId, Oid dbId, LOCKMODE lockmode)
+{
+    LOCKTAG tag;
+    SET_LOCKTAG_TABLESPACE(tag, spcId, dbId);
+    (void)LockRelease(&tag, lockmode, false);
 }

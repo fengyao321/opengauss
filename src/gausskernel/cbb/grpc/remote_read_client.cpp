@@ -392,7 +392,7 @@ extern int RemoteGetPage(char* remoteAddress, RepairBlockKey *key, uint32 blocks
         return errCode;
     }
 
-    if (pblk != NULL) {
+    if (pblk != NULL && pblk->relNode != EXTENT_INVALID && pblk->block != InvalidBlockNumber) {
         tnRet = snprintf_s(sqlCommands, MAX_PATH_LEN, MAX_PATH_LEN - 1,
             "SELECT pg_catalog.gs_read_segment_block_from_remote(%u, %u, %u, %d, %d, '%lu', %u, '%lu', %u, %u, %d);",
             key->relfilenode.spcNode, key->relfilenode.dbNode, key->relfilenode.relNode,

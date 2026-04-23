@@ -44,7 +44,7 @@ public:
     void ResetInitFlag(bool include_shared)
     {
         for (int cache_id = 0; cache_id < SysCacheSize; cache_id++) {
-            if (local_systupcaches[cache_id] == NULL) {
+            if (local_systupcaches == NULL || local_systupcaches[cache_id] == NULL) {
                 continue;
             }
             if (!include_shared && local_systupcaches[cache_id]->GetCCRelIsShared()) {
@@ -76,7 +76,7 @@ public:
     void ReleaseGlobalRefcount(bool include_shared)
     {
         for (int cache_id = 0; cache_id < SysCacheSize; cache_id++) {
-            if (local_systupcaches[cache_id] == NULL) {
+            if (local_systupcaches == NULL || local_systupcaches[cache_id] == NULL) {
                 continue;
             }
             if (!include_shared && local_systupcaches[cache_id]->GetCCRelIsShared()) {

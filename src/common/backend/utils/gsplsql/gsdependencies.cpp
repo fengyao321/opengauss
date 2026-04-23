@@ -174,6 +174,7 @@ void gsplsql_do_autonomous_compile(Oid objoid, bool is_pkg)
     }
     PG_CATCH();
     {
+        LockErrorCleanup();
         (void)CompileStatusSwtichTo(save_compile_status);
         u_sess->plsql_cxt.curr_compile_context = save_compile_context;
         u_sess->plsql_cxt.compile_context_list = save_compile_list;
