@@ -169,7 +169,8 @@ static Node* convert_expr_sublink_with_limit_clause(PlannerInfo *root,
                                     Relids *available_rels,
                                     Node *all_quals, const char *refname);
 static bool CanExprHashable(List *pullUpEqualExpr);
-static bool safe_pullup_uncorrelated_sublink_where(Node* inout_quals, Query* subQuery, Relids* available_rels);
+static bool safe_pullup_uncorrelated_sublink_where(Node* inout_quals, Query* subQuery, Relids* available_rels,
+                                                   bool &inner_pullup_correlated);
 
 static bool contain_dml_walker(Node *node, void *context);
 static bool recursive_reference_recursive_walker(Node* node);
@@ -5708,7 +5709,7 @@ convert_expr_sublink_with_limit_clause(PlannerInfo *root,
     if (get_pullUp_equal_expr((Node*)subQuery->jointree, &pullUpEqualQuals) &&
         pullUpEqualQuals)
     {
-        /* Guc rewrite_rule need set to magicset.*/
+        /* Guc rewrite_rule need set to magicset. */
         if (((u_sess->attr.attr_sql.rewrite_rule & MAGIC_SET) && permit_from_rewrite_hint(root, MAGIC_SET))
             && !contain_subplans((Node*)subQuery->jointree))
         {
@@ -5891,135 +5892,21 @@ convert_expr_subink_with_agg_targetlist(PlannerInfo *root,
     Node        *joinQual = NULL;
     Node        *push_quals = NULL;
     bool        pullupUnCorrelated = false;
-
+    bool        inner_pullup_correlated = false;
     subQuery = (Query*)sublink->subselect;
 
-    pullupUnCorrelated = (safe_pullup_uncorrelated_sublink_where(inout_quals, subQuery, available_rels) &&
+    pullupUnCorrelated = (safe_pullup_uncorrelated_sublink_where(inout_quals, subQuery, available_rels,
+                          inner_pullup_correlated) &&
                           ENABLE_SUBLINK_PULLUP_ENHANCED() &&
                           permit_from_rewrite_hint(root, SUBLINK_PULLUP_ENHANCED));
-
     /*
      * Judge this sublink if all quals is 'equal' and it is connected by 'and', and equal expr
      * one size include level up var other not include if so it can pull up or else not, and
      * append need pull up equal expr in sublink to list. sublink can be pulled up where 
      * get_pullUp_equal_expr return true and pullUpEqualExpr is not null.
      */
-    if ((get_pullUp_equal_expr((Node*)subQuery->jointree, &pullUpEqualExpr) && pullUpEqualExpr) || pullupUnCorrelated)
-    {
-        /* Guc rewrite_rule need set to magicset.*/
-        if (((u_sess->attr.attr_sql.rewrite_rule & MAGIC_SET) && permit_from_rewrite_hint(root, MAGIC_SET)) && !contain_subplans((Node*)subQuery->jointree))
-        {
-            /* Get can push down to subquery's quals.*/
-            push_quals = push_down_qual(root, all_quals, pullUpEqualExpr);
-        }
-
-        /* Mark unique_check flag of subquery */
-        subQuery->unique_check = !subQuery->hasAggs;
-
-        /* Rollback to don't pull up sublink when cannot hash or in upgrade. */
-        if (subQuery->unique_check &&
-            (!CanExprHashable(pullUpEqualExpr) ||
-            t_thrd.proc->workingVersionNum < SUBLINKPULLUP_VERSION_NUM))
-        {
-            subQuery->unique_check = false;
-            list_free_ext(pullUpEqualExpr);
-
-            ereport(DEBUG2, (errmodule(MOD_OPT_REWRITE),
-            (errmsg("[Expr sublink pull up failure reason]: Only support unique check for hashable scenario."))));
-
-            return inout_quals;
-        }
-
-        joinQual = transform_equal_expr(root, subQuery, pullUpEqualExpr, NULL, false);
-
-        /* Pull up sublink, replace var by sublink that come from subquery. */
-        JoinExpr    *result = NULL;
-        Node        *tmp_opexpr = inout_quals;
-        Node        *expr = (Node *)((TargetEntry *)linitial(subQuery->targetList))->expr;
-        Node        *decoratedConstraints = NULL;
-
-        /* Add new rtindex of rangeTblRef, append rindex to available rel number. */
-        rtindex = list_length(root->parse->rtable) + 1;
-        *available_rels = bms_add_member(*available_rels, rtindex);
-        
-        /* 
-         * Generates filtering conditions for left join based on the targetlist of
-         * the subLink.
-         */
-        decoratedConstraints = generate_filter_on_opexpr_sublink(root,
-                                                            rtindex,
-                                                            expr,
-                                                            subQuery);
-        if (decoratedConstraints != NULL) {
-            inout_quals = replace_node_clause(inout_quals, (Node*) sublink, 
-                            decoratedConstraints, RNC_RECURSE_AGGREF | RNC_COPY_NON_LEAF_NODES);
-        }
-        
-        /*
-         * Upper-level vars in subquery will now be one level closer to their
-         * parent than before; in particular, anything that had been level 1
-         * becomes level zero.
-         */
-        IncrementVarSublevelsUp(joinQual, -1, 1);
-
-        /* This qual of include sublink need be pull up, we will it replace with true here. */
-        if (IsA(*jtlink1, JoinExpr)) {
-            ((JoinExpr*)*jtlink1)->quals = replace_node_clause(((JoinExpr*)*jtlink1)->quals, 
-                                    tmp_opexpr, 
-                                    makeBoolConst(true, false),
-                                    RNC_RECURSE_AGGREF | RNC_COPY_NON_LEAF_NODES);
-        } else if (IsA(*jtlink1, FromExpr)) {
-            Assert(IsA(*jtlink1, FromExpr));
-            ((FromExpr*)*jtlink1)->quals = replace_node_clause(((FromExpr*)*jtlink1)->quals, 
-                                    tmp_opexpr, 
-                                    makeBoolConst(true, false),
-                                    RNC_RECURSE_AGGREF | RNC_COPY_NON_LEAF_NODES);
-        }
-
-        if (push_quals != NULL)
-        {
-            subQuery->jointree->quals = make_and_qual(subQuery->jointree->quals, push_quals);
-            subQuery->hasSubLinks = true;
-        }
-
-        /* Append subquery to rtable*/
-        RangeTblEntry* rte = NULL;
-
-        if (refname != NULL && ENABLE_PRED_PUSH_ALL(root)) {
-            rte = addRangeTableEntryForSubquery(NULL, subQuery, makeAlias(refname, NIL), false, false, true);
-        } else {
-            rte = addRangeTableEntryForSubquery(NULL, subQuery, makeAlias("subquery", NIL), false, false, true);
-        }
-        root->parse->rtable = lappend(root->parse->rtable, rte);
-
-        /* Append rangeTblRef to fromlist. */
-        RangeTblRef *rtr = makeNode(RangeTblRef);
-        rtr->rtindex = rtindex;
-        result = makeNode(JoinExpr);
-        result->jointype = JOIN_LEFT;
-        result->larg = *jtlink1;
-        result->rarg = (Node*)rtr;
-        result->alias = NULL;
-        result->quals = joinQual;
-
-        /* Append joinExpr to rtable. */
-        rte = addRangeTableEntryForJoin(NULL,
-                                        NIL,
-                                        result->jointype,
-                                        NIL,
-                                        result->alias,
-                                        true);
-        root->parse->rtable = lappend(root->parse->rtable, rte);
-        *jtlink1 = (Node*) result;
-
-        /* Mark query's can_push */
-        mark_parent_child_pushdown_flag(root->parse, subQuery);
-        
-        list_free_ext(pullUpEqualExpr); 
-        return inout_quals;
-    }
-    else
-    {
+    if (!((get_pullUp_equal_expr((Node*)subQuery->jointree, &pullUpEqualExpr, true) && pullUpEqualExpr &&
+         !inner_pullup_correlated) || pullupUnCorrelated)) {
         list_free_ext(pullUpEqualExpr); 
 
         ereport(DEBUG2, (errmodule(MOD_OPT_REWRITE),
@@ -6027,6 +5914,134 @@ convert_expr_subink_with_agg_targetlist(PlannerInfo *root,
 
         return inout_quals;
     }
+
+     /* Mark unique_check flag of subquery */
+    subQuery->unique_check = !subQuery->hasAggs;
+ 
+    /* Rollback to don't pull up sublink when cannot hash or in upgrade. */
+    if (subQuery->unique_check &&
+        (!CanExprHashable(pullUpEqualExpr) || t_thrd.proc->workingVersionNum < SUBLINKPULLUP_VERSION_NUM)) {
+        subQuery->unique_check = false;
+        list_free_ext(pullUpEqualExpr);
+ 
+        ereport(DEBUG2, (errmodule(MOD_OPT_REWRITE),
+                (errmsg("[Expr sublink pull up failure reason]: Only support unique check for hashable scenario."))));
+ 
+        return inout_quals;
+    }
+
+    /* Guc rewrite_rule need set to magicset. */
+    if (((u_sess->attr.attr_sql.rewrite_rule & MAGIC_SET) && permit_from_rewrite_hint(root, MAGIC_SET))
+        && !contain_subplans((Node*)subQuery->jointree))
+    {
+        /* Get can push down to subquery's quals. */
+        push_quals = push_down_qual(root, all_quals, pullUpEqualExpr);
+    }
+
+    /* Mark unique_check flag of subquery */
+    subQuery->unique_check = !subQuery->hasAggs;
+
+    /* Rollback to don't pull up sublink when cannot hash or in upgrade. */
+    if (subQuery->unique_check &&
+        (!CanExprHashable(pullUpEqualExpr) ||
+        t_thrd.proc->workingVersionNum < SUBLINKPULLUP_VERSION_NUM))
+    {
+        subQuery->unique_check = false;
+        list_free_ext(pullUpEqualExpr);
+
+        ereport(DEBUG2, (errmodule(MOD_OPT_REWRITE),
+        (errmsg("[Expr sublink pull up failure reason]: Only support unique check for hashable scenario."))));
+
+        return inout_quals;
+    }
+
+    joinQual = transform_equal_expr(root, subQuery, pullUpEqualExpr, NULL, false);
+
+    /* Pull up sublink, replace var by sublink that come from subquery. */
+    JoinExpr    *result = NULL;
+    Node        *tmp_opexpr = inout_quals;
+    Node        *expr = (Node *)((TargetEntry *)linitial(subQuery->targetList))->expr;
+    Node        *decoratedConstraints = NULL;
+
+    /* Add new rtindex of rangeTblRef, append rindex to available rel number. */
+    rtindex = list_length(root->parse->rtable) + 1;
+    *available_rels = bms_add_member(*available_rels, rtindex);
+
+    /*
+     * Generates filtering conditions for left join based on the targetlist of
+     * the subLink.
+     */
+    decoratedConstraints = generate_filter_on_opexpr_sublink(root,
+                                                        rtindex,
+                                                        expr,
+                                                        subQuery);
+    if (decoratedConstraints != NULL) {
+        inout_quals = replace_node_clause(inout_quals, (Node*) sublink,
+                        decoratedConstraints, RNC_RECURSE_AGGREF | RNC_COPY_NON_LEAF_NODES);
+    }
+    
+    /*
+        * Upper-level vars in subquery will now be one level closer to their
+        * parent than before; in particular, anything that had been level 1
+        * becomes level zero.
+        */
+    IncrementVarSublevelsUp(joinQual, -1, 1);
+
+    /* This qual of include sublink need be pull up, we will it replace with true here. */
+    if (IsA(*jtlink1, JoinExpr)) {
+        ((JoinExpr*)*jtlink1)->quals = replace_node_clause(((JoinExpr*)*jtlink1)->quals,
+                                tmp_opexpr,
+                                makeBoolConst(true, false),
+                                RNC_RECURSE_AGGREF | RNC_COPY_NON_LEAF_NODES);
+    } else if (IsA(*jtlink1, FromExpr)) {
+        Assert(IsA(*jtlink1, FromExpr));
+        ((FromExpr*)*jtlink1)->quals = replace_node_clause(((FromExpr*)*jtlink1)->quals,
+                                tmp_opexpr,
+                                makeBoolConst(true, false),
+                                RNC_RECURSE_AGGREF | RNC_COPY_NON_LEAF_NODES);
+    }
+
+    if (push_quals != NULL)
+    {
+        subQuery->jointree->quals = make_and_qual(subQuery->jointree->quals, push_quals);
+        subQuery->hasSubLinks = true;
+    }
+
+    /* Append subquery to rtable */
+    RangeTblEntry* rte = NULL;
+
+    if (refname != NULL && ENABLE_PRED_PUSH_ALL(root)) {
+        rte = addRangeTableEntryForSubquery(NULL, subQuery, makeAlias(refname, NIL), false, false, true);
+    } else {
+        rte = addRangeTableEntryForSubquery(NULL, subQuery, makeAlias("subquery", NIL), false, false, true);
+    }
+    root->parse->rtable = lappend(root->parse->rtable, rte);
+
+    /* Append rangeTblRef to fromlist. */
+    RangeTblRef *rtr = makeNode(RangeTblRef);
+    rtr->rtindex = rtindex;
+    result = makeNode(JoinExpr);
+    result->jointype = JOIN_LEFT;
+    result->larg = *jtlink1;
+    result->rarg = (Node*)rtr;
+    result->alias = NULL;
+    result->quals = joinQual;
+
+    /* Append joinExpr to rtable. */
+    rte = addRangeTableEntryForJoin(NULL,
+                                    NIL,
+                                    result->jointype,
+                                    NIL,
+                                    result->alias,
+                                    true);
+    root->parse->rtable = lappend(root->parse->rtable, rte);
+    *jtlink1 = (Node*) result;
+
+    /* Mark query's can_push */
+    mark_parent_child_pushdown_flag(root->parse, subQuery);
+
+    list_free_ext(pullUpEqualExpr);
+    return inout_quals;
 }
 
 /*
@@ -6096,7 +6111,7 @@ void convert_OREXISTS_to_join(
          */
         IncrementVarSublevelsUp(joinQual, -1, 1);
 
-        /* Append subquery to rtable*/
+        /* Append subquery to rtable */
         if (root->glob->sublink_counter != 0 && ENABLE_PRED_PUSH_ALL(root)) {
             char *subquery_name = denominate_sublink_name(root->glob->sublink_counter);
             rte = addRangeTableEntryForSubquery(NULL, subQuery, makeAlias(subquery_name, NIL), false, false, true);
@@ -6730,19 +6745,26 @@ void pull_up_sort_limit_clause(Query* query, Query* subquery, bool set_refs)
     list_free_ext(sortreflist);
     list_free_ext(groupreflist);
 }
- 
+
 /* Check if need to pull up non-correlated sublinks */
-static bool safe_pullup_uncorrelated_sublink_where(Node* inout_quals, Query* subQuery, Relids* available_rels)
+static bool safe_pullup_uncorrelated_sublink_where(Node* inout_quals, Query* subQuery,
+    Relids* available_rels, bool &inner_pullup_correlated)
 {
-    Relids level_up_varnos = NULL;
- 
-    level_up_varnos = pull_varnos((Node*)subQuery->jointree, 1, true);
-    if (!bms_is_empty(level_up_varnos) && bms_is_subset(level_up_varnos, *available_rels)) {
+    inner_pullup_correlated = false;
+
+    if (!subQuery->hasAggs) {
+        return false;
+    }
+
+    Relids level_up_varnos = pull_varnos((Node*)subQuery->jointree, 1, true);
+    if (!bms_is_empty(level_up_varnos)) {
+        if (!bms_is_subset(level_up_varnos, *available_rels)) {
+            inner_pullup_correlated = true;
+        }
         bms_free(level_up_varnos);
         return false;
     }
 
-    bms_free(level_up_varnos);
     if (!IsA(inout_quals, OpExpr)) {
         return false;
     }
