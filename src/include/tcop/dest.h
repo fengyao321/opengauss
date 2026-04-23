@@ -148,6 +148,8 @@ class VectorBatch;
 typedef struct _DestReceiver DestReceiver;
 
 struct TupleTableSlot;
+struct PortalData;
+struct CachedPlanSource;
 
 struct _DestReceiver {
     /* Called for each tuple to be output: */
@@ -166,7 +168,8 @@ struct _DestReceiver {
 
     void (*finalizeLocalStream)(DestReceiver* self);
 
-    void (*sendRowDesc)(StringInfo buf, TupleDesc typeinfo, List *targetlist, int16 *formats);
+    void (*sendRowDesc)(StringInfo buf, TupleDesc typeinfo, List *targetlist, int16 *formats,
+        struct CachedPlanSource* psrc);
 
     /* send sample tuple to coordinator for analyze */
     bool forAnalyzeSampleTuple;

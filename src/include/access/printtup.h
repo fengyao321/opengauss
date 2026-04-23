@@ -15,6 +15,7 @@
 #define PRINTTUP_H
 
 #include "utils/portal.h"
+#include "utils/plancache.h"
 #include "distributelayer/streamProducer.h"
 
 extern DestReceiver* printtup_create_DR(CommandDest dest);
@@ -22,7 +23,8 @@ extern DestReceiver* createStreamDestReceiver(CommandDest dest);
 extern void SetStreamReceiverParams(DestReceiver* self, StreamProducer* arg, Portal portal);
 extern void SetRemoteDestReceiverParams(DestReceiver* self, Portal portal);
 
-extern void SendRowDescriptionMessage(StringInfo buf, TupleDesc typeinfo, List* targetlist, int16* formats);
+extern void SendRowDescriptionMessage(StringInfo buf, TupleDesc typeinfo, List* targetlist, int16* formats,
+    CachedPlanSource* psrc = NULL);
 
 extern void debugStartup(DestReceiver* self, int operation, TupleDesc typeinfo);
 extern void debugtup(TupleTableSlot* slot, DestReceiver* self);

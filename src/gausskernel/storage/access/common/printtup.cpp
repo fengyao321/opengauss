@@ -25,6 +25,7 @@
 #include "access/tableam.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
+#include "pgstat.h"
 #include "tcop/pquery.h"
 #include "utils/float.h"
 #include "utils/lsyscache.h"
@@ -50,6 +51,25 @@ static void printtup_destroy(DestReceiver *self);
 
 static void SendRowDescriptionCols_2(StringInfo buf, TupleDesc typeinfo, List *targetlist, int16 *formats);
 static void SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo, List *targetlist, int16 *formats);
+typedef struct PgRowDescCacheBuf {
+    bool valid;
+    int natts;
+    TupleDesc typeinfo;
+    List* targetlist;
+    int num_formats;
+    int16* formats_copy;
+    uint8 msgtype;
+    uint32 frontend_proto_major;
+    StringInfoData buf;
+} PgRowDescCacheBuf;
+
+static void FreeRowDescriptionCache(PgRowDescCacheBuf *cache);
+static bool RowDescriptionFormatsEqual(const PgRowDescCacheBuf *cache, TupleDesc typeinfo, int16 *formats);
+static bool RowDescriptionCacheMatch(const PgRowDescCacheBuf *cache, TupleDesc typeinfo, List *targetlist,
+    int16 *formats);
+static void StoreRowDescriptionCache(CachedPlanSource *psrc, TupleDesc typeinfo, List *targetlist, int16 *formats,
+    StringInfo buf);
+static List* ResolveRowDescTargetList(CachedPlanSource *psrc, Portal portal);
 static void writeString(StringInfo buf, const char *name, bool isWrite);
 #ifndef ENABLE_MULTIPLE_NODES
 static bool checkNeedUpperAndToUpper(char *dest, const char *source);
@@ -407,6 +427,8 @@ static void printStreamStartup(DestReceiver *self, int operation, TupleDesc type
     streamReceiver *streamRec = (streamReceiver *)self;
     StreamProducer *arg = streamRec->arg;
     Portal portal = streamRec->portal;
+    CachedPlanSource *psrc = ResolveRowDescPlanSource(portal);
+    List *targetlist = ResolveRowDescTargetList(psrc, portal);
 
     /* create buffer to be used for all messages */
     initStringInfo(&streamRec->buf);
@@ -421,7 +443,11 @@ static void printStreamStartup(DestReceiver *self, int operation, TupleDesc type
              * descriptor of the tuples.
              */
             if (streamRec->sendDescrip)
-                SendRowDescriptionMessage(&streamRec->buf, typeinfo, FetchPortalTargetList(portal), portal->formats);
+                SendRowDescriptionMessage(&streamRec->buf,
+                    typeinfo,
+                    targetlist,
+                    portal->formats,
+                    psrc);
             res = pq_flush();
             if (res == EOF) {
                 transport[i]->release();
@@ -581,6 +607,7 @@ static void printtup_startup(DestReceiver *self, int operation, TupleDesc typein
 {
     DR_printtup *myState = (DR_printtup *)self;
     Portal portal = myState->portal;
+    CachedPlanSource *psrc = ResolveRowDescPlanSource(portal);
 
     /* create buffer to be used for all messages */
     initStringInfo(&myState->buf);
@@ -605,7 +632,11 @@ static void printtup_startup(DestReceiver *self, int operation, TupleDesc typein
      * descriptor of the tuples.
      */
     if (myState->sendDescrip)
-        SendRowDescriptionMessage(&myState->buf, typeinfo, FetchPortalTargetList(portal), portal->formats);
+        SendRowDescriptionMessage(&myState->buf,
+            typeinfo,
+            ResolveRowDescTargetList(psrc, portal),
+            portal->formats,
+            psrc);
 
     /* ----------------
      * We could set up the derived attr info at this time, but we postpone it
@@ -630,22 +661,122 @@ static void printtup_startup(DestReceiver *self, int operation, TupleDesc typein
  * array pointer might be NULL (if we are doing Describe on a prepared stmt);
  * send zeroes for the format codes in that case.
  */
-void SendRowDescriptionMessage(StringInfo buf, TupleDesc typeinfo, List *targetlist, int16 *formats)
+void SendRowDescriptionMessage(StringInfo buf, TupleDesc typeinfo, List *targetlist, int16 *formats,
+    CachedPlanSource *psrc)
 {
     int natts = typeinfo->natts;
     int proto = PG_PROTOCOL_MAJOR(FrontendProtocol);
+    PgRowDescCacheBuf *cache = NULL;
+
+    if (psrc != NULL && psrc->describe_buf_context != NULL) {
+        cache = (PgRowDescCacheBuf *)psrc->row_desc_bufs[ROW_DESC_CACHE_PROTOCOL_A];
+    }
+
+    if (RowDescriptionCacheMatch(cache, typeinfo, targetlist, formats)) {
+        pgstat_report_rowdesc_cache_hit(ROW_DESC_CACHE_PROTOCOL_A);
+        (void)pq_putmessage(cache->msgtype, cache->buf.data, cache->buf.len);
+        return;
+    }
 
     /* tuple descriptor message type */
     pq_beginmessage_reuse(buf, 'T');
     /* # of attrs in tuples */
     pq_sendint16(buf, natts);
 
-    if (proto >= 3)
+    if (proto >= 3) {
         SendRowDescriptionCols_3(buf, typeinfo, targetlist, formats);
-    else
+    } else {
         SendRowDescriptionCols_2(buf, typeinfo, targetlist, formats);
+    }
+
+    if (psrc != NULL && psrc->describe_buf_context != NULL) {
+        StoreRowDescriptionCache(psrc, typeinfo, targetlist, formats, buf);
+    }
 
     pq_endmessage_reuse(buf);
+}
+
+static bool RowDescriptionFormatsEqual(const PgRowDescCacheBuf *cache, TupleDesc typeinfo, int16 *formats)
+{
+    int format_count = (formats == NULL) ? 0 : typeinfo->natts;
+
+    if (cache->num_formats != format_count) {
+        return false;
+    }
+
+    if (format_count == 0) {
+        return true;
+    }
+
+    return memcmp(cache->formats_copy, formats, sizeof(int16) * format_count) == 0;
+}
+
+static bool RowDescriptionCacheMatch(const PgRowDescCacheBuf *cache, TupleDesc typeinfo, List *targetlist,
+    int16 *formats)
+{
+    if (cache == NULL || !cache->valid || cache->buf.data == NULL) {
+        return false;
+    }
+
+    if (cache->typeinfo != typeinfo || cache->targetlist != targetlist || cache->natts != typeinfo->natts ||
+        cache->frontend_proto_major != PG_PROTOCOL_MAJOR(FrontendProtocol)) {
+        return false;
+    }
+
+    return RowDescriptionFormatsEqual(cache, typeinfo, formats);
+}
+
+static void FreeRowDescriptionCache(PgRowDescCacheBuf *cache)
+{
+    if (cache == NULL) {
+        return;
+    }
+
+    pfree_ext(cache->buf.data);
+    pfree_ext(cache->formats_copy);
+    pfree(cache);
+}
+
+static void StoreRowDescriptionCache(CachedPlanSource *psrc, TupleDesc typeinfo, List *targetlist, int16 *formats,
+    StringInfo buf)
+{
+    PgRowDescCacheBuf *cache = NULL;
+    MemoryContext old_context = NULL;
+    int format_count = (formats == NULL) ? 0 : typeinfo->natts;
+
+    FreeRowDescriptionCache((PgRowDescCacheBuf *)psrc->row_desc_bufs[ROW_DESC_CACHE_PROTOCOL_A]);
+    psrc->row_desc_bufs[ROW_DESC_CACHE_PROTOCOL_A] = NULL;
+
+    old_context = MemoryContextSwitchTo(psrc->describe_buf_context);
+    cache = (PgRowDescCacheBuf *)palloc0(sizeof(PgRowDescCacheBuf));
+    initStringInfo(&cache->buf);
+    appendBinaryStringInfoNT(&cache->buf, buf->data, buf->len);
+    cache->valid = true;
+    cache->typeinfo = typeinfo;
+    cache->targetlist = targetlist;
+    cache->natts = typeinfo->natts;
+    cache->num_formats = format_count;
+    cache->msgtype = buf->cursor;
+    cache->frontend_proto_major = PG_PROTOCOL_MAJOR(FrontendProtocol);
+    if (format_count > 0) {
+        cache->formats_copy = (int16 *)palloc(sizeof(int16) * format_count);
+        errno_t rc = memcpy_s(
+            cache->formats_copy, sizeof(int16) * format_count, formats, sizeof(int16) * format_count);
+        securec_check(rc, "\0", "\0");
+    }
+    psrc->row_desc_bufs[ROW_DESC_CACHE_PROTOCOL_A] = cache;
+    MemoryContextSwitchTo(old_context);
+
+    pgstat_report_rowdesc_cache_store(ROW_DESC_CACHE_PROTOCOL_A);
+}
+
+static List* ResolveRowDescTargetList(CachedPlanSource *psrc, Portal portal)
+{
+    if (psrc != NULL) {
+        return CachedPlanGetTargetList(psrc);
+    }
+
+    return portal == NULL ? NIL : FetchPortalTargetList(portal);
 }
 
 /*

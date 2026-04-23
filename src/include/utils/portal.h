@@ -49,6 +49,7 @@
 
 #include "datatype/timestamp.h"
 #include "executor/exec/execdesc.h"
+#include "lib/stringinfo.h"
 #include "utils/resowner.h"
 
 /*

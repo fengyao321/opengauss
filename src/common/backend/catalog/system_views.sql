@@ -1030,12 +1030,16 @@ CREATE OR REPLACE VIEW pg_catalog.pg_session_wlmstat AS
             S.current_status AS status,
             S.enqueue_state AS enqueue,
             CASE
-				WHEN T.session_respool = 'unknown' THEN (U.rolrespool) :: name
-				ELSE T.session_respool
-				END AS resource_pool,
+					WHEN T.session_respool = 'unknown' THEN (U.rolrespool) :: name
+					ELSE T.session_respool
+					END AS resource_pool,
             S.query,
             S.is_plana,
-            S.node_group
+            S.node_group,
+            S.rowdesc_a_store_count,
+            S.rowdesc_a_hit_count,
+            S.rowdesc_b_store_count,
+            S.rowdesc_b_hit_count
     FROM pg_database D, pg_catalog.pg_stat_get_session_wlmstat(NULL) AS S, pg_authid AS U, pg_catalog.gs_wlm_session_respool(0) AS T
     WHERE S.datid = D.oid AND
             S.usesysid = U.oid AND

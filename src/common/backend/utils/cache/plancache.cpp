@@ -53,6 +53,7 @@
 
 #include "access/transam.h"
 #include "catalog/namespace.h"
+#include "commands/prepare.h"
 #include "executor/node/nodeModifyTable.h"
 #include "executor/executor.h"
 #include "executor/lightProxy.h"
@@ -74,6 +75,7 @@
 #include "utils/hotkey.h"
 #include "utils/inval.h"
 #include "utils/memutils.h"
+#include "utils/portal.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "instruments/instr_unique_sql.h"
@@ -112,6 +114,29 @@ static bool check_stream_plan(Plan* plan);
 #endif
 static bool is_upsert_query_with_update_param(Node* raw_parse_tree);
 static void GPCFillPlanCache(CachedPlanSource* plansource, bool isBuildingCustomPlan);
+static MemoryContext CreateRowDescBufContext(MemoryContext parent);
+static void ResetRowDescPlanCache(CachedPlanSource* plansource);
+
+static MemoryContext CreateRowDescBufContext(MemoryContext parent)
+{
+    return AllocSetContextCreate(parent,
+        "CachedPlanRowDescription",
+        ALLOCSET_SMALL_MINSIZE,
+        ALLOCSET_SMALL_INITSIZE,
+        ALLOCSET_DEFAULT_MAXSIZE);
+}
+
+static void ResetRowDescPlanCache(CachedPlanSource* plansource)
+{
+    if (plansource->describe_buf_context == NULL) {
+        return;
+    }
+
+    MemoryContextReset(plansource->describe_buf_context);
+    for (int protocol = 0; protocol < CACHED_PLAN_ROW_DESC_BUF_NUM; ++protocol) {
+        plansource->row_desc_bufs[protocol] = NULL;
+    }
+}
 
 bool IsStreamSupport()
 {
@@ -258,6 +283,7 @@ CachedPlanSource* CreateCachedPlan(Node* raw_parse_tree, const char* query_strin
     plansource->resultDesc = NULL;
     plansource->search_path = NULL;
     plansource->context = source_context;
+    plansource->describe_buf_context = NULL;
 #ifdef PGXC
     plansource->stmt_name = (stmt_name ? pstrdup(stmt_name) : NULL);
     plansource->stream_enabled = IsStreamSupport();
@@ -293,6 +319,9 @@ CachedPlanSource* CreateCachedPlan(Node* raw_parse_tree, const char* query_strin
     plansource->gpc_lockid = -1;
     plansource->hasSubQuery = false;
     plansource->param_collation = GetCollationConnection();
+    if (!enable_pbe_gpc && !(ENABLE_CN_GPC && enable_spi_gpc)) {
+        plansource->describe_buf_context = CreateRowDescBufContext(source_context);
+    }
 
 
 #ifdef ENABLE_MOT
@@ -364,6 +393,7 @@ CachedPlanSource* CreateOneShotCachedPlan(Node* raw_parse_tree, const char* quer
     plansource->resultDesc = NULL;
     plansource->search_path = NULL;
     plansource->context = CurrentMemoryContext;
+    plansource->describe_buf_context = NULL;
     plansource->query_list = NIL;
     plansource->relationOids = NIL;
     plansource->invalItems = NIL;
@@ -985,6 +1015,7 @@ List* RevalidateCachedQuery(CachedPlanSource* plansource, bool has_lp)
     plansource->relationOids = NIL;
     plansource->invalItems = NIL;
     plansource->search_path = NULL;
+    ResetRowDescPlanCache(plansource);
     if (plansource->single_exec_node) {
         need_reset_singlenode = true;
     }
@@ -2708,6 +2739,7 @@ CachedPlanSource* CopyCachedPlan(CachedPlanSource* plansource, bool is_share)
     else
         newsource->resultDesc = NULL;
     newsource->context = source_context;
+    newsource->describe_buf_context = is_share ? NULL : CreateRowDescBufContext(source_context);
 
     if (ENABLE_GPC && is_share == true) {
         querytree_context = AllocSetContextCreate(source_context,
@@ -2817,6 +2849,28 @@ List* CachedPlanGetTargetList(CachedPlanSource* plansource)
     pstmt = PortalListGetPrimaryStmt(plansource->query_list);
 
     return FetchStatementTargetList(pstmt);
+}
+
+CachedPlanSource* ResolveRowDescPlanSource(Portal portal)
+{
+    PreparedStatement* pstmt = NULL;
+    CachedPlanSource* psrc = NULL;
+
+    if (portal == NULL || portal->prepStmtName == NULL || portal->prepStmtName[0] == '\0') {
+        return NULL;
+    }
+
+    pstmt = FetchPreparedStatement(portal->prepStmtName, false, true);
+    if (pstmt == NULL || pstmt->plansource == NULL) {
+        return NULL;
+    }
+
+    psrc = pstmt->plansource;
+    if (psrc->describe_buf_context == NULL) {
+        return NULL;
+    }
+
+    return psrc;
 }
 
 /*
@@ -3337,6 +3391,7 @@ ResetPlanCache(CachedPlanSource *plansource)
                 return;
             } else {
     			plansource->is_valid = false;
+                ResetRowDescPlanCache(plansource);
                 CN_GPC_LOG("invalid in ResetPlanCache", plansource, 0);
     			if (plansource->gplan) {
     				plansource->gplan->is_valid = false;
@@ -3469,6 +3524,8 @@ void ResetPlanCache(void)
             PMGR_ReleasePlanManager(plansource);
         }
     }
+
+    ResetRowDescPlanCache(plansource);
 
 #ifdef MEMORY_CONTEXT_CHECKING
     CachedPlanSource* cur_plansource = u_sess->pcache_cxt.first_saved_plan;

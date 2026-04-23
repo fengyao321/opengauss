@@ -34,6 +34,7 @@ namespace JitExec
 
 #define CACHEDPLANSOURCE_MAGIC 195726186
 #define CACHEDPLAN_MAGIC 953717834
+#define CACHED_PLAN_ROW_DESC_BUF_NUM 2
 
 #ifndef ENABLE_MULTIPLE_NODES
 #define ENABLE_CACHEDPLAN_MGR (IS_SINGLE_NODE && g_instance.attr.attr_common.enable_cachedplan_mgr && !ENABLE_GPC)
@@ -360,6 +361,8 @@ typedef struct CachedPlanSource {
     bool cq_is_flt_frame;  /* Record whether the expression execution frame is a flat frame? 'cq' means CachedQuery */
     TupleDesc resultDesc;  /* result type; NULL = doesn't return tuples */
     MemoryContext context; /* memory context holding all above */
+    MemoryContext describe_buf_context; /* rowdesc cache context, NULL if disabled */
+    void* row_desc_bufs[CACHED_PLAN_ROW_DESC_BUF_NUM]; /* per-protocol rowdesc cache slots */
     /* These fields describe the current analyzed-and-rewritten query tree: */
     List* query_list; /* list of Query nodes, or NIL if not valid */
     /*
@@ -552,6 +555,7 @@ extern CachedPlanSource *CopyCachedPlan(CachedPlanSource *plansource, bool is_sh
 extern bool CachedPlanIsValid(CachedPlanSource* plansource);
 
 extern List* CachedPlanGetTargetList(CachedPlanSource* plansource);
+extern CachedPlanSource* ResolveRowDescPlanSource(struct PortalData* portal);
 
 extern CachedPlan* GetWiseCachedPlan(CachedPlanSource* plansource, ParamListInfo boundParams, bool useResOwner);
 extern CachedPlan* GetCachedPlan(CachedPlanSource* plansource, ParamListInfo boundParams, bool useResOwner);

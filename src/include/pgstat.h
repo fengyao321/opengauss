@@ -1566,6 +1566,17 @@ typedef struct WaitInfo {
     WaitStatusInfo status_info;
 } WaitInfo;
 
+typedef enum RowDescriptionCacheProtocol {
+    ROW_DESC_CACHE_PROTOCOL_A = 0,
+    ROW_DESC_CACHE_PROTOCOL_B,
+    ROW_DESC_CACHE_PROTOCOL_NUM
+} RowDescriptionCacheProtocol;
+
+typedef struct RowDescriptionCacheStat {
+    uint64 store_count;
+    uint64 hit_count;
+} RowDescriptionCacheStat;
+
 
 /*
  * This is a container used to storage information about the target object that DMS is waiting for.
@@ -1726,6 +1737,7 @@ typedef struct PgBackendStatus {
 
     HTAB* my_prepared_queries;
     pthread_mutex_t* my_pstmt_htbl_lock;
+    RowDescriptionCacheStat* row_desc_cache_stats;
 } PgBackendStatus;
 
 typedef struct PgBackendStatusNode {
@@ -1909,6 +1921,46 @@ void pgstate_update_percentile_responsetime(void);
 
 #define IS_PGSTATE_TRACK_UNDEFINE \
     (!u_sess->attr.attr_common.pgstat_track_activities || !t_thrd.shemem_ptr_cxt.MyBEEntry)
+
+static inline uint64 rowdesc_sat_add_u64(uint64 current, uint64 delta)
+{
+    if (PG_UINT64_MAX - current < delta) {
+        return PG_UINT64_MAX;
+    }
+
+    return current + delta;
+}
+
+static inline void pgstat_report_rowdesc_cache(RowDescriptionCacheProtocol protocol, bool store, bool hit)
+{
+    if (IS_PGSTATE_TRACK_UNDEFINE || protocol < ROW_DESC_CACHE_PROTOCOL_A ||
+        protocol >= ROW_DESC_CACHE_PROTOCOL_NUM) {
+        return;
+    }
+
+    PgBackendStatus* beentry = t_thrd.shemem_ptr_cxt.MyBEEntry;
+    RowDescriptionCacheStat* stat = NULL;
+
+    if (beentry->row_desc_cache_stats == NULL) {
+        return;
+    }
+
+    pgstat_increment_changecount_before(beentry);
+    stat = &beentry->row_desc_cache_stats[protocol];
+    stat->store_count = rowdesc_sat_add_u64(stat->store_count, store ? 1 : 0);
+    stat->hit_count = rowdesc_sat_add_u64(stat->hit_count, hit ? 1 : 0);
+    pgstat_increment_changecount_after(beentry);
+}
+
+static inline void pgstat_report_rowdesc_cache_store(RowDescriptionCacheProtocol protocol)
+{
+    pgstat_report_rowdesc_cache(protocol, true, false);
+}
+
+static inline void pgstat_report_rowdesc_cache_hit(RowDescriptionCacheProtocol protocol)
+{
+    pgstat_report_rowdesc_cache(protocol, false, true);
+}
 
 /*
  * Simple way, only updates wait status and return the last wait status
@@ -3130,5 +3182,3 @@ typedef struct BadBlockEntry {
 } BadBlockEntry;
 
 #endif /* PGSTAT_H */
-
-
