@@ -1100,7 +1100,7 @@ static Datum ExecEvalConst(ExprState* exprstate, ExprContext* econtext, bool* is
     if (IsA(exprstate->expr, UserVar)) {
         bool found = false;
         UserVar *uservar = (UserVar *)exprstate->expr;
-        GucUserParamsEntry *entry = (GucUserParamsEntry *)hash_search(u_sess->utils_cxt.set_user_params_htab, uservar->name, HASH_FIND, &found);
+        GucUserParamsEntry *entry = (GucUserParamsEntry *)hash_search(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_user_params_htab), uservar->name, HASH_FIND, &found);
 
         /* if not found, return a null const */
         if (found) {
@@ -1338,9 +1338,9 @@ static Datum ExecEvalUserSetElm(ExprState* exprstate, ExprContext* econtext, boo
     } else {
         bool found = false;
         GucUserParamsEntry *entry = NULL;
-        if (u_sess->utils_cxt.set_user_params_htab != NULL) {
+        if (KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_user_params_htab) != NULL) {
             UserVar *uservar = (UserVar*)linitial(elem->name);
-            entry = (GucUserParamsEntry*)hash_search(u_sess->utils_cxt.set_user_params_htab,
+            entry = (GucUserParamsEntry*)hash_search(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_user_params_htab),
                 uservar->name, HASH_FIND, &found);
         }
 

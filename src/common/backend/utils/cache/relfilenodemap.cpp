@@ -172,7 +172,7 @@ static void InitializeRelfilenodeMap()
          * initialized when fmgr_info_cxt() above ERRORs out with an out of memory
          * error.
          */
-        u_sess->relmap_cxt.RelfilenodeMapHash =
+        u_sess->relmap_cxt->RelfilenodeMapHash =
             hash_create("RelfilenodeMap cache", 1024, &ctl, HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
 
         /* Watch for invalidation events. */
@@ -227,7 +227,7 @@ static void InitializePartfilenodeMap()
          * initialized when fmgr_info_cxt() above ERRORs out with an out of memory
          * error.
          */
-        u_sess->relmap_cxt.PartfilenodeMapHash = hash_create("PartfilenodeMap cache",
+        u_sess->relmap_cxt->PartfilenodeMapHash = hash_create("PartfilenodeMap cache",
             PARTITION_HASH_ELEM_SIZE, &ctl, HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
 
         /* Watch for invalidation events. */

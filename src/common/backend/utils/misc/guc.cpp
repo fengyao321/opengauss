@@ -2391,9 +2391,9 @@ static void InitConfigureNamesBool()
     };
 
     Size bytes = sizeof(localConfigureNamesBool);
-    u_sess->utils_cxt.ConfigureNamesBool[GUC_ATTR_COMMON] =
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesBool)[GUC_ATTR_COMMON] =
         (struct config_bool*)MemoryContextAlloc(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB), bytes);
-    errno_t rc = memcpy_s(u_sess->utils_cxt.ConfigureNamesBool[GUC_ATTR_COMMON], bytes, localConfigureNamesBool, bytes);
+    errno_t rc = memcpy_s(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesBool)[GUC_ATTR_COMMON], bytes, localConfigureNamesBool, bytes);
     securec_check_ss(rc, "\0", "\0");
 }
 
@@ -3504,9 +3504,9 @@ static void InitConfigureNamesInt()
     };
 
     Size bytes = sizeof(localConfigureNamesInt);
-    u_sess->utils_cxt.ConfigureNamesInt[GUC_ATTR_COMMON] =
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt)[GUC_ATTR_COMMON] =
         (struct config_int*)MemoryContextAlloc(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB), bytes);
-    errno_t rc = memcpy_s(u_sess->utils_cxt.ConfigureNamesInt[GUC_ATTR_COMMON], bytes, localConfigureNamesInt, bytes);
+    errno_t rc = memcpy_s(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt)[GUC_ATTR_COMMON], bytes, localConfigureNamesInt, bytes);
     securec_check_ss(rc, "\0", "\0");
 }
 
@@ -3543,9 +3543,9 @@ static void InitConfigureNamesReal()
     };
 
     Size bytes = sizeof(localConfigureNamesReal);
-    u_sess->utils_cxt.ConfigureNamesReal[GUC_ATTR_COMMON] =
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesReal)[GUC_ATTR_COMMON] =
         (struct config_real*)MemoryContextAlloc(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB), bytes);
-    errno_t rc = memcpy_s(u_sess->utils_cxt.ConfigureNamesReal[GUC_ATTR_COMMON], bytes, localConfigureNamesReal, bytes);
+    errno_t rc = memcpy_s(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesReal)[GUC_ATTR_COMMON], bytes, localConfigureNamesReal, bytes);
     securec_check_ss(rc, "\0", "\0");
 }
 
@@ -3608,9 +3608,9 @@ static void InitConfigureNamesInt64()
     };
 
     Size bytes = sizeof(localConfigureNamesInt64);
-    u_sess->utils_cxt.ConfigureNamesInt64[GUC_ATTR_COMMON] =
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt64)[GUC_ATTR_COMMON] =
         (struct config_int64*)MemoryContextAlloc(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB), bytes);
-    errno_t rc = memcpy_s(u_sess->utils_cxt.ConfigureNamesInt64[GUC_ATTR_COMMON], bytes,
+    errno_t rc = memcpy_s(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt64)[GUC_ATTR_COMMON], bytes,
         localConfigureNamesInt64, bytes);
     securec_check_ss(rc, "\0", "\0");
 }
@@ -4619,9 +4619,9 @@ static void InitConfigureNamesString()
     };
 
     Size bytes = sizeof(localConfigureNamesString);
-    u_sess->utils_cxt.ConfigureNamesString[GUC_ATTR_COMMON] =
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesString)[GUC_ATTR_COMMON] =
         (struct config_string*)MemoryContextAlloc(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB), bytes);
-    errno_t rc = memcpy_s(u_sess->utils_cxt.ConfigureNamesString[GUC_ATTR_COMMON], bytes,
+    errno_t rc = memcpy_s(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesString)[GUC_ATTR_COMMON], bytes,
         localConfigureNamesString, bytes);
     securec_check_ss(rc, "\0", "\0");
 }
@@ -4927,9 +4927,9 @@ static void InitConfigureNamesEnum()
     };
 
     Size bytes = sizeof(localConfigureNamesEnum);
-    u_sess->utils_cxt.ConfigureNamesEnum[GUC_ATTR_COMMON] =
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesEnum)[GUC_ATTR_COMMON] =
         (struct config_enum*)MemoryContextAlloc(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB), bytes);
-    errno_t rc = memcpy_s(u_sess->utils_cxt.ConfigureNamesEnum[GUC_ATTR_COMMON], bytes, localConfigureNamesEnum, bytes);
+    errno_t rc = memcpy_s(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesEnum)[GUC_ATTR_COMMON], bytes, localConfigureNamesEnum, bytes);
     securec_check_ss(rc, "\0", "\0");
 }
 
@@ -5345,44 +5345,44 @@ void build_guc_get_variables_num(enum guc_attr_strategy stragety,
 
     InitUStoreAttr();
 
-    for (i = 0; u_sess->utils_cxt.ConfigureNamesBool[stragety][i].gen.name; i++) {
-        struct config_bool* conf = &u_sess->utils_cxt.ConfigureNamesBool[stragety][i];
+    for (i = 0; KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesBool)[stragety][i].gen.name; i++) {
+        struct config_bool* conf = &KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesBool)[stragety][i];
 
         /* Rather than requiring vartype to be filled in by hand, do this: */
         conf->gen.vartype = PGC_BOOL;
         count_variables_num(conf->gen.nodetype, num_single_vars_out, num_both_vars_out, num_distribute_vars_out);
     }
 
-    for (i = 0; u_sess->utils_cxt.ConfigureNamesInt[stragety][i].gen.name; i++) {
-        struct config_int* conf = &u_sess->utils_cxt.ConfigureNamesInt[stragety][i];
+    for (i = 0; KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt)[stragety][i].gen.name; i++) {
+        struct config_int* conf = &KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt)[stragety][i];
 
         conf->gen.vartype = PGC_INT;
         count_variables_num(conf->gen.nodetype, num_single_vars_out, num_both_vars_out, num_distribute_vars_out);
     }
 
-    for (i = 0; u_sess->utils_cxt.ConfigureNamesReal[stragety][i].gen.name; i++) {
-        struct config_real* conf = &u_sess->utils_cxt.ConfigureNamesReal[stragety][i];
+    for (i = 0; KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesReal)[stragety][i].gen.name; i++) {
+        struct config_real* conf = &KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesReal)[stragety][i];
 
         conf->gen.vartype = PGC_REAL;
         count_variables_num(conf->gen.nodetype, num_single_vars_out, num_both_vars_out, num_distribute_vars_out);
     }
 
-    for (i = 0; u_sess->utils_cxt.ConfigureNamesString[stragety][i].gen.name; i++) {
-        struct config_string* conf = &u_sess->utils_cxt.ConfigureNamesString[stragety][i];
+    for (i = 0; KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesString)[stragety][i].gen.name; i++) {
+        struct config_string* conf = &KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesString)[stragety][i];
 
         conf->gen.vartype = PGC_STRING;
         count_variables_num(conf->gen.nodetype, num_single_vars_out, num_both_vars_out, num_distribute_vars_out);
     }
 
-    for (i = 0; u_sess->utils_cxt.ConfigureNamesInt64[stragety][i].gen.name; i++) {
-        struct config_int64* conf = &u_sess->utils_cxt.ConfigureNamesInt64[stragety][i];
+    for (i = 0; KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt64)[stragety][i].gen.name; i++) {
+        struct config_int64* conf = &KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt64)[stragety][i];
 
         conf->gen.vartype = PGC_INT64;
         count_variables_num(conf->gen.nodetype, num_single_vars_out, num_both_vars_out, num_distribute_vars_out);
     }
 
-    for (i = 0; u_sess->utils_cxt.ConfigureNamesEnum[stragety][i].gen.name; i++) {
-        struct config_enum* conf = &u_sess->utils_cxt.ConfigureNamesEnum[stragety][i];
+    for (i = 0; KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesEnum)[stragety][i].gen.name; i++) {
+        struct config_enum* conf = &KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesEnum)[stragety][i];
 
         conf->gen.vartype = PGC_ENUM;
         count_variables_num(conf->gen.nodetype, num_single_vars_out, num_both_vars_out, num_distribute_vars_out);
@@ -5413,43 +5413,43 @@ void build_guc_variables_internal_bytype(enum guc_attr_strategy stragety, struct
 {
     int i;
 
-    for (i = 0; u_sess->utils_cxt.ConfigureNamesBool[stragety][i].gen.name; i++) {
-        struct config_generic* gen = &u_sess->utils_cxt.ConfigureNamesBool[stragety][i].gen;
+    for (i = 0; KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesBool)[stragety][i].gen.name; i++) {
+        struct config_generic* gen = &KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesBool)[stragety][i].gen;
         if ((gen->nodetype == NODE_ALL) || (gen->nodetype == specific_type)) {
             guc_vars[num_vars++] = gen;
         }
     }
 
-    for (i = 0; u_sess->utils_cxt.ConfigureNamesInt[stragety][i].gen.name; i++) {
-        struct config_generic* gen = &u_sess->utils_cxt.ConfigureNamesInt[stragety][i].gen;
+    for (i = 0; KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt)[stragety][i].gen.name; i++) {
+        struct config_generic* gen = &KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt)[stragety][i].gen;
         if ((gen->nodetype == NODE_ALL) || (gen->nodetype == specific_type)) {
             guc_vars[num_vars++] = gen;
         }
     }
 
-    for (i = 0; u_sess->utils_cxt.ConfigureNamesReal[stragety][i].gen.name; i++) {
-        struct config_generic* gen = &u_sess->utils_cxt.ConfigureNamesReal[stragety][i].gen;
+    for (i = 0; KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesReal)[stragety][i].gen.name; i++) {
+        struct config_generic* gen = &KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesReal)[stragety][i].gen;
         if ((gen->nodetype == NODE_ALL) || (gen->nodetype == specific_type)) {
             guc_vars[num_vars++] = gen;
         }
     }
 
-    for (i = 0; u_sess->utils_cxt.ConfigureNamesString[stragety][i].gen.name; i++) {
-        struct config_generic* gen = &u_sess->utils_cxt.ConfigureNamesString[stragety][i].gen;
+    for (i = 0; KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesString)[stragety][i].gen.name; i++) {
+        struct config_generic* gen = &KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesString)[stragety][i].gen;
         if ((gen->nodetype == NODE_ALL) || (gen->nodetype == specific_type)) {
             guc_vars[num_vars++] = gen;
         }
     }
 
-    for (i = 0; u_sess->utils_cxt.ConfigureNamesInt64[stragety][i].gen.name; i++) {
-        struct config_generic* gen = &u_sess->utils_cxt.ConfigureNamesInt64[stragety][i].gen;
+    for (i = 0; KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt64)[stragety][i].gen.name; i++) {
+        struct config_generic* gen = &KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt64)[stragety][i].gen;
         if ((gen->nodetype == NODE_ALL) || (gen->nodetype == specific_type)) {
             guc_vars[num_vars++] = gen;
         }
     }
 
-    for (i = 0; u_sess->utils_cxt.ConfigureNamesEnum[stragety][i].gen.name; i++) {
-        struct config_generic* gen = &u_sess->utils_cxt.ConfigureNamesEnum[stragety][i].gen;
+    for (i = 0; KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesEnum)[stragety][i].gen.name; i++) {
+        struct config_generic* gen = &KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesEnum)[stragety][i].gen;
         if ((gen->nodetype == NODE_ALL) || (gen->nodetype == specific_type)) {
             guc_vars[num_vars++] = gen;
         }
@@ -6004,7 +6004,7 @@ void init_sync_guc_variables()
     struct config_generic** res;
     int sync_guc_number = lengthof(sync_guc_variable_namelist);
 
-    u_sess->utils_cxt.sync_guc_variables =
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, sync_guc_variables) =
         (struct config_generic**)palloc(sizeof(struct config_generic*) * sync_guc_number);
 
     for (i = 0; i < sync_guc_number; i++) {
@@ -6015,7 +6015,7 @@ void init_sync_guc_variables()
             sizeof(struct config_generic*),
             guc_var_compare);
         Assert(res);
-        u_sess->utils_cxt.sync_guc_variables[i] = *res;
+        KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, sync_guc_variables)[i] = *res;
     }
 }
 
@@ -6038,7 +6038,7 @@ void repair_guc_variables()
         switch ((*res)->vartype) {
             case PGC_BOOL: {
                 struct config_bool* destination = (struct config_bool*)(*res);
-                struct config_bool* source = (struct config_bool*)u_sess->utils_cxt.sync_guc_variables[i];
+                struct config_bool* source = (struct config_bool*)KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, sync_guc_variables)[i];
                 bool newval = false;
                 void* newextra = NULL;
 
@@ -6065,7 +6065,7 @@ void repair_guc_variables()
             }
             case PGC_INT: {
                 struct config_int* destination = (struct config_int*)(*res);
-                struct config_int* source = (struct config_int*)u_sess->utils_cxt.sync_guc_variables[i];
+                struct config_int* source = (struct config_int*)KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, sync_guc_variables)[i];
                 int newval;
                 void* newextra = NULL;
 
@@ -6091,7 +6091,7 @@ void repair_guc_variables()
             }
             case PGC_INT64: {
                 struct config_int64* destination = (struct config_int64*)(*res);
-                struct config_int64* source = (struct config_int64*)u_sess->utils_cxt.sync_guc_variables[i];
+                struct config_int64* source = (struct config_int64*)KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, sync_guc_variables)[i];
                 int64 newval;
                 void* newextra = NULL;
 
@@ -6119,7 +6119,7 @@ void repair_guc_variables()
             }
             case PGC_REAL: {
                 struct config_real* destination = (struct config_real*)(*res);
-                struct config_real* source = (struct config_real*)u_sess->utils_cxt.sync_guc_variables[i];
+                struct config_real* source = (struct config_real*)KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, sync_guc_variables)[i];
                 double newval;
                 void* newextra = NULL;
 
@@ -6145,7 +6145,7 @@ void repair_guc_variables()
             }
             case PGC_STRING: {
                 struct config_string* destination = (struct config_string*)(*res);
-                struct config_string* source = (struct config_string*)u_sess->utils_cxt.sync_guc_variables[i];
+                struct config_string* source = (struct config_string*)KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, sync_guc_variables)[i];
                 char* newval = NULL;
                 void* newextra = NULL;
 
@@ -6175,7 +6175,7 @@ void repair_guc_variables()
             }
             case PGC_ENUM: {
                 struct config_enum* destination = (struct config_enum*)(*res);
-                struct config_enum* source = (struct config_enum*)u_sess->utils_cxt.sync_guc_variables[i];
+                struct config_enum* source = (struct config_enum*)KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, sync_guc_variables)[i];
                 int newval;
                 void* newextra = NULL;
 
@@ -11760,21 +11760,21 @@ static bool call_bool_check_hook(struct config_bool* conf, bool* newval, void** 
 
     /* Reset variables that might be set by hook */
     u_sess->utils_cxt.GUC_check_errcode_value = ERRCODE_INVALID_PARAMETER_VALUE;
-    u_sess->utils_cxt.GUC_check_errmsg_string = NULL;
-    u_sess->utils_cxt.GUC_check_errdetail_string = NULL;
-    u_sess->utils_cxt.GUC_check_errhint_string = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string) = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string) = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string) = NULL;
 
     if (!(*conf->check_hook)(newval, extra, source)) {
         ereport(elevel,
             (errcode(u_sess->utils_cxt.GUC_check_errcode_value),
                 errmodule(MOD_GUC),
-                u_sess->utils_cxt.GUC_check_errmsg_string
-                    ? errmsg_internal("%s", u_sess->utils_cxt.GUC_check_errmsg_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string)
+                    ? errmsg_internal("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string))
                     : errmsg("invalid value for parameter \"%s\": %d", conf->gen.name, (int)*newval),
-                u_sess->utils_cxt.GUC_check_errdetail_string
-                    ? errdetail_internal("%s", u_sess->utils_cxt.GUC_check_errdetail_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string)
+                    ? errdetail_internal("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string))
                     : 0,
-                u_sess->utils_cxt.GUC_check_errhint_string ? errhint("%s", u_sess->utils_cxt.GUC_check_errhint_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string) ? errhint("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string))
                                                            : 0));
         /* Flush any strings created in ErrorContext */
         FlushErrorState();
@@ -11792,21 +11792,21 @@ static bool call_int_check_hook(struct config_int* conf, int* newval, void** ext
 
     /* Reset variables that might be set by hook */
     u_sess->utils_cxt.GUC_check_errcode_value = ERRCODE_INVALID_PARAMETER_VALUE;
-    u_sess->utils_cxt.GUC_check_errmsg_string = NULL;
-    u_sess->utils_cxt.GUC_check_errdetail_string = NULL;
-    u_sess->utils_cxt.GUC_check_errhint_string = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string) = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string) = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string) = NULL;
 
     if (!(*conf->check_hook)(newval, extra, source)) {
         ereport(elevel,
             (errcode(u_sess->utils_cxt.GUC_check_errcode_value),
                 errmodule(MOD_GUC),
-                u_sess->utils_cxt.GUC_check_errmsg_string
-                    ? errmsg_internal("%s", u_sess->utils_cxt.GUC_check_errmsg_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string)
+                    ? errmsg_internal("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string))
                     : errmsg("invalid value for parameter \"%s\": %d", conf->gen.name, *newval),
-                u_sess->utils_cxt.GUC_check_errdetail_string
-                    ? errdetail_internal("%s", u_sess->utils_cxt.GUC_check_errdetail_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string)
+                    ? errdetail_internal("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string))
                     : 0,
-                u_sess->utils_cxt.GUC_check_errhint_string ? errhint("%s", u_sess->utils_cxt.GUC_check_errhint_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string) ? errhint("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string))
                                                            : 0));
         /* Flush any strings created in ErrorContext */
         FlushErrorState();
@@ -11824,20 +11824,20 @@ static bool call_int64_check_hook(struct config_int64* conf, int64* newval, void
 
     /* Reset variables that might be set by hook */
     u_sess->utils_cxt.GUC_check_errcode_value = ERRCODE_INVALID_PARAMETER_VALUE;
-    u_sess->utils_cxt.GUC_check_errmsg_string = NULL;
-    u_sess->utils_cxt.GUC_check_errdetail_string = NULL;
-    u_sess->utils_cxt.GUC_check_errhint_string = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string) = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string) = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string) = NULL;
 
     if (!(*conf->check_hook)(newval, extra, source)) {
         ereport(elevel,
             (errcode(u_sess->utils_cxt.GUC_check_errcode_value),
-                u_sess->utils_cxt.GUC_check_errmsg_string
-                    ? errmsg_internal("%s", u_sess->utils_cxt.GUC_check_errmsg_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string)
+                    ? errmsg_internal("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string))
                     : errmsg("invalid value for parameter \"%s\": " INT64_FORMAT, conf->gen.name, *newval),
-                u_sess->utils_cxt.GUC_check_errdetail_string
-                    ? errdetail_internal("%s", u_sess->utils_cxt.GUC_check_errdetail_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string)
+                    ? errdetail_internal("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string))
                     : 0,
-                u_sess->utils_cxt.GUC_check_errhint_string ? errhint("%s", u_sess->utils_cxt.GUC_check_errhint_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string) ? errhint("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string))
                                                            : 0));
         /* Flush any strings created in ErrorContext */
         FlushErrorState();
@@ -11855,21 +11855,21 @@ static bool call_real_check_hook(struct config_real* conf, double* newval, void*
 
     /* Reset variables that might be set by hook */
     u_sess->utils_cxt.GUC_check_errcode_value = ERRCODE_INVALID_PARAMETER_VALUE;
-    u_sess->utils_cxt.GUC_check_errmsg_string = NULL;
-    u_sess->utils_cxt.GUC_check_errdetail_string = NULL;
-    u_sess->utils_cxt.GUC_check_errhint_string = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string) = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string) = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string) = NULL;
 
     if (!(*conf->check_hook)(newval, extra, source)) {
         ereport(elevel,
             (errcode(u_sess->utils_cxt.GUC_check_errcode_value),
                 errmodule(MOD_GUC),
-                u_sess->utils_cxt.GUC_check_errmsg_string
-                    ? errmsg_internal("%s", u_sess->utils_cxt.GUC_check_errmsg_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string)
+                    ? errmsg_internal("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string))
                     : errmsg("invalid value for parameter \"%s\": %g", conf->gen.name, *newval),
-                u_sess->utils_cxt.GUC_check_errdetail_string
-                    ? errdetail_internal("%s", u_sess->utils_cxt.GUC_check_errdetail_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string)
+                    ? errdetail_internal("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string))
                     : 0,
-                u_sess->utils_cxt.GUC_check_errhint_string ? errhint("%s", u_sess->utils_cxt.GUC_check_errhint_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string) ? errhint("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string))
                                                            : 0));
         /* Flush any strings created in ErrorContext */
         FlushErrorState();
@@ -11888,21 +11888,21 @@ static bool call_string_check_hook(
 
     /* Reset variables that might be set by hook */
     u_sess->utils_cxt.GUC_check_errcode_value = ERRCODE_INVALID_PARAMETER_VALUE;
-    u_sess->utils_cxt.GUC_check_errmsg_string = NULL;
-    u_sess->utils_cxt.GUC_check_errdetail_string = NULL;
-    u_sess->utils_cxt.GUC_check_errhint_string = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string) = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string) = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string) = NULL;
 
     if (!(*conf->check_hook)(newval, extra, source)) {
         ereport(elevel,
             (errcode(u_sess->utils_cxt.GUC_check_errcode_value),
                 errmodule(MOD_GUC),
-                u_sess->utils_cxt.GUC_check_errmsg_string
-                    ? errmsg_internal("%s", u_sess->utils_cxt.GUC_check_errmsg_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string)
+                    ? errmsg_internal("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string))
                     : errmsg("invalid value for parameter \"%s\": \"%s\"", conf->gen.name, *newval ? *newval : ""),
-                u_sess->utils_cxt.GUC_check_errdetail_string
-                    ? errdetail_internal("%s", u_sess->utils_cxt.GUC_check_errdetail_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string)
+                    ? errdetail_internal("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string))
                     : 0,
-                u_sess->utils_cxt.GUC_check_errhint_string ? errhint("%s", u_sess->utils_cxt.GUC_check_errhint_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string) ? errhint("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string))
                                                            : 0));
         /* Flush any strings created in ErrorContext */
         FlushErrorState();
@@ -11920,23 +11920,23 @@ static bool call_enum_check_hook(struct config_enum* conf, int* newval, void** e
 
     /* Reset variables that might be set by hook */
     u_sess->utils_cxt.GUC_check_errcode_value = ERRCODE_INVALID_PARAMETER_VALUE;
-    u_sess->utils_cxt.GUC_check_errmsg_string = NULL;
-    u_sess->utils_cxt.GUC_check_errdetail_string = NULL;
-    u_sess->utils_cxt.GUC_check_errhint_string = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string) = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string) = NULL;
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string) = NULL;
 
     if (!(*conf->check_hook)(newval, extra, source)) {
         ereport(elevel,
             (errcode(u_sess->utils_cxt.GUC_check_errcode_value),
                 errmodule(MOD_GUC),
-                u_sess->utils_cxt.GUC_check_errmsg_string
-                    ? errmsg_internal("%s", u_sess->utils_cxt.GUC_check_errmsg_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string)
+                    ? errmsg_internal("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string))
                     : errmsg("invalid value for parameter \"%s\": \"%s\"",
                           conf->gen.name,
                           config_enum_lookup_by_value(conf, *newval)),
-                u_sess->utils_cxt.GUC_check_errdetail_string
-                    ? errdetail_internal("%s", u_sess->utils_cxt.GUC_check_errdetail_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string)
+                    ? errdetail_internal("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string))
                     : 0,
-                u_sess->utils_cxt.GUC_check_errhint_string ? errhint("%s", u_sess->utils_cxt.GUC_check_errhint_string)
+                KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string) ? errhint("%s", KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string))
                                                            : 0));
         /* Flush any strings created in ErrorContext */
         FlushErrorState();
@@ -14202,7 +14202,7 @@ void append_set_message(const char* str)
  */
 void make_set_message(void)
 {
-    if (u_sess->utils_cxt.set_params_htab == NULL)
+    if (KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_params_htab) == NULL)
         return;
 
     MemoryContext oldcontext = MemoryContextSwitchTo(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB));
@@ -14222,7 +14222,7 @@ void make_set_message(void)
 
     HASH_SEQ_STATUS hash_seq;
 
-    hash_seq_init(&hash_seq, u_sess->utils_cxt.set_params_htab);
+    hash_seq_init(&hash_seq, KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_params_htab));
 
     GucParamsEntry* entry = NULL;
 
@@ -14265,7 +14265,7 @@ void init_set_params_htab(void)
     hash_ctl.entrysize = sizeof(GucParamsEntry);
     hash_ctl.hash = string_hash;
 
-    u_sess->utils_cxt.set_params_htab = hash_create(
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_params_htab) = hash_create(
         "set params hash table", WORKLOAD_STAT_HASH_SIZE, &hash_ctl, HASH_CONTEXT | HASH_ELEM | HASH_FUNCTION);
 }
 
@@ -14281,7 +14281,7 @@ void init_set_params_htab(void)
 int check_set_message_to_send(const VariableSetStmt* stmt, const char* queryString)
 {
     /* no hash table, we can only choose appending mode */
-    if (u_sess->utils_cxt.set_params_htab == NULL)
+    if (KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_params_htab) == NULL)
         return 0;
 
     /* variable name is invalid, ignore this */
@@ -14291,7 +14291,7 @@ int check_set_message_to_send(const VariableSetStmt* stmt, const char* queryStri
     bool found = false;
 
     GucParamsEntry* entry =
-        (GucParamsEntry*)hash_search(u_sess->utils_cxt.set_params_htab, stmt->name, HASH_ENTER, &found);
+        (GucParamsEntry*)hash_search(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_params_htab), stmt->name, HASH_ENTER, &found);
 
     USE_MEMORY_CONTEXT(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB));
 
@@ -14331,7 +14331,7 @@ void init_set_user_params_htab(void)
     hash_ctl.entrysize = sizeof(GucUserParamsEntry);
     hash_ctl.hash = string_hash;
 
-    u_sess->utils_cxt.set_user_params_htab = hash_create(
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_user_params_htab) = hash_create(
         "set user params hash table", WORKLOAD_STAT_HASH_SIZE, &hash_ctl, HASH_CONTEXT | HASH_ELEM | HASH_FUNCTION);
 }
 
@@ -14366,7 +14366,7 @@ void check_variable_value_info(const char* var_name, const Expr* var_expr)
     }
 
     /* no hash table, we can only choose appending mode */
-    if (u_sess->utils_cxt.set_user_params_htab == NULL) {
+    if (KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_user_params_htab) == NULL) {
         ereport(ERROR,
             (errcode(ERRCODE_INVALID_OPERATION), errmsg("hash table is null for user_defined varibales.")));
     }
@@ -14376,7 +14376,7 @@ void check_variable_value_info(const char* var_name, const Expr* var_expr)
             (errcode(ERRCODE_INVALID_OPERATION), errmsg("invalid user_defined name.")));
     }
 
-    GucUserParamsEntry *entry = (GucUserParamsEntry *)hash_search(u_sess->utils_cxt.set_user_params_htab,
+    GucUserParamsEntry *entry = (GucUserParamsEntry *)hash_search(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_user_params_htab),
         var_name, HASH_ENTER, &found);
     if (entry == NULL) {
         ereport(ERROR,
@@ -14451,7 +14451,7 @@ void reset_set_message(bool isCommit)
         resetStringInfo(&(*u_sess->utils_cxt.input_set_message));
     }
 
-    reset_params_htab(u_sess->utils_cxt.set_params_htab, isCommit);
+    reset_params_htab(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_params_htab), isCommit);
 }
 
 #define ERRMSG_EMPTY_MODULE_NAME "parameter \"%s\" does not accept empty module name"

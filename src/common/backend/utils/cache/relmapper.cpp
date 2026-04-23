@@ -329,15 +329,15 @@ void RelationMapInvalidate(bool shared)
     }
 
     if (shared) {
-        if (IS_MAGIC_EXIST(u_sess->relmap_cxt.shared_map->magic)) {
+        if (IS_MAGIC_EXIST(u_sess->relmap_cxt->shared_map->magic)) {
             LWLockAcquire(RelationMappingLock, LW_SHARED);
-            load_relmap_file(true, u_sess->relmap_cxt.shared_map);
+            load_relmap_file(true, u_sess->relmap_cxt->shared_map);
             LWLockRelease(RelationMappingLock);
         }
     } else {
-        if (IS_MAGIC_EXIST(u_sess->relmap_cxt.local_map->magic)) {
+        if (IS_MAGIC_EXIST(u_sess->relmap_cxt->local_map->magic)) {
             LWLockAcquire(RelationMappingLock, LW_SHARED);
-            load_relmap_file(false, u_sess->relmap_cxt.local_map);
+            load_relmap_file(false, u_sess->relmap_cxt->local_map);
             LWLockRelease(RelationMappingLock);
         }
     }
@@ -364,11 +364,11 @@ void RelationMapInvalidateAll(void)
     }
     
     LWLockAcquire(RelationMappingLock, LW_SHARED);
-    if (IS_MAGIC_EXIST(u_sess->relmap_cxt.shared_map->magic)) {
-        load_relmap_file(true, u_sess->relmap_cxt.shared_map);
+    if (IS_MAGIC_EXIST(u_sess->relmap_cxt->shared_map->magic)) {
+        load_relmap_file(true, u_sess->relmap_cxt->shared_map);
     }
-    if (IS_MAGIC_EXIST(u_sess->relmap_cxt.local_map->magic)) {
-        load_relmap_file(false, u_sess->relmap_cxt.local_map);
+    if (IS_MAGIC_EXIST(u_sess->relmap_cxt->local_map->magic)) {
+        load_relmap_file(false, u_sess->relmap_cxt->local_map);
     }
     LWLockRelease(RelationMappingLock);
 }
@@ -533,14 +533,14 @@ void RelationMapInitialize(void)
         return;
     }
     /* The static variables should initialize to zeroes, but let's be sure */
-    u_sess->relmap_cxt.shared_map->magic = 0; /* mark it not loaded */
-    u_sess->relmap_cxt.local_map->magic = 0;
-    u_sess->relmap_cxt.shared_map->num_mappings = 0;
-    u_sess->relmap_cxt.local_map->num_mappings = 0;
-    u_sess->relmap_cxt.active_shared_updates->num_mappings = 0;
-    u_sess->relmap_cxt.active_local_updates->num_mappings = 0;
-    u_sess->relmap_cxt.pending_shared_updates->num_mappings = 0;
-    u_sess->relmap_cxt.pending_local_updates->num_mappings = 0;
+    u_sess->relmap_cxt->shared_map->magic = 0; /* mark it not loaded */
+    u_sess->relmap_cxt->local_map->magic = 0;
+    u_sess->relmap_cxt->shared_map->num_mappings = 0;
+    u_sess->relmap_cxt->local_map->num_mappings = 0;
+    u_sess->relmap_cxt->active_shared_updates->num_mappings = 0;
+    u_sess->relmap_cxt->active_local_updates->num_mappings = 0;
+    u_sess->relmap_cxt->pending_shared_updates->num_mappings = 0;
+    u_sess->relmap_cxt->pending_local_updates->num_mappings = 0;
 }
 
 /*
@@ -565,7 +565,7 @@ void RelationMapInitializePhase2(void)
         return;
     }
     LWLockAcquire(RelationMappingLock, LW_SHARED);
-    load_relmap_file(true, u_sess->relmap_cxt.shared_map);
+    load_relmap_file(true, u_sess->relmap_cxt->shared_map);
     LWLockRelease(RelationMappingLock);
 }
 
@@ -592,7 +592,7 @@ void RelationMapInitializePhase3(void)
     }
 
     LWLockAcquire(RelationMappingLock, LW_SHARED);
-    load_relmap_file(false, u_sess->relmap_cxt.local_map);
+    load_relmap_file(false, u_sess->relmap_cxt->local_map);
     LWLockRelease(RelationMappingLock);
 }
 

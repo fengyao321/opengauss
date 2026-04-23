@@ -1644,7 +1644,7 @@ void CreateSocketLockFile(const char* socketfile, bool amPostmaster, bool is_cre
 
     CreateLockFile(lockfile, amPostmaster, false, socketfile);
     /* Save name of lockfile for TouchSocketLockFile */
-    errno_t rcs = strcpy_s((is_create_psql_sock ? u_sess->misc_cxt.socketLockFile : u_sess->misc_cxt.hasocketLockFile),
+    errno_t rcs = strcpy_s((is_create_psql_sock ? knl_u_misc_socket_lock_file(&u_sess->misc_cxt) : knl_u_misc_hasocket_lock_file(&u_sess->misc_cxt)),
         MAXPGPATH,
         lockfile);
     securec_check_c(rcs, "\0", "\0");
@@ -1691,8 +1691,8 @@ void TouchSocketLockFileInternel(const char* socketLockFile)
 
 void TouchSocketLockFile(void)
 {
-    TouchSocketLockFileInternel(u_sess->misc_cxt.socketLockFile);
-    TouchSocketLockFileInternel(u_sess->misc_cxt.hasocketLockFile);
+    TouchSocketLockFileInternel(knl_u_misc_socket_lock_file(&u_sess->misc_cxt));
+    TouchSocketLockFileInternel(knl_u_misc_hasocket_lock_file(&u_sess->misc_cxt));
 }
 
 /*

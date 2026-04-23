@@ -695,7 +695,7 @@ void SetStreamWorkerInfo(StreamProducer* proObj)
     u_sess->stream_cxt.smp_id = proObj->getKey().smpIdentifier;
     u_sess->stream_cxt.producer_dop = proObj->getParallelDesc().producerDop;
     u_sess->debug_query_id = proObj->getKey().queryId;
-    u_sess->utils_cxt.sync_guc_variables = u_sess->stream_cxt.producer_obj->get_sync_guc_variables();
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, sync_guc_variables) = u_sess->stream_cxt.producer_obj->get_sync_guc_variables();
     // set the stopFlag;
     u_sess->stream_cxt.global_obj = u_sess->stream_cxt.producer_obj->getNodeGroup();
     u_sess->stream_cxt.global_obj->setStopFlagPoint(

@@ -6292,10 +6292,10 @@ int getUserVarVal(char* str)
     bool found = false;
     GucUserParamsEntry* entry = NULL;
     int condition_number = 0;
-    if (u_sess->utils_cxt.set_user_params_htab != NULL) {
-        entry = (GucUserParamsEntry*)hash_search(u_sess->utils_cxt.set_user_params_htab, str, HASH_FIND, &found);
+    if (KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_user_params_htab) != NULL) {
+        entry = (GucUserParamsEntry*)hash_search(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_user_params_htab), str, HASH_FIND, &found);
         if (found) {
-            entry = (GucUserParamsEntry*)hash_search(u_sess->utils_cxt.set_user_params_htab, str, HASH_ENTER, &found);
+            entry = (GucUserParamsEntry*)hash_search(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_user_params_htab), str, HASH_ENTER, &found);
             if (entry != NULL) {
                 Const* con = entry->value;
                 Datum constval = con->constvalue;

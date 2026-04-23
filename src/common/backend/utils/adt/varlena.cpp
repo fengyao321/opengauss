@@ -240,11 +240,17 @@ char* text_to_cstring(const text* t)
 
 char* output_text_to_cstring(const text* t)
 {
+    knl_u_utils_guc_cold_context* guc_cold = u_sess->utils_cxt.guc_cold;
+
     if (unlikely(t == NULL)) {
         ereport(ERROR,
             (errcode(ERRCODE_UNEXPECTED_NULL_VALUE), errmsg("invalid null pointer input for text_to_cstring()")));
     }
     FUNC_CHECK_HUGE_POINTER(false, t, "text_to_cstring()");
+
+    if (unlikely(guc_cold == NULL)) {
+        guc_cold = knl_u_utils_guc_cold_ensure(&u_sess->utils_cxt);
+    }
 
     /* must cast away the const, unfortunately */
     text* tunpacked = pg_detoast_datum_packed((struct varlena*)t);
@@ -254,8 +260,8 @@ char* output_text_to_cstring(const text* t)
     if (len + 1 > 256) {
         result = (char*)palloc(len + 1);
     } else {
-        u_sess->utils_cxt.varcharoutput_buffer[0] = '\0';
-        result = u_sess->utils_cxt.varcharoutput_buffer;
+        guc_cold->varcharoutput_buffer[0] = '\0';
+        result = guc_cold->varcharoutput_buffer;
     }
     memcpy(result, VARDATA_ANY(tunpacked), len);
     result[len] = '\0';

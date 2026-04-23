@@ -2067,9 +2067,9 @@ static void InitSqlConfigureNamesBool()
     }
 
     Size bytes = sizeof(localConfigureNamesBool);
-    u_sess->utils_cxt.ConfigureNamesBool[GUC_ATTR_SQL] =
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesBool)[GUC_ATTR_SQL] =
         (struct config_bool*)MemoryContextAlloc(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB), bytes);
-    errno_t rc = memcpy_s(u_sess->utils_cxt.ConfigureNamesBool[GUC_ATTR_SQL], bytes, localConfigureNamesBool, bytes);
+    errno_t rc = memcpy_s(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesBool)[GUC_ATTR_SQL], bytes, localConfigureNamesBool, bytes);
     securec_check_ss(rc, "\0", "\0");
 }
 
@@ -2879,9 +2879,9 @@ static void InitSqlConfigureNamesInt()
     };
 
     Size bytes = sizeof(localConfigureNamesInt);
-    u_sess->utils_cxt.ConfigureNamesInt[GUC_ATTR_SQL] =
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt)[GUC_ATTR_SQL] =
         (struct config_int*)MemoryContextAlloc(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB), bytes);
-    errno_t rc = memcpy_s(u_sess->utils_cxt.ConfigureNamesInt[GUC_ATTR_SQL], bytes, localConfigureNamesInt, bytes);
+    errno_t rc = memcpy_s(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt)[GUC_ATTR_SQL], bytes, localConfigureNamesInt, bytes);
     securec_check_ss(rc, "\0", "\0");
 }
 
@@ -3184,9 +3184,9 @@ static void InitSqlConfigureNamesReal()
     };
 
     Size bytes = sizeof(localConfigureNamesReal);
-    u_sess->utils_cxt.ConfigureNamesReal[GUC_ATTR_SQL] =
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesReal)[GUC_ATTR_SQL] =
         (struct config_real*)MemoryContextAlloc(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB), bytes);
-    errno_t rc = memcpy_s(u_sess->utils_cxt.ConfigureNamesReal[GUC_ATTR_SQL], bytes, localConfigureNamesReal, bytes);
+    errno_t rc = memcpy_s(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesReal)[GUC_ATTR_SQL], bytes, localConfigureNamesReal, bytes);
     securec_check_ss(rc, "\0", "\0");
 }
 
@@ -3225,9 +3225,9 @@ static void InitSqlConfigureNamesInt64()
     };
 
     Size bytes = sizeof(localConfigureNamesInt64);
-    u_sess->utils_cxt.ConfigureNamesInt64[GUC_ATTR_SQL] =
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt64)[GUC_ATTR_SQL] =
         (struct config_int64*)MemoryContextAlloc(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB), bytes);
-    errno_t rc = memcpy_s(u_sess->utils_cxt.ConfigureNamesInt64[GUC_ATTR_SQL], bytes, localConfigureNamesInt64, bytes);
+    errno_t rc = memcpy_s(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesInt64)[GUC_ATTR_SQL], bytes, localConfigureNamesInt64, bytes);
     securec_check_ss(rc, "\0", "\0");
 }
 
@@ -3464,9 +3464,9 @@ static void InitSqlConfigureNamesString()
     };
 
     Size bytes = sizeof(localConfigureNamesString);
-    u_sess->utils_cxt.ConfigureNamesString[GUC_ATTR_SQL] =
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesString)[GUC_ATTR_SQL] =
         (struct config_string*)MemoryContextAlloc(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB), bytes);
-    errno_t rc = memcpy_s(u_sess->utils_cxt.ConfigureNamesString[GUC_ATTR_SQL], bytes,
+    errno_t rc = memcpy_s(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesString)[GUC_ATTR_SQL], bytes,
         localConfigureNamesString, bytes);
     securec_check_ss(rc, "\0", "\0");
 }
@@ -3679,9 +3679,9 @@ static void InitSqlConfigureNamesEnum()
     };
 
     Size bytes = sizeof(localConfigureNamesEnum);
-    u_sess->utils_cxt.ConfigureNamesEnum[GUC_ATTR_SQL] =
+    KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesEnum)[GUC_ATTR_SQL] =
         (struct config_enum*)MemoryContextAlloc(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB), bytes);
-    errno_t rc = memcpy_s(u_sess->utils_cxt.ConfigureNamesEnum[GUC_ATTR_SQL], bytes, localConfigureNamesEnum, bytes);
+    errno_t rc = memcpy_s(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, ConfigureNamesEnum)[GUC_ATTR_SQL], bytes, localConfigureNamesEnum, bytes);
     securec_check_ss(rc, "\0", "\0");
 }
 

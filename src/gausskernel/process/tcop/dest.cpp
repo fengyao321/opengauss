@@ -128,8 +128,8 @@ DestReceiver* CreateDestReceiver(CommandDest dest)
             return &debugtupDR;
 
         case DestSPI:
-            u_sess->utils_cxt.spi_printtupDR->mydest = DestSPI;
-            return u_sess->utils_cxt.spi_printtupDR;
+            KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, spi_printtupDR)->mydest = DestSPI;
+            return KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, spi_printtupDR);
 
         case DestSPITupleAnalyze:
             return createAnalyzeSPIDestReceiver(dest);

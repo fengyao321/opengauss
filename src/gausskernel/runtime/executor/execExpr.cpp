@@ -628,7 +628,7 @@ ExecInitExprRec(Expr *node, ExprState *state,
 				if (IsA((Expr*)node, UserVar)) {
 					bool found = false;
 					UserVar *uservar = (UserVar *)node;
-					GucUserParamsEntry *entry = (GucUserParamsEntry *)hash_search(u_sess->utils_cxt.set_user_params_htab,
+					GucUserParamsEntry *entry = (GucUserParamsEntry *)hash_search(KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, set_user_params_htab),
 																				uservar->name, HASH_FIND, &found);
 
 					if (found) {

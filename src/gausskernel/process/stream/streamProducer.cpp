@@ -302,7 +302,7 @@ void StreamProducer::init(TupleDesc desc, StreamTxnContext txnCxt, ParamListInfo
 
     m_nodeGroup = u_sess->stream_cxt.global_obj;
     registerGroup();
-    m_sync_guc_variables = u_sess->utils_cxt.sync_guc_variables;
+    m_sync_guc_variables = KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, sync_guc_variables);
 
     /* flag this stream object as already init. */
     m_init = true;

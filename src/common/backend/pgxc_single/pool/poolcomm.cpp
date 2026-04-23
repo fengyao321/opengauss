@@ -84,7 +84,7 @@ int pool_listen(unsigned short port, const char* unixSocketName)
     securec_check(rcs, "\0", "\0");
     unix_addr.sun_family = AF_UNIX;
 
-    rcs = strcpy_s(unix_addr.sun_path, sizeof(unix_addr.sun_path), u_sess->pgxc_cxt.sock_path);
+    rcs = strcpy_s(unix_addr.sun_path, sizeof(unix_addr.sun_path), knl_u_pgxc_sock_path(&u_sess->pgxc_cxt));
     securec_check(rcs, "\0", "\0");
     len = sizeof(unix_addr.sun_family) + strlen(unix_addr.sun_path) + 1;
 
@@ -125,19 +125,19 @@ int pool_listen(unsigned short port, const char* unixSocketName)
 #ifdef HAVE_UNIX_SOCKETS
 static void StreamDoUnlink(int code, Datum arg)
 {
-    Assert(u_sess->pgxc_cxt.sock_path[0]);
-    unlink(u_sess->pgxc_cxt.sock_path);
+    Assert(knl_u_pgxc_sock_path(&u_sess->pgxc_cxt)[0]);
+    unlink(knl_u_pgxc_sock_path(&u_sess->pgxc_cxt));
 }
 #endif /* HAVE_UNIX_SOCKETS */
 
 #ifdef HAVE_UNIX_SOCKETS
 static int Lock_AF_UNIX(unsigned short port, const char* unixSocketName)
 {
-    POOLER_UNIXSOCK_PATH(u_sess->pgxc_cxt.sock_path, port, unixSocketName);
+    POOLER_UNIXSOCK_PATH(knl_u_pgxc_sock_path(&u_sess->pgxc_cxt), port, unixSocketName);
 
-    CreateSocketLockFile(u_sess->pgxc_cxt.sock_path, true);
+    CreateSocketLockFile(knl_u_pgxc_sock_path(&u_sess->pgxc_cxt), true);
 
-    unlink(u_sess->pgxc_cxt.sock_path);
+    unlink(knl_u_pgxc_sock_path(&u_sess->pgxc_cxt));
 
     return 0;
 }
@@ -159,12 +159,12 @@ int pool_connect(unsigned short port, const char* unixSocketName)
         return -1;
 
     /* fill socket address structure w/server's addr */
-    POOLER_UNIXSOCK_PATH(u_sess->pgxc_cxt.sock_path, port, unixSocketName);
+    POOLER_UNIXSOCK_PATH(knl_u_pgxc_sock_path(&u_sess->pgxc_cxt), port, unixSocketName);
 
     rc = memset_s(&unix_addr, sizeof(unix_addr), 0, sizeof(unix_addr));
     securec_check(rc, "\0", "\0");
     unix_addr.sun_family = AF_UNIX;
-    rc = strcpy_s(unix_addr.sun_path, sizeof(unix_addr.sun_path), u_sess->pgxc_cxt.sock_path);
+    rc = strcpy_s(unix_addr.sun_path, sizeof(unix_addr.sun_path), knl_u_pgxc_sock_path(&u_sess->pgxc_cxt));
     securec_check(rc, "\0", "\0");
     len = sizeof(unix_addr.sun_family) + strlen(unix_addr.sun_path) + 1;
 
