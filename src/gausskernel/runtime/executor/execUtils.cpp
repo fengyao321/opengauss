@@ -497,7 +497,10 @@ void FreeExprContext(ExprContext* econtext, bool isCommit)
     /* Call any registered callbacks */
     ShutdownExprContext(econtext, isCommit);
     /* And clean up the memory used */
-    MemoryContextDelete(econtext->ecxt_per_tuple_memory);
+    if (econtext->ecxt_per_query_memory != NULL) {
+        MemoryContextDelete(econtext->ecxt_per_tuple_memory);
+        econtext->ecxt_per_query_memory = NULL;
+    }
     /* Unlink self from owning EState, if any */
     estate = econtext->ecxt_estate;
     if (estate != NULL)

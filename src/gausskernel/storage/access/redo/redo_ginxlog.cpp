@@ -649,7 +649,10 @@ void GinRedoDeleteListPagesBlock(XLogBlockHead *blockhead, XLogBlockDataParse *b
 void GinRedoDataBlock(XLogBlockHead *blockhead, XLogBlockDataParse *blockdatarec, RedoBufferInfo *bufferinfo)
 {
     uint8 info = XLogBlockHeadGetInfo(blockhead) & ~XLR_INFO_MASK;
-    MemoryContext oldCtx = MemoryContextSwitchTo(t_thrd.xlog_cxt.gin_opCtx);
+    MemoryContext oldCxt = NULL;
+    if (t_thrd.xlog_cxt.gin_opCtx != NULL) {
+        oldCxt = MemoryContextSwitchTo(t_thrd.xlog_cxt.gin_opCtx);
+    }
     switch (info) {
         case XLOG_GIN_CREATE_INDEX:
             GinRedoCreateIndexBlock(blockhead, blockdatarec, bufferinfo);
@@ -686,6 +689,8 @@ void GinRedoDataBlock(XLogBlockHead *blockhead, XLogBlockDataParse *blockdatarec
                     (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("GinRedoDataBlock: unknown op code %hhu", info)));
             break;
     }
-    (void)MemoryContextSwitchTo(oldCtx);
-    MemoryContextReset(t_thrd.xlog_cxt.gin_opCtx);
+    if (t_thrd.xlog_cxt.gin_opCtx != NULL) {
+        (void)MemoryContextSwitchTo(oldCxt);
+        MemoryContextReset(t_thrd.xlog_cxt.gin_opCtx);
+    }
 }

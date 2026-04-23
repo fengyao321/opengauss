@@ -1203,6 +1203,11 @@ void AtEOSubXact_Inval(bool isCommit)
         Assert(myInfo != NULL && myInfo->parent != NULL);
         Assert(myInfo->my_level == my_level);
 
+        /* Ensure that core does no appear in the release version when exception */
+        if (myInfo == NULL || myInfo->parent == NULL || myInfo->my_level != my_level) {
+            return;
+        }
+
         /* If CurrentCmdInvalidMsgs still has anything, fix it */
         CommandEndInvalidationMessages();
 

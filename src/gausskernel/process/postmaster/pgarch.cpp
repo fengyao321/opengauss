@@ -251,6 +251,11 @@ NON_EXEC_STATIC void PgArchiverMain(knl_thread_arg* arg)
     InitArchiverLastTaskLsn(NULL);
 #endif
     pgarch_MainLoop();
+    ArchiveTaskStatus *archiveTaskStatus = NULL;
+    archiveTaskStatus = find_archive_task_status(&t_thrd.arch.archive_task_idx);
+    if (archiveTaskStatus != NULL) {
+        archiveTaskStatus->archiver_latch = NULL;
+    }
 
     gs_thread_exit(0);
 }

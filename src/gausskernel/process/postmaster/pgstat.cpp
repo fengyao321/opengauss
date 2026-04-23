@@ -2098,16 +2098,16 @@ PgStat_TableStatus* find_tabstat_entry(Oid rel_id, uint32 statFlag)
 /*
  * get_tabstat_stack_level - add a new (sub)transaction stack entry if needed
  */
-static PgStat_SubXactStatus* get_tabstat_stack_level(int nest_level)
+static PgStat_SubXactStatus* get_tabstat_stack_level(PgStat_SubXactStatus* statXactStack, int nest_level)
 {
     PgStat_SubXactStatus* xact_state = NULL;
 
-    xact_state = u_sess->stat_cxt.pgStatXactStack;
+    xact_state = statXactStack;
     if (xact_state == NULL || xact_state->nest_level != nest_level) {
         xact_state =
             (PgStat_SubXactStatus*)MemoryContextAlloc(u_sess->top_transaction_mem_cxt, sizeof(PgStat_SubXactStatus));
         xact_state->nest_level = nest_level;
-        xact_state->prev = u_sess->stat_cxt.pgStatXactStack;
+        xact_state->prev = statXactStack;
         xact_state->first = NULL;
         u_sess->stat_cxt.pgStatXactStack = xact_state;
     }
@@ -2126,7 +2126,7 @@ static void add_tabstat_xact_level(PgStat_TableStatus* pgstat_info, int nest_lev
      * If this is the first rel to be modified at the current nest level, we
      * first have to push a transaction stack entry.
      */
-    xact_state = get_tabstat_stack_level(nest_level);
+    xact_state = get_tabstat_stack_level(u_sess->stat_cxt.pgStatXactStack, nest_level);
 
     /* Now make a per-table stack entry */
     trans = (PgStat_TableXactStatus*)MemoryContextAllocZero(
@@ -2444,6 +2444,8 @@ void AtEOXact_PgStat(bool isCommit)
 void AtEOSubXact_PgStat(bool isCommit, int nestDepth)
 {
     PgStat_SubXactStatus* xact_state = NULL;
+    PgStat_SubXactStatus* curStatXactStack = NULL;
+    PgStat_SubXactStatus* preStatXactStack = NULL;
 
     /*
      * Transfer transactional insert/update counts into the next higher
@@ -2455,7 +2457,9 @@ void AtEOSubXact_PgStat(bool isCommit, int nestDepth)
         PgStat_TableXactStatus* next_trans = NULL;
 
         /* delink xact_state from stack immediately to simplify reuse case */
+        curStatXactStack = u_sess->stat_cxt.pgStatXactStack;
         u_sess->stat_cxt.pgStatXactStack = xact_state->prev;
+        preStatXactStack = u_sess->stat_cxt.pgStatXactStack;
 
         for (trans = xact_state->first; trans != NULL; trans = next_trans) {
             PgStat_TableStatus* tabstat = NULL;
@@ -2497,8 +2501,19 @@ void AtEOSubXact_PgStat(bool isCommit, int nestDepth)
                      * pushing a new entry into the u_sess->stat_cxt.pgStatXactStack.
                      */
                     PgStat_SubXactStatus* upper_xact_state = NULL;
+                    /*
+                     * Restore u_sess->stat_cxt.pgStatXactStack to prevent exceptions
+                     * when get_tabstat_stack_level
+                     */
+                    u_sess->stat_cxt.pgStatXactStack = curStatXactStack;
+                    upper_xact_state = get_tabstat_stack_level(preStatXactStack, nestDepth - 1);
+                    if (u_sess->stat_cxt.pgStatXactStack != curStatXactStack) {
+                        preStatXactStack = u_sess->stat_cxt.pgStatXactStack;
+                        curStatXactStack = u_sess->stat_cxt.pgStatXactStack;
+                    } else {
+                        u_sess->stat_cxt.pgStatXactStack = preStatXactStack;
+                    }
 
-                    upper_xact_state = get_tabstat_stack_level(nestDepth - 1);
                     trans->next = upper_xact_state->first;
                     upper_xact_state->first = trans;
                     trans->nest_level = nestDepth - 1;

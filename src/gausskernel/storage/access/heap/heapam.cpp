@@ -7530,6 +7530,10 @@ l4:
         /* compute the new Xmax and infomask values for the tuple ... */
         ComputeNewXmaxInfomask(xmax, old_infomask, mytup.t_data->t_infomask2, xid, mode,
             false, &new_xmax, &new_infomask, &new_infomask2);
+        if (TransactionIdIsNormal(new_xmax)) {
+            (void)heap_page_prepare_for_xid(rel, buf, new_xmax, new_infomask & HEAP_XMAX_IS_MULTI);
+        }
+        HeapTupleCopyBaseFromPage(&mytup, BufferGetPage(buf));
 
         START_CRIT_SECTION();
 

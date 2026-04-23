@@ -53,15 +53,6 @@
 #define DatumGetItemPointer(X) ((ItemPointer)DatumGetPointer(X))
 #define ItemPointerGetDatum(X) PointerGetDatum(X)
 
-typedef struct matview_shmem_t {
-    struct LWLock* matview_lck;
-    TransactionId matview_xmin;
-    int64 seqno;
-    bool seqno_invalid;
-} matview_shmem_t;
-
-matview_shmem_t *matview_shmem;
-
 typedef struct {
     DestReceiver pub; /* publicly-known function pointers */
     IntoClause* into; /* target relation specification */
@@ -121,6 +112,8 @@ static void ExecHandleIncIndex(TupleTableSlot *slot, Relation matview, HeapTuple
 static int64 MlogGetSeqNo();
 static int64 MlogGetMaxSeqno(Oid mlogid);
 static int64 MlogComputeSeqNo();
+
+matview_shmem_t *matview_shmem;
 
 /*
  * Shared memory size

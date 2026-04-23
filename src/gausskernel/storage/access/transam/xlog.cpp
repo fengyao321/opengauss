@@ -141,6 +141,7 @@
 #include "access/slru.h"
 #include "commands/verify.h"
 #include "service/remote_read_client.h"
+#include "commands/matview.h"
 
 #ifdef ENABLE_MOT
 #include "storage/mot/mot_fdw.h"
@@ -10946,6 +10947,11 @@ void StartupXLOG(void)
             if (xtime) {
                 ereport(LOG, (errmsg("last completed transaction was at log time %s", timestamptz_to_str(xtime))));
             }
+            /* need refresh matview's seqno after redo, this will be only for mativews */
+            LWLockAcquire(matview_shmem->matview_lck, LW_EXCLUSIVE);
+            matview_shmem->seqno_invalid = false;
+            LWLockRelease(matview_shmem->matview_lck);
+
             t_thrd.xlog_cxt.InRedo = false;
         } else {
             /* there are no WAL records following the checkpoint */

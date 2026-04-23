@@ -2056,7 +2056,7 @@ static TransactionId RecordTransactionAbort(bool isSubXact)
      * If we send commit prepared command to DN, we can not write an ABORT record
      * in xlog and clog.
      */
-    if (IsNormalProcessingMode()) {
+    if (IsNormalProcessingMode() && IS_PGXC_COORDINATOR && !(IsConnFromCoord())) {
         if (!t_thrd.xact_cxt.XactLocalNodeCanAbort) {
             /* Reset XactLastRecEnd until the next transaction writes something */
             if (!isSubXact)

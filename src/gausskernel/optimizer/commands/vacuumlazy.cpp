@@ -1554,7 +1554,27 @@ static IndexBulkDeleteResult** lazy_scan_heap(
         }
 
         if (ninvalid > 0) {
+            OffsetNumber *offptr = invalid;
             START_CRIT_SECTION();
+            /*
+             * Obviously, we won't set invalid tuples until we get here. We
+             * should ensure that the wal generated just after the page modification,
+             * so it will not make a difference between primary and standby.
+             */
+            for (i = 0; i < ninvalid; i++) {
+                OffsetNumber off = *offptr++;
+                ItemId itemid;
+                itemid = PageGetItemId(page, off);
+
+                ItemPointerSet(&(tuple.t_self), blkno, off);
+                tuple.t_data = (HeapTupleHeader)PageGetItem(page, itemid);
+                tuple.t_len = ItemIdGetLength(itemid);
+                tuple.t_tableOid = RelationGetRelid(onerel);
+                tuple.t_bucketId = RelationGetBktid(onerel);
+                HeapTupleCopyBaseFromPage(&tuple, page);
+
+                heap_invalid_invisible_tuple(&tuple);
+            }
             MarkBufferDirty(buf);
             if (RelationNeedsWAL(onerel)) {
                 XLogRecPtr recptr;
