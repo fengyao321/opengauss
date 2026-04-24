@@ -555,10 +555,16 @@ static void pgstat_pending_data_changed_clear(void)
     if (u_sess == NULL) {
         return;
     }
-    if (u_sess->stat_cxt.pgStatPendingDataChangedCtx != NULL) {
-        MemoryContextReset(u_sess->stat_cxt.pgStatPendingDataChangedCtx);
+    /*
+     * Destroy only the hash table, not the whole MemoryContext. Resetting the
+     * context every commit forces a full AllocSet teardown + hash_create on the
+     * next row (short insert/commit loops show AtEOXact_PgStat dominated by
+     * MemoryContextReset); hash_destroy returns storage to the same context for reuse.
+     */
+    if (u_sess->stat_cxt.pgStatPendingDataChangedHash != NULL) {
+        hash_destroy(u_sess->stat_cxt.pgStatPendingDataChangedHash);
+        u_sess->stat_cxt.pgStatPendingDataChangedHash = NULL;
     }
-    u_sess->stat_cxt.pgStatPendingDataChangedHash = NULL;
 }
 
 static void pgstat_pending_clear(void)
@@ -651,19 +657,30 @@ static void pgstat_flush_pending_data_changed(void)
     /*
      * Bucket by tab partition (O(n)) instead of qsort (O(n log n)). Order within a
      * partition does not matter: each pending key is unique and we only apply max ts.
+     *
+     * Record only nonempty partitions in part_list — short transactions (very few
+     * pending keys) must not scan all PGSTAT_TAB_NPARTITIONS every commit (see
+     * short-xact regression vs O(n_partitions) empty-bucket checks).
      */
     int* next_idx = (int*)palloc(sizeof(int) * (Size)i);
     int bucket_head[PGSTAT_TAB_NPARTITIONS];
-    for (int p = 0; p < PGSTAT_TAB_NPARTITIONS; p++) {
-        bucket_head[p] = -1;
-    }
+    errno_t rc = memset_s(bucket_head, sizeof(bucket_head), 0xFF, sizeof(bucket_head));
+    securec_check(rc, "\0", "\0");
+    uint32 part_list[PGSTAT_TAB_NPARTITIONS];
+    int npart_used = 0;
     for (int j = 0; j < i; j++) {
         uint32 part = pgstat_tab_partition_index(&arr[j]->key);
+        bool first_in_part = (bucket_head[part] < 0);
         next_idx[j] = bucket_head[part];
         bucket_head[part] = j;
+        if (first_in_part) {
+            Assert(npart_used < PGSTAT_TAB_NPARTITIONS);
+            part_list[npart_used++] = part;
+        }
     }
 
-    for (uint32 part = 0; part < (uint32)PGSTAT_TAB_NPARTITIONS; part++) {
+    for (int pi = 0; pi < npart_used; pi++) {
+        uint32 part = part_list[pi];
         int idx = bucket_head[part];
         if (idx < 0) {
             continue;
