@@ -103,6 +103,7 @@
 #include "tcop/tcopprot.h"
 #include "tcop/utility.h"
 #include "utils/be_module.h"
+#include "utils/builtins.h"
 #include "utils/hotkey.h"
 #include "utils/inval.h"
 #include "utils/lsyscache.h"
@@ -236,6 +237,42 @@ typedef struct AttachInfoContext {
 #define MAXSTRLEN ((1 << 11) - 1)
 
 #define ATF_TASK_CHECK_INTERVAL_USEC 100000
+
+static inline bool fast_bind_text_input(Oid ptype, char* pstring, Datum* pval)
+{
+    switch (ptype) {
+        case INT4OID:
+            *pval = DirectFunctionCall1(int4in, CStringGetDatum(pstring));
+            return true;
+        case FLOAT8OID:
+            *pval = DirectFunctionCall1(float8in, CStringGetDatum(pstring));
+            return true;
+        case TIMESTAMPOID:
+            *pval = input_timestamp_in(pstring, InvalidOid, -1, false);
+            return true;
+        default:
+            return false;
+    }
+}
+
+static inline Datum bind_text_input_call(Oid ptype, char* pstring)
+{
+    Datum pval = 0;
+
+    if (pstring == NULL) {
+        return (Datum)0;
+    }
+
+    if (!fast_bind_text_input(ptype, pstring, &pval)) {
+        Oid typinput;
+        Oid typioparam;
+
+        getTypeInputInfo(ptype, &typinput, &typioparam);
+        pval = OidInputFunctionCall(typinput, pstring, typioparam, -1);
+    }
+
+    return pval;
+}
 
 extern PgBackendStatus* GetMyBEEntry(void);
 extern THR_LOCAL bool g_pq_interrupt_happened;
@@ -3649,11 +3686,7 @@ static void exec_plan_with_params(StringInfo input_message)
 
             if (pformat == 0) {
                 /* text mode */
-                Oid typinput;
-                Oid typioparam;
                 char* pstring = NULL;
-
-                getTypeInputInfo(ptype, &typinput, &typioparam);
 
                 /*
                  * We have to do encoding conversion before calling the
@@ -3667,7 +3700,7 @@ static void exec_plan_with_params(StringInfo input_message)
                     pstring = pg_client_to_server(pbuf.data, plength);
                 }
 
-                pval = OidInputFunctionCall(typinput, pstring, typioparam, -1);
+                pval = bind_text_input_call(ptype, pstring);
 
                 /* Free result of encoding conversion, if any */
                 if (pstring != NULL && pstring != pbuf.data) {
@@ -4506,11 +4539,7 @@ static int getSingleNodeIdx(StringInfo input_message, CachedPlanSource* psrc, co
 
             if (pformat == 0) {
                 /* text mode */
-                Oid typinput;
-                Oid typioparam;
                 char* pstring = NULL;
-
-                getTypeInputInfo(ptype, &typinput, &typioparam);
 
                 /*
                  * We have to do encoding conversion before calling the
@@ -4524,7 +4553,7 @@ static int getSingleNodeIdx(StringInfo input_message, CachedPlanSource* psrc, co
                     pstring = pg_client_to_server(pbuf.data, plength);
                 }
 
-                pval = OidInputFunctionCall(typinput, pstring, typioparam, -1);
+                pval = bind_text_input_call(ptype, pstring);
 
                 /* Free result of encoding conversion, if any */
                 if (pstring != NULL && pstring != pbuf.data)
@@ -4795,11 +4824,7 @@ void exec_get_ddl_params(StringInfo input_message)
             }
             if (pformat == 0) /* text mode */
             {
-                Oid typinput;
-                Oid typioparam;
                 char* pstring = NULL;
-
-                getTypeInputInfo(ptype, &typinput, &typioparam);
 
                 if (isNull) {
                     pstring = NULL;
@@ -4809,7 +4834,7 @@ void exec_get_ddl_params(StringInfo input_message)
                     pstring = pg_client_to_server(pbuf.data, plength);
                 }
 
-                pval = OidInputFunctionCall(typinput, pstring, typioparam, -1);
+                pval = bind_text_input_call(ptype, pstring);
 
                 /* Free result of encoding conversion, if any */
                 if (pstring != NULL && pstring != pbuf.data)
@@ -4978,11 +5003,7 @@ void get_param_list_info(BindMessage* pqBindMessage, CachedPlanSource* psrc, Par
 
         if (pformat == 0) {
             /* text mode */
-            Oid typinput;
-            Oid typioparam;
             char* pstring = NULL;
-
-            getTypeInputInfo(ptype, &typinput, &typioparam);
 
             /*
              * We have to do encoding conversion before calling the
@@ -4998,12 +5019,12 @@ void get_param_list_info(BindMessage* pqBindMessage, CachedPlanSource* psrc, Par
 
 #ifndef ENABLE_MULTIPLE_NODES
             if (pmode == NULL || *pmode != PROARGMODE_OUT || !enable_out_param_override()) {
-                pval = OidInputFunctionCall(typinput, pstring, typioparam, -1);
+                pval = bind_text_input_call(ptype, pstring);
             } else {
                 pval = (Datum)0;
             }
 #else
-            pval = OidInputFunctionCall(typinput, pstring, typioparam, -1);
+            pval = bind_text_input_call(ptype, pstring);
 #endif
             /* Free result of encoding conversion, if any */
             if (pstring != NULL && pstring != pbuf.data) {
@@ -12587,11 +12608,7 @@ static void exec_batch_bind_execute(StringInfo input_message)
 
                 if (pformat == 0) {
                     /* text mode */
-                    Oid typinput;
-                    Oid typioparam;
                     char* pstring = NULL;
-
-                    getTypeInputInfo(ptype, &typinput, &typioparam);
 
                     /*
                      * We have to do encoding conversion before calling the
@@ -12605,7 +12622,7 @@ static void exec_batch_bind_execute(StringInfo input_message)
                         pstring = pg_client_to_server(pbuf.data, plength);
                     }
 
-                    pval = OidInputFunctionCall(typinput, pstring, typioparam, -1);
+                    pval = bind_text_input_call(ptype, pstring);
 
                     /* Free result of encoding conversion, if any */
                     if (pstring != NULL && pstring != pbuf.data)

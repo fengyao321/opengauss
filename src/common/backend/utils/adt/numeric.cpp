@@ -37,6 +37,7 @@
 #include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/biginteger.h"
+#include "utils/float.h"
 #include "utils/gs_bitmap.h"
 #include "utils/guc.h"
 #include "utils/int8.h"
@@ -3436,8 +3437,7 @@ Datum float8_numeric(PG_FUNCTION_ARGS)
     float8 val = PG_GETARG_FLOAT8(0);
     Numeric res;
     NumericVar result;
-    char buf[DBL_DIG + 100];
-    errno_t rc;
+    char buf[MAXDOUBLEWIDTH + 1];
 
     if (isnan(val))
         PG_RETURN_NUMERIC(make_result(&const_nan));
@@ -3445,13 +3445,7 @@ Datum float8_numeric(PG_FUNCTION_ARGS)
     if (isinf(val))
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("cannot convert infinity to numeric")));
 
-    int ndig = DBL_DIG + u_sess->attr.attr_common.extra_float_digits;
-    if (ndig < 1) {
-        ndig = 1;
-    }
-
-    rc = snprintf_s(buf, sizeof(buf), sizeof(buf) - 1, "%.*g", ndig, val);
-    securec_check_ss(rc, "\0", "\0");
+    pg_dtoa<sizeof(buf)>(val, buf);
 
     init_var(&result);
 

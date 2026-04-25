@@ -30,6 +30,7 @@
 #include "access/transam.h"
 #include "access/tupdesc.h"
 #include "catalog/heap.h"
+#include "catalog/pg_proc.h"
 #include "commands/copy.h"
 #include "executor/node/nodeIndexscan.h"
 #include "gstrace/executer_gstrace.h"
@@ -52,6 +53,7 @@
 #include "tcop/tcopprot.h"
 #include "storage/tcap.h"
 #include "access/ustore/knl_uheap.h"
+#include "utils/builtins.h"
 #ifdef ENABLE_MOT
 #include "storage/mot/jit_exec.h"
 #include "opfusion/opfusion_mot.h"
@@ -901,7 +903,14 @@ Datum OpFusion::CalFuncNodeVal(Oid functionId, List *args, bool *is_null, Datum 
 
     switch (length) {
         case 1:
-            return OidFunctionCall1(functionId, arg[0]);
+            switch (functionId) {
+                case FLOAT8TONUMERICFUNCOID:
+                    return DirectFunctionCall1(float8_numeric, arg[0]);
+                case NUMTOFLOAT8FUNCOID:
+                    return DirectFunctionCall1(numeric_float8, arg[0]);
+                default:
+                    return OidFunctionCall1(functionId, arg[0]);
+            }
         case 2:
             return OidFunctionCall2(functionId, arg[0], arg[1]);
         case 3:{
