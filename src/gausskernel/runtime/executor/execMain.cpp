@@ -101,6 +101,10 @@
 #include "optimizer/gplanmgr.h"
 #include "catalog/pg_constraint.h"
 #include "commands/online_ddl_deltalog.h"
+#ifdef ENABLE_HTAP
+#include "access/htap/imcs_ctlg.h"
+#include "access/htap/imcstore_delta.h"
+#endif
 
 /* Hooks for plugins to get control in ExecutorStart/Run/Finish/End */
 THR_LOCAL ExecutorStart_hook_type ExecutorStart_hook = NULL;
@@ -1284,6 +1288,7 @@ void InitPlan(QueryDesc *queryDesc, int eflags)
     estate->es_range_table = rangeTable;
     estate->es_plannedstmt = plannedstmt;
     estate->es_is_flt_frame = plannedstmt->is_flt_frame;
+    estate->es_psrc = plannedstmt->psrc;
 #ifdef ENABLE_MOT
     estate->mot_jit_context = queryDesc->mot_jit_context;
 #endif
@@ -1478,6 +1483,17 @@ void InitPlan(QueryDesc *queryDesc, int eflags)
                 current_collectinfo_num)));
         }
         u_sess->instr_cxt.operator_plan_number = plannedstmt->num_plannodes;
+    }
+
+    estate->operator_reuse_enabled = u_sess->attr.attr_common.enable_plan_node_reuse && estate->es_psrc != NULL &&
+        CachedPlanIsValid(estate->es_psrc) && !estate->es_psrc->gpc.status.InShareTable() &&
+        estate->es_psrc->query_context != NULL;
+    if (estate->operator_reuse_enabled) {
+        if (estate->es_psrc->operator_reuse_state == NULL) {
+            estate->cur_reuse_state_cell = NULL;
+        } else {
+            estate->cur_reuse_state_cell = list_head(estate->es_psrc->operator_reuse_state);
+        }
     }
 
     /*
@@ -1877,6 +1893,9 @@ void InitResultRelInfo(ResultRelInfo *resultRelInfo, Relation resultRelationDesc
     resultRelInfo->ri_actionAttno = InvalidAttrNumber;
 #endif
     resultRelInfo->ri_hasDiskannIndex = false;
+    resultRelInfo->ri_NeedAutoIncrementRestore = false;
+    resultRelInfo->ri_ImcsCachedRelid = InvalidOid;
+    resultRelInfo->ri_ImcsCachedHasImcs = false;
 }
 
 /*
@@ -2647,59 +2666,77 @@ static const char *ExecRelCheck(ResultRelInfo *resultRelInfo, TupleTableSlot *sl
 void CheckIndexDisableValid(ResultRelInfo* result_rel_info, EState *estate)
 {
     Relation rel = result_rel_info->ri_RelationDesc;
-    CatCList* catlist = NULL;
-    HeapTuple tuple;
-    Form_pg_constraint con = NULL;
 
-    /*
-     * we have been traverse pg_constraint when open relation(RelationBuildTupleDesc),
-     * so we can do a quick check here avoid access syscache.
-     */
+    /* Skip catalog walk when INSERT/UPDATE on a table without indexes */
+    if (estate != NULL && estate->es_plannedstmt != NULL &&
+        estate->es_plannedstmt->commandType != CMD_DELETE &&
+        RelationIsRelation(rel) && !rel->rd_rel->relhasindex) {
+        return;
+    }
+
+    /* Quick check: skip if relation has no disabled constraints */
     if (RelationIsRelation(rel) && rel->rd_id >= FirstNormalObjectId &&
         rel->rd_att->constr && !rel->rd_att->constr->has_disable_constr) {
         return;
     }
 
-    catlist = SearchSysCacheList1(CONSTRRELID, ObjectIdGetDatum(RelationGetRelid(rel)));
+    CatCList* catlist = SearchSysCacheList1(CONSTRRELID, ObjectIdGetDatum(RelationGetRelid(rel)));
     if (!catlist)
         return;
 
     for (int i = 0; i < catlist->n_members; i++) {
-        tuple = t_thrd.lsc_cxt.FetchTupleFromCatCList(catlist, i);
-        if (likely(HeapTupleIsValid(tuple))) {
-            con = (Form_pg_constraint)GETSTRUCT(tuple);
-            bool isNull = true;
-            Datum datum = SysCacheGetAttr(CONSTRRELID, tuple, Anum_pg_constraint_condisable, &isNull);
-            bool condisable = !isNull && DatumGetBool(datum);
-            if (con->convalidated && condisable) {
-                bool overlap = false; 
-                if (estate->es_plannedstmt->commandType == CMD_DELETE)
-                    overlap = true;
-                else if (OidIsValid(con->conindid)) {
-                    Relation indexRel = relation_open(con->conindid, RowExclusiveLock);
-                    IndexInfo* indexInfo = BuildIndexInfo(indexRel);
-                    Bitmapset *indexattrs = IndexGetAttrBitmap(indexRel, indexInfo);
-                    relation_close(indexRel, RowExclusiveLock);
-                    Bitmapset *insertedCols = NULL;
-                    Bitmapset *updatedCols  = NULL;
-                    Bitmapset *modifiedCols = NULL;
-                    insertedCols = GetInsertedColumns(result_rel_info, estate);
-                    updatedCols = GetUpdatedColumns(result_rel_info, estate);
-                    modifiedCols = bms_union(insertedCols, updatedCols);
-                    overlap = bms_overlap(indexattrs, modifiedCols);
-                    pfree(indexInfo);
-                    bms_free(indexattrs);
-                    bms_free(modifiedCols);
-                }
-                if (overlap)
-                    ereport(ERROR, 
-                            (errmodule(MOD_EXECUTOR), errcode(ERRCODE_CHECK_VIOLATION),
-                                errmsg("forbid DML because relation \"%s\" violates check constraint \"%s\"",
-                                    RelationGetRelationName(rel), NameStr(con->conname))));
-            }
+        HeapTuple tuple = t_thrd.lsc_cxt.FetchTupleFromCatCList(catlist, i);
+        if (!likely(HeapTupleIsValid(tuple)))
+            continue;
+        Form_pg_constraint con = (Form_pg_constraint)GETSTRUCT(tuple);
+        bool isNull = true;
+        Datum datum = SysCacheGetAttr(CONSTRRELID, tuple, Anum_pg_constraint_condisable, &isNull);
+        if (!con->convalidated || isNull || !DatumGetBool(datum))
+            continue;
+        bool overlap = (estate->es_plannedstmt->commandType == CMD_DELETE);
+        if (!overlap && OidIsValid(con->conindid)) {
+            Relation indexRel = relation_open(con->conindid, RowExclusiveLock);
+            IndexInfo* indexInfo = BuildIndexInfo(indexRel);
+            Bitmapset *indexattrs = IndexGetAttrBitmap(indexRel, indexInfo);
+            relation_close(indexRel, RowExclusiveLock);
+            Bitmapset *modifiedCols = bms_union(
+                GetInsertedColumns(result_rel_info, estate),
+                GetUpdatedColumns(result_rel_info, estate));
+            overlap = bms_overlap(indexattrs, modifiedCols);
+            pfree(indexInfo);
+            bms_free(indexattrs);
+            bms_free(modifiedCols);
         }
+        if (overlap)
+            ereport(ERROR,
+                    (errmodule(MOD_EXECUTOR), errcode(ERRCODE_CHECK_VIOLATION),
+                        errmsg("forbid DML because relation \"%s\" violates check constraint \"%s\"",
+                            RelationGetRelationName(rel), NameStr(con->conname))));
     }
     ReleaseSysCacheList(catlist);
+}
+
+bool ExecNeedImcsWriteHook(ResultRelInfo* resultRelInfo, Relation relation)
+{
+#ifndef ENABLE_HTAP
+    return false;
+#else
+    if (!HAVE_HTAP_TABLES || relation == NULL) {
+        return false;
+    }
+
+    Oid relid = RelationGetRelid(relation);
+    if (resultRelInfo == NULL) {
+        return RelHasImcs(relid);
+    }
+
+    if (resultRelInfo->ri_ImcsCachedRelid != relid) {
+        resultRelInfo->ri_ImcsCachedRelid = relid;
+        resultRelInfo->ri_ImcsCachedHasImcs = RelHasImcs(relid);
+    }
+
+    return resultRelInfo->ri_ImcsCachedHasImcs;
+#endif
 }
 
 void CheckDisableValidateConstr(ResultRelInfo *resultRelInfo)

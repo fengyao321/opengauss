@@ -32,6 +32,7 @@
 #include "catalog/storage_gtt.h"
 #include "commands/matview.h"
 #include "commands/sequence.h"
+#include "executor/executor.h"
 #include "executor/node/nodeModifyTable.h"
 #include "executor/node/nodeSeqscan.h"
 #include "parser/parse_coerce.h"
@@ -359,7 +360,8 @@ unsigned long InsertFusion::ExecInsert(Relation rel, ResultRelInfo* result_rel_i
             tuple = m_local.m_reslot->tts_tuple;
         }
     }
-    if (!IGNORE_UNUSED_INDEX_CHECK_ON_DML) {
+    if (unlikely(rel->rd_att->constr && rel->rd_att->constr->has_disable_constr) &&
+        !IGNORE_UNUSED_INDEX_CHECK_ON_DML) {
         CheckIndexDisableValid(result_rel_info, m_c_local.m_estate);
     }
     Relation destRel = RELATION_IS_PARTITIONED(rel) ? partRel : rel;
@@ -423,7 +425,7 @@ unsigned long InsertFusion::ExecInsert(Relation rel, ResultRelInfo* result_rel_i
         ExecWithCheckOptions(result_rel_info, m_local.m_reslot, m_c_local.m_estate);
 
 #ifdef ENABLE_HTAP
-    if (HAVE_HTAP_TABLES) {
+    if (ExecNeedImcsWriteHook(result_rel_info, rel)) {
         IMCStoreInsertHook(RelationGetRelid(rel), tableam_tops_get_t_self(rel, tuple));
     }
 #endif
@@ -444,7 +446,8 @@ bool InsertFusion::execute(long max_rows, char* completionTag)
     /*******************
      * step 1: prepare *
      *******************/
-    Relation rel = heap_open(m_global->m_reloid, RowExclusiveLock);
+    LOCKMODE relation_lock = m_hasRelationLock ? NoLock : RowExclusiveLock;
+    Relation rel = heap_open(m_global->m_reloid, relation_lock);
 
     ResultRelInfo* result_rel_info = makeNode(ResultRelInfo);
     InitResultRelInfo(result_rel_info, rel, 1, 0);
@@ -502,11 +505,12 @@ bool InsertFusion::execute(long max_rows, char* completionTag)
     if (m_local.m_ledger_hash_exist && !IsConnFromApp()) {
         errorno = snprintf_s(completionTag, COMPLETION_TAG_BUFSIZE, COMPLETION_TAG_BUFSIZE - 1,
             "INSERT 0 %ld %lu\0", nprocessed, m_local.m_ledger_relhash);
+        securec_check_ss(errorno, "\0", "\0");
     } else {
         errorno =
             snprintf_s(completionTag, COMPLETION_TAG_BUFSIZE, COMPLETION_TAG_BUFSIZE - 1, "INSERT 0 %ld", nprocessed);
+        securec_check_ss(errorno, "\0", "\0");
     }
-    securec_check_ss(errorno, "\0", "\0");
     FreeExecutorStateForOpfusion(m_c_local.m_estate);
     BEENTRY_STMEMENET_CXT.current_row_count = nprocessed;
     BEENTRY_STMEMENET_CXT.last_row_count = BEENTRY_STMEMENET_CXT.current_row_count;

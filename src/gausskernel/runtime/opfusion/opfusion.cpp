@@ -785,8 +785,8 @@ void *OpFusion::FusionFactory(FusionType ftype, MemoryContext context, CachedPla
     if (opfusionObj != NULL && !((OpFusion *)opfusionObj)->m_global->m_is_global)
         ((OpFusion *)opfusionObj)->m_global->m_type = ftype;
 
-    if (u_sess->attr.attr_sql.enable_opfusion_reuse){
-        /* XXX: better to free previous obj */
+    if (u_sess->attr.attr_sql.enable_opfusion_reuse && psrc == NULL) {
+        /* Reuse only supports simple-query fusion objects built from plantree_list. */
         u_sess->opfusion_reuse_ctx.opfusionObj = opfusionObj;
     }
 

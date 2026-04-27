@@ -425,6 +425,7 @@ typedef struct CachedPlanSource {
     bool opteval;
     bool hasSubQuery;
     int nextval_default_expr_type;
+    List* operator_reuse_state;
     Oid param_collation;
     bool is_param;
     void* entry;

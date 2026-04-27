@@ -213,6 +213,7 @@ TupleTableSlot* IndexScanFusion::getTupleSlot()
     bool isUstore = false;
     UHeapTuple utuple = NULL;
     HeapTuple tuple = NULL;
+    Tuple tup = NULL;
     Relation rel = m_rel;
     isUstore = RelationIsUstoreFormat(rel);
     do {
@@ -233,12 +234,18 @@ TupleTableSlot* IndexScanFusion::getTupleSlot()
             if (tuple == NULL) {
                 return NULL;
             }
-            tableam_tops_deform_tuple(tuple, RelationGetDescr(rel), m_values, m_isnull);
         }
         IndexScanDesc indexScan = GetIndexScanDesc(m_scandesc);
+        if (indexScan->xs_recheck) {
+            if (!isUstore) {
+                tableam_tops_deform_tuple(tuple, RelationGetDescr(rel), m_values, m_isnull);
+            }
+            if (EpqCheck(m_values, m_isnull))
+                continue;
+        }
 
-        if (indexScan->xs_recheck && EpqCheck(m_values, m_isnull)) {
-            continue;
+        if (!isUstore) {
+            tableam_tops_deform_tuple(tuple, RelationGetDescr(rel), m_values, m_isnull);
         }
 
         /* mapping */
@@ -248,7 +255,7 @@ TupleTableSlot* IndexScanFusion::getTupleSlot()
             m_tmpisnull[i] = m_isnull[m_attrno[i] - 1];
         }
 
-        Tuple tup = tableam_tops_form_tuple(m_tupDesc, m_tmpvals, m_tmpisnull, isUstore ? TableAmUstore : TableAmHeap);
+        tup = tableam_tops_form_tuple(m_tupDesc, m_tmpvals, m_tmpisnull, isUstore ? TableAmUstore : TableAmHeap);
         Assert(tup != NULL);
         (void)ExecStoreTuple(tup, /* tuple to store */
             m_reslot,             /* slot to store in */

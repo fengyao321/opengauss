@@ -82,19 +82,13 @@ static HeapTuple reorderqueue_pop(IndexScanState* node);
  */
 static TupleTableSlot* IndexNext(IndexScanState* node)
 {
-    EState* estate = NULL;
-    ExprContext* econtext = NULL;
-    ScanDirection direction;
-    IndexScanDesc scandesc;
+    EState* estate = node->ss.ps.state;
+    ScanDirection direction = estate->es_direction;
+    ExprContext* econtext = node->ss.ps.ps_ExprContext;
+    TupleTableSlot* slot = node->ss.ss_ScanTupleSlot;
+    IndexScanDesc scandesc = node->iss_ScanDesc;
     HeapTuple tuple;
-    TupleTableSlot* slot = NULL;
-    bool isUstore = false;
 
-    /*
-     * extract necessary information from index scan node
-     */
-    estate = node->ss.ps.state;
-    direction = estate->es_direction;
     /* flip direction if this is an overall backward scan */
     if (ScanDirectionIsBackward(((IndexScan*)node->ss.ps.plan)->indexorderdir)) {
         if (ScanDirectionIsForward(direction))
@@ -102,11 +96,8 @@ static TupleTableSlot* IndexNext(IndexScanState* node)
         else if (ScanDirectionIsBackward(direction))
             direction = ForwardScanDirection;
     }
-    econtext = node->ss.ps.ps_ExprContext;
-    slot = node->ss.ss_ScanTupleSlot;
-    scandesc = node->iss_ScanDesc;
 
-    isUstore = RelationIsUstoreFormat(node->ss.ss_currentRelation);
+    bool isUstore = RelationIsUstoreFormat(node->ss.ss_currentRelation);
 
     /*
      * ok, now that we have what we need, fetch the next tuple.
@@ -133,10 +124,7 @@ static TupleTableSlot* IndexNext(IndexScanState* node)
              * Note: we pass 'false' because tuples returned by amgetnext are
              * pointers onto disk pages and must not be pfree_ext()'d.
              */
-            (void)ExecStoreTuple(tuple, /* tuple to store */
-                slot,                   /* slot to store in */
-                indexScan->xs_cbuf,     /* buffer containing tuple */
-                false);                 /* don't pfree */
+            (void)ExecStoreTuple(tuple, slot, indexScan->xs_cbuf, false);
         }
 
         /*

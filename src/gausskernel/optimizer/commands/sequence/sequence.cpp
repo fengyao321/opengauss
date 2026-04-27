@@ -1494,7 +1494,6 @@ int128 nextval_internal(Oid relid)
     int128 result;
     bool is_use_local_seq = false;
     char* relname = NULL;
-
     if (t_thrd.postmaster_cxt.HaShmData->current_mode == STANDBY_MODE) {
         ereport(ERROR, (errmsg("Standby do not support nextval, please do it in primary!")));
     }
@@ -1523,21 +1522,24 @@ int128 nextval_internal(Oid relid)
         Assert(elm->last_valid);
         Assert(elm->increment != 0);
         elm->last += elm->increment;
-        char* buf_last = DatumGetCString(DirectFunctionCall1(int16out, Int128GetDatum(elm->last)));
-        char* buf_cached = DatumGetCString(DirectFunctionCall1(int16out, Int128GetDatum(elm->cached)));
-        if (u_sess->hook_cxt.invokeNextvalHook && (relname = get_rel_name(relid)) != NULL &&
-            StrEndWith(relname, "_seq_identity")) {
-            ((InvokeNextvalHookType)(u_sess->hook_cxt.invokeNextvalHook))(elm->relid, elm->last);
+        if (unlikely(u_sess->hook_cxt.invokeNextvalHook != NULL)) {
+            relname = get_rel_name(relid);
+            if (relname != NULL && StrEndWith(relname, "_seq_identity")) {
+                ((InvokeNextvalHookType)(u_sess->hook_cxt.invokeNextvalHook))(elm->relid, elm->last);
+            }
         }
-        ereport(DEBUG2,
-            (errmodule(MOD_SEQ),
-                (errmsg("Sequence %s retrun ID %s from cache, the cached is %s, ",
-                    RelationGetRelationName(seqrel),
-                    buf_last,
-                    buf_cached))));
-
-        pfree_ext(buf_last);
-        pfree_ext(buf_cached);
+        if (unlikely(module_logging_is_on(MOD_SEQ))) {
+            char* bufLast = DatumGetCString(DirectFunctionCall1(int16out, Int128GetDatum(elm->last)));
+            char* bufCached = DatumGetCString(DirectFunctionCall1(int16out, Int128GetDatum(elm->cached)));
+            ereport(DEBUG2,
+                (errmodule(MOD_SEQ),
+                    (errmsg("Sequence %s retrun ID %s from cache, the cached is %s, ",
+                        RelationGetRelationName(seqrel),
+                        bufLast,
+                        bufCached))));
+            pfree_ext(bufLast);
+            pfree_ext(bufCached);
+        }
 
         relation_close(seqrel, NoLock);
         u_sess->cmd_cxt.last_used_seq = elm;
@@ -1556,15 +1558,19 @@ int128 nextval_internal(Oid relid)
     }
 
     u_sess->cmd_cxt.last_used_seq = elm;
-    if (u_sess->hook_cxt.invokeNextvalHook && (relname = get_rel_name(relid)) != NULL &&
-        StrEndWith(relname, "_seq_identity")) {
-        ((InvokeNextvalHookType)(u_sess->hook_cxt.invokeNextvalHook))(elm->relid, result);
+    if (unlikely(u_sess->hook_cxt.invokeNextvalHook != NULL)) {
+        relname = get_rel_name(relid);
+        if (relname != NULL && StrEndWith(relname, "_seq_identity")) {
+            ((InvokeNextvalHookType)(u_sess->hook_cxt.invokeNextvalHook))(elm->relid, result);
+        }
     }
-    char* buf = DatumGetCString(DirectFunctionCall1(int16out, Int128GetDatum(result)));
-    ereport(DEBUG2,
-        (errmodule(MOD_SEQ),
-            (errmsg("Sequence %s retrun ID from nextval %s, ", RelationGetRelationName(seqrel), buf))));
-    pfree_ext(buf);
+    if (unlikely(module_logging_is_on(MOD_SEQ))) {
+        char* buf = DatumGetCString(DirectFunctionCall1(int16out, Int128GetDatum(result)));
+        ereport(DEBUG2,
+            (errmodule(MOD_SEQ),
+                (errmsg("Sequence %s retrun ID from nextval %s, ", RelationGetRelationName(seqrel), buf))));
+        pfree_ext(buf);
+    }
 
     relation_close(seqrel, NoLock);
 
@@ -1577,7 +1583,6 @@ Datum currval_oid(PG_FUNCTION_ARGS)
     int128 result;
     SeqTable elm = NULL;
     Relation seqrel;
-
     if (!IS_SINGLE_NODE && !u_sess->attr.attr_common.enable_beta_features) {
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("currval function is not supported")));
     }
@@ -1612,7 +1617,6 @@ Datum lastval(PG_FUNCTION_ARGS)
 {
     Relation seqrel;
     int128 result;
-
     if (!IS_SINGLE_NODE && !g_instance.attr.attr_common.lastval_supported &&
         !u_sess->attr.attr_common.enable_beta_features) {
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("lastval function is not supported")));
@@ -3855,4 +3859,3 @@ Datum attnum_used_by_indexprs(PG_FUNCTION_ARGS)
     bool result = attnum_used_by_expr(node_str, attnum);
     PG_RETURN_BOOL(result);
 }
-
