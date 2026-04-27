@@ -48,7 +48,7 @@
 #define BTREE_FASTPATH_MIN_LEVEL  2
 
 typedef struct {
-    /* context data for _bt_checksplitloc */
+    /* context data for _bt_checksplitloc (default split algorithm) */
     Page page;
     Size newitemsz;          /* size of new item to be inserted */
     int fillfactor;          /* needed when splitting rightmost page */
@@ -1011,8 +1011,12 @@ static void _bt_insertonpg(Relation rel, BTScanInsert itup_key, Buffer buf, Buff
          */
         Assert(!useFastPath);
 
-        /* Choose the split point */
-        firstright = _bt_findsplitloc(rel, page, newitemoff, itemsz, &newitemonleft);
+        /* Choose the split point (may be switched to insert-position-aware algorithm by index reloption) */
+        if (rel->rd_indexsplit == INDEXSPLIT_NO_INSERTPT) {
+            firstright = BTFindsplitlocInsertpt(rel, buf, newitemoff, itemsz, &newitemonleft, itup);
+        } else {
+            firstright = _bt_findsplitloc(rel, page, newitemoff, itemsz, &newitemonleft);
+        }
 
         /* split the buffer into left and right halves */
         rbuf = _bt_split(rel, itup_key, buf, cbuf, firstright, newitemoff, itemsz, itup, origitup, new_posting,

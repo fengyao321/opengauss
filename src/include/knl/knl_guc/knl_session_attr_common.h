@@ -40,7 +40,9 @@
 #define SRC_INCLUDE_KNL_KNL_SESSION_ATTR_COMMON_H_
 
 #include "knl/knl_guc/knl_guc_common.h"
-#include "plpython.h"
+
+/* Avoid forcing Python.h dependency on all translation units. */
+typedef struct PlySessionCtx PlySessionCtx;
 
 typedef struct knl_session_attr_common {
     bool enable_beta_features;

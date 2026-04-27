@@ -628,16 +628,6 @@ static void WaitForOlderSnapshots(TransactionId limitXmin)
     }
 }
 
-inline bool get_rel_segment(Relation rel)
-{
-    if (rel == NULL || rel->rd_options == NULL) {
-        return false;
-    }
-
-    StdRdOptions *opt = (StdRdOptions*)(rel->rd_options);
-    return opt->segment;
-}
-
 static bool parseVisibleStateFromOptions(List* options)
 {
     ListCell *cell = NULL;
@@ -820,7 +810,6 @@ ObjectAddress DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, 
         elog(ERROR, "%s index is not supported for partition table.", (stmt->accessMethod));
     }
 
-    bool segment = get_rel_segment(rel);
     TableCreateSupport indexCreateSupport{(int)COMPRESS_TYPE_NONE, 0, false, false, false, false, true, false};
     ListCell *cell = NULL;
     foreach (cell, stmt->options) {
@@ -1381,6 +1370,20 @@ ObjectAddress DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, 
                     errdetail("Forbid to set option \"index_type\" for relations except for ustore relation.")));
             }
         }
+    }
+
+    /*
+     * When user doesn't specify deduplication explicitly for btree, materialize
+     * the default from instance GUC into reloptions.  This prevents other
+     * reloptions (for example indexsplit) from implicitly flipping deduplication
+     * back to reloption's hard-coded default.
+     */
+    if (!has_dedup_opt && strcmp(accessMethodName, "btree") == 0 && !stmt->isPartitioned && !RelationIsPartitioned(rel) &&
+        !IsSystemRelation(rel) && g_instance.attr.attr_common.enable_default_index_deduplication) {
+        DefElem *dedupDef = makeDefElem(
+            "deduplication",
+            (Node *)makeString(pstrdup("on")));
+        stmt->options = lappend(stmt->options, dedupDef);
     }
 
     /*
