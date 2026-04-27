@@ -503,6 +503,35 @@ enum guc_attr_strategy {
     MAX_GUC_ATTR
 };
 
+typedef struct knl_u_utils_guc_cold_context {
+    char* GUC_check_errmsg_string;
+    char* GUC_check_errdetail_string;
+    char* GUC_check_errhint_string;
+
+    HTAB* set_params_htab;
+    struct config_generic** sync_guc_variables;
+
+    struct config_bool* ConfigureNamesBool[MAX_GUC_ATTR];
+    struct config_int* ConfigureNamesInt[MAX_GUC_ATTR];
+    struct config_real* ConfigureNamesReal[MAX_GUC_ATTR];
+    struct config_int64* ConfigureNamesInt64[MAX_GUC_ATTR];
+    struct config_string* ConfigureNamesString[MAX_GUC_ATTR];
+    struct config_enum* ConfigureNamesEnum[MAX_GUC_ATTR];
+
+    char* int4output_buffer;
+    char* int8output_buffer;
+    char* float4output_buffer;
+    char* float8output_buffer;
+    char* varcharoutput_buffer;
+    char* numericoutput_buffer;
+    char* dateoutput_buffer;
+    char* vectoroutput_buffer;
+    char* timestamp_output_buffer;
+
+    HTAB* set_user_params_htab;
+    DestReceiver* spi_printtupDR;
+} knl_u_utils_guc_cold_context;
+
 typedef struct knl_u_utils_context {
     char suffix_char;
 
@@ -537,28 +566,7 @@ typedef struct knl_u_utils_context {
     TimestampTz lastFailedLoginTime;
 
     struct StringInfoData* input_set_message; /*Add for set command in transaction*/
-
-    char* GUC_check_errmsg_string;
-
-    char* GUC_check_errdetail_string;
-
-    char* GUC_check_errhint_string;
-
-    HTAB* set_params_htab;
-
-    struct config_generic** sync_guc_variables;
-
-    struct config_bool* ConfigureNamesBool[MAX_GUC_ATTR];
-
-    struct config_int* ConfigureNamesInt[MAX_GUC_ATTR];
-
-    struct config_real* ConfigureNamesReal[MAX_GUC_ATTR];
-
-    struct config_int64* ConfigureNamesInt64[MAX_GUC_ATTR];
-
-    struct config_string* ConfigureNamesString[MAX_GUC_ATTR];
-
-    struct config_enum* ConfigureNamesEnum[MAX_GUC_ATTR];
+    knl_u_utils_guc_cold_context* guc_cold;
 
     int size_guc_variables;
 
@@ -704,28 +712,19 @@ typedef struct knl_u_utils_context {
 
     bool enable_memory_context_control;
 
-    /* printtup output buffer instead of functioncall */
-    char* int4output_buffer;
-    char* int8output_buffer;
-    char* float4output_buffer;
-    char* float8output_buffer;
-    char* varcharoutput_buffer;
-    char* numericoutput_buffer;
-    char* dateoutput_buffer;
-    char* vectoroutput_buffer;
-    char* timestamp_output_buffer;
-
     syscalllock deleMemContextMutex;
 
     unsigned int sql_ignore_strategy_val;
-
-    HTAB* set_user_params_htab;
-    DestReceiver* spi_printtupDR;
 
     /* var in tsrank.cpp */
     float tsrankWs[TSRANK_WEIGHTS_LEN];
     List* ignore_keyword_list;
 } knl_u_utils_context;
+
+extern knl_u_utils_guc_cold_context* knl_u_utils_guc_cold_ensure(knl_u_utils_context* utils_cxt);
+#define KNL_UTILS_GUC_COLD(utils_cxt) \
+    (((utils_cxt)->guc_cold != NULL) ? (utils_cxt)->guc_cold : knl_u_utils_guc_cold_ensure((utils_cxt)))
+#define KNL_UTILS_GUC_FIELD(utils_cxt, field) (KNL_UTILS_GUC_COLD((utils_cxt))->field)
 
 typedef struct knl_u_security_context {
     /*
@@ -1141,12 +1140,14 @@ typedef enum NodeGroupMode {
     NG_LOGIC,       /* logic cluster node group */
 } NodeGroupMode;
 
-typedef struct knl_u_misc_context {
-    enum ProcessingMode Mode;
-
-    /* Note: we rely on this to initialize as zeroes */
+typedef struct knl_u_misc_path_cold_context {
     char socketLockFile[MAXPGPATH];
     char hasocketLockFile[MAXPGPATH];
+} knl_u_misc_path_cold_context;
+
+typedef struct knl_u_misc_context {
+    enum ProcessingMode Mode;
+    knl_u_misc_path_cold_context* path_cold;
 
     /* ----------------------------------------------------------------
      *    User ID state
@@ -1221,6 +1222,17 @@ typedef struct knl_u_misc_context {
     /* Flag telling that authentication already finish */
     bool authentication_finished;
 } knl_misc_context;
+
+extern knl_u_misc_path_cold_context* knl_u_misc_path_cold_ensure(knl_misc_context* misc_cxt);
+static inline char* knl_u_misc_socket_lock_file(knl_misc_context* misc_cxt)
+{
+    return knl_u_misc_path_cold_ensure(misc_cxt)->socketLockFile;
+}
+
+static inline char* knl_u_misc_hasocket_lock_file(knl_misc_context* misc_cxt)
+{
+    return knl_u_misc_path_cold_ensure(misc_cxt)->hasocketLockFile;
+}
 
 
 /*
@@ -2698,6 +2710,11 @@ typedef struct knl_u_catalog_context {
 /* Maximum number of preferred Datanodes that can be defined in cluster */
 #define MAX_PREFERRED_NODES 64
 
+typedef struct knl_u_pgxc_addr_cold_context {
+    char sock_path[MAXPGPATH];
+    Oid preferred_data_node[MAX_PREFERRED_NODES];
+} knl_u_pgxc_addr_cold_context;
+
 typedef struct knl_u_pgxc_context {
     /* Current size of dn_handles and co_handles */
     int NumDataNodes;
@@ -2715,7 +2732,6 @@ typedef struct knl_u_pgxc_context {
     int standby_num;
     Oid primary_data_node;
     int num_preferred_data_nodes;
-    Oid preferred_data_node[MAX_PREFERRED_NODES];
     int* disasterReadArray; /* array to save dn node index for disaster read */
     bool DisasterReadArrayInit;
 
@@ -2754,7 +2770,7 @@ typedef struct knl_u_pgxc_context {
     char* preparedNodes;
 
     /* Pool */
-    char sock_path[MAXPGPATH];
+    knl_u_pgxc_addr_cold_context* addr_cold;
     int last_reported_send_errno;
     bool PoolerResendParams;
     struct PGXCNodeConnectionInfo* PoolerConnectionInfo;
@@ -2771,6 +2787,17 @@ typedef struct knl_u_pgxc_context {
     int gc_fdw_run_version;
     struct SnapshotData* gc_fdw_snapshot;
 } knl_u_pgxc_context;
+
+extern knl_u_pgxc_addr_cold_context* knl_u_pgxc_addr_cold_ensure(knl_u_pgxc_context* pgxc_cxt);
+static inline char* knl_u_pgxc_sock_path(knl_u_pgxc_context* pgxc_cxt)
+{
+    return knl_u_pgxc_addr_cold_ensure(pgxc_cxt)->sock_path;
+}
+
+static inline Oid* knl_u_pgxc_preferred_data_node(knl_u_pgxc_context* pgxc_cxt)
+{
+    return knl_u_pgxc_addr_cold_ensure(pgxc_cxt)->preferred_data_node;
+}
 
 typedef struct knl_u_fmgr_context {
     struct df_files_init* file_list_init;
@@ -3266,7 +3293,7 @@ typedef struct knl_session_context {
     knl_u_sig_context sig_cxt;
     knl_u_SPI_context SPI_cxt;
     knl_u_relcache_context relcache_cxt;
-    knl_u_relmap_context relmap_cxt;
+    knl_u_relmap_context* relmap_cxt;
     knl_u_stat_context stat_cxt;
     knl_u_storage_context storage_cxt;
     knl_u_stream_context stream_cxt;
@@ -3392,6 +3419,7 @@ extern void set_function_style_a();
 extern void set_function_style_pg();
 extern bool set_is_create_plsql_type();
 extern void set_is_create_pkg_function(bool is_create_pkg_function);
+extern void knl_session_layout_dump(void);
 
 extern THR_LOCAL knl_session_context* u_sess;
 
@@ -3447,4 +3475,3 @@ inline bool has_backend_cursor_stream()
 }
 
 #endif /* SRC_INCLUDE_KNL_KNL_SESSION_H_ */
-

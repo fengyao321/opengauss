@@ -732,7 +732,7 @@ void PgxcNodeGetOids(Oid** coOids, Oid** dnOids, int* num_coords, int* num_dns, 
                 u_sess->pgxc_cxt.primary_data_node = t_thrd.pgxc_cxt.dnDefs[i].nodeoid;
 
             if (t_thrd.pgxc_cxt.dnDefs[i].nodeispreferred) {
-                u_sess->pgxc_cxt.preferred_data_node[u_sess->pgxc_cxt.num_preferred_data_nodes] =
+                knl_u_pgxc_preferred_data_node(&u_sess->pgxc_cxt)[u_sess->pgxc_cxt.num_preferred_data_nodes] =
                     t_thrd.pgxc_cxt.dnDefs[i].nodeoid;
                 u_sess->pgxc_cxt.num_preferred_data_nodes++;
             }

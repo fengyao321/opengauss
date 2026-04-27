@@ -79,6 +79,92 @@ extern int SysCacheSize;
 
 #define DEFAULT_DBE_BUFFER_LIMIT 20000
 
+static inline MemoryContext knl_session_top_cxt_for_cold_alloc()
+{
+    return (u_sess != NULL && u_sess->top_mem_cxt != NULL) ? u_sess->top_mem_cxt : CurrentMemoryContext;
+}
+
+static inline void* knl_session_palloc0_for_cold_alloc(Size size)
+{
+    MemoryContext target = knl_session_top_cxt_for_cold_alloc();
+    bool reseal = (target != NULL && target->is_sealed);
+
+    if (reseal) {
+        MemoryContextUnSeal(target);
+    }
+
+    MemoryContext old = MemoryContextSwitchTo(target);
+    void* ptr = palloc0(size);
+    MemoryContextSwitchTo(old);
+
+    if (reseal) {
+        MemoryContextSeal(target);
+    }
+
+    return ptr;
+}
+
+knl_u_misc_path_cold_context* knl_u_misc_path_cold_ensure(knl_misc_context* misc_cxt)
+{
+    Assert(misc_cxt != NULL);
+    if (misc_cxt->path_cold == NULL) {
+        misc_cxt->path_cold = (knl_u_misc_path_cold_context*)knl_session_palloc0_for_cold_alloc(
+            sizeof(knl_u_misc_path_cold_context));
+    }
+    return misc_cxt->path_cold;
+}
+
+knl_u_pgxc_addr_cold_context* knl_u_pgxc_addr_cold_ensure(knl_u_pgxc_context* pgxc_cxt)
+{
+    Assert(pgxc_cxt != NULL);
+    if (pgxc_cxt->addr_cold == NULL) {
+        pgxc_cxt->addr_cold = (knl_u_pgxc_addr_cold_context*)knl_session_palloc0_for_cold_alloc(
+            sizeof(knl_u_pgxc_addr_cold_context));
+    }
+    return pgxc_cxt->addr_cold;
+}
+
+knl_u_utils_guc_cold_context* knl_u_utils_guc_cold_ensure(knl_u_utils_context* utils_cxt)
+{
+    Assert(utils_cxt != NULL);
+    if (utils_cxt->guc_cold == NULL) {
+        utils_cxt->guc_cold = (knl_u_utils_guc_cold_context*)knl_session_palloc0_for_cold_alloc(
+            sizeof(knl_u_utils_guc_cold_context));
+    }
+    return utils_cxt->guc_cold;
+}
+
+void knl_session_layout_dump(void)
+{
+#ifdef USE_ASSERT_CHECKING
+    write_stderr("[session-layout] sizeof(knl_session_context)=%lu, sizeof(knl_session_attr)=%lu, "
+                 "sizeof(knl_u_utils_context)=%lu, sizeof(knl_u_utils_guc_cold_context)=%lu, "
+                 "sizeof(knl_u_misc_context)=%lu, sizeof(knl_u_misc_path_cold_context)=%lu, "
+                 "sizeof(knl_u_pgxc_context)=%lu, sizeof(knl_u_pgxc_addr_cold_context)=%lu\n",
+                 (unsigned long)sizeof(knl_session_context),
+                 (unsigned long)sizeof(knl_session_attr),
+                 (unsigned long)sizeof(knl_u_utils_context),
+                 (unsigned long)sizeof(knl_u_utils_guc_cold_context),
+                 (unsigned long)sizeof(knl_u_misc_context),
+                 (unsigned long)sizeof(knl_u_misc_path_cold_context),
+                 (unsigned long)sizeof(knl_u_pgxc_context),
+                 (unsigned long)sizeof(knl_u_pgxc_addr_cold_context));
+
+    write_stderr("[session-layout] offsetof(attr)=%lu, offsetof(proc_cxt)=%lu, offsetof(utils_cxt)=%lu, "
+                 "offsetof(opt_cxt)=%lu, offsetof(pgxc_cxt)=%lu, offsetof(SPI_cxt)=%lu, "
+                 "offsetof(xact_cxt)=%lu, offsetof(storage_cxt)=%lu, offsetof(misc_cxt)=%lu\n",
+                 (unsigned long)offsetof(knl_session_context, attr),
+                 (unsigned long)offsetof(knl_session_context, proc_cxt),
+                 (unsigned long)offsetof(knl_session_context, utils_cxt),
+                 (unsigned long)offsetof(knl_session_context, opt_cxt),
+                 (unsigned long)offsetof(knl_session_context, pgxc_cxt),
+                 (unsigned long)offsetof(knl_session_context, SPI_cxt),
+                 (unsigned long)offsetof(knl_session_context, xact_cxt),
+                 (unsigned long)offsetof(knl_session_context, storage_cxt),
+                 (unsigned long)offsetof(knl_session_context, misc_cxt));
+#endif
+}
+
 static void KnlURepOriginInit(knl_u_rep_origin_context* repOriginCxt)
 {
     repOriginCxt->curRepState = NULL;
@@ -406,6 +492,7 @@ static void knl_u_wlm_init(knl_u_wlm_context* wlmctx)
 static void knl_u_utils_init(knl_session_context* sess_cxt)
 {
     knl_u_utils_context* utils_cxt = &(sess_cxt->utils_cxt);
+    knl_u_utils_guc_cold_context* guc_cold = knl_u_utils_guc_cold_ensure(utils_cxt);
     utils_cxt->suffix_char = 0;
     utils_cxt->suffix_collation = 0;
     utils_cxt->test_err_type = 0;
@@ -418,18 +505,18 @@ static void knl_u_utils_init(knl_session_context* sess_cxt)
     utils_cxt->guc_new_value = NULL;
     utils_cxt->lastFailedLoginTime = 0;
     utils_cxt->input_set_message = (StringInfoData*)palloc0(sizeof(StringInfoData));
-    utils_cxt->GUC_check_errmsg_string = NULL;
-    utils_cxt->GUC_check_errdetail_string = NULL;
-    utils_cxt->GUC_check_errhint_string = NULL;
-    utils_cxt->set_params_htab = NULL;
-    utils_cxt->sync_guc_variables = NULL;
+    guc_cold->GUC_check_errmsg_string = NULL;
+    guc_cold->GUC_check_errdetail_string = NULL;
+    guc_cold->GUC_check_errhint_string = NULL;
+    guc_cold->set_params_htab = NULL;
+    guc_cold->sync_guc_variables = NULL;
     for (int strategy = 0; strategy < MAX_GUC_ATTR; strategy++) {
-        utils_cxt->ConfigureNamesBool[strategy] = NULL;
-        utils_cxt->ConfigureNamesInt[strategy] = NULL;
-        utils_cxt->ConfigureNamesReal[strategy] = NULL;
-        utils_cxt->ConfigureNamesInt64[strategy] = NULL;
-        utils_cxt->ConfigureNamesString[strategy] = NULL;
-        utils_cxt->ConfigureNamesEnum[strategy] = NULL;
+        guc_cold->ConfigureNamesBool[strategy] = NULL;
+        guc_cold->ConfigureNamesInt[strategy] = NULL;
+        guc_cold->ConfigureNamesReal[strategy] = NULL;
+        guc_cold->ConfigureNamesInt64[strategy] = NULL;
+        guc_cold->ConfigureNamesString[strategy] = NULL;
+        guc_cold->ConfigureNamesEnum[strategy] = NULL;
     }
     utils_cxt->guc_dirty = false;
     utils_cxt->reporting_enabled = false;
@@ -486,22 +573,21 @@ static void knl_u_utils_init(knl_session_context* sess_cxt)
     utils_cxt->enable_memory_context_control = false;
     utils_cxt->sql_ignore_strategy_val = 0;
 
-    utils_cxt->int4output_buffer = (char*)palloc0(32);
-    utils_cxt->int8output_buffer = (char*)palloc0(128);
-    utils_cxt->float4output_buffer = (char*)palloc0(MAXFLOATWIDTH);
-    utils_cxt->float8output_buffer = (char*)palloc0(MAXDOUBLEWIDTH);
-    utils_cxt->varcharoutput_buffer = (char*)palloc0(256);
-    utils_cxt->numericoutput_buffer = (char*)palloc0(64);
-    utils_cxt->dateoutput_buffer = (char*)palloc0(MAXDATELEN + 1);
-    if (sess_cxt->attr.attr_sql.vectorEngineStrategy == OFF_VECTOR_ENGINE) {
-        utils_cxt->vectoroutput_buffer =  (char*)palloc0(VECTOR_MAX_DIM * FLOAT_SHORTEST_DECIMAL_LEN + 2);
-    }
-    utils_cxt->timestamp_output_buffer = (char*)palloc0(MAXDATELEN + 1);
+    guc_cold->int4output_buffer = (char*)palloc0(32);
+    guc_cold->int8output_buffer = (char*)palloc0(128);
+    guc_cold->float4output_buffer = (char*)palloc0(MAXFLOATWIDTH);
+    guc_cold->float8output_buffer = (char*)palloc0(MAXDOUBLEWIDTH);
+    guc_cold->varcharoutput_buffer = (char*)palloc0(256);
+    guc_cold->numericoutput_buffer = (char*)palloc0(64);
+    guc_cold->dateoutput_buffer = (char*)palloc0(MAXDATELEN + 1);
+    guc_cold->vectoroutput_buffer = (char*)palloc0(VECTOR_MAX_DIM * FLOAT_SHORTEST_DECIMAL_LEN + 2);
+    guc_cold->timestamp_output_buffer = (char*)palloc0(MAXDATELEN + 1);
 
     (void)syscalllockInit(&utils_cxt->deleMemContextMutex);
 
-    utils_cxt->spi_printtupDR = (DestReceiver*)palloc0(sizeof(DestReceiver));
-    InitSpiPrinttupDR(utils_cxt->spi_printtupDR);
+    guc_cold->set_user_params_htab = NULL;
+    guc_cold->spi_printtupDR = (DestReceiver*)palloc0(sizeof(DestReceiver));
+    InitSpiPrinttupDR(guc_cold->spi_printtupDR);
     utils_cxt->ignore_keyword_list = NIL;
 }
 
@@ -596,6 +682,7 @@ static void knl_u_tscache_init(knl_u_tscache_context* tscache_cxt)
 static void knl_u_misc_init(knl_misc_context* misc_cxt)
 {
     misc_cxt->Mode = InitProcessing;
+    misc_cxt->path_cold = NULL;
     misc_cxt->AuthenticatedUserId = InvalidOid;
     misc_cxt->SessionUserId = InvalidOid;
     misc_cxt->OuterUserId = InvalidOid;
@@ -1351,6 +1438,7 @@ static void knl_u_pgxc_init(knl_u_pgxc_context* pgxc_cxt)
     pgxc_cxt->XactWriteNodes = NIL;
     pgxc_cxt->XactReadNodes = NIL;
     pgxc_cxt->preparedNodes = NULL;
+    pgxc_cxt->addr_cold = NULL;
 
     pgxc_cxt->last_reported_send_errno = 0;
     pgxc_cxt->PoolerResendParams = false;
@@ -1547,6 +1635,14 @@ static void knl_u_hook_init(knl_u_hook_context* hook_context)
 
 void knl_session_init(knl_session_context* sess_cxt)
 {
+#ifdef USE_ASSERT_CHECKING
+    static bool layout_dumped = false;
+    if (!layout_dumped) {
+        layout_dumped = true;
+        knl_session_layout_dump();
+    }
+#endif
+
     Assert (0 != strncmp(CurrentMemoryContext->name, "ErrorContext", sizeof("ErrorContext")));
     sess_cxt->status = KNL_SESS_UNINIT;
     DLInitElem(&sess_cxt->elem, sess_cxt);
@@ -1610,7 +1706,8 @@ void knl_session_init(knl_session_context* sess_cxt)
     knl_u_regex_init(&sess_cxt->regex_cxt);
 
     knl_u_relcache_init(&sess_cxt->relcache_cxt);
-    knl_u_relmap_init(&sess_cxt->relmap_cxt);
+    sess_cxt->relmap_cxt = (knl_u_relmap_context*)palloc0(sizeof(knl_u_relmap_context));
+    knl_u_relmap_init(sess_cxt->relmap_cxt);
     knl_u_sig_init(&sess_cxt->sig_cxt);
     knl_u_SPI_init(&sess_cxt->SPI_cxt);
     knl_u_stat_init(&sess_cxt->stat_cxt);

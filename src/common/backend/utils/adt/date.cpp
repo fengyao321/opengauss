@@ -294,11 +294,16 @@ Datum date_out(PG_FUNCTION_ARGS)
 char* output_date_out(DateADT date)
 {
     struct pg_tm tt, *tm = &tt;
+    knl_u_utils_guc_cold_context* guc_cold = u_sess->utils_cxt.guc_cold;
 
-    u_sess->utils_cxt.dateoutput_buffer[0] = '\0';
+    if (unlikely(guc_cold == NULL)) {
+        guc_cold = knl_u_utils_guc_cold_ensure(&u_sess->utils_cxt);
+    }
+
+    guc_cold->dateoutput_buffer[0] = '\0';
 
     if (DATE_NOT_FINITE(date))
-        EncodeSpecialDate(date, u_sess->utils_cxt.dateoutput_buffer, MAXDATELEN + 1);
+        EncodeSpecialDate(date, guc_cold->dateoutput_buffer, MAXDATELEN + 1);
     else {
         if (unlikely(date > 0 && (INT_MAX - date < POSTGRES_EPOCH_JDATE))) {
             ereport(ERROR,
@@ -306,10 +311,10 @@ char* output_date_out(DateADT date)
                     errmsg("input julian date is overflow")));
         }
         j2date(date + POSTGRES_EPOCH_JDATE, &(tm->tm_year), &(tm->tm_mon), &(tm->tm_mday));
-        EncodeDateOnly(tm, u_sess->time_cxt.DateStyle, u_sess->utils_cxt.dateoutput_buffer);
+        EncodeDateOnly(tm, u_sess->time_cxt.DateStyle, guc_cold->dateoutput_buffer);
     }
 
-    return u_sess->utils_cxt.dateoutput_buffer;
+    return guc_cold->dateoutput_buffer;
 }
 
 /*

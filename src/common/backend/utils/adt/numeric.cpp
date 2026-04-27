@@ -5279,10 +5279,15 @@ static char* output_get_str_from_var(NumericVar* var)
     int d;
     NumericDigit dig;
     int len;
+    knl_u_utils_guc_cold_context* guc_cold = u_sess->utils_cxt.guc_cold;
 
 #if DEC_DIGITS > 1
     NumericDigit d1;
 #endif
+
+    if (unlikely(guc_cold == NULL)) {
+        guc_cold = knl_u_utils_guc_cold_ensure(&u_sess->utils_cxt);
+    }
 
     dscale = var->dscale;
 
@@ -5302,8 +5307,8 @@ static char* output_get_str_from_var(NumericVar* var)
     if (len >= 64) {
         str = (char*)palloc(len);
     } else {
-        u_sess->utils_cxt.numericoutput_buffer[0] = '\0';
-        str = u_sess->utils_cxt.numericoutput_buffer;
+        guc_cold->numericoutput_buffer[0] = '\0';
+        str = guc_cold->numericoutput_buffer;
     }
     cp = str;
 

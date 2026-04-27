@@ -467,7 +467,7 @@ knl_u_relmap_context *GetRelMapCxt()
     if (EnableLocalSysCache()) {
         return &t_thrd.lsc_cxt.lsc->relmap_cxt;
     } else {
-        return &u_sess->relmap_cxt;
+        return u_sess->relmap_cxt;
     }
 }
 

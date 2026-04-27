@@ -325,13 +325,13 @@ extern void read_nondefault_variables(void);
 extern void GUC_check_errcode(int sqlerrcode);
 
 #define GUC_check_errmsg \
-    pre_format_elog_string(errno, TEXTDOMAIN), u_sess->utils_cxt.GUC_check_errmsg_string = format_elog_string
+    pre_format_elog_string(errno, TEXTDOMAIN), KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errmsg_string) = format_elog_string
 
 #define GUC_check_errdetail \
-    pre_format_elog_string(errno, TEXTDOMAIN), u_sess->utils_cxt.GUC_check_errdetail_string = format_elog_string
+    pre_format_elog_string(errno, TEXTDOMAIN), KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errdetail_string) = format_elog_string
 
 #define GUC_check_errhint \
-    pre_format_elog_string(errno, TEXTDOMAIN), u_sess->utils_cxt.GUC_check_errhint_string = format_elog_string
+    pre_format_elog_string(errno, TEXTDOMAIN), KNL_UTILS_GUC_FIELD(&u_sess->utils_cxt, GUC_check_errhint_string) = format_elog_string
 
 #define guc_free(p)      \
     do {                 \

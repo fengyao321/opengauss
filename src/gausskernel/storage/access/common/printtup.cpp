@@ -1360,13 +1360,15 @@ void printBatch(VectorBatch *batch, DestReceiver *self)
     pq_endmessage_reuse(buf);
 }
 
-static inline bool check_need_free_varchar_output(const char* str)
+static inline bool check_need_free_varchar_output(
+    const char* str, const knl_u_utils_guc_cold_context* guc_cold)
 {
-    return ((char*)str == u_sess->utils_cxt.varcharoutput_buffer);
+    return ((char*)str == guc_cold->varcharoutput_buffer);
 }
-static inline bool check_need_free_numeric_output(const char* str)
+static inline bool check_need_free_numeric_output(
+    const char* str, const knl_u_utils_guc_cold_context* guc_cold)
 {
-    return ((char*)str == u_sess->utils_cxt.numericoutput_buffer);
+    return ((char*)str == guc_cold->numericoutput_buffer);
 }
 
 // print a tuple in protocol 3.0
@@ -1374,6 +1376,7 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
 {
     TupleDesc typeinfo = slot->tts_tupleDescriptor;
     DR_printtup *myState = (DR_printtup *)self;
+    knl_u_utils_guc_cold_context* guc_cold = u_sess->utils_cxt.guc_cold;
     StringInfo buf = &myState->buf;
     int natts = typeinfo->natts;
     int i;
@@ -1381,6 +1384,10 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
     bool binary = false;
     /* just as we define in backend/commands/analyze.cpp */
 #define WIDTH_THRESHOLD 1024
+
+    if (unlikely(guc_cold == NULL)) {
+        guc_cold = knl_u_utils_guc_cold_ensure(&u_sess->utils_cxt);
+    }
 
     /* Set or update my derived attribute info, if needed */
     if (myState->attrinfo != typeinfo || myState->nattrs != natts)
@@ -1461,7 +1468,7 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
                 need_free = false;
                 switch (thisState->typoutput) {
                     case F_INT1OUT: {
-                        outputstr = u_sess->utils_cxt.int4output_buffer;
+                        outputstr = guc_cold->int4output_buffer;
                         pg_ctoa(DatumGetUInt8(attr), outputstr);
 #ifndef ENABLE_MULTIPLE_NODES
                         t_thrd.xact_cxt.callPrint = false;
@@ -1471,7 +1478,7 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
                         continue;
                     }
                     case F_INT2OUT: {
-                        outputstr = u_sess->utils_cxt.int4output_buffer;
+                        outputstr = guc_cold->int4output_buffer;
                         pg_itoa(DatumGetInt16(attr), outputstr);
 #ifndef ENABLE_MULTIPLE_NODES
                         t_thrd.xact_cxt.callPrint = false;
@@ -1481,7 +1488,7 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
                         continue;
                     }
                     case F_INT4OUT: {
-                        outputstr = u_sess->utils_cxt.int4output_buffer;
+                        outputstr = guc_cold->int4output_buffer;
                         int length = 0;
                         pg_ltoa(DatumGetInt32(attr), outputstr, &length);
 #ifndef ENABLE_MULTIPLE_NODES
@@ -1492,7 +1499,7 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
                         continue;
                     }
                     case F_INT8OUT: {
-                        outputstr = u_sess->utils_cxt.int8output_buffer;
+                        outputstr = guc_cold->int8output_buffer;
                         int length = 0;
                         pg_lltoa(DatumGetInt64(attr), outputstr, &length);
 #ifndef ENABLE_MULTIPLE_NODES
@@ -1503,14 +1510,14 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
                         continue;
                     }
                     case F_FLOAT4OUT: {
-                        outputstr = u_sess->utils_cxt.float4output_buffer;
+                        outputstr = guc_cold->float4output_buffer;
                         pg_ftoa<MAXFLOATWIDTH>(DatumGetFloat4(attr), outputstr);
                         pq_sendcountedtext_printtup(buf, outputstr, std::strlen(outputstr), thisState->encoding,
                                                     (void*)&thisState->convert_finfo);
                         continue;
                     }
                     case F_FLOAT8OUT: {
-                        outputstr = u_sess->utils_cxt.float8output_buffer;
+                        outputstr = guc_cold->float8output_buffer;
                         pg_dtoa<MAXDOUBLEWIDTH>(DatumGetFloat8(attr), outputstr);
                         pq_sendcountedtext_printtup(buf, outputstr, std::strlen(outputstr), thisState->encoding,
                                                     (void *)&thisState->convert_finfo);
@@ -1525,11 +1532,11 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
                         }
                     case F_VARCHAROUT: 
                         outputstr = output_text_to_cstring((text*)DatumGetPointer(attr));
-                        need_free = !check_need_free_varchar_output(outputstr);
+                        need_free = !check_need_free_varchar_output(outputstr, guc_cold);
                         break;
                     case F_NUMERIC_OUT: 
                         outputstr = output_numeric_out(DatumGetNumeric(attr));
-                        need_free = !check_need_free_numeric_output(outputstr);
+                        need_free = !check_need_free_numeric_output(outputstr, guc_cold);
                         break;
                     case F_DATE_OUT:
                         /* support dolphin customizing dateout */
@@ -1541,11 +1548,11 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
                         }
                         break;
                     case F_VECTOR_OUT:
-                        outputstr = u_sess->utils_cxt.vectoroutput_buffer;
+                        outputstr = guc_cold->vectoroutput_buffer;
                         PrintOutVector(outputstr, attr);
                         break; 
                     case F_TIMESTAMP_OUT: {
-                        outputstr = u_sess->utils_cxt.timestamp_output_buffer;
+                        outputstr = guc_cold->timestamp_output_buffer;
                         Timestamp ts = DatumGetTimestamp(attr);
 
                         timestamp_out(ts, outputstr);
