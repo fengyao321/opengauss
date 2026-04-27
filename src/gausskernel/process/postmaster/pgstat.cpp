@@ -2820,6 +2820,7 @@ PgStat_GlobalStats* pgstat_fetch_global(void)
 static THR_LOCAL char* BackendNspRelnameBuffer = NULL;
 
 PgBackendStatus* PgBackendStatusArray = NULL;
+static RowDescriptionCacheStat* BackendRowDescCacheStatsBuffer = NULL;
 
 
 THR_LOCAL XLogStatCollect *g_xlog_stat_shared = NULL;
@@ -2879,9 +2880,25 @@ Size BackendStatusShmemSize(void)
         add_size(size, mul_size(g_instance.attr.attr_common.pgstat_track_activity_query_size, BackendStatusArray_size));
     /* WaitCountStatus */
     size = add_size(size, sizeof(PgStat_WaitCountStatus));
+    /* row description cache stats array */
+    size = add_size(
+        size, mul_size(sizeof(RowDescriptionCacheStat) * ROW_DESC_CACHE_PROTOCOL_NUM, BackendStatusArray_size));
     /* relname array */
     size = add_size(size, mul_size(NAMEDATALEN * 2, BackendStatusArray_size));
     return size;
+}
+
+static void ResetRowDescCacheStats(RowDescriptionCacheStat* stats)
+{
+    errno_t rc = 0;
+    Size statsSize = sizeof(RowDescriptionCacheStat) * ROW_DESC_CACHE_PROTOCOL_NUM;
+
+    if (stats == NULL) {
+        return;
+    }
+
+    rc = memset_s(stats, statsSize, 0, statsSize);
+    securec_check(rc, "\0", "\0");
 }
 /**
  * init memory whose size may be large than INT_MAX by calling func memset_s many times
@@ -2934,6 +2951,20 @@ void CreateSharedBackendStatus(void)
             (void)syscalllockInit(&t_thrd.shemem_ptr_cxt.BackendStatusArray[i].statement_cxt.list_protect);
             /* init last updated time for wait event */
             InstrWaitEventInitLastUpdated(&t_thrd.shemem_ptr_cxt.BackendStatusArray[i], current_time);
+        }
+    }
+
+    /* Create or attach to the shared row description cache stats array */
+    size = mul_size(sizeof(RowDescriptionCacheStat) * ROW_DESC_CACHE_PROTOCOL_NUM, BackendStatusArray_size);
+    BackendRowDescCacheStatsBuffer =
+        (RowDescriptionCacheStat*)ShmemInitStruct("Backend Row Description Cache Stats Buffer", size, &found);
+    if (!found) {
+        rc = memset_s(BackendRowDescCacheStatsBuffer, size, 0, size);
+        securec_check(rc, "\0", "\0");
+
+        for (i = 0; i < BackendStatusArray_size; i++) {
+            t_thrd.shemem_ptr_cxt.BackendStatusArray[i].row_desc_cache_stats =
+                BackendRowDescCacheStatsBuffer + (i * ROW_DESC_CACHE_PROTOCOL_NUM);
         }
     }
 
@@ -3276,6 +3307,7 @@ void pgstat_bestart(void)
     beentry->st_waitstatus_phase = PHASE_NONE;
     beentry->st_relname[0] = '\0';
     beentry->st_relname[NAMEDATALEN * 2 - 1] = '\0';
+    ResetRowDescCacheStats(beentry->row_desc_cache_stats);
     beentry->st_libpq_wait_nodeid = InvalidOid;
     beentry->st_libpq_wait_nodecount = 0;
     beentry->st_tempid = 0;
@@ -3444,6 +3476,7 @@ static void clear_backend_entry(volatile PgBackendStatus* beentry)
     beentry->globalSessionId.sessionId = 0;
     beentry->globalSessionId.nodeId = 0;
     beentry->globalSessionId.seq = 0;
+    ResetRowDescCacheStats(beentry->row_desc_cache_stats);
     beentry->my_prepared_queries = NULL;
     beentry->my_pstmt_htbl_lock = NULL;
     /*
@@ -10084,7 +10117,3 @@ TableDistributionInfo* GetRemoteGsLWLockStatus(TupleDesc tuple_desc)
 
     return distribuion_info;
 }
-
-
-
-

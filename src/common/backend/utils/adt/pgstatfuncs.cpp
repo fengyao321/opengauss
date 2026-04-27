@@ -5606,7 +5606,7 @@ Datum pg_stat_get_wlm_statistics(PG_FUNCTION_ARGS)
  */
 Datum pg_stat_get_session_wlmstat(PG_FUNCTION_ARGS)
 {
-    const int SESSION_WLMSTAT_NUM = 22;
+    const int SESSION_WLMSTAT_NUM = 26;
 
     if (!superuser()) {
         aclcheck_error(ACLCHECK_NO_PRIV, ACL_KIND_PROC,
@@ -5639,6 +5639,10 @@ Datum pg_stat_get_session_wlmstat(PG_FUNCTION_ARGS)
     TupleDescInitEntry(tupdesc, (AttrNumber)ARG_20, "is_plana", BOOLOID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)ARG_21, "node_group", TEXTOID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)ARG_22, "srespool", NAMEOID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)23, "rowdesc_a_store_count", INT8OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)24, "rowdesc_a_hit_count", INT8OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)25, "rowdesc_b_store_count", INT8OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)26, "rowdesc_b_hit_count", INT8OID, -1, 0);
 
     rsinfo->returnMode = SFRM_Materialize;
     rsinfo->setResult = tuplestore_begin_heap(true, false, u_sess->attr.attr_memory.work_mem);
@@ -5663,7 +5667,7 @@ Datum pg_stat_get_session_wlmstat(PG_FUNCTION_ARGS)
 
 void insert_pg_stat_get_session_wlmstat(Tuplestorestate *tupStore, TupleDesc tupDesc, const PgBackendStatus *beentry)
 {
-    const int SESSION_WLMSTAT_NUM = 22;
+    const int SESSION_WLMSTAT_NUM = 26;
     Datum values[SESSION_WLMSTAT_NUM];
     bool nulls[SESSION_WLMSTAT_NUM];
 
@@ -5677,6 +5681,9 @@ void insert_pg_stat_get_session_wlmstat(Tuplestorestate *tupStore, TupleDesc tup
 
     /* Values available to all callers */
     if (superuser() || isMonitoradmin(GetUserId()) || beentry->st_userid == GetUserId()) {
+        const RowDescriptionCacheStat *aStat = NULL;
+        const RowDescriptionCacheStat *bStat = NULL;
+
         values[++i] = ObjectIdGetDatum(beentry->st_databaseid);
         values[++i] = Int64GetDatum(beentry->st_procpid);
         values[++i] = Int64GetDatum(beentry->st_sessionid);
@@ -5746,6 +5753,16 @@ void insert_pg_stat_get_session_wlmstat(Tuplestorestate *tupStore, TupleDesc tup
             values[++i] = NameGetDatum((Name)backstat->srespool);
         else
             values[++i] = DirectFunctionCall1(namein, CStringGetDatum("unknown"));
+
+        if (beentry->row_desc_cache_stats != NULL) {
+            aStat = &beentry->row_desc_cache_stats[ROW_DESC_CACHE_PROTOCOL_A];
+            bStat = &beentry->row_desc_cache_stats[ROW_DESC_CACHE_PROTOCOL_B];
+        }
+
+        values[++i] = Int64GetDatum((int64)(aStat != NULL ? aStat->store_count : 0));
+        values[++i] = Int64GetDatum((int64)(aStat != NULL ? aStat->hit_count : 0));
+        values[++i] = Int64GetDatum((int64)(bStat != NULL ? bStat->store_count : 0));
+        values[++i] = Int64GetDatum((int64)(bStat != NULL ? bStat->hit_count : 0));
 
     } else {
         for (i = 0; i < SESSION_WLMSTAT_NUM; ++i) {

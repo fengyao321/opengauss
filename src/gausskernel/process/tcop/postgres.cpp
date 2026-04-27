@@ -6303,7 +6303,7 @@ void exec_describe_statement_message(const char* stmt_name)
         /* Get the plan's primary targetlist */
         tlist = CachedPlanGetTargetList(psrc);
 
-        SendRowDescriptionMessage(&(*t_thrd.postgres_cxt.row_description_buf), psrc->resultDesc, tlist, NULL);
+        SendRowDescriptionMessage(&(*t_thrd.postgres_cxt.row_description_buf), psrc->resultDesc, tlist, NULL, psrc);
     } else
         pq_putemptymessage('n'); /* NoData */
 }
@@ -6352,10 +6352,12 @@ static void exec_describe_portal_message(const char* portal_name)
         return; /* can't actually do anything... */
 
     if (portal->tupDesc) {
+        CachedPlanSource* psrc = ResolveRowDescPlanSource(portal);
         SendRowDescriptionMessage(&(*t_thrd.postgres_cxt.row_description_buf),
             portal->tupDesc,
-            FetchPortalTargetList(portal),
-            portal->formats);
+            (psrc != NULL) ? CachedPlanGetTargetList(psrc) : FetchPortalTargetList(portal),
+            portal->formats,
+            psrc);
     } else if (u_sess->hook_cxt.pluginCheckSelectProcHook && 
                 ((bool (*)(void))u_sess->hook_cxt.pluginCheckSelectProcHook)() &&
                     portal->commandTag && strcasecmp(portal->commandTag, "call") == 0) {
@@ -11892,8 +11894,9 @@ static void exec_one_in_batch(CachedPlanSource* psrc, ParamListInfo params, int 
         if (portal->tupDesc)
             SendRowDescriptionMessage(&(*t_thrd.postgres_cxt.row_description_buf),
                 portal->tupDesc,
-                FetchPortalTargetList(portal),
-                portal->formats);
+                CachedPlanGetTargetList(psrc),
+                portal->formats,
+                psrc);
         else
             pq_putemptymessage('n'); /* NoData */
     }
@@ -12793,7 +12796,7 @@ static void exec_batch_bind_execute(StringInfo input_message)
                         /* Get the plan's primary targetlist */
                         List* tlist = CachedPlanGetTargetList(psrc);
                         SendRowDescriptionMessage(
-                            &(*t_thrd.postgres_cxt.row_description_buf), psrc->resultDesc, tlist, NULL);
+                            &(*t_thrd.postgres_cxt.row_description_buf), psrc->resultDesc, tlist, NULL, psrc);
                     } else
                         pq_putemptymessage('n'); /* NoData */
                 } break;

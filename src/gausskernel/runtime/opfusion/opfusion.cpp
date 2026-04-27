@@ -34,6 +34,7 @@
 #include "commands/copy.h"
 #include "executor/node/nodeIndexscan.h"
 #include "gstrace/executer_gstrace.h"
+#include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "mb/pg_wchar.h"
 #include "nodes/makefuncs.h"
@@ -809,8 +810,11 @@ void OpFusion::describe()
     if (m_global->m_psrc->resultDesc != NULL) {
         StringInfoData buf;
         initStringInfo(&buf);
-        SendRowDescriptionMessage(&buf, m_global->m_tupDesc, m_global->m_planstmt->planTree->targetlist,
-            m_local.m_rformats);
+        SendRowDescriptionMessage(&buf,
+            m_global->m_tupDesc,
+            CachedPlanGetTargetList(m_global->m_psrc),
+            m_local.m_rformats,
+            m_global->m_psrc);
         pfree_ext(buf.data);
     } else {
         pq_putemptymessage('n');
@@ -991,13 +995,14 @@ void OpFusion::setReceiver()
     (*m_local.m_receiver->rStartup)(m_local.m_receiver, CMD_SELECT, m_global->m_tupDesc);
     if (!m_global->m_is_pbe_query || u_sess->param_cxt.use_parame) {
         StringInfoData buf = ((DR_printtup *)m_local.m_receiver)->buf;
+        List *targetlist = (m_global->m_psrc != NULL) ? CachedPlanGetTargetList(m_global->m_psrc)
+                                                      : m_global->m_planstmt->planTree->targetlist;
         initStringInfo(&buf);
         if (m_local.m_receiver->sendRowDesc != NULL) {
-            (*m_local.m_receiver->sendRowDesc)(&buf, m_global->m_tupDesc, m_global->m_planstmt->planTree->targetlist,
-                m_local.m_rformats);
+            (*m_local.m_receiver->sendRowDesc)(
+                &buf, m_global->m_tupDesc, targetlist, m_local.m_rformats, m_global->m_psrc);
         } else {
-            SendRowDescriptionMessage(&buf, m_global->m_tupDesc, m_global->m_planstmt->planTree->targetlist,
-                m_local.m_rformats);
+            SendRowDescriptionMessage(&buf, m_global->m_tupDesc, targetlist, m_local.m_rformats, m_global->m_psrc);
         }
     }
 }

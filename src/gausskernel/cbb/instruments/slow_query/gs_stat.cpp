@@ -30,10 +30,28 @@
 #include "access/tableam.h"
 #include "access/heapam.h"
 
+static void CopyRowDescCacheStats(RowDescriptionCacheStat* dest, const RowDescriptionCacheStat* src)
+{
+    errno_t rc = 0;
+    Size size = sizeof(RowDescriptionCacheStat) * ROW_DESC_CACHE_PROTOCOL_NUM;
+
+    if (dest == NULL) {
+        return;
+    }
+
+    if (src == NULL) {
+        rc = memset_s(dest, size, 0, size);
+    } else {
+        rc = memcpy_s(dest, size, src, size);
+    }
+    securec_check(rc, "", "");
+}
+
 void copy_beentry(PgBackendStatus* localentry, PgBackendStatus* beentry)
 {
     char* localappname = NULL;
     char* localactivity = NULL;
+    RowDescriptionCacheStat* localRowDescStats = NULL;
     errno_t rc;
 
     rc = memcpy_s(localentry, sizeof(PgBackendStatus), (void*)beentry, sizeof(PgBackendStatus));
@@ -51,7 +69,10 @@ void copy_beentry(PgBackendStatus* localentry, PgBackendStatus* beentry)
         (size_t)g_instance.attr.attr_common.pgstat_track_activity_query_size,
         (char*)beentry->st_activity);
     securec_check(rc, "", "");
+    localRowDescStats = (RowDescriptionCacheStat*)palloc0(sizeof(RowDescriptionCacheStat) * ROW_DESC_CACHE_PROTOCOL_NUM);
+    CopyRowDescCacheStats(localRowDescStats, beentry->row_desc_cache_stats);
     localentry->st_activity = localactivity;
+    localentry->row_desc_cache_stats = localRowDescStats;
 }
 
 inline static bool check_beentry_not_timeout(int timeout_threshold, TimestampTz current_time, PgBackendStatus* beentry)
@@ -81,6 +102,7 @@ PgBackendStatus* gsstat_check_beentry_timeout(int timeout_threshold, PgBackendSt
         if (localentry != NULL) {
             pfree(localentry->st_appname);
             pfree(localentry->st_activity);
+            pfree_ext(localentry->row_desc_cache_stats);
             pfree(localentry);
             localentry = NULL;
         }
@@ -165,6 +187,7 @@ void gs_stat_get_timeout_beentry(int timeout_threshold, Tuplestorestate* tupStor
         if (localentry != NULL) {
             pfree(localentry->st_appname);
             pfree(localentry->st_activity);
+            pfree_ext(localentry->row_desc_cache_stats);
             pfree(localentry);
         }
     }
@@ -182,6 +205,7 @@ void FreeBackendStatusNodeMemory(PgBackendStatusNode* node)
             pfree_ext(node->data->st_clienthostname);
             pfree_ext(node->data->st_conninfo);
             pfree_ext(node->data->st_activity);
+            pfree_ext(node->data->row_desc_cache_stats);
         }
         pfree_ext(node->data);
         PgBackendStatusNode* tempNode = node;
@@ -196,7 +220,10 @@ bool gs_stat_encap_status_info(PgBackendStatus* localentry, PgBackendStatus* bee
     char* appnameStr = NVL(localentry->st_appname, (char*)palloc(NAMEDATALEN));
     char* clienthostnameStr = NVL(localentry->st_clienthostname, (char*)palloc(NAMEDATALEN));
     char* conninfoStr = NVL(localentry->st_conninfo, (char*)palloc(CONNECTIONINFO_LEN));
-    char* activityStr = NVL(localentry->st_activity, (char*)palloc((Size)(g_instance.attr.attr_common.pgstat_track_activity_query_size)));
+    char* activityStr =
+        NVL(localentry->st_activity, (char*)palloc((Size)(g_instance.attr.attr_common.pgstat_track_activity_query_size)));
+    RowDescriptionCacheStat* rowDescCacheStats = NVL(localentry->row_desc_cache_stats,
+        (RowDescriptionCacheStat*)palloc0(sizeof(RowDescriptionCacheStat) * ROW_DESC_CACHE_PROTOCOL_NUM));
     errno_t rc = EOK;
 
     for (;;) {
@@ -229,6 +256,7 @@ bool gs_stat_encap_status_info(PgBackendStatus* localentry, PgBackendStatus* bee
                 (size_t)(g_instance.attr.attr_common.pgstat_track_activity_query_size),
                 (char*)beentry->st_activity);
             securec_check(rc, "", "");
+            CopyRowDescCacheStats(rowDescCacheStats, beentry->row_desc_cache_stats);
             localentry->st_block_sessionid = beentry->st_block_sessionid;
             localentry->globalSessionId = beentry->globalSessionId;
             localentry->st_unique_sql_key = beentry->st_unique_sql_key;
@@ -246,6 +274,7 @@ bool gs_stat_encap_status_info(PgBackendStatus* localentry, PgBackendStatus* bee
     localentry->st_clienthostname = clienthostnameStr;
     localentry->st_conninfo = conninfoStr;
     localentry->st_activity = activityStr;
+    localentry->row_desc_cache_stats = rowDescCacheStats;
 
     if (localentry->st_procpid > 0 || localentry->st_sessionid > 0) {
         return true;
@@ -319,6 +348,7 @@ PgBackendStatusNode* gs_stat_read_current_status(uint32* maxCalls)
         pfree_ext(localentry->st_clienthostname);
         pfree_ext(localentry->st_conninfo);
         pfree_ext(localentry->st_activity);
+        pfree_ext(localentry->row_desc_cache_stats);
         pfree_ext(localentry);
         localentry = NULL;
     }
@@ -370,6 +400,7 @@ uint32 gs_stat_read_current_status(Tuplestorestate *tupStore, TupleDesc tupDesc,
     pfree_ext(localentry->st_clienthostname);
     pfree_ext(localentry->st_conninfo);
     pfree_ext(localentry->st_activity);
+    pfree_ext(localentry->row_desc_cache_stats);
     pfree_ext(localentry);
     return maxCalls;
 }
@@ -434,5 +465,6 @@ void gs_stat_free_stat_beentry(PgBackendStatus* beentry)
     pfree_ext(beentry->st_clienthostname);
     pfree_ext(beentry->st_conninfo);
     pfree_ext(beentry->st_activity);
+    pfree_ext(beentry->row_desc_cache_stats);
     pfree_ext(beentry);
 }
