@@ -700,11 +700,11 @@ static char* substitute_libpath_macro(const char* name)
     if (strlen("$libdir") != (size_t)(sep_ptr - name) || strncmp(name, "$libdir", strlen("$libdir")) != 0)
         ereport(ERROR, (errcode(ERRCODE_INVALID_NAME), errmsg("invalid macro name in dynamic library path: %s", name)));
 
-    ret = (char*)palloc(strlen(t_thrd.proc_cxt.pkglib_path) + strlen(sep_ptr) + 1);
+    ret = (char*)palloc(strlen(t_thrd.proc_cxt.proc_cold->pkglib_path) + strlen(sep_ptr) + 1);
 
-    rc = strcpy_s(ret, strlen(t_thrd.proc_cxt.pkglib_path) + strlen(sep_ptr) + 1, t_thrd.proc_cxt.pkglib_path);
+    rc = strcpy_s(ret, strlen(t_thrd.proc_cxt.proc_cold->pkglib_path) + strlen(sep_ptr) + 1, t_thrd.proc_cxt.proc_cold->pkglib_path);
     securec_check(rc, "\0", "\0");
-    rc = strcat_s(ret, strlen(t_thrd.proc_cxt.pkglib_path) + strlen(sep_ptr) + 1, sep_ptr);
+    rc = strcat_s(ret, strlen(t_thrd.proc_cxt.proc_cold->pkglib_path) + strlen(sep_ptr) + 1, sep_ptr);
     securec_check(rc, "\0", "\0");
 
     return ret;

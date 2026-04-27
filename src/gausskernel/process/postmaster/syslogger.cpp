@@ -855,7 +855,7 @@ static void process_pipe_input(char* logbuffer, int* bytes_in_logbuffer)
                     dest = (p.is_last == 'T' || p.is_last == 'F') ? LOG_DESTINATION_CSVLOG : LOG_DESTINATION_STDERR;
 
                 /* Locate any existing buffer for this source pid */
-                buffer_list = t_thrd.logger.buffer_lists[p.pid % NBUFFER_LISTS];
+                buffer_list = t_thrd.logger.logger_cold->buffer_lists[p.pid % NBUFFER_LISTS];
                 foreach (cell, buffer_list) {
                     save_buffer* buf = (save_buffer*)lfirst(cell);
 
@@ -884,7 +884,7 @@ static void process_pipe_input(char* logbuffer, int* bytes_in_logbuffer)
                              */
                             free_slot = (save_buffer*)palloc(sizeof(save_buffer));
                             buffer_list = lappend(buffer_list, free_slot);
-                            t_thrd.logger.buffer_lists[p.pid % NBUFFER_LISTS] = buffer_list;
+                            t_thrd.logger.logger_cold->buffer_lists[p.pid % NBUFFER_LISTS] = buffer_list;
                         }
                         free_slot->pid = p.pid;
                         str = &(free_slot->data);
@@ -960,7 +960,7 @@ static void flush_pipe_input(char* logbuffer, int* bytes_in_logbuffer)
 
     /* Dump any incomplete protocol messages */
     for (i = 0; i < NBUFFER_LISTS; i++) {
-        List* list = t_thrd.logger.buffer_lists[i];
+        List* list = t_thrd.logger.logger_cold->buffer_lists[i];
         ListCell* cell = NULL;
 
         foreach (cell, list) {

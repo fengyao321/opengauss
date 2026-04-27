@@ -250,7 +250,7 @@ static char* get_temp_library(bool absolute_path)
     if (absolute_path) {
         appendStringInfo(&temp_file_strinfo,
             "%s/pg_plugin/%ld%lu_%d",
-            t_thrd.proc_cxt.pkglib_path,
+            t_thrd.proc_cxt.proc_cold->pkglib_path,
             GetCurrentTransactionStartTimestamp(),
             temp_xid,
             t_thrd.proc->pid);
@@ -292,7 +292,7 @@ char* get_transfer_path()
     StringInfoData strinfo;
     initStringInfo(&strinfo);
 
-    appendStringInfo(&strinfo, "%s/../../bin/transfer.py", t_thrd.proc_cxt.pkglib_path);
+    appendStringInfo(&strinfo, "%s/../../bin/transfer.py", t_thrd.proc_cxt.proc_cold->pkglib_path);
 
     return strinfo.data;
 }
@@ -435,7 +435,7 @@ static char* get_final_library_path(const char* final_file_name)
     StringInfoData tar_strinfo;
     initStringInfo(&tar_strinfo);
 
-    appendStringInfo(&tar_strinfo, "%s/pg_plugin/%s", t_thrd.proc_cxt.pkglib_path, final_file_name);
+    appendStringInfo(&tar_strinfo, "%s/pg_plugin/%s", t_thrd.proc_cxt.proc_cold->pkglib_path, final_file_name);
 
     return tar_strinfo.data;
 }

@@ -527,16 +527,16 @@ int WalSenderMain(void)
     SyncRepInitConfig();
 
     if (t_thrd.proc_cxt.DataDir) {
-        nRet = snprintf_s(t_thrd.walsender_cxt.gucconf_file, MAXPGPATH, MAXPGPATH - 1, "%s/postgresql.conf",
+        nRet = snprintf_s(t_thrd.walsender_cxt.path_cold->gucconf_file, MAXPGPATH, MAXPGPATH - 1, "%s/postgresql.conf",
                           t_thrd.proc_cxt.DataDir);
         securec_check_ss(nRet, "\0", "\0");
 
-        nRet = snprintf_s(t_thrd.walsender_cxt.gucconf_lock_file, MAXPGPATH, MAXPGPATH - 1, "%s/postgresql.conf.lock",
+        nRet = snprintf_s(t_thrd.walsender_cxt.path_cold->gucconf_lock_file, MAXPGPATH, MAXPGPATH - 1, "%s/postgresql.conf.lock",
                           t_thrd.proc_cxt.DataDir);
         securec_check_ss(nRet, "\0", "\0");
     } else {
         ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION),
-                        errmsg_internal("cannot find GAUSSDATA: %s", t_thrd.walsender_cxt.gucconf_file)));
+                        errmsg_internal("cannot find GAUSSDATA: %s", t_thrd.walsender_cxt.path_cold->gucconf_file)));
     }
 
     /* init the dummy standby data num to write in wal streaming. */
@@ -1683,7 +1683,7 @@ static void StartParallelLogicalReplication(StartReplicationCmd *cmd)
     if (strlen(cmd->slotname) >= NAMEDATALEN) {
         ereport(ERROR, (errmsg("slotname should be shorter than %d! slotname is %s", NAMEDATALEN, cmd->slotname)));
     }
-    errno_t rc = memcpy_s(t_thrd.walsender_cxt.slotname, NAMEDATALEN, cmd->slotname, strlen(cmd->slotname));
+    errno_t rc = memcpy_s(t_thrd.walsender_cxt.path_cold->slotname, NAMEDATALEN, cmd->slotname, strlen(cmd->slotname));
     securec_check(rc, "\0", "\0");
 
     if (!AM_WAL_DB_SENDER) {
@@ -2671,14 +2671,14 @@ static void ProcessStandbyFileTimeMessage(void)
 
     pq_copymsgbytes(t_thrd.walsender_cxt.reply_message, (char *)&reply_modify_file_time,
                     sizeof(ConfigModifyTimeMessage));
-    if (lstat(t_thrd.walsender_cxt.gucconf_file, &statbuf) != 0) {
+    if (lstat(t_thrd.walsender_cxt.path_cold->gucconf_file, &statbuf) != 0) {
         if (errno != ENOENT)
             ereport(ERROR, (errcode_for_file_access(),
-                            errmsg("could not stat file or directory \"%s\": %m", t_thrd.walsender_cxt.gucconf_file)));
+                            errmsg("could not stat file or directory \"%s\": %m", t_thrd.walsender_cxt.path_cold->gucconf_file)));
     }
     if (reply_modify_file_time.config_modify_time != statbuf.st_mtime) {
         ereport(LOG, (errmsg("the config file has been modified, so send it to the standby")));
-        (void)SendConfigFile(t_thrd.walsender_cxt.gucconf_file);
+        (void)SendConfigFile(t_thrd.walsender_cxt.path_cold->gucconf_file);
     } else
         ereport(LOG, (errmsg("the config file has no change")));
 }
@@ -4176,7 +4176,7 @@ static int WalSndLoop(WalSndSendDataCallback send_data)
         }
         if (sync_config_needed) {
             if (t_thrd.walsender_cxt.walsender_shutdown_requested) {
-                if (!AM_WAL_DB_SENDER && !SendConfigFile(t_thrd.walsender_cxt.gucconf_file))
+                if (!AM_WAL_DB_SENDER && !SendConfigFile(t_thrd.walsender_cxt.path_cold->gucconf_file))
                     ereport(LOG, (errmsg("failed to send config to the peer when walsender shutdown.")));
                 sync_config_needed = false;
             } else {
@@ -4186,7 +4186,7 @@ static int WalSndLoop(WalSndSendDataCallback send_data)
                     sync_config_needed = false;
                     /* begin send file to standby */
                     if (t_thrd.walsender_cxt.MyWalSnd && t_thrd.walsender_cxt.MyWalSnd->peer_state != BUILDING_STATE) {
-                        if (!AM_WAL_DB_SENDER && !SendConfigFile(t_thrd.walsender_cxt.gucconf_file))
+                        if (!AM_WAL_DB_SENDER && !SendConfigFile(t_thrd.walsender_cxt.path_cold->gucconf_file))
                             sync_config_needed = true;
                         else
                             last_syncconf_timestamp = nowtime;
@@ -7293,7 +7293,7 @@ static bool SendConfigFile(char *path)
      * Get two locks for config file before making changes, please refer to 
      * AlterSystemSetConfigFile() in guc.cpp for detailed explanations.
      */
-    if (get_file_lock(t_thrd.walsender_cxt.gucconf_lock_file, &filelock) != CODE_OK) {
+    if (get_file_lock(t_thrd.walsender_cxt.path_cold->gucconf_lock_file, &filelock) != CODE_OK) {
         ereport(LOG, (errmsg("get lock failed when send gaussdb config file to the peer.")));
         return false;
     }

@@ -1443,8 +1443,8 @@ static void register_seq_scan(HTAB* hashp)
             (errcode(ERRCODE_CHECK_VIOLATION),
                 errmsg("too many active hash_seq_search scans, cannot start one on \"%s\"", hashp->tabname)));
 
-    t_thrd.dyhash_cxt.seq_scan_tables[t_thrd.dyhash_cxt.num_seq_scans] = hashp;
-    t_thrd.dyhash_cxt.seq_scan_level[t_thrd.dyhash_cxt.num_seq_scans] = GetCurrentTransactionNestLevel();
+    t_thrd.dyhash_cxt.scan_cold->seq_scan_tables[t_thrd.dyhash_cxt.num_seq_scans] = hashp;
+    t_thrd.dyhash_cxt.scan_cold->seq_scan_level[t_thrd.dyhash_cxt.num_seq_scans] = GetCurrentTransactionNestLevel();
     t_thrd.dyhash_cxt.num_seq_scans++;
 }
 
@@ -1455,10 +1455,10 @@ static void deregister_seq_scan(HTAB* hashp)
 
     /* Search backward since it's most likely at the stack top */
     for (i = t_thrd.dyhash_cxt.num_seq_scans - 1; i >= 0; i--) {
-        if (t_thrd.dyhash_cxt.seq_scan_tables[i] == hashp) {
-            t_thrd.dyhash_cxt.seq_scan_tables[i] =
-                t_thrd.dyhash_cxt.seq_scan_tables[t_thrd.dyhash_cxt.num_seq_scans - 1];
-            t_thrd.dyhash_cxt.seq_scan_level[i] = t_thrd.dyhash_cxt.seq_scan_level[t_thrd.dyhash_cxt.num_seq_scans - 1];
+        if (t_thrd.dyhash_cxt.scan_cold->seq_scan_tables[i] == hashp) {
+            t_thrd.dyhash_cxt.scan_cold->seq_scan_tables[i] =
+                t_thrd.dyhash_cxt.scan_cold->seq_scan_tables[t_thrd.dyhash_cxt.num_seq_scans - 1];
+            t_thrd.dyhash_cxt.scan_cold->seq_scan_level[i] = t_thrd.dyhash_cxt.scan_cold->seq_scan_level[t_thrd.dyhash_cxt.num_seq_scans - 1];
             t_thrd.dyhash_cxt.num_seq_scans--;
             return;
         }
@@ -1480,7 +1480,7 @@ static bool has_seq_scans(HTAB* hashp)
     int i;
 
     for (i = 0; i < t_thrd.dyhash_cxt.num_seq_scans; i++) {
-        if (t_thrd.dyhash_cxt.seq_scan_tables[i] == hashp)
+        if (t_thrd.dyhash_cxt.scan_cold->seq_scan_tables[i] == hashp)
             return true;
     }
     return false;
@@ -1514,7 +1514,7 @@ void AtEOXact_HashTables(bool isCommit)
         int i;
 
         for (i = 0; i < t_thrd.dyhash_cxt.num_seq_scans; i++) {
-            HTAB* htab = t_thrd.dyhash_cxt.seq_scan_tables[i];
+            HTAB* htab = t_thrd.dyhash_cxt.scan_cold->seq_scan_tables[i];
             elog(WARNING, "leaked hash_seq_search scan for hash table %s", 
                  ((htab == NULL) ? NULL : htab->tabname));
         }
@@ -1533,15 +1533,15 @@ void AtEOSubXact_HashTables(bool isCommit, int nestDepth)
      * doesn't keep them in order.
      */
     for (i = t_thrd.dyhash_cxt.num_seq_scans - 1; i >= 0; i--) {
-        if (t_thrd.dyhash_cxt.seq_scan_level[i] >= nestDepth) {
+        if (t_thrd.dyhash_cxt.scan_cold->seq_scan_level[i] >= nestDepth) {
             if (isCommit) {
-                HTAB* htab = t_thrd.dyhash_cxt.seq_scan_tables[i];
+                HTAB* htab = t_thrd.dyhash_cxt.scan_cold->seq_scan_tables[i];
                 elog(WARNING, "leaked hash_seq_search scan for hash table %s", 
                      ((htab == NULL) ? NULL : htab->tabname));
             }
-            t_thrd.dyhash_cxt.seq_scan_tables[i] =
-                t_thrd.dyhash_cxt.seq_scan_tables[t_thrd.dyhash_cxt.num_seq_scans - 1];
-            t_thrd.dyhash_cxt.seq_scan_level[i] = t_thrd.dyhash_cxt.seq_scan_level[t_thrd.dyhash_cxt.num_seq_scans - 1];
+            t_thrd.dyhash_cxt.scan_cold->seq_scan_tables[i] =
+                t_thrd.dyhash_cxt.scan_cold->seq_scan_tables[t_thrd.dyhash_cxt.num_seq_scans - 1];
+            t_thrd.dyhash_cxt.scan_cold->seq_scan_level[i] = t_thrd.dyhash_cxt.scan_cold->seq_scan_level[t_thrd.dyhash_cxt.num_seq_scans - 1];
             t_thrd.dyhash_cxt.num_seq_scans--;
         }
     }

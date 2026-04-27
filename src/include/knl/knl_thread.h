@@ -840,9 +840,6 @@ typedef struct knl_t_obs_context {
 
     int statusG;
 
-#define ERROR_DETAIL_LEN 4096
-    char errorDetailsG[ERROR_DETAIL_LEN];
-
     int uriStyleG;
 } knl_t_obs_context;
 
@@ -1309,12 +1306,26 @@ typedef struct knl_t_audit_context {
     Latch sysAuditorLatch;
     time_t last_pgaudit_start_time;
     struct AuditIndexTableNew* audit_indextbl;
-    char pgaudit_filepath[MAXPGPATH];
-
+    struct knl_t_audit_path_cold_context* path_cold;
+    struct knl_t_audit_pipe_cold_context* pipe_cold;
     int cur_thread_idx;
 #define NBUFFER_LISTS 256
-    List* buffer_lists[NBUFFER_LISTS];
 } knl_stat_context;
+
+typedef struct knl_t_audit_path_cold_context {
+    char pgaudit_filepath[MAXPGPATH];
+} knl_t_audit_path_cold_context;
+
+typedef struct knl_t_audit_pipe_cold_context {
+    List* buffer_lists[NBUFFER_LISTS];
+} knl_t_audit_pipe_cold_context;
+
+extern knl_t_audit_path_cold_context* knl_t_audit_path_cold_ensure(knl_t_audit_context* audit);
+
+static inline char* knl_t_audit_filepath(knl_t_audit_context* audit)
+{
+    return knl_t_audit_path_cold_ensure(audit)->pgaudit_filepath;
+}
 
 typedef struct knl_t_async_context {
     struct AsyncQueueControl* asyncQueueControl;
@@ -1408,11 +1419,15 @@ typedef struct knl_t_logger_context {
     Latch sysLoggerLatch;
 
 #define NBUFFER_LISTS 256
-    List* buffer_lists[NBUFFER_LISTS];
+    struct knl_t_logger_cold_context* logger_cold;
     volatile sig_atomic_t got_SIGHUP;
     volatile sig_atomic_t rotation_requested;
     int64 total_syslogs_size;
 } knl_t_logger_context;
+
+typedef struct knl_t_logger_cold_context {
+    List* buffer_lists[NBUFFER_LISTS];
+} knl_t_logger_cold_context;
 
 /*****************************************************************************
  *      System interrupt and critical section handling
@@ -1490,6 +1505,12 @@ typedef struct knl_t_interrupt_context {
 typedef int64 pg_time_t;
 #define INVALID_CANCEL_KEY (0)
 
+typedef struct knl_t_proc_cold_context {
+    char OutputFileName[MAXPGPATH];   /* debugging output file */
+    char pkglib_path[MAXPGPATH];      /* full path to lib directory */
+    char postgres_exec_path[MAXPGPATH]; /* full path to backend */
+} knl_t_proc_cold_context;
+
 typedef struct knl_t_proc_context {
     ThreadId MyProcPid;
 
@@ -1510,12 +1531,7 @@ typedef struct knl_t_proc_context {
      * explicitly.
      */
     char* DataDir;
-
-    char OutputFileName[MAXPGPATH]; /* debugging output file */
-
-    char pkglib_path[MAXPGPATH]; /* full path to lib directory */
-
-    char postgres_exec_path[MAXPGPATH]; /* full path to backend */
+    struct knl_t_proc_cold_context* proc_cold;
 
     /* Flag: PostgresMain enter queries loop */
     bool postgres_initialized;
@@ -1714,6 +1730,11 @@ typedef struct knl_t_sharestoragexlogcopyer_context_ {
 
 #define MAX_SEQ_SCANS 100
 
+typedef struct knl_t_dynahash_scan_cold_context {
+    HTAB* seq_scan_tables[MAX_SEQ_SCANS]; /* tables being scanned */
+    int seq_scan_level[MAX_SEQ_SCANS];    /* subtransaction nest level */
+} knl_t_dynahash_scan_cold_context;
+
 typedef struct knl_t_dynahash_context {
     MemoryContext CurrentDynaHashCxt;
 
@@ -1742,9 +1763,7 @@ typedef struct knl_t_dynahash_context {
      * a warning at transaction end for reference leaks, so any bugs leading to
      * lack of notification should be easy to catch.
      */
-    HTAB *seq_scan_tables[MAX_SEQ_SCANS]; /* tables being scanned */
-
-    int seq_scan_level[MAX_SEQ_SCANS]; /* subtransaction nest level */
+    struct knl_t_dynahash_scan_cold_context* scan_cold;
 
     int num_seq_scans;
 } knl_t_dynahash_context;
@@ -1996,16 +2015,20 @@ typedef struct knl_t_pgxc_context {
     struct abort_callback_type* dbcleanup_info;
 #endif
 #define SOCKET_BUFFER_LEN 256
-    char socket_buffer[SOCKET_BUFFER_LEN];
+#define BEGIN_CMD_BUFF_SIZE 1024
+    struct knl_t_pgxc_cold_context* pgxc_cold;
     bool is_gc_fdw;
     bool is_gc_fdw_analyze;
     int gc_fdw_current_idx;
     int gc_fdw_max_idx;
     int gc_fdw_run_version;
     struct SnapshotData* gc_fdw_snapshot;
-#define BEGIN_CMD_BUFF_SIZE 1024
-    char begin_cmd[BEGIN_CMD_BUFF_SIZE];
 } knl_t_pgxc_context;
+
+typedef struct knl_t_pgxc_cold_context {
+    char socket_buffer[SOCKET_BUFFER_LEN];
+    char begin_cmd[BEGIN_CMD_BUFF_SIZE];
+} knl_t_pgxc_cold_context;
 
 typedef struct knl_t_conn_context {
     /* connector.cpp */
@@ -2214,9 +2237,7 @@ typedef struct knl_t_libpq_context {
      */
     int listen_fd_for_recv_flow_ctrl;
     /* Where the Unix socket file is */
-    char sock_path[MAXPGPATH];
-    /* Where the Unix socket file for ha port is */
-    char ha_sock_path[MAXPGPATH];
+    struct knl_t_libpq_cold_context* libpq_cold;
     char* PqSendBuffer;
     /* Size send buffer */
     int PqSendBufferSize;
@@ -2252,6 +2273,11 @@ typedef struct knl_t_libpq_context {
     List* parsed_hba_lines;
     MemoryContext parsed_hba_context;
 } knl_t_libpq_context;
+
+typedef struct knl_t_libpq_cold_context {
+    char sock_path[MAXPGPATH];
+    char ha_sock_path[MAXPGPATH];
+} knl_t_libpq_cold_context;
 
 typedef struct knl_t_contrib_context {
     int g_searchletId;
@@ -2405,13 +2431,17 @@ typedef struct knl_t_datasender_context {
     volatile sig_atomic_t datasender_ready_to_stop;
 } knl_t_datasender_context;
 
+typedef struct knl_t_walreceiver_path_cold_context {
+    char gucconf_file[MAXPGPATH];
+    char temp_guc_conf_file[MAXPGPATH];
+    char gucconf_lock_file[MAXPGPATH];
+} knl_t_walreceiver_path_cold_context;
+
 typedef struct knl_t_walreceiver_context {
     volatile sig_atomic_t got_SIGHUP;
     volatile sig_atomic_t got_SIGTERM;
     volatile sig_atomic_t start_switchover;
-    char gucconf_file[MAXPGPATH];
-    char temp_guc_conf_file[MAXPGPATH];
-    char gucconf_lock_file[MAXPGPATH];
+    struct knl_t_walreceiver_path_cold_context* path_cold;
     /*
      * Define guc parameters which would not be synchronized to standby.
      * NB: RESERVE_SIZE must be changed at the same time.
@@ -2434,6 +2464,12 @@ typedef struct knl_t_walreceiver_context {
     bool hasReceiveNewData;
     bool termChanged;
 } knl_t_walreceiver_context;
+
+typedef struct knl_t_walsender_path_cold_context {
+    char gucconf_file[MAXPGPATH];
+    char gucconf_lock_file[MAXPGPATH];
+    char slotname[NAMEDATALEN];
+} knl_t_walsender_path_cold_context;
 
 typedef struct knl_t_walsender_context {
     char* load_cu_buffer;
@@ -2527,9 +2563,7 @@ typedef struct knl_t_walsender_context {
     volatile sig_atomic_t response_switchover_requested;
     ServerMode server_run_mode;
     /* for config_file */
-    char gucconf_file[MAXPGPATH];
-    char gucconf_lock_file[MAXPGPATH];
-    char slotname[NAMEDATALEN];
+    struct knl_t_walsender_path_cold_context* path_cold;
     /* the dummy data reader fd for the wal streaming */
     FILE* ws_dummy_data_read_file_fd;
     uint32 ws_dummy_data_read_file_num;
@@ -2992,6 +3026,8 @@ typedef struct knl_t_postmaster_context {
 #define MAXLISTEN 64
 #define IP_LEN 64
 
+    struct knl_t_postmaster_addr_cold_context* addr_cold;
+
     /* flag when process startup packet for logic conn */
     bool ProcessStartupPacketForLogicConn;
 
@@ -3013,7 +3049,6 @@ typedef struct knl_t_postmaster_context {
     struct replconninfo* CrossClusterReplConnArray[MAX_REPLNODE_NUM];
     bool CrossClusterReplConnChanged[MAX_REPLNODE_NUM];
     struct hashmemdata* HaShmData;
-    char LocalAddrList[MAXLISTEN][IP_LEN];  /* use for sub thread which is IsUnderPostmaster */
     int LocalIpNum;  /* use for sub thread which is IsUnderPostmaster */
 
     gs_thread_t CurExitThread;
@@ -3021,8 +3056,6 @@ typedef struct knl_t_postmaster_context {
     bool IsRPCWorkerThread;
     bool can_listen_addresses_reload;
     bool is_listen_addresses_reload;
-    bool all_listen_addr_can_stop[MAXLISTEN];
-    bool local_listen_addr_can_stop[MAXLISTEN];
 
     /* private variables for reaper backend thread */
     Latch ReaperBackendLatch;
@@ -3072,6 +3105,12 @@ typedef struct knl_t_postmaster_context {
 #endif
 
 } knl_t_postmaster_context;
+
+typedef struct knl_t_postmaster_addr_cold_context {
+    char LocalAddrList[MAXLISTEN][IP_LEN];  /* use for sub thread which is IsUnderPostmaster */
+    bool all_listen_addr_can_stop[MAXLISTEN];
+    bool local_listen_addr_can_stop[MAXLISTEN];
+} knl_t_postmaster_addr_cold_context;
 
 #define CACHE_BUFF_LEN 128
 
@@ -3603,6 +3642,17 @@ typedef struct knl_thrd_context {
     CommEpollOption comm_epoll_option;
     CommPollOption comm_poll_option;
 
+    /*
+     * Hot path contexts first: frequently touched in OLTP executor/interrupt/xlog paths.
+     */
+    knl_t_interrupt_context int_cxt;
+    knl_t_proc_context proc_cxt;
+    knl_t_xact_context xact_cxt;
+    knl_t_storage_context storage_cxt;
+    knl_t_shemem_ptr_context shemem_ptr_cxt;
+    knl_t_xlog_context xlog_cxt;
+    knl_t_utils_context utils_cxt;
+
     knl_t_aes_context aes_cxt;
     knl_t_aiocompleter_context aio_cxt;
     knl_t_alarmchecker_context alarm_cxt;
@@ -3636,7 +3686,6 @@ typedef struct knl_thrd_context {
     knl_t_explain_context explain_cxt;
     knl_t_format_context format_cxt;
     knl_t_index_context index_cxt;
-    knl_t_interrupt_context int_cxt;
     knl_t_job_context job_cxt;
     knl_t_libwalreceiver_context libwalreceiver_cxt;
     knl_t_locale_context lc_cxt;
@@ -3651,17 +3700,14 @@ typedef struct knl_thrd_context {
     knl_t_port_context port_cxt;
     knl_t_postgres_context postgres_cxt;
     knl_t_postmaster_context postmaster_cxt;
-    knl_t_proc_context proc_cxt;
     knl_t_relopt_context relopt_cxt;
     knl_t_replgram_context replgram_cxt;
     knl_t_replscanner_context replscanner_cxt;
-    knl_t_shemem_ptr_context shemem_ptr_cxt;
     knl_t_sig_context sig_cxt;
     knl_t_slot_context slot_cxt;
     knl_t_snapshot_context snapshot_cxt;
     knl_t_startup_context startup_cxt;
     knl_t_stat_context stat_cxt;
-    knl_t_storage_context storage_cxt;
     knl_t_syncrep_context syncrep_cxt;
     knl_t_syncrepgram_context syncrepgram_cxt;
     knl_t_syncrepscanner_context syncrepscanner_cxt;
@@ -3669,7 +3715,6 @@ typedef struct knl_thrd_context {
     knl_t_time_context time_cxt;
     knl_t_tsearch_context tsearch_cxt;
     knl_t_twophasecleaner_context tpcleaner_cxt;
-    knl_t_utils_context utils_cxt;
     knl_t_vacuum_context vacuum_cxt;
     knl_t_walsender_context walsender_cxt;
     knl_t_walrcvwriter_context walrcvwriter_cxt;
@@ -3679,8 +3724,6 @@ typedef struct knl_thrd_context {
     knl_t_walwriterauxiliary_context walwriterauxiliary_cxt;
     knl_t_catchup_context catchup_cxt;
     knl_t_wlmthrd_context wlm_cxt;
-    knl_t_xact_context xact_cxt;
-    knl_t_xlog_context xlog_cxt;
     knl_t_percentile_context percentile_cxt;
     knl_t_perf_snap_context perf_snap_cxt;
     knl_t_page_redo_context page_redo_cxt;
@@ -3745,12 +3788,15 @@ typedef struct knl_thrd_context {
     KnlTRackMemCleanerContext rackMemCleanerCxt;
 } knl_thrd_context;
 
+static_assert(sizeof(knl_thrd_context) <= 60000, "knl_thrd_context exceeds phase-1 size budget");
+
 #ifdef ENABLE_MOT
 extern void knl_thread_mot_init();
 #endif
 
 extern void knl_t_syscache_init();
 extern void knl_thread_init(knl_thread_role role);
+extern void knl_thread_layout_dump(void);
 extern THR_LOCAL knl_thrd_context t_thrd;
 
 inline bool StreamThreadAmI()

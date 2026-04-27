@@ -7788,7 +7788,7 @@ void process_postgres_switches(int argc, char* argv[], GucContext ctx, const cha
             case 'r':
                 /* send output (stdout and stderr) to the given file */
                 if (secure)
-                    (void)strlcpy(t_thrd.proc_cxt.OutputFileName, optCtxt.optarg, MAXPGPATH);
+                    (void)strlcpy(t_thrd.proc_cxt.proc_cold->OutputFileName, optCtxt.optarg, MAXPGPATH);
                 break;
 
             case 'S':
@@ -8656,8 +8656,8 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
         }
     }
 
-    if (t_thrd.proc_cxt.pkglib_path[0] == '\0')
-        get_pkglib_path(my_exec_path, t_thrd.proc_cxt.pkglib_path);
+    if (t_thrd.proc_cxt.proc_cold->pkglib_path[0] == '\0')
+        get_pkglib_path(my_exec_path, t_thrd.proc_cxt.proc_cold->pkglib_path);
 
     /*
      * Set default values for command-line options.

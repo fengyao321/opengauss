@@ -820,15 +820,15 @@ void WalReceiverMain(void)
     }
 
     if (t_thrd.proc_cxt.DataDir) {
-        nRet = snprintf_s(t_thrd.walreceiver_cxt.gucconf_file, MAXPGPATH, MAXPGPATH - 1, "%s/postgresql.conf",
+        nRet = snprintf_s(t_thrd.walreceiver_cxt.path_cold->gucconf_file, MAXPGPATH, MAXPGPATH - 1, "%s/postgresql.conf",
                           t_thrd.proc_cxt.DataDir);
         securec_check_ss(nRet, "\0", "\0");
 
-        nRet = snprintf_s(t_thrd.walreceiver_cxt.temp_guc_conf_file, MAXPGPATH, MAXPGPATH - 1, "%s/%s",
+        nRet = snprintf_s(t_thrd.walreceiver_cxt.path_cold->temp_guc_conf_file, MAXPGPATH, MAXPGPATH - 1, "%s/%s",
                           t_thrd.proc_cxt.DataDir, TEMP_WAL_CONF_FILE);
         securec_check_ss(nRet, "\0", "\0");
 
-        nRet = snprintf_s(t_thrd.walreceiver_cxt.gucconf_lock_file, MAXPGPATH, MAXPGPATH - 1, "%s/postgresql.conf.lock",
+        nRet = snprintf_s(t_thrd.walreceiver_cxt.path_cold->gucconf_lock_file, MAXPGPATH, MAXPGPATH - 1, "%s/postgresql.conf.lock",
                           t_thrd.proc_cxt.DataDir);
         securec_check_ss(nRet, "\0", "\0");
     }
@@ -2955,10 +2955,10 @@ static void ConfigFileTimer(void)
                                        t_thrd.walreceiver_cxt.check_file_timeout)) {
             errno_t errorno = EOK;
             ereport(LOG, (errmsg("time is up to send file")));
-            if (lstat(t_thrd.walreceiver_cxt.gucconf_file, &statbuf) != 0) {
+            if (lstat(t_thrd.walreceiver_cxt.path_cold->gucconf_file, &statbuf) != 0) {
                 if (errno != ENOENT) {
                     ereport(ERROR, (errcode_for_file_access(), errmsg("could not stat file or directory \"%s\": %m",
-                                                                      t_thrd.walreceiver_cxt.gucconf_file)));
+                                                                      t_thrd.walreceiver_cxt.path_cold->gucconf_file)));
                 }
             }
             /* the configure file in standby has been change yet. */
@@ -2995,10 +2995,10 @@ static bool ProcessConfigFileMessage(char *buf, Size len)
     ret = snprintf_s(conf_bak, MAXPGPATH, MAXPGPATH - 1, "%s/%s", t_thrd.proc_cxt.DataDir, CONFIG_BAK_FILENAME_WAL);
     securec_check_ss(ret, "\0", "\0");
 
-    if (lstat(t_thrd.walreceiver_cxt.gucconf_file, &statbuf) != 0) {
+    if (lstat(t_thrd.walreceiver_cxt.path_cold->gucconf_file, &statbuf) != 0) {
         if (errno != ENOENT)
             ereport(ERROR, (errcode_for_file_access(), errmsg("could not stat file or directory \"%s\": %m",
-                                                              t_thrd.walreceiver_cxt.gucconf_file)));
+                                                              t_thrd.walreceiver_cxt.path_cold->gucconf_file)));
         return false;
     }
 
@@ -3009,7 +3009,7 @@ static bool ProcessConfigFileMessage(char *buf, Size len)
     }
 
     /* 1. lock postgresql.conf */
-    if (get_file_lock(t_thrd.walreceiver_cxt.gucconf_lock_file, &filelock) != CODE_OK) {
+    if (get_file_lock(t_thrd.walreceiver_cxt.path_cold->gucconf_lock_file, &filelock) != CODE_OK) {
         release_opt_lines(reserve_item);
         ereport(LOG, (errmsg("Modify the postgresql.conf failed : can not get the file lock ")));
         return false;
@@ -3018,7 +3018,7 @@ static bool ProcessConfigFileMessage(char *buf, Size len)
 
 
     /* 2. load reserved parameters to reserve_item(array in memeory) */
-    retcode = copy_asyn_lines(t_thrd.walreceiver_cxt.gucconf_file, reserve_item, g_reserve_param);
+    retcode = copy_asyn_lines(t_thrd.walreceiver_cxt.path_cold->gucconf_file, reserve_item, g_reserve_param);
     if (retcode != CODE_OK) {
         release_opt_lines(reserve_item);
         release_file_lock(&filelock);
@@ -3047,33 +3047,33 @@ static bool ProcessConfigFileMessage(char *buf, Size len)
         return false;
     } else {
         ereport(LOG, (errmsg("update gaussdb config file success")));
-        if (rename(conf_bak, t_thrd.walreceiver_cxt.gucconf_file) != 0) {
+        if (rename(conf_bak, t_thrd.walreceiver_cxt.path_cold->gucconf_file) != 0) {
             release_file_lock(&filelock);
             LWLockRelease(ConfigFileLock);
             release_opt_lines(reserve_item);
             ereport(LOG, (errcode_for_file_access(), errmsg("could not rename \"%s\" to \"%s\": %m", conf_bak,
-                                                            t_thrd.walreceiver_cxt.gucconf_file)));
+                                                            t_thrd.walreceiver_cxt.path_cold->gucconf_file)));
             return false;
         }
     }
 
     /* save the modify time of standby config file */
-    if (lstat(t_thrd.walreceiver_cxt.gucconf_file, &statbuf) != 0) {
+    if (lstat(t_thrd.walreceiver_cxt.path_cold->gucconf_file, &statbuf) != 0) {
         if (errno != ENOENT) {
             release_file_lock(&filelock);
             LWLockRelease(ConfigFileLock);
             release_opt_lines(reserve_item);
             ereport(ERROR, (errcode_for_file_access(), errmsg("could not stat file or directory \"%s\": %m",
-                                                              t_thrd.walreceiver_cxt.gucconf_file)));
+                                                              t_thrd.walreceiver_cxt.path_cold->gucconf_file)));
             return false;
         }
     }
     t_thrd.walreceiver_cxt.standby_config_modify_time = statbuf.st_mtime;
 
     if (statbuf.st_size > 0) {
-        copy_file_internal(t_thrd.walreceiver_cxt.gucconf_file, t_thrd.walreceiver_cxt.temp_guc_conf_file, true);
-        ereport(DEBUG1, (errmsg("copy %s to %s success", t_thrd.walreceiver_cxt.gucconf_file,
-                                t_thrd.walreceiver_cxt.temp_guc_conf_file)));
+        copy_file_internal(t_thrd.walreceiver_cxt.path_cold->gucconf_file, t_thrd.walreceiver_cxt.path_cold->temp_guc_conf_file, true);
+        ereport(DEBUG1, (errmsg("copy %s to %s success", t_thrd.walreceiver_cxt.path_cold->gucconf_file,
+                                t_thrd.walreceiver_cxt.path_cold->temp_guc_conf_file)));
     }
 
     release_file_lock(&filelock);

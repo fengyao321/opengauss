@@ -1408,13 +1408,13 @@ static void transform_ip_to_addr(char* host_name, unsigned short port_number)
             result = inet_net_ntop(AF_INET6,
                 &((struct sockaddr_in6*)sinp)->sin6_addr,
                 128,
-                t_thrd.postmaster_cxt.LocalAddrList[t_thrd.postmaster_cxt.LocalIpNum],
+                t_thrd.postmaster_cxt.addr_cold->LocalAddrList[t_thrd.postmaster_cxt.LocalIpNum],
                 IP_LEN);
         } else if (addr->ai_family == AF_INET) {
             result = inet_net_ntop(AF_INET,
                 &((struct sockaddr_in*)sinp)->sin_addr,
                 32,
-                t_thrd.postmaster_cxt.LocalAddrList[t_thrd.postmaster_cxt.LocalIpNum],
+                t_thrd.postmaster_cxt.addr_cold->LocalAddrList[t_thrd.postmaster_cxt.LocalIpNum],
                 IP_LEN);
         }
         if (result == NULL) {
@@ -1423,7 +1423,7 @@ static void transform_ip_to_addr(char* host_name, unsigned short port_number)
             ereport(DEBUG5, (errmodule(MOD_COMM_FRAMEWORK),
                 errmsg("[reload listen IP]set LocalIpNum[%d] %s",
                 t_thrd.postmaster_cxt.LocalIpNum,
-                t_thrd.postmaster_cxt.LocalAddrList[t_thrd.postmaster_cxt.LocalIpNum])));
+                t_thrd.postmaster_cxt.addr_cold->LocalAddrList[t_thrd.postmaster_cxt.LocalIpNum])));
             t_thrd.postmaster_cxt.LocalIpNum++;
         }
     }
@@ -1459,7 +1459,7 @@ static void assign_listen_addresses(const char *newval, void *extra)
         }
         t_thrd.postmaster_cxt.LocalIpNum = 0;
         for (i = 0; i < MAXLISTEN; i++) {
-            rc = memset_s(t_thrd.postmaster_cxt.LocalAddrList[i], IP_LEN, '\0', IP_LEN);
+            rc = memset_s(t_thrd.postmaster_cxt.addr_cold->LocalAddrList[i], IP_LEN, '\0', IP_LEN);
             securec_check(rc, "", "");
         }
         ListCell* l = NULL;

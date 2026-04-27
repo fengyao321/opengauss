@@ -210,23 +210,23 @@ void setSocketError(const char* msg, const char* node_name)
     errno_t rc = EOK;
 
     if (msg != NULL) {
-        rc = strncpy_s(t_thrd.pgxc_cxt.socket_buffer,
-            sizeof(t_thrd.pgxc_cxt.socket_buffer),
+        rc = strncpy_s(t_thrd.pgxc_cxt.pgxc_cold->socket_buffer,
+            sizeof(t_thrd.pgxc_cxt.pgxc_cold->socket_buffer),
             msg,
-            sizeof(t_thrd.pgxc_cxt.socket_buffer) - 1);
+            sizeof(t_thrd.pgxc_cxt.pgxc_cold->socket_buffer) - 1);
         securec_check(rc, "", "");
     } else {
-        (void)SOCK_STRERROR(SOCK_ERRNO, t_thrd.pgxc_cxt.socket_buffer, sizeof(t_thrd.pgxc_cxt.socket_buffer));
+        (void)SOCK_STRERROR(SOCK_ERRNO, t_thrd.pgxc_cxt.pgxc_cold->socket_buffer, sizeof(t_thrd.pgxc_cxt.pgxc_cold->socket_buffer));
     }
 
     if (IS_PGXC_DATANODE && node_name) {
         initStringInfo(&str);
         appendStringInfo(&str,
             "%s. Local: %s Remote: %s.",
-            t_thrd.pgxc_cxt.socket_buffer,
+            t_thrd.pgxc_cxt.pgxc_cold->socket_buffer,
             g_instance.attr.attr_common.PGXCNodeName,
             node_name);
-        rc = strncpy_s(t_thrd.pgxc_cxt.socket_buffer, sizeof(t_thrd.pgxc_cxt.socket_buffer), str.data, str.len);
+        rc = strncpy_s(t_thrd.pgxc_cxt.pgxc_cold->socket_buffer, sizeof(t_thrd.pgxc_cxt.pgxc_cold->socket_buffer), str.data, str.len);
         securec_check(rc, "", "");
         resetStringInfo(&str);
     }
@@ -307,17 +307,17 @@ char* getSocketError(int* error_code)
     Assert(error_code != NULL);
  
     /* Set error code by checking socket error message. */
-    if (pg_strncasecmp(t_thrd.pgxc_cxt.socket_buffer, CONN_RESET_BY_PEER, strlen(CONN_RESET_BY_PEER)) == 0) {
+    if (pg_strncasecmp(t_thrd.pgxc_cxt.pgxc_cold->socket_buffer, CONN_RESET_BY_PEER, strlen(CONN_RESET_BY_PEER)) == 0) {
         *error_code = IS_PGXC_DATANODE ? ERRCODE_STREAM_CONNECTION_RESET_BY_PEER : ERRCODE_CONNECTION_RESET_BY_PEER;
-    } else if (pg_strncasecmp(t_thrd.pgxc_cxt.socket_buffer, CONN_TIMED_OUT, strlen(CONN_TIMED_OUT)) == 0) {
+    } else if (pg_strncasecmp(t_thrd.pgxc_cxt.pgxc_cold->socket_buffer, CONN_TIMED_OUT, strlen(CONN_TIMED_OUT)) == 0) {
         *error_code = ERRCODE_CONNECTION_TIMED_OUT;
-    } else if (pg_strncasecmp(t_thrd.pgxc_cxt.socket_buffer, CONN_REMOTE_CLOSE, strlen(CONN_REMOTE_CLOSE)) == 0) {
+    } else if (pg_strncasecmp(t_thrd.pgxc_cxt.pgxc_cold->socket_buffer, CONN_REMOTE_CLOSE, strlen(CONN_REMOTE_CLOSE)) == 0) {
         *error_code = IS_PGXC_DATANODE ? ERRCODE_STREAM_REMOTE_CLOSE_SOCKET : ERRCODE_CONNECTION_FAILURE;
     } else {
         *error_code = ERRCODE_CONNECTION_FAILURE;
     }
  
-    return t_thrd.pgxc_cxt.socket_buffer;
+    return t_thrd.pgxc_cxt.pgxc_cold->socket_buffer;
 }
 bool SpqFetchTuple(RemoteQueryState* combiner, TupleTableSlot* slot, ParallelFunctionState* parallelfunctionstate)
 {
@@ -3948,14 +3948,14 @@ char* generate_begin_command(void)
         isolation_level = GetConfigOption("default_transaction_isolation", false, false);
 
     /* Finally build a START TRANSACTION command */
-    rcs = sprintf_s(t_thrd.pgxc_cxt.begin_cmd,
+    rcs = sprintf_s(t_thrd.pgxc_cxt.pgxc_cold->begin_cmd,
         BEGIN_CMD_BUFF_SIZE,
         "START TRANSACTION ISOLATION LEVEL %s %s",
         isolation_level,
         read_only);
     securec_check_ss(rcs, "\0", "\0");
 
-    return t_thrd.pgxc_cxt.begin_cmd;
+    return t_thrd.pgxc_cxt.pgxc_cold->begin_cmd;
 }
 
 /*

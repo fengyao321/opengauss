@@ -2249,7 +2249,7 @@ void InitStandaloneProcess(const char * argv0)
                  argv0);
     }
 
-    if (t_thrd.proc_cxt.pkglib_path[0] == '\0')
-        get_pkglib_path(my_exec_path, t_thrd.proc_cxt.pkglib_path);
+    if (t_thrd.proc_cxt.proc_cold->pkglib_path[0] == '\0')
+        get_pkglib_path(my_exec_path, t_thrd.proc_cxt.proc_cold->pkglib_path);
 }
 #endif
