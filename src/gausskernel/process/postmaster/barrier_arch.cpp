@@ -175,7 +175,7 @@ static void BarrierArchWakenStop(SIGNAL_ARGS)
 static void BarrierArchSighupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
-    t_thrd.barrier_arch.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     errno = save_errno;
 }
 

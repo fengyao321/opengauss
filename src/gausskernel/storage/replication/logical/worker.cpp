@@ -154,7 +154,7 @@ static bool should_apply_changes_for_rel(LogicalRepRelMapEntry *rel)
 /* SIGHUP: set flag to re-read config file at next convenient time */
 static void LogicalrepWorkerSighub(SIGNAL_ARGS)
 {
-    t_thrd.applyworker_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 }
 
 /*
@@ -1794,7 +1794,7 @@ static bool CheckTimeout(bool *pingSent, TimestampTz lastRecvTimestamp)
 
 static inline void ProcessApplyWorkerInterrupts(void)
 {
-    if (t_thrd.applyworker_cxt.got_SIGTERM) {
+    if (t_thrd.worker_sig_flags.got_SIGTERM) {
         ereport(FATAL, (errcode(ERRCODE_ADMIN_SHUTDOWN),
                         errmsg("terminating logical replication worker due to administrator command")));
     }
@@ -1880,8 +1880,8 @@ static void LogicalRepApplyLoop(XLogRecPtr last_received)
             process_syncing_tables(last_received);
         }
 
-        if (t_thrd.applyworker_cxt.got_SIGHUP) {
-            t_thrd.applyworker_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 

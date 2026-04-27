@@ -891,15 +891,15 @@ void walrcvWriterMain(void)
         /* Clear any already-pending wakeups */
         ResetLatch(&t_thrd.proc->procLatch);
 
-        if (t_thrd.walrcvwriter_cxt.gotSIGHUP) {
-            t_thrd.walrcvwriter_cxt.gotSIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
-        while (!t_thrd.walrcvwriter_cxt.shutdownRequested && WalDataRcvWrite() > 0)
-            ;
+        while (!t_thrd.worker_sig_flags.shutdown_requested && WalDataRcvWrite() > 0) {
+        }
 
-        if (t_thrd.walrcvwriter_cxt.shutdownRequested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             ereport(LOG, (errmsg("walrcvwriter thread shut down")));
             /*
              * From here on, elog(ERROR) should end with exit(1), not send
@@ -928,7 +928,7 @@ static void walrcvWriterSigHupHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.walrcvwriter_cxt.gotSIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
     }
@@ -965,7 +965,7 @@ static void reqShutdownHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.walrcvwriter_cxt.shutdownRequested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
     }
@@ -1079,7 +1079,7 @@ int walRcvWriteUwal(WalRcvCtlBlock *walrcb, UwalrcvWriterState *uwalrcv, UwalInf
 int defWalRcvWriteUwal(WalRcvCtlBlock *walrcb)
 {
     UwalrcvWriterState *uwalrcv = GsGetCurrentUwalRcvState();
-    if (t_thrd.walrcvwriter_cxt.shutdownRequested) {
+    if (t_thrd.worker_sig_flags.shutdown_requested) {
         if (t_thrd.xlog_cxt.uwalInfo.info.dataSize != 0) {
             ereport(WARNING, (errmsg("walrcvwriter in shutdown requested, move the rest uwal file")));
             RemoveFromUwal(uwalrcv, true);

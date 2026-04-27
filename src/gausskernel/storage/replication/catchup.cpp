@@ -53,7 +53,7 @@ NON_EXEC_STATIC void CatchupMain();
 /* SIGTERM: set flag to shut down */
 static void CatchupShutdownHandler(SIGNAL_ARGS)
 {
-    t_thrd.catchup_cxt.catchup_shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 }
 
 static void CatchupShutdown(void)
@@ -80,7 +80,7 @@ static bool WaitDummyStarts(void)
     /* Sleep 5 mins at most while waiting for dummy starts up firstly in default. */
     while ((!DataSndInProgress(SNDROLE_PRIMARY_DUMMYSTANDBY) || (DataSndInSearching())) &&
            dummyFirstStartupWaitTimes < 2 * u_sess->attr.attr_storage.wait_dummy_time) {
-        if (!DataSndInProgress(SNDROLE_PRIMARY_STANDBY) || t_thrd.catchup_cxt.catchup_shutdown_requested) {
+        if (!DataSndInProgress(SNDROLE_PRIMARY_STANDBY) || t_thrd.worker_sig_flags.shutdown_requested) {
             ereport(LOG, (errmsg("catchup process is shutting down because of some quit signal.")));
             catchupDone = true;
             CatchupShutdown();
@@ -120,7 +120,7 @@ static bool WaitBcmFileList(void)
             break;
         }
         /* If no data need be caught up, we need exit or it will hang here */
-        if ((catchupState == RECEIVED_NONE) || t_thrd.catchup_cxt.catchup_shutdown_requested) {
+        if ((catchupState == RECEIVED_NONE) || t_thrd.worker_sig_flags.shutdown_requested) {
             ereport(LOG, (errmsg("catchup process will shutdown because there is no data to be caughtup.")));
             catchupState = CATCHUP_NONE;
             catchup_online = false;

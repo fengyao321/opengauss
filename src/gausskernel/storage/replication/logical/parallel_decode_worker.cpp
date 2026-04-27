@@ -89,7 +89,7 @@ static void ParallelDecodeKill(int code, Datum arg)
 /* Run from the worker thread. */
 static void LogicalWorkerSigHupHandler(SIGNAL_ARGS)
 {
-    t_thrd.parallel_decode_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 }
 
 static void LogicalWorkerShutdownHandler(SIGNAL_ARGS)
@@ -1147,8 +1147,8 @@ void ParallelDecodeWorkerMain(void* point)
                 break;
             }
 
-            if (t_thrd.parallel_decode_cxt.got_SIGHUP) {
-                t_thrd.parallel_decode_cxt.got_SIGHUP = false;
+            if (t_thrd.worker_sig_flags.got_SIGHUP) {
+                t_thrd.worker_sig_flags.got_SIGHUP = false;
                 ProcessConfigFile(PGC_SIGHUP);
             }
 
@@ -1304,8 +1304,8 @@ void LogicalReadRecordMain(ParallelDecodeReaderWorker *worker)
                 break;
             }
 
-            if (t_thrd.parallel_decode_cxt.got_SIGHUP) {
-                t_thrd.parallel_decode_cxt.got_SIGHUP = false;
+            if (t_thrd.worker_sig_flags.got_SIGHUP) {
+                t_thrd.worker_sig_flags.got_SIGHUP = false;
                 ProcessConfigFile(PGC_SIGHUP);
             }
             char *errm = NULL;

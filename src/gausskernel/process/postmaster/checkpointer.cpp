@@ -410,8 +410,8 @@ void CheckpointerMain(void)
                 continue;
         }
 
-        if (t_thrd.checkpoint_cxt.got_SIGHUP) {
-            t_thrd.checkpoint_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
             u_sess->attr.attr_storage.CheckPointTimeout = ENABLE_INCRE_CKPT
                                                               ? u_sess->attr.attr_storage.incrCheckPointTimeout
@@ -444,7 +444,7 @@ void CheckpointerMain(void)
             u_sess->stat_cxt.BgWriterStats->m_requested_checkpoints++;
         }
 
-        if (t_thrd.checkpoint_cxt.shutdown_requested || pmState == PM_SHUTDOWN) {
+        if (t_thrd.worker_sig_flags.shutdown_requested || pmState == PM_SHUTDOWN) {
             /*
              * From here on, elog(ERROR) should end with exit(1), not send
              * control back to the sigsetjmp block above
@@ -755,10 +755,10 @@ void CheckpointWriteDelay(int flags, double progress)
      * Perform the usual duties and take a nap, unless we're behind schedule,
      * in which case we just try to catch up as quickly as possible.
      */
-    if (!((uint32)flags & CHECKPOINT_IMMEDIATE) && !t_thrd.checkpoint_cxt.shutdown_requested &&
+    if (!((uint32)flags & CHECKPOINT_IMMEDIATE) && !t_thrd.worker_sig_flags.shutdown_requested &&
         !ImmediateCheckpointRequested() && IsCheckpointOnSchedule(progress)) {
-        if (t_thrd.checkpoint_cxt.got_SIGHUP) {
-            t_thrd.checkpoint_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
             most_available_sync = (volatile bool)u_sess->attr.attr_storage.guc_most_available_sync;
             /* update shmem copies of config variables */
@@ -905,7 +905,7 @@ static void ChkptSigHupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.checkpoint_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
@@ -941,7 +941,7 @@ static void ReqShutdownHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.checkpoint_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
@@ -1501,7 +1501,7 @@ static void WaitPageWriterStarted()
     const int MAX_RETRY_COUNT = 1000;
     int retryCounts = 0;
     while (true) {
-        if (t_thrd.checkpoint_cxt.shutdown_requested || (g_instance.demotion > NoDemote &&
+        if (t_thrd.worker_sig_flags.shutdown_requested || (g_instance.demotion > NoDemote &&
             pmState == PM_SHUTDOWN && g_instance.attr.attr_storage.dcf_attr.enable_dcf)) {
             u_sess->attr.attr_common.ExitOnAnyError = true;
 
@@ -1547,4 +1547,3 @@ void CallCheckpointCallback(CheckpointEvent checkpointEvent, XLogRecPtr lsn)
     }
 }
 #endif
-

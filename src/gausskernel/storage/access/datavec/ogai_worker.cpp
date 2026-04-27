@@ -70,7 +70,7 @@ static void OgaiworkerSighupHandler(SIGNAL_ARGS)
 {
 int saveErrno = errno;
 
-t_thrd.ogaiworker_cxt.got_SIGHUP = true;
+t_thrd.worker_sig_flags.got_SIGHUP = true;
 if (t_thrd.proc)
     SetLatch(&t_thrd.proc->procLatch);
 
@@ -82,7 +82,7 @@ static void OgaiworkerSigusr2Handler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.ogaiworker_cxt.got_SIGUSR2 = true;
+    t_thrd.worker_sig_flags.got_SIGUSR2 = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
 
@@ -94,7 +94,7 @@ static void OgaiworkerSigtermHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.ogaiworker_cxt.got_SIGTERM = true;
+    t_thrd.worker_sig_flags.got_SIGTERM = true;
     t_thrd.int_cxt.ProcDiePending = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
@@ -222,7 +222,7 @@ NON_EXEC_STATIC void OgaiWorkerMain()
         RESUME_INTERRUPTS();
 
         /* if in shutdown mode, no need for anything further; just go away */
-        if (t_thrd.ogaiworker_cxt.got_SIGTERM) {
+        if (t_thrd.worker_sig_flags.got_SIGTERM) {
             goto shutdown;
         }
 
@@ -264,7 +264,7 @@ NON_EXEC_STATIC void OgaiWorkerMain()
         goto shutdown;
     }
 
-    while (!t_thrd.ogaiworker_cxt.got_SIGTERM) {
+    while (!t_thrd.worker_sig_flags.got_SIGTERM) {
         HeapTuple tuple = GetDatabaseTupleByOid(ogaiwork.dbid);
         if (!HeapTupleIsValid(tuple)) {
             databaseExists = false;

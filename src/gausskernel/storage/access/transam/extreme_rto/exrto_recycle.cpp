@@ -37,7 +37,7 @@ namespace extreme_rto {
 static void exrto_recycle_sighup_handler(SIGNAL_ARGS)
 {
     int save_errno = errno;
-    t_thrd.exrto_recycle_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
     errno = save_errno;
@@ -46,7 +46,7 @@ static void exrto_recycle_sighup_handler(SIGNAL_ARGS)
 static void exrto_recycle_shutdown_handler(SIGNAL_ARGS)
 {
     int save_errno = errno;
-    t_thrd.exrto_recycle_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
     }
@@ -201,12 +201,12 @@ void do_standby_read_recyle(XLogRecPtr recycle_lsn)
 
 void exrto_recycle_interrupt()
 {
-    if (t_thrd.exrto_recycle_cxt.got_SIGHUP) {
-        t_thrd.exrto_recycle_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
     }
 
-    if (t_thrd.exrto_recycle_cxt.shutdown_requested) {
+    if (t_thrd.worker_sig_flags.shutdown_requested) {
         handle_exrto_recycle_shutdown();
     }
 }

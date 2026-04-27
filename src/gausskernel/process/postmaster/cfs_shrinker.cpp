@@ -162,7 +162,7 @@ static void CfsShrinkerSighupHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.cfs_shrinker_cxt.got_SIGHUP = (int)true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
@@ -175,7 +175,7 @@ static void CfsShrinkerSigtermHander(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.cfs_shrinker_cxt.got_SIGTERM = (int)true;
+    t_thrd.worker_sig_flags.got_SIGTERM = true;
 
     SetLatch(&t_thrd.proc->procLatch);
 
@@ -224,7 +224,7 @@ static void CfsShrinkerProcInterrupts(int rc)
     }
 
     /* the normal shutdown case */
-    if (t_thrd.cfs_shrinker_cxt.got_SIGTERM) {
+    if (t_thrd.worker_sig_flags.got_SIGTERM) {
         elog(LOG, "cfs shrinker is shutting down.");
         proc_exit(0);
     }
@@ -232,8 +232,8 @@ static void CfsShrinkerProcInterrupts(int rc)
     /*
      * reload the postgresql.conf
      */
-    if (t_thrd.cfs_shrinker_cxt.got_SIGHUP) {
-        t_thrd.cfs_shrinker_cxt.got_SIGHUP = (int)false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
     }
 }
@@ -377,7 +377,7 @@ NON_EXEC_STATIC void CfsShrinkerMain()
         RESUME_INTERRUPTS();
 
         /* if in shutdown mode, no need for anything further; just go away */
-        if (t_thrd.cfs_shrinker_cxt.got_SIGTERM) {
+        if (t_thrd.worker_sig_flags.got_SIGTERM) {
             goto shutdown;
         }
 
@@ -400,7 +400,7 @@ NON_EXEC_STATIC void CfsShrinkerMain()
     (void)gs_signal_unblock_sigusr2();
 
     /* loop until shutdown request */
-    while (!t_thrd.cfs_shrinker_cxt.got_SIGTERM) {
+    while (!t_thrd.worker_sig_flags.got_SIGTERM) {
         int rc;
 
         CHECK_FOR_INTERRUPTS();
@@ -430,4 +430,3 @@ shutdown:
     g_instance.pid_cxt.CfsShrinkerPID = 0;
     proc_exit(0);
 }
-

@@ -143,8 +143,8 @@ void RackMemCleanerMain()
             break;
         }
 
-        if (t_thrd.rackMemCleanerCxt.gotSighup) {
-            t_thrd.rackMemCleanerCxt.gotSighup = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
@@ -265,7 +265,7 @@ static void RackMemCleanSigHupHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.rackMemCleanerCxt.gotSighup = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);

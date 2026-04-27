@@ -130,7 +130,7 @@ static void IMCStoreVacuumSigHupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.imcstore_vacuum_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc)
         SetLatch(&g_instance.imcstore_cxt.vacuum_latch);
 
@@ -141,7 +141,7 @@ static void IMCStoreVacuumSigUsr2Handler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.imcstore_vacuum_cxt.got_SIGUSR2 = true;
+    t_thrd.worker_sig_flags.got_SIGUSR2 = true;
     pg_atomic_write_u32(&g_instance.imcstore_cxt.is_imcstore_cache_down, IMCSTORE_CACHE_DOWN);
 
     if (t_thrd.proc)
@@ -172,7 +172,7 @@ static void IMCStoreVacuumSigtermHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.imcstore_vacuum_cxt.got_SIGTERM = true;
+    t_thrd.worker_sig_flags.got_SIGTERM = true;
     if (t_thrd.proc)
         SetLatch(&g_instance.imcstore_cxt.vacuum_latch);
 
@@ -401,7 +401,7 @@ void IMCStoreVacuumWorkerMain(void)
     }
 
     // get database name
-    while (!t_thrd.imcstore_vacuum_cxt.got_SIGTERM && !t_thrd.imcstore_vacuum_cxt.got_SIGUSR2 &&
+    while (!t_thrd.worker_sig_flags.got_SIGTERM && !t_thrd.worker_sig_flags.got_SIGUSR2 &&
            (pmState == PM_RUN || pmState == PM_HOT_STANDBY)) {
         /* Clear any already-pending wakeups */
         ResetLatch(&g_instance.imcstore_cxt.vacuum_latch);
@@ -440,7 +440,7 @@ void IMCStoreVacuumWorkerMain(void)
     SetProcessingMode(NormalProcessing);
 
     IMCStoreVacuumTarget target;
-    while (!t_thrd.imcstore_vacuum_cxt.got_SIGTERM && !t_thrd.imcstore_vacuum_cxt.got_SIGUSR2 &&
+    while (!t_thrd.worker_sig_flags.got_SIGTERM && !t_thrd.worker_sig_flags.got_SIGUSR2 &&
            (pmState == PM_RUN || pmState == PM_HOT_STANDBY)) {
         int rc = 0;
         /* Clear any already-pending wakeups */
@@ -461,8 +461,8 @@ void IMCStoreVacuumWorkerMain(void)
         /*
          * Process any requests or signals received recently.
          */
-        if (t_thrd.imcstore_vacuum_cxt.got_SIGHUP) {
-            t_thrd.imcstore_vacuum_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             MemoryContext backcontext = MemoryContextSwitchTo(thread_context);
             ProcessConfigFile(PGC_SIGHUP);
             MemoryContextSwitchTo(backcontext);
@@ -530,7 +530,7 @@ void IMCStoreVacuumWorkerMain(void)
         MemoryContextSwitchTo(oldcontext);
     }
 
-    if (t_thrd.imcstore_vacuum_cxt.got_SIGUSR2) {
+    if (t_thrd.worker_sig_flags.got_SIGUSR2) {
         CleanAllCacheCU();
     }
     elog(LOG, "imcstore vacuum thread is shutting down.");

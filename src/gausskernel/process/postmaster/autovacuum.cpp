@@ -347,8 +347,9 @@ NON_EXEC_STATIC void AutoVacLauncherMain()
         RESUME_INTERRUPTS();
 
         /* if in shutdown mode, no need for anything further; just go away */
-        if (t_thrd.autovacuum_cxt.got_SIGTERM)
+        if (t_thrd.worker_sig_flags.got_SIGTERM) {
             goto shutdown;
+        }
 
         /*
          * Sleep at least 1 second after any error.  We don't want to be
@@ -390,8 +391,9 @@ NON_EXEC_STATIC void AutoVacLauncherMain()
      * and go away.
      */
     if (!AutoVacuumingActive()) {
-        if (!t_thrd.autovacuum_cxt.got_SIGTERM)
+        if (!t_thrd.worker_sig_flags.got_SIGTERM) {
             do_start_worker();
+        }
         proc_exit(0); /* done */
     }
 
@@ -415,7 +417,7 @@ NON_EXEC_STATIC void AutoVacLauncherMain()
     rebuild_database_list(InvalidOid);
 
     /* loop until shutdown request */
-    while (!t_thrd.autovacuum_cxt.got_SIGTERM) {
+    while (!t_thrd.worker_sig_flags.got_SIGTERM) {
         if (pmState == PM_WAIT_BACKENDS) {
             break;
         }
@@ -453,11 +455,12 @@ NON_EXEC_STATIC void AutoVacLauncherMain()
             proc_exit(1);
 
         /* the normal shutdown case */
-        if (t_thrd.autovacuum_cxt.got_SIGTERM)
+        if (t_thrd.worker_sig_flags.got_SIGTERM) {
             break;
+        }
 
-        if (t_thrd.autovacuum_cxt.got_SIGHUP) {
-            t_thrd.autovacuum_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
 
             /* shutdown requested in config file? */
@@ -477,8 +480,8 @@ NON_EXEC_STATIC void AutoVacLauncherMain()
          * a worker finished, or postmaster signalled failure to start a
          * worker
          */
-        if (t_thrd.autovacuum_cxt.got_SIGUSR2) {
-            t_thrd.autovacuum_cxt.got_SIGUSR2 = false;
+        if (t_thrd.worker_sig_flags.got_SIGUSR2) {
+            t_thrd.worker_sig_flags.got_SIGUSR2 = false;
 
             /* rebalance cost limits, if needed */
             if (t_thrd.autovacuum_cxt.AutoVacuumShmem->av_signal[AutoVacRebalance]) {
@@ -1142,7 +1145,7 @@ static void avl_sighup_handler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.autovacuum_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
 
@@ -1154,7 +1157,7 @@ static void avl_sigusr2_handler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.autovacuum_cxt.got_SIGUSR2 = true;
+    t_thrd.worker_sig_flags.got_SIGUSR2 = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
 
@@ -1166,7 +1169,7 @@ static void avl_sigterm_handler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.autovacuum_cxt.got_SIGTERM = true;
+    t_thrd.worker_sig_flags.got_SIGTERM = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
 
@@ -3919,4 +3922,3 @@ static autovac_table* partition_recheck_autovac(
 
     return tab;
 }
-

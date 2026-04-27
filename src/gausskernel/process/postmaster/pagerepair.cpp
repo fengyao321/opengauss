@@ -353,12 +353,12 @@ const int MAX_CHECK_LSN_NUM = 100;
 
 static void PageRepairHandleInterrupts(void)
 {
-    if (t_thrd.pagerepair_cxt.got_SIGHUP) {
-        t_thrd.pagerepair_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
     }
 
-    if (t_thrd.pagerepair_cxt.shutdown_requested && g_instance.pid_cxt.StartupPID == 0) {
+    if (t_thrd.worker_sig_flags.shutdown_requested && g_instance.pid_cxt.StartupPID == 0) {
         ereport(LOG, (errmodule(MOD_REDO), errmsg("pagerepair thread shut down")));
 
         u_sess->attr.attr_common.ExitOnAnyError = true;
@@ -418,7 +418,7 @@ static void PageRepairSigHupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.pagerepair_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
     }
@@ -430,7 +430,7 @@ static void PageRepairShutDownHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.pagerepair_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
     }

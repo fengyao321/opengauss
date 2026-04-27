@@ -59,7 +59,7 @@ static void SharedStorageXlogCopyBackendSigHupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.sharestoragexlogcopyer_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
     }
@@ -70,7 +70,7 @@ static void SharedStorageXlogCopyBackendShutdownHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.sharestoragexlogcopyer_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
@@ -643,15 +643,15 @@ void SharedStorageXlogCopyBackendMain(void)
             GetLock();
         }
 
-        if (t_thrd.sharestoragexlogcopyer_cxt.shutdown_requested) {
-            t_thrd.sharestoragexlogcopyer_cxt.shutdown_requested = false;
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
+            t_thrd.worker_sig_flags.shutdown_requested = false;
             g_instance.proc_base->ShareStoragexlogCopyerLatch = NULL;
             ShutdownShareStorageXLogCopy();
             proc_exit(0); /* done */
         }
 
-        if (t_thrd.sharestoragexlogcopyer_cxt.got_SIGHUP) {
-            t_thrd.sharestoragexlogcopyer_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 

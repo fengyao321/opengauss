@@ -122,7 +122,7 @@ void barrier_creator_thread_shutdown(void)
 static void barrier_creator_sighup_handler(SIGNAL_ARGS)
 {
     int save_errno = errno;
-    t_thrd.barrier_creator_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     errno = save_errno;
 }
 
@@ -441,8 +441,8 @@ void barrier_creator_main(void)
 
     TimestampTz preCreatedTime = GetCurrentTimestamp();
     while (!g_instance.barrier_creator_cxt.stop) {
-        if (t_thrd.barrier_creator_cxt.got_SIGHUP) {
-            t_thrd.barrier_preparse_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
             startCsnBarrier = g_instance.attr.attr_storage.auto_csn_barrier;
         }

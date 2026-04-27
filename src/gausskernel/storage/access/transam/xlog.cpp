@@ -18199,7 +18199,7 @@ retry:
                             }
                         }
 
-                        if (t_thrd.startup_cxt.shutdown_requested) {
+                        if (t_thrd.worker_sig_flags.shutdown_requested) {
                             ereport(LOG, (errmsg("startup shutdown")));
                             proc_exit(0);
                         }
@@ -20744,7 +20744,7 @@ retry:
                     if (SS_DORADO_MAIN_STANDBY_NODE && CheckForFailoverTrigger()) {
                         goto triggered;
                     }
-                    if (t_thrd.startup_cxt.shutdown_requested) {
+                    if (t_thrd.worker_sig_flags.shutdown_requested) {
                             ereport(LOG, (errmsg("startup shutdown")));
                             proc_exit(0);
                     }
@@ -21135,7 +21135,7 @@ retry:
                             }
                         }
 
-                        if (t_thrd.startup_cxt.shutdown_requested) {
+                        if (t_thrd.worker_sig_flags.shutdown_requested) {
                             ereport(LOG, (errmsg("startup shutdown")));
                             proc_exit(0);
                         }

@@ -262,12 +262,12 @@ PGPROC *GetPageRedoWorkerProc(PageRedoWorker *worker)
 
 void HandlePageRedoInterrupts()
 {
-    if (t_thrd.page_redo_cxt.got_SIGHUP) {
-        t_thrd.page_redo_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
     }
 
-    if (t_thrd.page_redo_cxt.shutdown_requested) {
+    if (t_thrd.worker_sig_flags.shutdown_requested) {
         ereport(LOG,
                 (errmodule(MOD_REDO), errcode(ERRCODE_LOG),
                  errmsg("page worker(id %u, originId %u) exit for request", g_redoWorker->id, g_redoWorker->originId)));
@@ -326,7 +326,7 @@ void PageRedoWorkerMain()
 
 static void PageRedoShutdownHandler(SIGNAL_ARGS)
 {
-    t_thrd.page_redo_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 }
 
 static void PageRedoQuickDie(SIGNAL_ARGS)
@@ -369,7 +369,7 @@ static void SetupSignalHandlers()
 /* Run from the worker thread. */
 static void SigHupHandler(SIGNAL_ARGS)
 {
-    t_thrd.page_redo_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 }
 
 /* Run from the worker thread. */

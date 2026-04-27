@@ -594,7 +594,7 @@ static void WalSndHandshake(void)
 
         WalSndSetState(WALSNDSTATE_STARTUP);
         set_ps_display("idle", false);
-        if (t_thrd.walsender_cxt.walsender_ready_to_stop || t_thrd.walsender_cxt.walsender_shutdown_requested) {
+        if (t_thrd.walsender_cxt.walsender_ready_to_stop || t_thrd.worker_sig_flags.shutdown_requested) {
             ereport(LOG, (errmsg("caught ready to stop or shutdown request")));
             proc_exit(0);
         }
@@ -635,8 +635,8 @@ static void WalSndHandshake(void)
          * Check for any other interesting events that happened while we
          * slept.
          */
-        if (t_thrd.walsender_cxt.got_SIGHUP) {
-            t_thrd.walsender_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
@@ -1999,8 +1999,8 @@ void WalSndWriteDataHelper(StringInfo out, XLogRecPtr lsn, TransactionId xid, bo
             proc_exit(1);
 
         /* Process any requests or signals received recently */
-        if (t_thrd.walsender_cxt.got_SIGHUP) {
-            t_thrd.walsender_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
             SyncRepInitConfig();
         }
@@ -2051,8 +2051,8 @@ static void WalSndWriteData(LogicalDecodingContext *ctx, XLogRecPtr lsn, Transac
 static void WalSndHandleMessage(XLogRecPtr *RecentFlushPoint)
 {
     /* Process any requests or signals received recently */
-    if (t_thrd.walsender_cxt.got_SIGHUP) {
-        t_thrd.walsender_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
         SyncRepInitConfig();
     }
@@ -4002,7 +4002,7 @@ static int WalSndLoop(WalSndSendDataCallback send_data)
     /* Loop forever, unless we get an error */
     for (;;) {
         if (AM_WAL_DB_SENDER &&
-            (t_thrd.walsender_cxt.walsender_shutdown_requested || t_thrd.walsender_cxt.walsender_ready_to_stop)) {
+            (t_thrd.worker_sig_flags.shutdown_requested || t_thrd.walsender_cxt.walsender_ready_to_stop)) {
             WalSndSetState(WALSNDSTATE_STOPPING);
         }
         t_thrd.utils_cxt.CurrentResourceOwner = tmpOwner;
@@ -4028,8 +4028,8 @@ static int WalSndLoop(WalSndSendDataCallback send_data)
             gs_thread_exit(1);
 
         /* Process any requests or signals received recently */
-        if (t_thrd.walsender_cxt.got_SIGHUP) {
-            t_thrd.walsender_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             marked_stream_replication = u_sess->attr.attr_storage.enable_stream_replication;
             ProcessConfigFile(PGC_SIGHUP);
             SyncRepInitConfig();
@@ -4072,7 +4072,7 @@ static int WalSndLoop(WalSndSendDataCallback send_data)
         }
 
         /* Normal exit from the walsender is here */
-        if ((t_thrd.walsender_cxt.walsender_shutdown_requested &&
+        if ((t_thrd.worker_sig_flags.shutdown_requested &&
              !t_thrd.walsender_cxt.response_switchover_requested) ||
             t_thrd.walsender_cxt.MyWalSnd->node_state == NODESTATE_STANDBY_REDIRECT) {
             /* Inform the standby that XLOG streaming is done */
@@ -4175,7 +4175,7 @@ static int WalSndLoop(WalSndSendDataCallback send_data)
             }
         }
         if (sync_config_needed) {
-            if (t_thrd.walsender_cxt.walsender_shutdown_requested) {
+            if (t_thrd.worker_sig_flags.shutdown_requested) {
                 if (!AM_WAL_DB_SENDER && !SendConfigFile(t_thrd.walsender_cxt.path_cold->gucconf_file))
                     ereport(LOG, (errmsg("failed to send config to the peer when walsender shutdown.")));
                 sync_config_needed = false;
@@ -4346,10 +4346,10 @@ static int WalSndLoop(WalSndSendDataCallback send_data)
                 if (t_thrd.walsender_cxt.walSndCaughtUp && !pq_is_send_pending()) {
                     if (dummyStandbyMode ||
                         XLByteEQ(t_thrd.walsender_cxt.sentPtr, t_thrd.walsender_cxt.MyWalSnd->flush))
-                        t_thrd.walsender_cxt.walsender_shutdown_requested = true;
+                        t_thrd.worker_sig_flags.shutdown_requested = true;
                 }
                 if (IS_SHARED_STORAGE_MODE || SS_DISASTER_CLUSTER) {
-                    t_thrd.walsender_cxt.walsender_shutdown_requested = true;
+                    t_thrd.worker_sig_flags.shutdown_requested = true;
                 }
             }
         } else {
@@ -4418,8 +4418,9 @@ static int WalSndLoop(WalSndSendDataCallback send_data)
              * if requested to response switchover, walsender need not to wait for new xlog data.
              * if requested to shutdown, walsender need not to wait for new xlog data.
              */
-            if (t_thrd.walsender_cxt.response_switchover_requested || t_thrd.walsender_cxt.walsender_shutdown_requested)
+            if (t_thrd.walsender_cxt.response_switchover_requested || t_thrd.worker_sig_flags.shutdown_requested) {
                 sleeptime = 100; /* 0.1s */
+            }
 
             /* Sleep until something happens or we time out */
             pgstat_report_activity(STATE_IDLE, NULL);
@@ -5767,7 +5768,7 @@ static void WalSndSigHupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.walsender_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.walsender_cxt.MyWalSnd)
         SetLatch(&t_thrd.walsender_cxt.MyWalSnd->latch);
 
@@ -5797,7 +5798,7 @@ static void WalSndShutdownHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.walsender_cxt.walsender_shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
     if (t_thrd.walsender_cxt.MyWalSnd)
         SetLatch(&t_thrd.walsender_cxt.MyWalSnd->latch);
 

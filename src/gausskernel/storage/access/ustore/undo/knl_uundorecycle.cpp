@@ -94,7 +94,7 @@ void UndoQuickdie(SIGNAL_ARGS)
 void UndoShutdownHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
-    t_thrd.undorecycler_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
     errno = save_errno;
@@ -507,7 +507,7 @@ static TransactionId GetForceRecycleXid(TransactionId oldestXmin, int retry)
 static void UndoRecycleSigHupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
-    t_thrd.undorecycler_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
     errno = save_errno;
@@ -543,7 +543,7 @@ static void RecycleWaitIfNotUsed()
         ) {
         uint64 nonRecycled = 0;
         while (true) {
-            if (t_thrd.undorecycler_cxt.shutdown_requested) {
+            if (t_thrd.worker_sig_flags.shutdown_requested) {
                 ereport(LOG, (errmodule(MOD_UNDO), errmsg(UNDOFORMAT("UndoRecycler: shutting down"))));
                 ResourceOwnerRelease(t_thrd.utils_cxt.CurrentResourceOwner, RESOURCE_RELEASE_BEFORE_LOCKS, false, true);
                 proc_exit(0);
@@ -686,7 +686,7 @@ bool exrto_standby_recycle_undo_zone()
         return recycled;
     }
     TransactionId recycle_xmin = exrto_calculate_recycle_xmin_for_undo();
-    for (idx = 0; idx < PERSIST_ZONE_COUNT && !t_thrd.undorecycler_cxt.shutdown_requested; idx++) {
+    for (idx = 0; idx < PERSIST_ZONE_COUNT && !t_thrd.worker_sig_flags.shutdown_requested; idx++) {
         UndoZone *zone = (UndoZone *)g_instance.undo_cxt.uZones[idx];
         if (zone == NULL) {
             continue;
@@ -725,7 +725,7 @@ void exrto_recycle_residual_undo_file(char *FuncName)
             errmsg(UNDOFORMAT("exrto_recycle_residual_undo_file uZoneCount is zero or uZones is null."))));
         return;
     }
-    for (idx = 0; idx < PERSIST_ZONE_COUNT && !t_thrd.undorecycler_cxt.shutdown_requested; idx++) {
+    for (idx = 0; idx < PERSIST_ZONE_COUNT && !t_thrd.worker_sig_flags.shutdown_requested; idx++) {
         UndoZone *zone = (UndoZone *)g_instance.undo_cxt.uZones[idx];
         if (zone == NULL) {
             continue;
@@ -868,11 +868,11 @@ void UndoRecycleMain()
         if (pmState == PM_WAIT_BACKENDS || u_sess->attr.attr_common.upgrade_mode == 1) {
             break;
         }
-        if (t_thrd.undorecycler_cxt.got_SIGHUP) {
-            t_thrd.undorecycler_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
-        if (t_thrd.undorecycler_cxt.shutdown_requested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             ShutDownRecycle(recycleMaxXIDs);
         }
         bool is_in_progress = RecoveryInProgress();
@@ -910,7 +910,7 @@ void UndoRecycleMain()
                 securec_check(ret, "\0", "\0");
                 recycleMaxXIDCount = 0;
                 isAnyZoneUsed = false;
-                for (idx = 0; idx < UNDO_ZONE_COUNT && !t_thrd.undorecycler_cxt.shutdown_requested; idx++) {
+                for (idx = 0; idx < UNDO_ZONE_COUNT && !t_thrd.worker_sig_flags.shutdown_requested; idx++) {
                     if (u_sess->attr.attr_common.upgrade_mode == 1) {
                         break;
                     }
@@ -946,7 +946,7 @@ void UndoRecycleMain()
                 }
             }
             smgrcloseall();
-            if (t_thrd.undorecycler_cxt.shutdown_requested) {
+            if (t_thrd.worker_sig_flags.shutdown_requested) {
                 ShutDownRecycle(recycleMaxXIDs);
             }
             if (isAnyZoneUsed) {

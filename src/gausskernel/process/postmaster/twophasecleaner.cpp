@@ -202,12 +202,12 @@ NON_EXEC_STATIC void TwoPhaseCleanerMain()
         ResetLatch(&t_thrd.proc->procLatch);
 
         /* Process any requests or signals received recently. */
-        if (t_thrd.tpcleaner_cxt.got_SIGHUP) {
-            t_thrd.tpcleaner_cxt.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
-        if (t_thrd.tpcleaner_cxt.shutdown_requested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             /* Normal exit from the twophasecleaner is here */
             ereport(LOG, (errmsg("TwoPhaseCleaner exits via SIGTERM")));
             proc_exit(0);
@@ -323,7 +323,7 @@ static void TwoPCSigHupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.tpcleaner_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
@@ -337,7 +337,7 @@ static void TwoPCShutdownHandler(SIGNAL_ARGS)
     int save_errno = errno;
 
     ereport(LOG, (errmsg("TwoPhaseCleaner received SIGTERM")));
-    t_thrd.tpcleaner_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);

@@ -89,7 +89,7 @@ XLogRecord *ReadNextXLogRecord(XLogReaderState **xlogreaderptr, int emode)
         record = (XLogRecord *)xlogreader->readRecordBuf;
     } else {
         *xlogreaderptr = &g_redoEndMark.record;
-        if (t_thrd.startup_cxt.shutdown_requested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             proc_exit(0);
         }
     }

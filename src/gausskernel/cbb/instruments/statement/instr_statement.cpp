@@ -322,7 +322,7 @@ bool IsStatementFlushProcess(void)
 /* SIGHUP handler for statement flush thread */
 static void statement_sighup_handler(SIGNAL_ARGS)
 {
-    t_thrd.statement_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 }
 
 static void statement_exit(SIGNAL_ARGS)
@@ -350,8 +350,8 @@ static void SetThrdCxt(void)
 static void ReloadInfo()
 {
     /* Reload configuration if we got SIGHUP from the postmaster. */
-    if (t_thrd.statement_cxt.got_SIGHUP) {
-        t_thrd.statement_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
         AssignStbyStmtHistoryConf();
     }

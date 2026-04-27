@@ -259,15 +259,15 @@ void DataRcvWriterMain(void)
         /* Clear any already-pending wakeups */
         ResetLatch(&t_thrd.proc->procLatch);
 
-        if (t_thrd.datarcvwriter_cxt.gotSIGHUP) {
-            t_thrd.datarcvwriter_cxt.gotSIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
         }
 
-        while (!t_thrd.datarcvwriter_cxt.shutdownRequested && DataRcvWrite() > 0)
-            ;
+        while (!t_thrd.worker_sig_flags.shutdown_requested && DataRcvWrite() > 0) {
+        }
 
-        if (t_thrd.datarcvwriter_cxt.shutdownRequested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             ereport(LOG, (errmsg("datarcvwriter thread shut down")));
             /*
              * From here on, elog(ERROR) should end with exit(1), not send
@@ -290,7 +290,7 @@ static void DataRcvWriterSigHupHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.datarcvwriter_cxt.gotSIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);
     }
@@ -327,7 +327,7 @@ static void ReqShutdownHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.datarcvwriter_cxt.shutdownRequested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 
     /* cancel the wait for database directory */
     t_thrd.int_cxt.ProcDiePending = true;

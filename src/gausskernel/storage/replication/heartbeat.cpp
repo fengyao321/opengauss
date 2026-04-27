@@ -66,7 +66,7 @@ static int server_loop(void)
             break;
         }
 
-        if (t_thrd.heartbeat_cxt.shutdown_requested) {
+        if (t_thrd.worker_sig_flags.shutdown_requested) {
             /*
              * From here on, elog(ERROR) should end with exit(1), not send
              * control back to the sigsetjmp block above.
@@ -111,8 +111,8 @@ OUTLOOP:
 static int deal_with_sigup()
 {
     int j;
-    if (t_thrd.heartbeat_cxt.got_SIGHUP) {
-        t_thrd.heartbeat_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
         /*
          * when Ha replconninfo have changed and current_mode is not NORMAL,
@@ -350,7 +350,7 @@ void heartbeat_main(void)
 
 static void heartbeat_sighup_handler(SIGNAL_ARGS)
 {
-    t_thrd.heartbeat_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
 }
 
 static void heartbeat_quick_die(SIGNAL_ARGS)
@@ -384,7 +384,7 @@ static void heartbeat_shutdown_handler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.heartbeat_cxt.shutdown_requested = true;
+    t_thrd.worker_sig_flags.shutdown_requested = true;
 
     if (t_thrd.proc) {
         SetLatch(&t_thrd.proc->procLatch);

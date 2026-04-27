@@ -185,7 +185,7 @@ static void StartupProcSigHupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.startup_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     WakeupRecovery();
 
     errno = save_errno;
@@ -210,7 +210,7 @@ static void StartupProcShutdownHandler(SIGNAL_ARGS)
     if (t_thrd.startup_cxt.in_restore_command)
         proc_exit(1);
     else
-        t_thrd.startup_cxt.shutdown_requested = true;
+        t_thrd.worker_sig_flags.shutdown_requested = true;
 
     WakeupRecovery();
 
@@ -231,15 +231,15 @@ void HandleStartupProcInterrupts(void)
     /*
      * Check if we were requested to re-read config file.
      */
-    if (t_thrd.startup_cxt.got_SIGHUP) {
-        t_thrd.startup_cxt.got_SIGHUP = false;
+    if (t_thrd.worker_sig_flags.got_SIGHUP) {
+        t_thrd.worker_sig_flags.got_SIGHUP = false;
         ProcessConfigFile(PGC_SIGHUP);
     }
 
     /*
      * Check if we were requested to exit without finishing recovery.
      */
-    if (t_thrd.startup_cxt.shutdown_requested && SmartShutdown != g_instance.status) {
+    if (t_thrd.worker_sig_flags.shutdown_requested && SmartShutdown != g_instance.status) {
         if (t_thrd.xlog_cxt.StandbyModeRequested && SS_DISASTER_MAIN_STANDBY_NODE) {
             ereport(LOG, (errmsg("dorado standby cluster switchover shutdown startup\n")));
             if (!IsExtremeRedo()) {
@@ -402,7 +402,7 @@ void PreRestoreCommand(void)
      */
     t_thrd.startup_cxt.in_restore_command = true;
 
-    if (t_thrd.startup_cxt.shutdown_requested) {
+    if (t_thrd.worker_sig_flags.shutdown_requested) {
         proc_exit(1);
     }
 }

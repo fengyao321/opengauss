@@ -273,7 +273,7 @@ static void ArchSigHupHandler(SIGNAL_ARGS)
     int save_errno = errno;
 
     /* set flag to re-read config file at next convenient time */
-    t_thrd.arch.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     SetLatch(&t_thrd.arch.mainloop_latch);
 
     errno = save_errno;
@@ -290,7 +290,7 @@ static void ArchSigTermHandler(SIGNAL_ARGS)
      * too long we'll get SIGKILL'd.  Set flag to prevent starting any more
      * archive commands.
      */
-    t_thrd.arch.got_SIGTERM = true;
+    t_thrd.worker_sig_flags.got_SIGTERM = true;
     SetLatch(&t_thrd.arch.mainloop_latch);
 
     errno = save_errno;
@@ -379,8 +379,8 @@ static void pgarch_MainLoop(void)
         time_to_stop = t_thrd.arch.ready_to_stop;
 
         /* Check for config update */
-        if (t_thrd.arch.got_SIGHUP) {
-            t_thrd.arch.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
             if (!XLogArchivingActive() && getArchiveReplicationSlot() == NULL) {
                 ereport(LOG, (errmsg("PgArchiver exit")));
@@ -395,7 +395,7 @@ static void pgarch_MainLoop(void)
          * idea.  If more than 60 seconds pass since SIGTERM, exit anyway, so
          * that the postmaster can start a new archiver if needed.
          */
-        if (t_thrd.arch.got_SIGTERM) {
+        if (t_thrd.worker_sig_flags.got_SIGTERM) {
             time_t icurtime = time(NULL);
 
             if (t_thrd.arch.last_sigterm_time == 0)
@@ -571,20 +571,21 @@ static void pgarch_ArchiverCopyLoop(void)
              * command, and the second is to avoid conflicts with another
              * archiver spawned by a newer postmaster.
              */
-            if (t_thrd.arch.got_SIGTERM || !PostmasterIsAlive())
+            if (t_thrd.worker_sig_flags.got_SIGTERM || !PostmasterIsAlive()) {
                 return;
+            }
 
             /*
              * Check for config update.  This is so that we'll adopt a new
              * setting for archive_command as soon as possible, even if there
              * is a backlog of files to be archived.
              */
-            if (t_thrd.arch.got_SIGHUP) {
+            if (t_thrd.worker_sig_flags.got_SIGHUP) {
                 ProcessConfigFile(PGC_SIGHUP);
                 if (!XLogArchivingActive()) {
                     return;
                 }
-                t_thrd.arch.got_SIGHUP = false;
+                t_thrd.worker_sig_flags.got_SIGHUP = false;
             }
 
             /* can't do anything if no command ... */
@@ -726,7 +727,7 @@ static void pgarch_ArchiverObsCopyLoop(XLogRecPtr flushPtr, doArchive fun)
          * command, and the second is to avoid conflicts with another
          * archiver spawned by a newer postmaster.
          */
-        if (t_thrd.arch.got_SIGTERM || !PostmasterIsAlive() || time_to_stop) {
+        if (t_thrd.worker_sig_flags.got_SIGTERM || !PostmasterIsAlive() || time_to_stop) {
             return;
         }
 
@@ -735,9 +736,9 @@ static void pgarch_ArchiverObsCopyLoop(XLogRecPtr flushPtr, doArchive fun)
          * setting for archive_command as soon as possible, even if there
          * is a backlog of files to be archived.
          */
-        if (t_thrd.arch.got_SIGHUP) {
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
             ProcessConfigFile(PGC_SIGHUP);
-            t_thrd.arch.got_SIGHUP = false;
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
         }
         if (flushPtr == InvalidXLogRecPtr) {
             targetLsn = t_thrd.arch.pitr_task_last_lsn + OBS_XLOG_SLICE_BLOCK_SIZE -

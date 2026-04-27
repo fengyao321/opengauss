@@ -351,8 +351,8 @@ NON_EXEC_STATIC void SysLoggerMain(int fd)
         /*
          * Process any requests or signals received recently.
          */
-        if (t_thrd.logger.got_SIGHUP) {
-            t_thrd.logger.got_SIGHUP = false;
+        if (t_thrd.worker_sig_flags.got_SIGHUP) {
+            t_thrd.worker_sig_flags.got_SIGHUP = false;
             ProcessConfigFile(PGC_SIGHUP);
 
             /*
@@ -1438,7 +1438,7 @@ static void sigHupHandler(SIGNAL_ARGS)
 {
     int save_errno = errno;
 
-    t_thrd.logger.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     SetLatch(&t_thrd.logger.sysLoggerLatch);
 
     errno = save_errno;

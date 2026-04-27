@@ -1357,11 +1357,6 @@ typedef struct knl_t_explain_context {
 typedef struct knl_t_arch_context {
     time_t last_pgarch_start_time;
     time_t last_sigterm_time;
-    /*
-     * Flags set by interrupt handlers for later service in the main loop.
-     */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGTERM;
     volatile sig_atomic_t wakened;
     volatile sig_atomic_t ready_to_stop;
     /*
@@ -1390,8 +1385,6 @@ typedef struct knl_t_arch_context {
 
 typedef struct knl_t_barrier_arch_context {
     volatile sig_atomic_t ready_to_stop;
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGTERM;
     volatile sig_atomic_t wakened;
     char* slot_name;
     char barrierName[MAX_BARRIER_ID_LENGTH];
@@ -1420,7 +1413,6 @@ typedef struct knl_t_logger_context {
 
 #define NBUFFER_LISTS 256
     struct knl_t_logger_cold_context* logger_cold;
-    volatile sig_atomic_t got_SIGHUP;
     volatile sig_atomic_t rotation_requested;
     int64 total_syslogs_size;
 } knl_t_logger_context;
@@ -1573,18 +1565,10 @@ typedef struct knl_t_vacuum_context {
 
 #ifdef ENABLE_HTAP
 typedef struct knl_t_imcstore_vacuum_context {
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGTERM;
-    volatile sig_atomic_t got_SIGUSR2;
 } knl_t_imcstore_vacuum_context;
 #endif
 
 typedef struct knl_t_autovacuum_context {
-    /* Flags set by signal handlers */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGUSR2;
-    volatile sig_atomic_t got_SIGTERM;
-
     /* Comparison points for determining whether freeze_max_age is exceeded */
     TransactionId recentXid;
     MultiXactId recentMulti;
@@ -1617,11 +1601,6 @@ typedef struct knl_t_autovacuum_context {
 } knl_t_autovacuum_context;
 
 typedef struct knl_t_undolauncher_context {
-    /* Flags set by signal handlers */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGUSR2;
-    volatile sig_atomic_t got_SIGTERM;
-
     /* PID of launcher, valid only in worker while shutting down */
     ThreadId UndoLauncherPid;
 
@@ -1629,25 +1608,13 @@ typedef struct knl_t_undolauncher_context {
 } knl_t_undolauncher_context;
 
 typedef struct knl_t_undoworker_context {
-    /* Flags set by signal handlers */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGUSR2;
-    volatile sig_atomic_t got_SIGTERM;
 } knl_t_undoworker_context;
 
 typedef struct knl_t_undorecycler_context {
-    /* Flags set by signal handlers */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
     bool is_recovery_in_progress;
 } knl_t_undorecycler_context;
 
 typedef struct knl_t_ogailauncher_context {
-    /* Flags set by signal handlers */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGUSR2;
-    volatile sig_atomic_t got_SIGTERM;
-
     /* PID of launcher, valid only in worker while shutting down */
     ThreadId OgaiLauncherPID;
 
@@ -1655,10 +1622,6 @@ typedef struct knl_t_ogailauncher_context {
 } knl_t_ogailauncher_context;
 
 typedef struct knl_t_ogaiworker_context {
-    /* Flags set by signal handlers */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGUSR2;
-    volatile sig_atomic_t got_SIGTERM;
 } knl_t_ogaiworker_context;
 
 typedef struct knl_t_rollback_requests_context {
@@ -1673,33 +1636,21 @@ typedef struct knl_t_rollback_requests_context {
 } knl_t_rollback_requests_context;
 
 typedef struct knl_t_gstat_context {
-    /* Flags set by signal handlers */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGUSR2;
-    volatile sig_atomic_t got_SIGTERM;
 } knl_t_gstat_context;
 
 typedef struct knl_t_aiocompleter_context {
-    /* Flags set by interrupt handlers for later service in the main loop. */
-    volatile sig_atomic_t shutdown_requested;
     volatile sig_atomic_t config_requested;
     int compltrIdx;
 } knl_t_aiocompleter_context;
 
 typedef struct knl_t_twophasecleaner_context {
     char pgxc_clean_log_path[MAX_PATH_LEN];
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
 } knl_t_twophasecleaner_context;
 
 typedef struct knl_t_bgwriter_context {
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
 } knl_t_bgwriter_context;
 
 typedef struct knl_t_pagewriter_context {
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
     volatile sig_atomic_t sync_requested;
     volatile sig_atomic_t sync_retry;
     int page_writer_after;
@@ -1709,16 +1660,12 @@ typedef struct knl_t_pagewriter_context {
 } knl_t_pagewriter_context;
 
 typedef struct knl_t_pagerepair_context {
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
     volatile sig_atomic_t page_repair_requested;
     volatile sig_atomic_t file_repair_requested;
 } knl_t_pagerepair_context;
 
 
 typedef struct knl_t_sharestoragexlogcopyer_context_ {
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
     bool wakeUp;
     int readFile;
     XLogSegNo readSegNo;
@@ -1781,10 +1728,6 @@ typedef struct knl_t_bulkload_context {
 typedef struct knl_t_job_context {
     /* Share memory for job scheudler. */
     struct JobScheduleShmemStruct* JobScheduleShmem;
-    /* Flags set by signal handlers */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGUSR2;
-    volatile sig_atomic_t got_SIGTERM;
     /* Memory context for long-lived data */
     MemoryContext JobScheduleMemCxt;
     /* expired job list at present, and the context that contains it */
@@ -2064,8 +2007,6 @@ typedef struct _DelayInvalidMsg {
 } DelayInvalidMsg;
 
 typedef struct {
-    volatile sig_atomic_t shutdown_requested;
-    volatile sig_atomic_t got_SIGHUP;
     volatile sig_atomic_t sleep_long;
     volatile sig_atomic_t check_repair;
     void *redo_worker_ptr;
@@ -2080,8 +2021,6 @@ typedef struct _StandbyReadLsnInfoArray {
 } StandbyReadLsnInfoArray;
 
 typedef struct {
-    volatile sig_atomic_t shutdown_requested;
-    volatile sig_atomic_t got_SIGHUP;
     StandbyReadLsnInfoArray lsn_info;
 } knl_t_exrto_recycle_context;
 
@@ -2089,8 +2028,6 @@ typedef struct knl_t_startup_context {
     /*
      * Flags set by interrupt handlers for later service in the redo loop.
      */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
     volatile sig_atomic_t failover_triggered;
     volatile sig_atomic_t switchover_triggered;
     volatile sig_atomic_t primary_triggered;
@@ -2109,60 +2046,34 @@ typedef struct knl_t_startup_context {
 typedef struct knl_t_alarmchecker_context {
     /* private variables for alarm checker thread */
     Latch AlarmCheckerLatch; /* the tls latch for alarm checker thread */
-
-    /* signal handle flags */
-    volatile sig_atomic_t gotSighup; /* the signal flag of SIGHUP */
-    volatile sig_atomic_t gotSigdie; /* the signal flag of SIGTERM and SIGINT */
 } knl_t_alarmchecker_context;
 
 typedef struct knl_t_snapcapturer_context {
-    /* signal handle flags */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGTERM;
-
     struct TxnSnapCapShmemStruct *snapCapShmem;
 } knl_t_snapcapturer_context;
 
 typedef struct knl_t_cfs_shrinker_context {
-    /* signal handle flags */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGTERM;
-
     struct CfsShrinkerShmemStruct *cfsShrinkerShmem;
 } knl_t_cfs_shrinker_context;
 
 typedef struct knl_t_rbcleaner_context {
-    /* private variables for rbcleaner thread */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGTERM;
-
     struct RbCleanerShmemStruct *RbCleanerShmem;
 } knl_t_rbcleaner_context;
 
 typedef struct knl_t_lwlockmoniter_context {
-    /* Flags set by interrupt handlers for later service in the main loop. */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
 } knl_t_lwlockmoniter_context;
 
 typedef struct knl_t_walwriter_context {
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
     bool lockhold;
 } knl_t_walwriter_context;
 
 typedef struct knl_t_walwriterauxiliary_context {
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
 } knl_t_walwriterauxiliary_context;
 
 typedef struct knl_t_poolcleaner_context {
-    volatile sig_atomic_t shutdown_requested;
-    volatile sig_atomic_t got_SIGHUP;
 } knl_t_poolcleaner_context;
 
 typedef struct knl_t_catchup_context {
-    volatile sig_atomic_t catchup_shutdown_requested;
 } knl_t_catchup_context;
 
 /*
@@ -2173,13 +2084,7 @@ typedef uint64 XLogRecPtr;
 
 typedef struct knl_t_checkpoint_context {
     struct CheckpointerShmemStruct* CheckpointerShmem;
-
-    /*
-     * Flags set by interrupt handlers for later service in the main loop.
-     */
-    volatile sig_atomic_t got_SIGHUP;
     volatile sig_atomic_t checkpoint_requested;
-    volatile sig_atomic_t shutdown_requested;
 
     /* Private state */
     bool ckpt_active;
@@ -2308,12 +2213,6 @@ typedef struct knl_t_datarcvwriter_context {
     /* Data receiver writer flush page error times */
     uint32 dataRcvWriterFlushPageErrorCount;
 
-    /*
-     * Flags set by interrupt handlers for later service in the main loop.
-     */
-    volatile sig_atomic_t gotSIGHUP;
-    volatile sig_atomic_t shutdownRequested;
-
     bool AmDataReceiverForDummyStandby;
 
     /* max dummy data write file (default: 1GB) */
@@ -2350,13 +2249,6 @@ typedef struct knl_t_slot_context {
 
 typedef struct knl_t_datareceiver_context {
     int DataReplFlag;
-
-    /*
-     * Flags set by interrupt handlers of datareceiver for later service in the
-     * main loop.
-     */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGTERM;
 
     struct StandbyDataReplyMessage* reply_message;
 
@@ -2425,9 +2317,6 @@ typedef struct knl_t_datasender_context {
     /* Have we sent a heartbeat message asking for reply, since last reply? */
     bool ping_sent;
 
-    /* Flags set by signal handlers for later service in main loop */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t datasender_shutdown_requested;
     volatile sig_atomic_t datasender_ready_to_stop;
 } knl_t_datasender_context;
 
@@ -2438,8 +2327,6 @@ typedef struct knl_t_walreceiver_path_cold_context {
 } knl_t_walreceiver_path_cold_context;
 
 typedef struct knl_t_walreceiver_context {
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGTERM;
     volatile sig_atomic_t start_switchover;
     struct knl_t_walreceiver_path_cold_context* path_cold;
     /*
@@ -2556,9 +2443,6 @@ typedef struct knl_t_walsender_context {
     TimestampTz last_logical_slot_advanced_timestamp;
     /* Have we sent a heartbeat message asking for reply, since last reply? */
     bool waiting_for_ping_response;
-    /* Flags set by signal handlers for later service in main loop */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t walsender_shutdown_requested;
     volatile sig_atomic_t walsender_ready_to_stop;
     volatile sig_atomic_t response_switchover_requested;
     ServerMode server_run_mode;
@@ -2658,15 +2542,12 @@ typedef struct knl_t_logical_context {
 extern struct ParallelDecodeWorker** parallelDecodeWorker;
 
 typedef struct knl_t_parallel_decode_worker_context {
-    volatile sig_atomic_t got_SIGHUP;
     volatile sig_atomic_t sleep_long;
     int parallelDecodeId;
 } knl_t_parallel_decode_worker_context;
 
 typedef struct knl_t_logical_read_worker_context {
-    volatile sig_atomic_t got_SIGHUP;
     volatile sig_atomic_t sleep_long;
-    volatile sig_atomic_t got_SIGTERM;
     MemoryContext ReadWorkerCxt;
     ParallelDecodeWorker** parallelDecodeWorkers;
     int totalWorkerCount;
@@ -2686,12 +2567,6 @@ typedef struct knl_t_dataqueue_context {
 
 typedef struct knl_t_walrcvwriter_context {
     uint64 walStreamWrite; /* last byte + 1 written out in the standby */
-
-    /*
-     * Flags set by interrupt handlers for later service in the main loop.
-     */
-    volatile sig_atomic_t gotSIGHUP;
-    volatile sig_atomic_t shutdownRequested;
 
     int WAL_WRITE_UNIT_BYTES;
     uint32 ws_dummy_data_writer_file_num;
@@ -3194,12 +3069,10 @@ typedef struct knl_t_percentile_context {
     bool need_exit;
     volatile bool need_reset_timer;
     struct PGXCNodeAllHandles* pgxc_all_handles;
-    volatile sig_atomic_t got_SIGHUP;
 } knl_t_percentile_context;
 
 typedef struct knl_t_perf_snap_context {
     volatile sig_atomic_t need_exit;
-    volatile bool got_SIGHUP;
     time_t last_snapshot_start_time;
 
     struct pg_conn* connect; /* Cross database query */
@@ -3223,14 +3096,12 @@ typedef struct knl_t_uheap_stats_context {
 typedef struct knl_t_ash_context {
     time_t last_ash_start_time;
     volatile sig_atomic_t need_exit;
-    volatile bool got_SIGHUP;
     uint32 slot; // the slot of ActiveSessionHistArray
     struct wait_event_info* waitEventStr;
 } knl_t_ash_context;
 
 typedef struct knl_t_statement_context {
     volatile sig_atomic_t need_exit;
-    volatile bool got_SIGHUP;
     int slow_sql_retention_time;
     int full_sql_retention_time;
     void *instr_prev_post_parse_analyze_hook;
@@ -3252,8 +3123,6 @@ typedef struct knl_t_statement_context {
 /* Default send interval is 1s */
 const int DEFAULT_SEND_INTERVAL = 1000;
 typedef struct knl_t_heartbeat_context {
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
     struct heartbeat_state* state;
     int total_failed_times;
     TimestampTz last_failed_timestamp;
@@ -3261,8 +3130,6 @@ typedef struct knl_t_heartbeat_context {
 
 /* compaction and compaction worker use */
 typedef struct knl_t_ts_compaction_context {
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
     volatile sig_atomic_t sleep_long;
     MemoryContext compaction_mem_cxt;
     MemoryContext compaction_data_cxt;
@@ -3286,8 +3153,6 @@ typedef struct knl_t_security_ledger_context {
 } knl_t_security_ledger_context;
 
 typedef struct knl_t_csnmin_sync_context {
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
 } knl_t_csnmin_sync_context;
 
 typedef struct knl_t_bgworker_context {
@@ -3364,8 +3229,6 @@ typedef struct knl_t_mot_context {
 #endif
 
 typedef struct knl_t_barrier_creator_context {
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
     bool is_first_barrier;
     struct BarrierUpdateLastTimeInfo* barrier_update_last_time_info;
     List* archive_slot_names;
@@ -3373,8 +3236,6 @@ typedef struct knl_t_barrier_creator_context {
 } knl_t_barrier_creator_context;
 
 typedef struct knl_t_barrier_preparse_context {
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
 } knl_t_barrier_preparse_context;
 
 
@@ -3501,19 +3362,13 @@ typedef struct knl_t_lsc_context {
 
 /* replication apply launcher, for subscription */
 typedef struct knl_t_apply_launcher_context {
-    /* Flags set by signal handlers */
-    volatile sig_atomic_t got_SIGHUP;
     volatile sig_atomic_t newWorkerRequest;
-    volatile sig_atomic_t got_SIGTERM;
     bool onCommitLauncherWakeup;
     ApplyLauncherShmStruct *applyLauncherShm;
 } knl_t_apply_launcher_context;
 
 /* replication apply worker, for subscription */
 typedef struct knl_t_apply_worker_context {
-    /* Flags set by signal handlers */
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t got_SIGTERM;
     dlist_head lsnMapping;
     HTAB *logicalRepRelMap;
     TimestampTz sendTime;
@@ -3573,16 +3428,12 @@ typedef struct knl_t_dms_context {
 } knl_t_dms_context;
 
 typedef struct knl_t_dms_auxiliary_context {
-    volatile sig_atomic_t shutdown_requested;
 } knl_t_dms_auxiliary_context;
 
 typedef struct knl_t_sync_auxiliary_context {
-    volatile sig_atomic_t shutdown_requested;
 } knl_t_sync_auxiliary_context;
 
 typedef struct knl_t_sql_limit_context {
-    volatile sig_atomic_t got_SIGHUP;
-    volatile sig_atomic_t shutdown_requested;
 } knl_t_sql_limit_context;
 
 /*
@@ -3612,14 +3463,27 @@ typedef struct KnlTSmbWriterContext {
 } KnlTSmbWriterContext;
 
 typedef struct KnlTRackMemCleanerContext {
-    volatile sig_atomic_t gotSighup;
-    volatile sig_atomic_t shutdownRequested;
 } KnlTRackMemCleanerContext;
+
+/*
+ * Unified worker signal flags - shared by all auxiliary processes/workers.
+ * Each thread uses only one worker context, so previously each had its own
+ * copy of these flags. Consolidating reduces knl_thrd_context size and
+ * improves cache locality for signal checks.
+ */
+typedef struct knl_t_worker_sig_flags {
+    volatile sig_atomic_t got_SIGHUP;        /* config reload */
+    volatile sig_atomic_t got_SIGTERM;       /* terminate request */
+    volatile sig_atomic_t got_SIGUSR2;       /* child process status etc */
+    volatile sig_atomic_t shutdown_requested; /* graceful shutdown */
+} knl_t_worker_sig_flags;
 
 /* thread context. */
 typedef struct knl_thrd_context {
     knl_thread_role role;
     knl_thread_role subrole;  /* we need some sub role status. */
+
+    knl_t_worker_sig_flags worker_sig_flags; /* unified signal flags for workers */
 
     struct GsSignalSlot* signal_slot;
     /* Pointer to this process's PGPROC and PGXACT structs, if any */

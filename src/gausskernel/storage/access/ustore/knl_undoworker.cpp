@@ -64,7 +64,7 @@ static void UndoworkerSighupHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.undoworker_cxt.got_SIGHUP = true;
+    t_thrd.worker_sig_flags.got_SIGHUP = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
 
@@ -76,7 +76,7 @@ static void UndoworkerSigusr2Handler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.undoworker_cxt.got_SIGUSR2 = true;
+    t_thrd.worker_sig_flags.got_SIGUSR2 = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
 
@@ -88,7 +88,7 @@ static void UndoworkerSigtermHandler(SIGNAL_ARGS)
 {
     int saveErrno = errno;
 
-    t_thrd.undoworker_cxt.got_SIGTERM = true;
+    t_thrd.worker_sig_flags.got_SIGTERM = true;
     t_thrd.int_cxt.ProcDiePending = true;
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
@@ -328,7 +328,7 @@ NON_EXEC_STATIC void UndoWorkerMain()
         RESUME_INTERRUPTS();
 
         /* if in shutdown mode, no need for anything further; just go away */
-        if (t_thrd.undoworker_cxt.got_SIGTERM || u_sess->attr.attr_common.upgrade_mode == 1) {
+        if (t_thrd.worker_sig_flags.got_SIGTERM || u_sess->attr.attr_common.upgrade_mode == 1) {
             goto shutdown;
         }
 
@@ -375,7 +375,7 @@ start_rollback:
                 undowork.slotPtr)));
         RemoveRollbackRequest(undowork.xid, undowork.startUndoPtr, gs_thread_self());
     }
-    while (retryTimes < MAX_RETRY_TIMES && !t_thrd.undoworker_cxt.got_SIGTERM) {
+    while (retryTimes < MAX_RETRY_TIMES && !t_thrd.worker_sig_flags.got_SIGTERM) {
         if (pmState == PM_WAIT_BACKENDS) {
             break;
         }
