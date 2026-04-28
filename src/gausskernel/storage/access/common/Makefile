@@ -10,6 +10,7 @@ ifneq "$(MAKECMDGOALS)" "clean"
   endif
 endif
 OBJS = heaptuple.o indextuple.o printtup.o reloptions.o scankey.o \
-	tupconvert.o tupdesc.o cstorescankey.o relfilenode_hash.o tidstore.o
+	tupconvert.o tupdesc.o cstorescankey.o relfilenode_hash.o tidstore.o \
+	btree_insertpt_splitloc.o
 
 include $(top_srcdir)/src/gausskernel/common.mk

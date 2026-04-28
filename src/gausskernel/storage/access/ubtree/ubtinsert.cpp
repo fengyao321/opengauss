@@ -52,6 +52,24 @@ static void UBTreeDeleteOnPage(Relation rel, Buffer buf, OffsetNumber offset, bo
 static Buffer UBTreeNewRoot(Relation rel, Buffer lbuf, Buffer rbuf);
 
 /*
+ * Helper to choose split point based on indexsplit method.
+ *
+ * When index option INDEXSPLIT=INSERTPT is in use (default for UBTREE),
+ * use UBTreeFindsplitlocInsertpt(), which applies the "insert position
+ * aware" split algorithm to reduce index bloat for certain workloads.
+ * Otherwise fall back to the original UBTreeFindsplitloc() behavior.
+ */
+static inline OffsetNumber UBTreeChooseSplitLoc(Relation rel, Buffer buf, OffsetNumber newitemoff, Size itemsz,
+    bool *newitemonleft, IndexTuple itup)
+{
+    if (rel->rd_indexsplit == INDEXSPLIT_NO_INSERTPT) {
+        return UBTreeFindsplitlocInsertpt(rel, buf, newitemoff, itemsz, newitemonleft, itup);
+    }
+
+    return UBTreeFindsplitloc(rel, buf, newitemoff, itemsz, newitemonleft);
+}
+
+/*
  *  UBTreePagePruneOpt() -- Optional prune a index page
  *
  * This function trying to prune the page if possible, and always do BtPageRepairFragmentation()
@@ -1157,13 +1175,8 @@ static void UBTreeInsertOnPage(Relation rel, BTScanInsert itup_key, Buffer buf, 
         bool is_only = P_LEFTMOST(lpageop) && P_RIGHTMOST(lpageop);
         bool newitemonleft = false;
         Buffer rbuf;
-        /* Choose the split point */
-        if (rel->rd_indexsplit == INDEXSPLIT_NO_INSERTPT) {
-            /* Choose the split point */
-            firstright = UBTreeFindsplitlocInsertpt(rel, buf, newitemoff, itemsz, &newitemonleft, itup);
-        } else {
-            firstright = UBTreeFindsplitloc(rel, buf, newitemoff, itemsz, &newitemonleft);
-        }
+        /* Choose the split point (may use insert-position-aware optimization) */
+        firstright = UBTreeChooseSplitLoc(rel, buf, newitemoff, itemsz, &newitemonleft, itup);
 
         /* split the buffer into left and right halves */
         rbuf = UBTreeSplit(rel, buf, cbuf, firstright, newitemoff, itemsz, itup, newitemonleft, itup_key);

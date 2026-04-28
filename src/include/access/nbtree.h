@@ -1385,6 +1385,8 @@ extern Datum btmerge(PG_FUNCTION_ARGS);
  * prototypes for functions in nbtinsert.c
  */
 extern bool _bt_doinsert(Relation rel, IndexTuple itup, IndexUniqueCheck checkUnique, Relation heapRel);
+extern OffsetNumber BTFindsplitlocInsertpt(Relation rel, Buffer buf, OffsetNumber newitemoff, Size newitemsz,
+    bool *newitemonleft, IndexTuple newitem);
 extern Buffer _bt_getstackbuf(Relation rel, BTStack stack);
 extern void _bt_insert_parent(Relation rel, Buffer buf, Buffer rbuf, BTStack stack, bool is_root, bool is_only);
 extern void _bt_finish_split(Relation rel, Buffer bbuf, BTStack stack);
