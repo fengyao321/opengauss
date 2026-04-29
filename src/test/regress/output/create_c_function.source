@@ -182,10 +182,10 @@ grant usage on language c to c_function_user1 with grant option;
 ERROR:  Forbid grant language c to user with grant option.
 DETAIL:  Only support grant language c to user.
 grant usage on language java to c_function_user1;
-ERROR:  Grant/revoke on untrusted languages if forbidden.
+ERROR:  Grant/revoke on untrusted languages is forbidden.
 DETAIL:  language "java" is not trusted
 grant usage on language internal to c_function_user1;
-ERROR:  Grant/revoke on untrusted languages if forbidden.
+ERROR:  Grant/revoke on untrusted languages is forbidden.
 DETAIL:  language "internal" is not trusted
 grant usage on language c to c_function_user1;
 grant c_function_user2 to c_function_user1;
