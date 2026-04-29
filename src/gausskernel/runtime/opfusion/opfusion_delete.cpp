@@ -28,6 +28,7 @@
 #ifdef ENABLE_HTAP
 #include "access/htap/imcstore_delta.h"
 #endif
+#include "executor/executor.h"
 #include "commands/matview.h"
 #include "opfusion/opfusion_indexscan.h"
 #include "executor/node/nodeSeqscan.h"
@@ -136,10 +137,12 @@ unsigned long DeleteFusion::ExecDelete(Relation rel, ResultRelInfo* resultRelInf
             hash_del = get_user_tuple_hash((HeapTuple)oldtup, RelationGetDescr(fake_relation));
         }
 
-        if (rel->rd_att->constr  && rel->rd_att->constr->num_check > 0) {
-            CheckDisableValidateConstr(resultRelInfo);
+        if (unlikely(rel->rd_att->constr && rel->rd_att->constr->has_disable_constr)) {
+            if (rel->rd_att->constr->num_check > 0) {
+                CheckDisableValidateConstr(resultRelInfo);
+            }
+            CheckIndexDisableValid(resultRelInfo, m_c_local.m_estate);
         }
-        CheckIndexDisableValid(resultRelInfo, m_c_local.m_estate);
 
         result = tableam_tuple_delete(fake_relation,
             &((HeapTuple)oldtup)->t_self,
@@ -164,7 +167,7 @@ unsigned long DeleteFusion::ExecDelete(Relation rel, ResultRelInfo* resultRelInf
 
             case TM_Ok:
 #ifdef ENABLE_HTAP
-                if (HAVE_HTAP_TABLES) {
+                if (ExecNeedImcsWriteHook(resultRelInfo, fake_relation)) {
                     IMCStoreDeleteHook(RelationGetRelid(fake_relation), tableam_tops_get_t_self(fake_relation, oldtup));
                 }
 #endif
@@ -266,7 +269,7 @@ bool DeleteFusion::execute(long max_rows, char *completionTag)
      * step 1: prepare *
      * ***************** */
     m_local.m_scan->refreshParameter(m_local.m_outParams == NULL ? m_local.m_params : m_local.m_outParams);
-
+    m_local.m_scan->m_hasRelationLock = this->m_hasRelationLock;
     m_local.m_scan->Init(max_rows);
 
     Relation rel = ((m_local.m_scan->m_parentRel) == NULL ? m_local.m_scan->m_rel :

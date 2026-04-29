@@ -118,7 +118,6 @@ bool SelectFusion::execute(long max_rows, char* completionTag)
         m_local.m_scan->Init(max_rows);
     }
     setReceiver();
-
     unsigned long nprocessed = 0;
     /* put selected tuple into receiver */
     TupleTableSlot* offset_reslot = NULL;

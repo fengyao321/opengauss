@@ -604,6 +604,13 @@ typedef struct ResultRelInfo {
 
     /* mark if there is a diskann index */
     bool ri_hasDiskannIndex;
+
+    /* ordinary insert does not need to maintain upsert auto-increment restore state */
+    bool ri_NeedAutoIncrementRestore;
+
+    /* cache whether the current write target really has IMCS metadata */
+    Oid ri_ImcsCachedRelid;
+    bool ri_ImcsCachedHasImcs;
 } ResultRelInfo;
 
 /* bloom filter controller */
@@ -750,6 +757,9 @@ typedef struct EState {
     bool have_current_xact_date; /* Check whether dirty reads exist in the cursor rollback scenario. */
     int128 first_autoinc; /* autoinc has increased during this execution */
 	int result_rel_index;    /* which result_rel_info to be excuted when multiple-relation modified. */
+    CachedPlanSource* es_psrc;
+    ListCell* cur_reuse_state_cell;
+    bool operator_reuse_enabled;
     int128 cur_insert_autoinc;
     int128 next_autoinc;
 #ifdef USE_SPQ

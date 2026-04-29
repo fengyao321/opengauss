@@ -2176,4 +2176,3 @@ static inline void _bt_initialize_more_data(BTScanOpaque so, ScanDirection dir)
     so->numKilled = 0;          /* just paranoia */
     so->markItemIndex = -1;     /* ditto */
 }
-

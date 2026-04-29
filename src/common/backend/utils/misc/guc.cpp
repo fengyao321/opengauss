@@ -2078,6 +2078,19 @@ static void InitConfigureNamesBool()
             NULL,
             false
         },
+        {{"enable_plan_node_reuse",
+            PGC_USERSET,
+            NODE_SINGLENODE,
+            QUERY_TUNING,
+            gettext_noop("Enable plan node reuse"),
+            NULL},
+            &u_sess->attr.attr_common.enable_plan_node_reuse,
+            false,
+            NULL,
+            NULL,
+            NULL,
+            NULL
+        },
         {{"ts_adaptive_threads",
             PGC_SIGHUP,
             NODE_DISTRIBUTE,
@@ -9866,6 +9879,10 @@ void ExecSetVariableStmt(VariableSetStmt* stmt, ParamListInfo paramInfo)
 
         default:
             break;
+    }
+    if (passwd != NULL) {
+        errno_t rc = memset_s(passwd, strlen(passwd), 0, strlen(passwd));
+        securec_check(rc, "\0", "\0");
     }
 }
 

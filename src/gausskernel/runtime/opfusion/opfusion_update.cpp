@@ -29,6 +29,7 @@
 #include "access/htap/imcstore_delta.h"
 #endif
 #include "commands/matview.h"
+#include "executor/executor.h"
 #include "executor/node/nodeModifyTable.h"
 #include "opfusion/opfusion_indexscan.h"
 #include "parser/parse_coerce.h"
@@ -412,7 +413,9 @@ lreplace:
                 ExecConstraints(result_rel_info, m_local.m_reslot, m_c_local.m_estate);
             }
         }
-        CheckIndexDisableValid(result_rel_info, m_c_local.m_estate);
+        if (unlikely(rel->rd_att->constr && rel->rd_att->constr->has_disable_constr)) {
+            CheckIndexDisableValid(result_rel_info, m_c_local.m_estate);
+        }
 
         /* Check unique constraints first if SQL has keyword IGNORE */
         bool isgpi = false;
@@ -493,8 +496,8 @@ lreplace:
                         NULL, tup, &((HeapTuple)oldtup)->t_self, exec_index_tuples_state, bucketid, modifiedIdxAttrs);
                 }
 #ifdef ENABLE_HTAP
-                if (HAVE_HTAP_TABLES) {
-                    Relation fake_relation = (bucket_rel == NULL) ? destRel : bucket_rel;
+                Relation fake_relation = (bucket_rel == NULL) ? destRel : bucket_rel;
+                if (ExecNeedImcsWriteHook(result_rel_info, fake_relation)) {
                     IMCStoreUpdateHook(RelationGetRelid(fake_relation), tableam_tops_get_t_self(fake_relation, oldtup),
                         tableam_tops_get_t_self(fake_relation, tup));
                 }
@@ -617,6 +620,7 @@ bool UpdateFusion::execute(long max_rows, char *completionTag)
      * step 1: prepare *
      * ***************** */
     m_local.m_scan->refreshParameter(m_local.m_outParams == NULL ? m_local.m_params : m_local.m_outParams);
+    m_local.m_scan->m_hasRelationLock = this->m_hasRelationLock;
     m_local.m_scan->Init(max_rows);
     m_local.m_ledger_hash_exist = false;
     m_local.m_ledger_relhash = 0;

@@ -1758,6 +1758,12 @@ static Tuple autoinc_modify_tuple(TupleDesc desc, EState* estate, TupleTableSlot
     return tuple;
 }
 
+static inline bool ExecNeedAutoIncrementRestore(const EState* estate)
+{
+    return estate != NULL && estate->es_result_relation_info != NULL &&
+        estate->es_result_relation_info->ri_NeedAutoIncrementRestore;
+}
+
 Tuple ExecAutoIncrement(Relation rel, EState* estate, TupleTableSlot* slot, Tuple tuple)
 {
     if (rel->rd_att->constr->cons_autoinc == NULL) {
@@ -1769,6 +1775,7 @@ Tuple ExecAutoIncrement(Relation rel, EState* estate, TupleTableSlot* slot, Tupl
     AttrNumber attnum = cons_autoinc->attnum;
     bool is_null = false;
     bool modify_tuple = false;
+    bool needAutoincRestore = ExecNeedAutoIncrementRestore(estate);
     Datum datum = tableam_tops_tuple_getattr(tuple, attnum, rel->rd_att, &is_null);
 
     if (is_null) {
@@ -1786,7 +1793,7 @@ Tuple ExecAutoIncrement(Relation rel, EState* estate, TupleTableSlot* slot, Tupl
         if (rel->rd_rel->relpersistence == RELPERSISTENCE_TEMP) {
             autoinc = tmptable_autoinc_nextval(rel->rd_rel->relfilenode, cons_autoinc->next);
         } else {
-            if (estate->next_autoinc > 0) {
+            if (needAutoincRestore && estate->next_autoinc > 0) {
                 autoinc = estate->next_autoinc;
                 estate->next_autoinc = 0;
             } else {
@@ -1794,7 +1801,9 @@ Tuple ExecAutoIncrement(Relation rel, EState* estate, TupleTableSlot* slot, Tupl
             }
         }
 
-        estate->cur_insert_autoinc = autoinc;
+        if (needAutoincRestore) {
+            estate->cur_insert_autoinc = autoinc;
+        }
         if (estate->first_autoinc == 0) {
             estate->first_autoinc = autoinc;
         }

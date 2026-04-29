@@ -279,6 +279,7 @@ CachedPlanSource* CreateCachedPlan(Node* raw_parse_tree, const char* query_strin
     plansource->dependsOnRole = false;
     plansource->cq_is_flt_frame = 
         (u_sess->attr.attr_common.enable_expr_fusion && u_sess->attr.attr_sql.query_dop_tmp == 1);
+    plansource->operator_reuse_state = NULL;
     plansource->fixed_result = false;
     plansource->resultDesc = NULL;
     plansource->search_path = NULL;
@@ -367,47 +368,20 @@ CachedPlanSource* CreateCachedPlan(Node* raw_parse_tree, const char* query_strin
  */
 CachedPlanSource* CreateOneShotCachedPlan(Node* raw_parse_tree, const char* query_string, const char* commandTag)
 {
-    CachedPlanSource* plansource = NULL;
-
     Assert(query_string != NULL); /* required as of 8.4 */
 
-    /*
-     * Create and fill the CachedPlanSource struct within the caller's memory
-     * context.  Most fields are just left empty for the moment.
-     */
-    plansource = (CachedPlanSource*)palloc0(sizeof(CachedPlanSource));
+    /* palloc0 zeroes all fields; only set non-zero ones below */
+    CachedPlanSource* plansource = (CachedPlanSource*)palloc0(sizeof(CachedPlanSource));
     plansource->magic = CACHEDPLANSOURCE_MAGIC;
     plansource->raw_parse_tree = raw_parse_tree;
     plansource->query_string = query_string;
     plansource->commandTag = commandTag;
-    plansource->param_types = NULL;
-    plansource->num_params = 0;
-    plansource->parserSetup = NULL;
-    plansource->parserSetupArg = NULL;
-    plansource->cursor_options = 0;
     plansource->rewriteRoleId = InvalidOid;
-    plansource->dependsOnRole = false;
-    plansource->cq_is_flt_frame = 
+    plansource->cq_is_flt_frame =
         (u_sess->attr.attr_common.enable_expr_fusion && u_sess->attr.attr_sql.query_dop_tmp == 1);
-    plansource->fixed_result = false;
-    plansource->resultDesc = NULL;
-    plansource->search_path = NULL;
     plansource->context = CurrentMemoryContext;
-    plansource->describe_buf_context = NULL;
-    plansource->query_list = NIL;
-    plansource->relationOids = NIL;
-    plansource->invalItems = NIL;
-    plansource->query_context = NULL;
-    plansource->gplan = NULL;
     plansource->is_oneshot = true;
-    plansource->is_complete = false;
-    plansource->is_saved = false;
-    plansource->is_valid = false;
-    plansource->generation = 0;
-    plansource->next_saved = NULL;
     plansource->generic_cost = -1;
-    plansource->total_custom_cost = 0;
-    plansource->num_custom_plans = 0;
     plansource->spi_signature = {(uint32)-1, 0, (uint32)-1, -1};
     plansource->param_collation = GetCollationConnection();
 
@@ -1011,6 +985,7 @@ List* RevalidateCachedQuery(CachedPlanSource* plansource, bool has_lp)
     if (plansource->planManager != NULL) {
         plansource->planManager->is_valid = false;
     }
+    plansource->operator_reuse_state = NULL;
     plansource->query_list = NIL;
     plansource->relationOids = NIL;
     plansource->invalItems = NIL;
@@ -1612,6 +1587,7 @@ CachedPlan* BuildCachedPlan(CachedPlanSource* plansource, List* qlist, ParamList
         plan->saved_xmin = InvalidTransactionId;
     plansource->cq_is_flt_frame =
         (u_sess->attr.attr_common.enable_expr_fusion && u_sess->attr.attr_sql.query_dop_tmp == 1);
+    plansource->operator_reuse_state = NULL;
     plan->refcount = 0;
     plan->global_refcount = 0;
     plan->context = plan_context;

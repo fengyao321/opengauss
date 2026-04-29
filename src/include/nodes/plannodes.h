@@ -194,6 +194,7 @@ typedef struct PlannedStmt {
     uint64 uniqueSQLId;
 
     uint32 cause_type; /* Possible Slow SQL Risks in the Plan. */
+    CachedPlanSource* psrc;
 #ifdef USE_SPQ
     uint64 spq_session_id;
     int current_id;
@@ -2026,4 +2027,3 @@ typedef enum DMLAction {
 } DMLAction;
 #endif /* USE_SPQ */
 #endif /* PLANNODES_H */
-

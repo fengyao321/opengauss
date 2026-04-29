@@ -536,6 +536,7 @@ PlanState* ExecInitNode(Plan* node, EState* estate, int e_flags)
     MemoryContext old_context;
     MemoryContext node_context;
     MemoryContext query_context;
+
     char context_name[NODENAMELEN];
     int rc = 0;
 

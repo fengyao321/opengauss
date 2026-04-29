@@ -1064,7 +1064,7 @@ static Oid ExecUpsert(ModifyTableState* state, TupleTableSlot* slot, TupleTableS
     }
 
 #ifdef ENABLE_HTAP
-    if (HAVE_HTAP_TABLES) {
+    if (ExecNeedImcsWriteHook(resultRelInfo, targetrel)) {
         IMCStoreInsertHook(RelationGetRelid(targetrel), tableam_tops_get_t_self(targetrel, tuple));
     }
 #endif
@@ -1215,7 +1215,10 @@ TupleTableSlot* ExecInsertT(ModifyTableState* state, TupleTableSlot* slot, Tuple
                     }
                 }
             }
-            CheckIndexDisableValid(result_rel_info, estate);
+            if (unlikely(result_relation_desc->rd_att->constr &&
+                         result_relation_desc->rd_att->constr->has_disable_constr)) {
+                CheckIndexDisableValid(result_rel_info, estate);
+            }
         }
 #endif
         /*
@@ -1262,7 +1265,10 @@ TupleTableSlot* ExecInsertT(ModifyTableState* state, TupleTableSlot* slot, Tuple
             }
             tuple = ExecAutoIncrement(result_relation_desc, estate, slot, tuple);
         }
-        CheckIndexDisableValid(result_rel_info, estate);
+        if (unlikely(result_relation_desc->rd_att->constr &&
+                     result_relation_desc->rd_att->constr->has_disable_constr)) {
+            CheckIndexDisableValid(result_rel_info, estate);
+        }
 
 #ifdef PGXC
         if (IS_PGXC_COORDINATOR && result_remote_rel) {
@@ -1603,11 +1609,10 @@ TupleTableSlot* ExecInsertT(ModifyTableState* state, TupleTableSlot* slot, Tuple
                 } else {
                     state->isConflict = false;
                 }
-
             }
     }
 #ifdef ENABLE_HTAP
-    if (HAVE_HTAP_TABLES && target_rel != NULL) {
+    if (ExecNeedImcsWriteHook(result_rel_info, target_rel)) {
         IMCStoreInsertHook(RelationGetRelid(target_rel), tableam_tops_get_t_self(target_rel, tuple));
     }
 #endif
@@ -1680,6 +1685,16 @@ TupleTableSlot* ExecInsertT(ModifyTableState* state, TupleTableSlot* slot, Tuple
 
     return NULL;
 }
+
+#ifdef ENABLE_HTAP
+static inline void ExecImcsDeleteHookIfNeeded(
+    ResultRelInfo* result_rel_info, Relation rel, ItemPointer tupleid)
+{
+    if (ExecNeedImcsWriteHook(result_rel_info, rel)) {
+        IMCStoreDeleteHook(RelationGetRelid(rel), tupleid);
+    }
+}
+#endif
 
 /* ----------------------------------------------------------------
  *		ExecDelete
@@ -1795,10 +1810,13 @@ TupleTableSlot* ExecDelete(ItemPointer tupleid, Oid deletePartitionOid, int2 buc
     fake_relation = result_relation_desc;
 
 ldelete:
-        if (result_relation_desc->rd_att->constr && result_relation_desc->rd_att->constr->num_check > 0) {
-            CheckDisableValidateConstr(result_rel_info);
+        if (unlikely(result_relation_desc->rd_att->constr &&
+                     result_relation_desc->rd_att->constr->has_disable_constr)) {
+            if (result_relation_desc->rd_att->constr->num_check > 0) {
+                CheckDisableValidateConstr(result_rel_info);
+            }
+            CheckIndexDisableValid(result_rel_info, estate);
         }
-        CheckIndexDisableValid(result_rel_info, estate);
 #ifdef PGXC
         if (IS_PGXC_COORDINATOR && result_remote_rel) {
             /* for merge into we have to provide the slot */
@@ -1867,9 +1885,7 @@ ldelete:
 
                 case TM_Ok: {
 #ifdef ENABLE_HTAP
-                    if (HAVE_HTAP_TABLES) {
-                        IMCStoreDeleteHook(RelationGetRelid(fake_relation), tupleid);
-                    }
+                    ExecImcsDeleteHookIfNeeded(result_rel_info, fake_relation, tupleid);
 #endif
                     /* Record delete operator to history table */
                     if (result_relation_desc->rd_isblockchain) {
@@ -2270,11 +2286,13 @@ TupleTableSlot* ExecUpdate(ItemPointer tupleid,
                     }
                 }
             }
-            CheckIndexDisableValid(result_rel_info, estate);
+            if (unlikely(result_relation_desc->rd_att->constr &&
+                         result_relation_desc->rd_att->constr->has_disable_constr)) {
+                CheckIndexDisableValid(result_rel_info, estate);
+            }
         }
 #endif
         slot = result_rel_info->ri_FdwRoutine->ExecForeignUpdate(estate, result_rel_info, slot, planSlot);
-
         if (slot == NULL) {
             /* "do nothing" */
             return NULL;
@@ -2333,7 +2351,10 @@ lreplace:
                 }
             }
         }
-        CheckIndexDisableValid(result_rel_info, estate);
+        if (unlikely(result_relation_desc->rd_att->constr &&
+                     result_relation_desc->rd_att->constr->has_disable_constr)) {
+            CheckIndexDisableValid(result_rel_info, estate);
+        }
 
 #ifdef PGXC
         if (IS_PGXC_COORDINATOR && result_remote_rel) {
@@ -2437,7 +2458,7 @@ lreplace:
 
                         case TM_Ok:
 #ifdef ENABLE_HTAP
-                            if (HAVE_HTAP_TABLES) {
+                            if (ExecNeedImcsWriteHook(result_rel_info, result_relation_desc)) {
                                 IMCStoreUpdateHook(RelationGetRelid(result_relation_desc), tupleid,
                                     tableam_tops_get_t_self(result_relation_desc, tuple));
                             }
@@ -2767,7 +2788,7 @@ lreplace:
 
                             case TM_Ok:
 #ifdef ENABLE_HTAP
-                                if (HAVE_HTAP_TABLES) {
+                                if (ExecNeedImcsWriteHook(result_rel_info, fake_relation)) {
                                     IMCStoreUpdateHook(RelationGetRelid(fake_relation), tupleid,
                                         tableam_tops_get_t_self(fake_relation, tuple));
                                 }
@@ -2986,7 +3007,7 @@ ldelete:
 
                                 case TM_Ok: {
 #ifdef ENABLE_HTAP
-                                    if (HAVE_HTAP_TABLES) {
+                                    if (ExecNeedImcsWriteHook(result_rel_info, old_fake_relation)) {
                                         IMCStoreDeleteHook(RelationGetRelid(old_fake_relation), tupleid);
                                     }
 #endif
@@ -3160,7 +3181,7 @@ ldelete:
                                 tuple, estate->es_output_cid, 0, NULL);
 
 #ifdef ENABLE_HTAP
-                            if (HAVE_HTAP_TABLES) {
+                            if (ExecNeedImcsWriteHook(result_rel_info, fake_insert_relation)) {
                                 IMCStoreInsertHook(RelationGetRelid(fake_insert_relation),
                                     tableam_tops_get_t_self(fake_insert_relation, tuple));
                             }
@@ -4267,6 +4288,7 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
          * do this.
          */
         for (int ri = 0; ri < resultRelationNum; ri++) {
+            result_rel_info->ri_NeedAutoIncrementRestore = (node->upsertAction != UPSERT_NONE);
             if (result_rel_info->ri_RelationDesc->rd_rel->relhasindex &&
                 result_rel_info->ri_IndexRelationDescs == NULL) {
 #ifdef ENABLE_MOT
