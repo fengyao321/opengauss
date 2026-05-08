@@ -57,8 +57,13 @@ static void hnswcostestimate_internal(PlannerInfo *root, IndexPath *path, double
 
     MemSet(&costs, 0, sizeof(costs));
 
+    /*
+     * For local partition indexes, planner paths still carry the parent index
+     * OID. The parent has no storage, so cost estimation must not read the
+     * metapage from disk here.
+     */
     index = index_open(path->indexinfo->indexoid, NoLock);
-    HnswGetMetaPageInfo(index, &m, NULL);
+    m = HnswGetM(index);
     index_close(index, NoLock);
 
     /* Approximate entry level */

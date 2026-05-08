@@ -839,8 +839,16 @@ ObjectAddress DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, 
     GetUserIdAndSecContext(&root_save_userid, &root_save_sec_context);
     SetUserIdAndSecContext(rel->rd_rel->relowner,
         root_save_sec_context | SECURITY_RESTRICTED_OPERATION);
+    const bool isVectorIndex = (pg_strcasecmp(stmt->accessMethod, DEFAULT_HNSW_INDEX_TYPE) == 0) ||
+        (pg_strcasecmp(stmt->accessMethod, DEFAULT_IVFFLAT_INDEX_TYPE) == 0);
+
     /* Forbidden to create gin index on ustore table. */
     if (rel->rd_tam_ops == TableAmUstore) {
+        if (RELATION_IS_PARTITIONED(rel) && stmt->isPartitioned && isVectorIndex) {
+            ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("%s local partition index is only supported on astore tables", stmt->accessMethod)));
+        }
         if (strcmp(stmt->accessMethod, "btree") == 0) {
             elog(ERROR, "btree index is not supported for ustore, please use ubtree instead");
         }

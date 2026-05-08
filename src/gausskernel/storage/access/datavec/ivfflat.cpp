@@ -56,8 +56,13 @@ static void ivfflatcostestimate_internal(PlannerInfo *root, IndexPath *path, dou
 
     MemSet(&costs, 0, sizeof(costs));
 
+    /*
+     * For local partition indexes, planner paths still point at the parent
+     * index relation. Read reloptions instead of a non-existent parent
+     * metapage.
+     */
     index = index_open(path->indexinfo->indexoid, NoLock);
-    IvfflatGetMetaPageInfo(index, &lists, NULL);
+    lists = IvfflatGetLists(index);
     index_close(index, NoLock);
 
     /* Get the ratio of lists that we need to visit */
