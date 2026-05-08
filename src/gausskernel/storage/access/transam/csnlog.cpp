@@ -52,7 +52,9 @@
 #include "gstrace/gstrace_infra.h"
 #include "gstrace/access_gstrace.h"
 #include "replication/walreceiver.h"
-
+/* USE_UB_TXN_CACHE - BEGIN */
+#include "access/ubmem_buf.h"
+/* USE_UB_TXN_CACHE - END */
 /*
  * Defines for CSNLOG page sizes.  A page is the same BLCKSZ as is used
  * everywhere else in openGauss.
@@ -414,6 +416,14 @@ static bool CSNLogSetCSN(SlruCtl ctl, TransactionId xid, CommitSeqNo csn, int sl
 
     if (!COMMITSEQNO_IS_ABORTED(*ptr)) {
         *ptr = csn;
+/* USE_UB_TXN_CACHE - BEGIN */
+        if (ENABLE_UB) {
+            UBCSNLogBuffer *ubBuf = (UBCSNLogBuffer *)g_instance.shmem_cxt.UBCSNLogBufPtr;
+            if (ubBuf != nullptr) {
+                UBCSNLogBufferSetSlot(ubBuf, xid, csn);
+            }
+        }
+/* USE_UB_TXN_CACHE - END */
         return true;
     } else {
         return false;
@@ -852,3 +862,100 @@ void SSCSNLOGShmemClear(void)
             CSNLOGDIR, i);
     }
 }
+
+/*
+ * @Description: Initialization of UB shared memory for CSNLOG
+ */
+
+/* USE_UB_TXN_CACHE - BEGIN */
+
+void UBCSNLogBufferInit(UBCSNLogBuffer *buf) {
+    memset(buf, 0, sizeof(UBCSNLogBuffer));
+}
+
+void UBCSNLogBufferSetSlot(UBCSNLogBuffer *buf, TransactionId xid, uint64 csn) {
+    if (buf == nullptr) return;
+    if (csn == 0) return;
+    if (!UBCSNLogIsValidXid(xid)) return;
+
+    uint32 slot_idx = (uint32)UB_CSNLOG_CAL_SLOT_INDEX(xid);
+    uint64 expected_timeline = (uint64)UB_CSNLOG_EXPECTED_TIMELINE(xid);
+    __uint128_t packed_val = UB_CSNLOG_PACK_SLOT(expected_timeline, csn);
+    buf->slots[slot_idx].store(packed_val, std::memory_order_release);
+    ENTER_ESB();
+
+    if (UB_DEBUG_LOG) {
+        ereport(LOG, (errmsg("[UB CSNLOG] SetSlot: xid=%lu, csn=%lu, timeline=%lu, slot_idx=%u",
+                             xid, csn, expected_timeline, slot_idx)));
+    }
+}
+
+Size UBCSNLogBufferSize(void)
+{
+    return sizeof(UBCSNLogBuffer);
+}
+
+void UBCSNLogShmemInit(void)
+{
+    char *base = g_instance.shmem_cxt.UBTxnCachePtr;
+    if (base == nullptr) {
+        ereport(FATAL, (errmsg("UB shared memory not initialized")));
+        return;
+    }
+    UBShmControlBlock *ctrl = (UBShmControlBlock *)base;
+    uint64 offset = ctrl->csnlog_offset.load(std::memory_order_acquire);
+    UBCSNLogBuffer *buf = (UBCSNLogBuffer *)(base + offset);
+    g_instance.shmem_cxt.UBCSNLogBufPtr = buf;
+    ereport(LOG, (errmsg("[UB DEBUG] UBCSNLogShmemInit: base=%p, offset=%lu, buf=%p", base, offset, buf)));
+}
+
+bool UBGetCSNFromPrimary(TransactionId xid, uint64 *csn)
+{
+    if (csn == nullptr) {
+        ereport(WARNING, (errmsg("UB CSNLOG: csn pointer is null")));
+        return false;
+    }
+
+    UBCSNLogBuffer *ubCSNLogBuf = (UBCSNLogBuffer *)g_instance.shmem_cxt.UBCSNLogBufPtr;
+    if (ubCSNLogBuf == nullptr) {
+        ereport(WARNING, (errmsg("UB CSNLOG buffer not initialized on primary")));
+        return false;
+    }
+
+    if (!UBCSNLogIsValidXid(xid)) {
+        if (UB_DEBUG_LOG) {
+            ereport(LOG, (errmsg("[UB CSNLOG] GetCSN: xid=%lu is invalid (timeline exceeds max)", xid)));
+        }
+        return false;
+    }
+
+    uint32 slot_idx = (uint32)UB_CSNLOG_CAL_SLOT_INDEX(xid);
+    uint64 expected_timeline = (uint64)UB_CSNLOG_EXPECTED_TIMELINE(xid);
+    __uint128_t slot_val = ubCSNLogBuf->slots[slot_idx].load(std::memory_order_acquire);
+    ENTER_ESB();
+
+    uint64 timelineid = UB_CSNLOG_UNPACK_TIMELINEID(slot_val);
+    uint64 csn_val = UB_CSNLOG_UNPACK_CSN(slot_val);
+
+    if (timelineid == expected_timeline && csn_val != 0) {
+        if (COMMITSEQNO_IS_COMMITTING(csn_val)) {
+            if (UB_DEBUG_LOG) {
+                ereport(LOG, (errmsg("[UB CSNLOG] GetCSN: xid=%lu is COMMITTING, fallback to network", xid)));
+            }
+            return false;
+        }
+        *csn = csn_val;
+        if (UB_DEBUG_LOG) {
+            ereport(LOG, (errmsg("[UB CSNLOG] GetCSN: xid=%lu, csn=%lu, timeline=%lu",
+                         xid, *csn, expected_timeline)));
+        }
+        return true;
+    }
+    if (UB_DEBUG_LOG) {
+        ereport(LOG, (errmsg("[UB CSNLOG] GetCSN: xid=%lu, timeline mismatch or expected=%lu, actual=%lu",
+                     xid, expected_timeline, timelineid)));
+    }
+    return false;
+}
+
+/* USE_UB_TXN_CACHE - END */
