@@ -2240,13 +2240,19 @@ void NumericCompressReleaseResource(numerics_statistics_out* statOut, numerics_c
 
 /// get the first bit1 position of an int32 value.
 /// the function is the same to Log2(n)
-static short Int32ValueLog(uint16 value)
+static short Int32ValueLog(uint32 value)
 {
+    const short uint8Bits = BITS_PER_BYTE;
+    const short uint16Bits = sizeof(uint16) * BITS_PER_BYTE;
     short n = 0;
 
-    if (value > 0xFF) {
-        n += 8;
-        value >>= n;
+    if (value > PG_UINT16_MAX) {
+        n += uint16Bits;
+        value >>= uint16Bits;
+    }
+    if (value > PG_UINT8_MAX) {
+        n += uint8Bits;
+        value >>= uint8Bits;
     }
     if (value > 0x0F) {
         n += 4;
@@ -2267,7 +2273,7 @@ static short Int32ValueLog(uint16 value)
 /// 1. Log2(repeats)+1 if repeats is not 2^^k, or
 /// 2. Log2(repeats)   if repeats is     2^^k
 static void NumericDecompressRepeatOneValue(
-    char* outBuf, int64 value, char ascale, int typeMode, uint16 repeats, bool DscaleFlag)
+    char* outBuf, int64 value, char ascale, int typeMode, int repeats, bool DscaleFlag)
 {
     /// *repeats* is at least 1.
     Assert(repeats > 0);
@@ -2284,9 +2290,11 @@ static void NumericDecompressRepeatOneValue(
         singleLen = convert_int64_to_short_numeric(outBuf, value, ascale, typeMode);
     }
 
-    uint32 loops = Int32ValueLog(repeats);
-    int remain = repeats - (1U << loops);
-    Assert(remain >= 0 && (uint)remain < (1U << loops));
+    uint32 repeatCount = (uint32)repeats;
+    uint32 loops = Int32ValueLog(repeatCount);
+    uint32 baseRepeats = 1U << loops;
+    uint32 remain = repeatCount - baseRepeats;
+    Assert(remain < baseRepeats);
 
     char* copyBuff = outBuf + singleLen;
     uint32 copySize = singleLen;
