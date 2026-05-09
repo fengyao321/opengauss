@@ -232,7 +232,7 @@ void InitBufferPool(void)
         InitDmsBufCtrl();
     }
 
-#ifndef ENABLE_LITE_MODE
+#if !defined(ENABLE_LITE_MODE) && !defined(ENABLE_NEON)
     if (!ENABLE_DMS && g_instance.attr.attr_storage.enable_ustore) {
         InitCRBufPool();
     }

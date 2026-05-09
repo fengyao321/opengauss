@@ -4348,9 +4348,9 @@ static int ServerLoop(void)
         ADIO_END();
 #endif
 #ifdef ENABLE_NEON
-        if (g_instance.pid_cxt.WALproposerPID == 0 && pmState == PM_RUN) {
+        if (g_instance.loadedNeonPlugin && g_instance.pid_cxt.WALproposerPID == 0 && pmState == PM_RUN) {
             g_instance.pid_cxt.WALproposerPID = initialize_util_thread(WALPROPOSER);
-            ereport(WARNING, (errmsg_internal("g_instance.pid_cxt.WALproposerPID:%lu", g_instance.pid_cxt.WALproposerPID)));
+            ereport(LOG, (errmsg("WALproposer started (tid %lu)", g_instance.pid_cxt.WALproposerPID)));
         }
 #endif
 
@@ -7912,6 +7912,13 @@ static void reaper(SIGNAL_ARGS)
                  * When all walsender exit, exit heartbeat thread.
                  */
                 SignalChildren(SIGUSR2);
+#ifdef ENABLE_NEON
+                if (g_instance.pid_cxt.WALproposerPID != 0) {
+                    ereport(LOG, (errmsg("sending SIGUSR2 to WALproposer (tid %lu) for graceful shutdown",
+                                        g_instance.pid_cxt.WALproposerPID)));
+                    signal_child(g_instance.pid_cxt.WALproposerPID, SIGUSR2);
+                }
+#endif
                 if (g_instance.pid_cxt.HeartbeatPID != 0) {
                     signal_child(g_instance.pid_cxt.HeartbeatPID, SIGTERM);
                 }
@@ -7978,6 +7985,20 @@ static void reaper(SIGNAL_ARGS)
 
             continue;
         }
+
+#ifdef ENABLE_NEON
+        if (pid == g_instance.pid_cxt.WALproposerPID) {
+            g_instance.pid_cxt.WALproposerPID = 0;
+
+            if (EXIT_STATUS_0(exitstatus)) {
+                ereport(LOG, (errmsg("WALproposer exited gracefully")));
+            } else {
+                HandleChildCrash(pid, exitstatus, _("WALproposer process"));
+            }
+
+            continue;
+        }
+#endif
 
         /*
          * Was it the wal file creator?  Normal exit can be ignored; we'll start a
@@ -9313,6 +9334,9 @@ static void PostmasterStateMachine(void)
             g_instance.pid_cxt.WalReceiverPID == 0 && g_instance.pid_cxt.WalRcvWriterPID == 0 &&
             g_instance.pid_cxt.DataReceiverPID == 0 && g_instance.pid_cxt.DataRcvWriterPID == 0 &&
             ObsArchAllShutDown() && g_instance.pid_cxt.HeartbeatPID == 0 &&
+#ifdef ENABLE_NEON
+            g_instance.pid_cxt.WALproposerPID == 0 &&
+#endif
             g_instance.pid_cxt.sharedStorageXlogCopyThreadPID == 0) {
             pmState = PM_WAIT_DEAD_END;
         }

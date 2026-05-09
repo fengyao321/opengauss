@@ -815,6 +815,7 @@ typedef struct knl_t_xlog_context {
     XLogRecPtr last_forwarder_lsn;
 #ifdef ENABLE_NEON
     bool am_wal_redo_postgres;
+    int wal_redo_target_buf;
 #endif
 } knl_t_xlog_context;
 

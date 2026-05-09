@@ -56,7 +56,7 @@
 
 #if defined(ENABLE_NEON) && !defined(FRONTEND)
     bool    (*redo_read_buffer_filter) (XLogReaderState *record, uint8 block_id);
-    void    (*redo_buffer_allocated_hook) (Buffer buf);
+    struct buftag *redo_target_tag = NULL;
 #endif
 
 /*
@@ -698,7 +698,18 @@ XLogRedoAction XLogReadBufferForRedoBlockExtend(RedoBufferTag *redoblock, ReadBu
                 }
             }
             page = BufferGetPage(buf);
+#if defined(ENABLE_NEON) && !defined(FRONTEND)
+            /*
+             * BufferGetPageSize derives the size from pd_pagesize_version in
+             * the page header.  For pages that have not been initialised yet
+             * (PageIsNew) the header is all-zero, so the derivation returns 0.
+             * Every buffer slot is actually BLCKSZ bytes; use that instead so
+             * downstream redo functions (e.g. PageInit) receive a valid size.
+             */
+            pagesize = PageIsNew(page) ? (Size)BLCKSZ : BufferGetPageSize(buf);
+#else
             pagesize = BufferGetPageSize(buf);
+#endif
         }
     }
 
@@ -778,66 +789,17 @@ XLogRedoAction XLogReadBufferForRedoExtended(XLogReaderState *record, uint8 bloc
     }
 
 #if defined(ENABLE_NEON) && !defined(FRONTEND)
-    bool hasBlockImage = XLogRecHasBlockImage(record, block_id);
     bool filterResult = redo_read_buffer_filter ? redo_read_buffer_filter(record, block_id) : false;
     if (filterResult) {
-        /*
-         * This block is not the target block we're trying to reconstruct.
-         * However, if the WAL record has a full-page image (FPI) for this block,
-         * some redo functions (like heap_xlog_newpage) expect BLK_RESTORED.
-         * For neon walredo, when a block is filtered out but has FPI, we need to:
-         * 1. Read the buffer (even if it's not the target block)
-         * 2. Restore the FPI content to the buffer
-         * 3. Return BLK_RESTORED
-         * This is critical because some redo functions (e.g., heap_xlog_update)
-         * read data from the old page to construct the new page. If we don't
-         * restore the FPI, the old page will be empty/zeroed, causing data loss.
-         */
-        if (hasBlockImage) {
-            /*
-             * We must read the buffer and restore the FPI content.
-             * Use RBM_ZERO_AND_LOCK to ensure the buffer is allocated.
-             */
-            bufferinfo->buf = ReadBufferWithoutRelcache(blockinfo.rnode, blockinfo.forknum,
-                                                        blockinfo.blkno, RBM_ZERO_AND_LOCK, NULL, &(blockinfo.pblk));
-            
-            /* Set up bufferinfo fields that callers may need */
-            bufferinfo->lsn = record->EndRecPtr;
-            bufferinfo->blockinfo = blockinfo;
-            
-            /* Get the page from the buffer */
-            Page page = BufferGetPage(bufferinfo->buf);
-            bufferinfo->pageinfo.page = page;
-            bufferinfo->pageinfo.pagesize = BufferGetPageSize(bufferinfo->buf);
-            
-            /*
-             * Restore the FPI content to the buffer - this was missing before!
-             * Without this, the buffer would be empty/zeroed, causing data loss.
-             */
-            char *imagedata;
-            uint16 hole_offset;
-            uint16 hole_length;
-            imagedata = XLogRecGetBlockImage(record, block_id, &hole_offset, &hole_length);
-            if (imagedata != NULL) {
-                RestoreBlockImage(imagedata, hole_offset, hole_length, (char *)page);
-                /* Set LSN on the restored page */
-                XlogUpdateFullPageWriteLsn(page, record->EndRecPtr);
-            }
-            return BLK_RESTORED;
+        if (mode == RBM_ZERO_AND_LOCK || mode == RBM_ZERO_AND_CLEANUP_LOCK) {
+            bufferinfo->buf = ReadBufferWithoutRelcache(blockinfo.rnode,
+                                blockinfo.forknum, blockinfo.blkno, mode, NULL,
+                                &blockinfo.pblk);
+            bufferinfo->pageinfo.page = BufferGetPage(bufferinfo->buf);
+            bufferinfo->pageinfo.pagesize = BLCKSZ;
+            return BLK_DONE;
         } else {
-            if (mode == RBM_ZERO_AND_LOCK || mode == RBM_ZERO_AND_CLEANUP_LOCK) {
-                bufferinfo->buf = ReadBufferWithoutRelcache(blockinfo.rnode, blockinfo.forknum,
-                                             blockinfo.blkno, mode, NULL, &(blockinfo.pblk));
-                /* Set up bufferinfo fields that callers may need */
-                bufferinfo->lsn = record->EndRecPtr;
-                bufferinfo->blockinfo = blockinfo;
-                bufferinfo->pageinfo.page = BufferGetPage(bufferinfo->buf);
-                bufferinfo->pageinfo.pagesize = BufferGetPageSize(bufferinfo->buf);
-            } else {
-                bufferinfo->buf = InvalidBuffer;
-                /* Even for invalid buffer, set pagesize to prevent uninitialized value */
-                bufferinfo->pageinfo.pagesize = (Size)BLCKSZ;
-            }
+            bufferinfo->buf = InvalidBuffer;
             return BLK_DONE;
         }
     }
@@ -851,20 +813,9 @@ XLogRedoAction XLogReadBufferForRedoExtended(XLogReaderState *record, uint8 bloc
     checkBlockFlag(mode, willinit);
 
     xloghasblockimage = XLogRecHasBlockImage(record, block_id);
-#if defined(ENABLE_NEON) && !defined(FRONTEND)
-    /*
-     * Neon: also use RBM_ZERO mode when willinit=true, so that pages
-     * not yet present on the pageserver are allocated rather than
-     * returning BLK_NOTFOUND (avoids "missing attribute" after restart).
-     */
-    if (xloghasblockimage || willinit) {
-        mode = get_cleanup_lock ? RBM_ZERO_AND_CLEANUP_LOCK : RBM_ZERO_AND_LOCK;
-    }
-#else
     if (xloghasblockimage) {
         mode = get_cleanup_lock ? RBM_ZERO_AND_CLEANUP_LOCK : RBM_ZERO_AND_LOCK;
     }
-#endif
 
     if (record->isTde) {
         tde = InsertTdeInfoToCache(blockinfo.rnode, record->blocks[block_id].tdeinfo);
@@ -876,18 +827,6 @@ XLogRedoAction XLogReadBufferForRedoExtended(XLogReaderState *record, uint8 bloc
         return BLK_NOTFOUND;
     }
 
-#if defined(ENABLE_NEON) && !defined(FRONTEND)
-    /*
-     * Notify walredo process that a buffer has been allocated for the target block.
-     * This is critical for will_init cases where no base image is provided by pageserver.
-     * Without this notification, wal_redo_buffer in walredoproc.c won't be set, causing
-     * the "WALREDO_NOINIT" warning and potential data loss.
-     */
-    if (redo_buffer_allocated_hook && BufferIsValid(bufferinfo->buf)) {
-        elog(LOG, "[XLOGUTILS_HOOK] calling redo_buffer_allocated_hook for buffer %d", bufferinfo->buf);
-        redo_buffer_allocated_hook(bufferinfo->buf);
-    }
-#endif
     /* If it's a full-page image, restore it. */
     if (xloghasblockimage) {
         char *imagedata;

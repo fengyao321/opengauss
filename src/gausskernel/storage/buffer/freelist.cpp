@@ -282,6 +282,14 @@ retry:
         }
 
         retry_lock_status.retry_times = 0;
+#ifdef ENABLE_NEON
+        if (t_thrd.xlog_cxt.am_wal_redo_postgres &&
+            t_thrd.xlog_cxt.wal_redo_target_buf != 0 &&
+            BufferDescriptorGetBuffer(buf) == t_thrd.xlog_cxt.wal_redo_target_buf) {
+            UnlockBufHdr(buf, local_buf_state);
+            continue;
+        }
+#endif
         if (BUF_STATE_GET_REFCOUNT(local_buf_state) == 0 && !(local_buf_state & BM_IS_META) &&
             (backend_can_flush_dirty_page() || !(local_buf_state & BM_DIRTY))) {
             /* Found a usable buffer */

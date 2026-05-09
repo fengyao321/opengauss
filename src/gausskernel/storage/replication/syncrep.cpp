@@ -243,8 +243,19 @@ SyncWaitRet SyncRepWaitForLSN(XLogRecPtr XactCommitLSN, bool enableHandleCancel)
      * need to be connected.
      */
     if ((ENABLE_DMS && !SS_STREAM_CLUSTER) || !u_sess->attr.attr_storage.enable_stream_replication || !SyncRepRequested() ||
-        !SyncStandbysDefined() || (t_thrd.postmaster_cxt.HaShmData->current_mode == NORMAL_MODE))
-        return NOT_REQUEST;
+        !SyncStandbysDefined() || (t_thrd.postmaster_cxt.HaShmData->current_mode == NORMAL_MODE)) {
+#ifdef ENABLE_NEON
+        bool walproposerSync = (u_sess->attr.attr_storage.SyncRepStandbyNames != NULL &&
+                                    strstr(u_sess->attr.attr_storage.SyncRepStandbyNames, "walproposer") != NULL);
+        /*
+         * neon storage controller db case
+         */
+        if (!walproposerSync)
+            return NOT_REQUEST;
+#else
+            return NOT_REQUEST;
+#endif
+        }
 
     Assert(t_thrd.walsender_cxt.WalSndCtl != NULL);
 
@@ -276,7 +287,7 @@ SyncWaitRet SyncRepWaitForLSN(XLogRecPtr XactCommitLSN, bool enableHandleCancel)
     }
 
     /*
-     * The WalSndCtl is updated quick by WalSnder as usual， so we may be
+     * The WalSndCtl is updated quick by WalSnder as usual, so we may be
      * waitting for a while better, instead of acquiring a lock.
      */
     #define SYNCREPWAIT_TRY_TIMES 10000
@@ -491,10 +502,10 @@ SyncWaitRet SyncRepWaitForLSN(XLogRecPtr XactCommitLSN, bool enableHandleCancel)
             pg_write_barrier();
             ResetLatch(&t_thrd.proc->procLatch);
             /*
-            * Wait on latch.  Any condition that should wake us up will set the
-            * latch. When unexpected condition happend and no one set latch, this backend will
-            * wake to deal with after a while.
-            */
+             * Wait on latch.  Any condition that should wake us up will set the
+             * latch. When unexpected condition happend and no one set latch, this backend will
+             * wake to deal with after a while.
+             */
             WaitLatch(&t_thrd.proc->procLatch, WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH, 1000L);
             t_thrd.walsender_cxt.WalSndCtl->syncWaitProc = NULL;
             LWLockRelease(g_instance.wal_cxt.walSyncRepWaitLock->l.lock);
