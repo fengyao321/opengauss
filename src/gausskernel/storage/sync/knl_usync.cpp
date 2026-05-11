@@ -127,6 +127,21 @@ void InitPendingOps(void)
          * Fortunately the hash table is small so that's unlikely to happen in
          * practice.
          */
+#ifdef ENABLE_NEON
+        /*
+         * Neon's walredo process calls smgrinit() on every ApplyRecord,
+         * which triggers InitSync() -> InitPendingOps() repeatedly.
+         * Without this guard, each call creates a new hash table and
+         * overwrites the old pointer, leaking the previous allocation.
+         *
+         * Only skip in walredo mode; normal gaussdb (e.g. storage_controller_db)
+         * needs InitPendingOps to re-create the hash table after hash_remove().
+         */
+        if (t_thrd.xlog_cxt.am_wal_redo_postgres &&
+            u_sess->storage_cxt.pendingOps != NULL)
+            return;
+#endif
+
         if (u_sess->storage_cxt.pendingOpsCxt == NULL) {
             u_sess->storage_cxt.pendingOpsCxt = AllocSetContextCreate(u_sess->top_mem_cxt,
                 "Pending ops context", ALLOCSET_DEFAULT_SIZES);

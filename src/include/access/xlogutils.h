@@ -48,8 +48,14 @@ typedef struct xl_invalid_page{
  */
 #ifdef ENABLE_NEON
     extern bool    (*redo_read_buffer_filter) (XLogReaderState *record, uint8 block_id);
-    /* Hook called when a buffer is allocated for the target block during WAL redo */
-    extern void    (*redo_buffer_allocated_hook) (Buffer buf);
+    /*
+     * Pointer to the target block tag for walredo filtering.
+     * When set (walredo mode), XLogReadBufferExtended and friends skip
+     * any block that doesn't match this tag, preventing non-target block
+     * accesses from consuming buffer pool / inmem_smgr overflow slots.
+     * Declared as struct buftag* to avoid requiring buf_internals.h here.
+     */
+    extern struct buftag *redo_target_tag;
 #endif
 
 extern bool XLogHaveInvalidPages(void);
