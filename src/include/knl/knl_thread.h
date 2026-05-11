@@ -80,6 +80,11 @@
 #include "ddes/dms/ss_common_attr.h"
 #include "ddes/dms/ss_txnstatus.h"
 #include "postmaster/rack_mem_cleaner.h"
+/* USE_UB_TXN_CACHE - BEGIN */
+#include "access/clog.h"
+#include "access/csnlog.h"
+#include "ddes/dms/ss_xmin.h"
+/* USE_UB_TXN_CACHE - END */
 
 #define MAX_PATH_LEN 1024
 #define BYTES_PATH_LEN 20

@@ -1,5 +1,28 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+ *
+ * openGauss is licensed under Mulan PSL v2.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *
+ *          http://license.coscl.org.cn/MulanPSL2
+ *
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ * ---------------------------------------------------------------------------------------
+ * ubmem_buf.cpp
+ * UB transaction cache buffer manager
+ *
+ * src/gausskernel/storage/access/transam/ubmem_buf.cpp
+ * ---------------------------------------------------------------------------------------
+ */
+
 /* USE_UB_TXN_CACHE - BEGIN */
-#include "access/ubmem_buf.h"
+#include <string.h>
+#include <pwd.h>
+#include <unistd.h>
 #include "knl/knl_thread.h"
 #include "access/clog.h"
 #include "access/csnlog.h"
@@ -8,9 +31,7 @@
 #include "ddes/dms/ss_xmin.h"
 #include "storage/ubs_mem.h"
 #include "utils/elog.h"
-#include <string.h>
-#include <pwd.h>
-#include <unistd.h>
+#include "access/ubmem_buf.h"
 
 static const char* GetOSUserName(char *buf, size_t len)
 {
@@ -19,7 +40,7 @@ static const char* GetOSUserName(char *buf, size_t len)
         ereport(ERROR, (errmsg("Failed to get OS user name")));
         return nullptr;
     }
-    int ret = snprintf(buf, len, "%s", pw->pw_name);
+    int ret = snprintf_s(buf, len, len - 1, "%s", pw->pw_name);
     if (ret < 0 || (size_t)ret >= len) {
         ereport(ERROR, (errmsg("OS user name too long")));
         return nullptr;
@@ -33,7 +54,7 @@ void UBMemRegionName(const char *host_name, char *region_name, size_t len)
         ereport(ERROR, (errmsg("Invalid arguments")));
         return;
     }
-    int ret = snprintf(region_name, len, "mem_pool_%s", host_name);
+    int ret = snprintf_s(region_name, len, len - 1, "mem_pool_%s", host_name);
     if (ret < 0 || (size_t)ret >= len) {
         ereport(ERROR, (errmsg("Failed to format region name")));
     }
@@ -73,6 +94,30 @@ bool UBMemRegionInit()
         return false;
     }
     return true;
+}
+
+static void InitUBShmControlBlock(UBShmControlBlock *ctrl, size_t total_size, size_t clog_size,
+                                   size_t csnlog_size, size_t xmin_size, size_t snapshot_size)
+{
+    ctrl->total_size.store(total_size, std::memory_order_release);
+    ctrl->clog_offset.store(sizeof(UBShmControlBlock), std::memory_order_release);
+    ctrl->clog_size.store(clog_size, std::memory_order_release);
+    ctrl->clog_inited.store(false, std::memory_order_release);
+
+    uint64 csnlog_off = sizeof(UBShmControlBlock) + clog_size;
+    ctrl->csnlog_offset.store(csnlog_off, std::memory_order_release);
+    ctrl->csnlog_size.store(csnlog_size, std::memory_order_release);
+    ctrl->csnlog_inited.store(false, std::memory_order_release);
+
+    uint64 oldest_xmin_off = csnlog_off + csnlog_size;
+    ctrl->oldest_xmin_offset.store(oldest_xmin_off, std::memory_order_release);
+    ctrl->oldest_xmin_size.store(xmin_size, std::memory_order_release);
+    ctrl->oldest_xmin_inited.store(false, std::memory_order_release);
+
+    uint64 snapshot_off = oldest_xmin_off + xmin_size;
+    ctrl->snapshot_offset.store(snapshot_off, std::memory_order_release);
+    ctrl->snapshot_size.store(snapshot_size, std::memory_order_release);
+    ctrl->snapshot_inited.store(false, std::memory_order_release);
 }
 
 bool UBSMemAllocate(const char *buffer_name, size_t buffer_size)
@@ -137,24 +182,78 @@ bool UBSMemLogBufferCreate()
 
     char local_shm_name[UB_MAX_SHM_NAME_LENGTH];
     char primary_shm_name[UB_MAX_SHM_NAME_LENGTH];
-    snprintf(local_shm_name, sizeof(local_shm_name), "ub_node%02d_%s_txn_cache", 
-             SS_MY_INST_ID, user_name);
-    snprintf(primary_shm_name, sizeof(primary_shm_name), "ub_node%02d_%s_txn_cache", 
-             SS_PRIMARY_ID, user_name);
-    // snprintf(primary_shm_name, sizeof(primary_shm_name), "ub_node00_%s_txn_cache", 
-    //          user_name);
+    int ret = snprintf_s(local_shm_name, sizeof(local_shm_name), sizeof(local_shm_name) - 1,
+                        "ub_node%02d_%s_txn_cache", SS_MY_INST_ID, user_name);
+    if (ret < 0) {
+        ereport(ERROR, (errmsg("Failed to format local shm name")));
+        return false;
+    }
+    ret = snprintf_s(primary_shm_name, sizeof(primary_shm_name), sizeof(primary_shm_name) - 1,
+                        "ub_node%02d_%s_txn_cache", SS_PRIMARY_ID, user_name);
+    if (ret < 0) {
+        ereport(ERROR, (errmsg("Failed to format primary shm name")));
+        return false;
+    }
 
     ereport(LOG, (errmsg("[UB DEBUG] Local node=%d, Primary node=%d", SS_MY_INST_ID, SS_PRIMARY_ID)));
     ereport(LOG, (errmsg("[UB DEBUG] Local shm_name=%s, Primary shm_name=%s", local_shm_name, primary_shm_name)));
 
-    if (!UBSMemAllocate(local_shm_name, total_size))
+    if (!UBSMemAllocate(local_shm_name, total_size)) {
         return false;
+    }
+
+    void *local_addr = nullptr;
+    ret = ubsmem_shmem_map(nullptr, total_size, PROT_READ | PROT_WRITE,
+                               MAP_SHARED, local_shm_name, 0, &local_addr);
+    if (ret != UBSM_OK || local_addr == nullptr) {
+        ereport(ERROR, (errmsg("Failed to map UB shared memory: %d, local_shm_name=%s", ret, local_shm_name)));
+        return false;
+    }
+
+    ereport(LOG, (errmsg("[UB DEBUG] ubsmem_shmem_map success: addr=%p", local_addr)));
+
+    UBShmControlBlock *ctrl = (UBShmControlBlock *)local_addr;
+    bool new_created = (ctrl->total_size.load(std::memory_order_relaxed) == 0);
+    if (new_created) {
+        InitUBShmControlBlock(ctrl, total_size, clog_size, csnlog_size, xmin_size, snapshot_size);
+    } else {
+        if (!UBSMemVerification((char *)local_addr)) {
+            ereport(LOG, (errmsg("UB shared memory verification failed, reinitializing control block")));
+            InitUBShmControlBlock(ctrl, total_size, clog_size, csnlog_size, xmin_size, snapshot_size);
+        }
+    }
+
+    if (!ctrl->clog_inited.load(std::memory_order_acquire)) {
+        UBCLogBuffer *clog_buf = (UBCLogBuffer *)((char *)local_addr + ctrl->clog_offset.load());
+        UBCLogBufferInit(clog_buf);
+        ctrl->clog_inited.store(true, std::memory_order_release);
+    }
+    if (!ctrl->csnlog_inited.load(std::memory_order_acquire)) {
+        UBCSNLogBuffer *csnlog_buf = (UBCSNLogBuffer *)((char *)local_addr + ctrl->csnlog_offset.load());
+        UBCSNLogBufferInit(csnlog_buf);
+        ctrl->csnlog_inited.store(true, std::memory_order_release);
+    }
+    if (!ctrl->oldest_xmin_inited.load(std::memory_order_acquire)) {
+        UBOldestXminBuffer *xmin_buf = (UBOldestXminBuffer *)((char *)local_addr + ctrl->oldest_xmin_offset.load());
+        UBOldestXminBufferInit(xmin_buf);
+        ctrl->oldest_xmin_inited.store(true, std::memory_order_release);
+    }
+    if (!ctrl->snapshot_inited.load(std::memory_order_acquire)) {
+        UBSnapshotBuffer *snapshot_buf = (UBSnapshotBuffer *)((char *)local_addr + ctrl->snapshot_offset.load());
+        UBSnapshotBufferInit(snapshot_buf);
+        ctrl->snapshot_inited.store(true, std::memory_order_release);
+    }
+
+    ret = ubsmem_shmem_unmap(local_addr, total_size);
+    if (ret != UBSM_OK) {
+        ereport(WARNING, (errmsg("Failed to unmap local UB shared memory: %d", ret)));
+    }
 
     ereport(LOG, (errmsg("[UB DEBUG] ubsmem_shmem_map: name=%s, size=%lu", primary_shm_name, total_size)));
 
     void *addr = nullptr;
-    int ret = ubsmem_shmem_map(nullptr, total_size, PROT_READ | PROT_WRITE,
-                               MAP_SHARED, primary_shm_name, 0, &addr);
+    ret = ubsmem_shmem_map(nullptr, total_size, PROT_READ | PROT_WRITE,
+                           MAP_SHARED, primary_shm_name, 0, &addr);
     if (ret != UBSM_OK || addr == nullptr) {
         ereport(ERROR, (errmsg("Failed to map UB shared memory: %d, primary_shm_name=%s", ret, primary_shm_name)));
         return false;
@@ -162,64 +261,11 @@ bool UBSMemLogBufferCreate()
 
     ereport(LOG, (errmsg("[UB DEBUG] ubsmem_shmem_map success: addr=%p", addr)));
 
-    UBShmControlBlock *ctrl = (UBShmControlBlock *)addr;
-    bool new_created = (ctrl->total_size.load(std::memory_order_relaxed) == 0);
-
-    if (new_created) {
-        ctrl->total_size.store(total_size, std::memory_order_release);
-        ctrl->clog_offset.store(sizeof(UBShmControlBlock), std::memory_order_release);
-        ctrl->clog_size.store(clog_size, std::memory_order_release);
-        ctrl->clog_inited.store(false, std::memory_order_release);
-
-        uint64 csnlog_off = sizeof(UBShmControlBlock) + clog_size;
-        ctrl->csnlog_offset.store(csnlog_off, std::memory_order_release);
-        ctrl->csnlog_size.store(csnlog_size, std::memory_order_release);
-        ctrl->csnlog_inited.store(false, std::memory_order_release);
-
-        uint64 oldest_xmin_off = csnlog_off + csnlog_size;
-        ctrl->oldest_xmin_offset.store(oldest_xmin_off, std::memory_order_release);
-        ctrl->oldest_xmin_size.store(xmin_size, std::memory_order_release);
-        ctrl->oldest_xmin_inited.store(false, std::memory_order_release);
-
-        uint64 snapshot_off = oldest_xmin_off + xmin_size;
-        ctrl->snapshot_offset.store(snapshot_off, std::memory_order_release);
-        ctrl->snapshot_size.store(snapshot_size, std::memory_order_release);
-        ctrl->snapshot_inited.store(false, std::memory_order_release);
-    } else {
-        if (!UBSMemVerification((char *)addr)) {
-            ereport(ERROR, (errmsg("UB shared memory verification failed for reused memory")));
-            return false;
-        }
-    }
-
-    if (!ctrl->clog_inited.load(std::memory_order_acquire)) {
-        UBCLogBuffer *clog_buf = (UBCLogBuffer *)((char *)addr + ctrl->clog_offset.load());
-        UBCLogBufferInit(clog_buf);
-        ctrl->clog_inited.store(true, std::memory_order_release);
-    }
-    if (!ctrl->csnlog_inited.load(std::memory_order_acquire)) {
-        UBCSNLogBuffer *csnlog_buf = (UBCSNLogBuffer *)((char *)addr + ctrl->csnlog_offset.load());
-        UBCSNLogBufferInit(csnlog_buf);
-        ctrl->csnlog_inited.store(true, std::memory_order_release);
-    }
-    if (!ctrl->oldest_xmin_inited.load(std::memory_order_acquire)) {
-        UBOldestXminBuffer *xmin_buf = (UBOldestXminBuffer *)((char *)addr + ctrl->oldest_xmin_offset.load());
-        UBOldestXminBufferInit(xmin_buf);
-        ctrl->oldest_xmin_inited.store(true, std::memory_order_release);
-    }
-    if (!ctrl->snapshot_inited.load(std::memory_order_acquire)) {
-        UBSnapshotBuffer *snapshot_buf = (UBSnapshotBuffer *)((char *)addr + ctrl->snapshot_offset.load());
-        UBSnapshotBufferInit(snapshot_buf);
-        ctrl->snapshot_inited.store(true, std::memory_order_release);
-    }
-
     g_instance.shmem_cxt.UBTxnCachePtr = (char *)addr;
 
     ereport(LOG, (errmsg("UB shared memory initialized (size: %lu, %s)",
                          total_size, new_created ? "new create" : "reused")));
-    ereport(LOG, (errmsg("[UB DEBUG] UBTxnCachePtr=%p, clog_offset=%lu, csnlog_offset=%lu, oldest_xmin_offset=%lu, snapshot_offset=%lu",
-                         addr, ctrl->clog_offset.load(), ctrl->csnlog_offset.load(), 
-                         ctrl->oldest_xmin_offset.load(), ctrl->snapshot_offset.load())));
+    ereport(LOG, (errmsg("[UB DEBUG] UBTxnCachePtr=%p", addr)));
     return true;
 }
 
@@ -298,7 +344,8 @@ bool UBSMemVerification(char *ub_txn_cache_ptr)
 
     if (valid) {
         ereport(LOG, (errmsg("UB memory verification passed. "
-                             "total_size: %lu, clog: [%lu, %lu], csnlog: [%lu, %lu], oldest_xmin: [%lu, %lu], snapshot: [%lu, %lu]",
+                             "total_size: %lu, clog: [%lu, %lu], csnlog: [%lu, %lu], "
+                             "oldest_xmin: [%lu, %lu], snapshot: [%lu, %lu]",
                              total_size, clog_offset, clog_size, csnlog_offset, csnlog_size,
                              oldest_xmin_offset, oldest_xmin_size, snapshot_offset, snapshot_size)));
     }

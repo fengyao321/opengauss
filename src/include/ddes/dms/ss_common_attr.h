@@ -31,12 +31,16 @@
 #include "ss_init.h"
 
 #ifdef ENABLE_LITE_MODE
+#define ENABLE_UB false
+#define UB_DEBUG_LOG false
 #define ENABLE_DMS false
 #define ENABLE_VERIFY_PAGE_VERSION false
 #define ENABLE_SS_TXNSTATUS_CACHE false
 #define ENABLE_SS_BCAST_SNAPSHOT false
 #define ENABLE_SS_BCAST_GETOLDESTXMIN false
 #else
+#define ENABLE_UB (g_instance.attr.attr_storage.dms_attr.enable_ub && !IsInitdb)
+#define UB_DEBUG_LOG (g_instance.attr.attr_storage.dms_attr.ub_debug_log)
 #define ENABLE_DMS (g_instance.attr.attr_storage.dms_attr.enable_dms && !IsInitdb)
 #define ENABLE_VERIFY_PAGE_VERSION (g_instance.attr.attr_storage.dms_attr.enable_verify_page)
 #define ENABLE_SS_TXNSTATUS_CACHE (ENABLE_DMS && g_instance.attr.attr_storage.dms_attr.txnstatus_cache_size > 0)

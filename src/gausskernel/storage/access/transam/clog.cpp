@@ -394,7 +394,7 @@ static void CLogSetPageStatusInternal(TransactionId xid, int nsubxids, const Tra
                 UBCLogBufferSetSlot(ubCLogBuf, subxids[i], status);
             }
         }
-        /* USE_UB_TXN_CACHE - END */       
+        /* USE_UB_TXN_CACHE - END */
     }
 
     ClogCtl(pageno)->shared->page_dirty[slotno] = true;
@@ -1429,28 +1429,41 @@ void SSCLOGShmemClear(void)
 
 void UBCLogBufferInit(UBCLogBuffer *buf)
 {
-    memset(buf->slots, 0xFFFF, sizeof(buf->slots));
+    const size_t CHUNK_SIZE = 1024 * 1024 * 1024;
+    size_t total_size = sizeof(buf->slots);
+    size_t offset = 0;
+    
+    while (offset < total_size) {
+        size_t chunk = (total_size - offset) < CHUNK_SIZE ? (total_size - offset) : CHUNK_SIZE;
+        errno_t rc = memset_s((char *)buf->slots + offset, chunk, 0xFFFF, chunk);
+        if (rc != EOK) {
+            ereport(ERROR, (errmsg("memset_s failed for UBCLogBuffer slots at offset %zu, rc=%d",
+                                    offset, rc)));
+        }
+        offset += chunk;
+    }
 }
 
 void UBCLogBufferSetSlot(UBCLogBuffer *buf, TransactionId xid, CLogXidStatus status)
 {
-    if (buf == NULL) return;
-    if (status < 0 || status > 3) return;
-    if (!UBCLogIsValidXid(xid)) return;
+    if (buf == NULL) {
+        return;
+    }
+    if (status < CLOG_XID_STATUS_IN_PROGRESS || status > CLOG_XID_STATUS_SUB_COMMITTED) {
+        return;
+    }
+    if (!UBCLogIsValidXid(xid)) {
+        return;
+    }
 
-    uint64 slot_idx = UB_CLOG_CAL_SLOT_INDEX(xid);
-    uint16 expected_timeline = (uint16)UB_CLOG_EXPECTED_TIMELINE(xid);
+    uint64 slot_idx = UBCLogCalSlotIndex(xid);
+    uint16 expected_timeline = (uint16)UBCLogExpectedTimeline(xid);
     uint16 slot_val = UBCLogSlotMake(status, expected_timeline);
     buf->slots[slot_idx].store(slot_val, std::memory_order_release);
     ENTER_ESB();
-
-    if (UB_DEBUG_LOG) {
-        ereport(LOG, (errmsg("[UB CLOG] SetSlot: xid=%lu, status=%d, timeline=%u, slot_idx=%lu",
-                             xid, status, expected_timeline, slot_idx)));
-    }
 }
 
-Size UBCLogBufferSize(void)
+size_t UBCLogBufferSize(void)
 {
     return sizeof(UBCLogBuffer);
 }
@@ -1486,29 +1499,18 @@ bool UBGetTxnStatusFromPrimary(TransactionId xid, CLogXidStatus *status)
         return false;
     }
 
-    uint64 slot_idx = UB_CLOG_CAL_SLOT_INDEX(xid);
-    uint16 expected_timeline = (uint16)UB_CLOG_EXPECTED_TIMELINE(xid);
+    uint64 slot_idx = UBCLogCalSlotIndex(xid);
+    uint16 expected_timeline = (uint16)UBCLogExpectedTimeline(xid);
     uint16 slot_val = ubCLogBuf->slots[slot_idx].load(std::memory_order_acquire);
     ENTER_ESB();
 
     if (slot_val == 0xFFFF) {
-        if (UB_DEBUG_LOG) {
-            ereport(LOG, (errmsg("[UB CLOG] GetStatus: xid=%lu, slot empty", xid)));
-        }
         return false;
     }
 
     if (UBCLogSlotGetTimeline(slot_val) == expected_timeline) {
         *status = (CLogXidStatus)UBCLogSlotGetStatus(slot_val);
-        if (UB_DEBUG_LOG) {
-            ereport(LOG, (errmsg("[UB CLOG] GetStatus: xid=%lu, status=%d, timeline=%u", 
-                                 xid, *status, expected_timeline)));
-        }
         return true;
-    }
-    if (UB_DEBUG_LOG) {
-        ereport(LOG, (errmsg("[UB CLOG] GetStatus: xid=%lu, timeline mismatch, expected=%u, actual=%u",
-                             xid, expected_timeline, UBCLogSlotGetTimeline(slot_val))));
     }
     return false;
 }

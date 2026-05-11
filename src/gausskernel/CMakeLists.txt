@@ -436,6 +436,7 @@ if("${ENABLE_RELOCATION}" STREQUAL "ON")
 endif()
     target_link_directories(gaussdb PRIVATE ${gaussdb_LINK_DIRS})
     target_link_libraries(gaussdb PRIVATE ${gaussdb_LINK_LIBS})
+    target_link_libraries(gaussdb PRIVATE atomic)
     add_dependencies(gaussdb ${gaussdb_DEPEND_LIST})
     if("${SUPPORT_HOTPATCH}" STREQUAL "yes")
         add_custom_command(TARGET gaussdb POST_BUILD

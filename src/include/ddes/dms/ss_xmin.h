@@ -88,7 +88,7 @@ typedef struct {
 extern void UBOldestXminBufferInit(UBOldestXminBuffer *buf);
 extern bool UBOldestXminBufferSetSlot(UBOldestXminBuffer *buf, uint32 node_id, uint64 oldest_xmin);
 extern uint64 UBOldestXminBufferGetSlot(UBOldestXminBuffer *buf, uint32 node_id);
-extern Size UBOldestXminBufferSize(void);
+extern size_t UBOldestXminBufferSize(void);
 extern void UBOldestXminShmemInit(void);
 
 /* USE_UB_TXN_CACHE - END */

@@ -68,14 +68,12 @@ bool UBSyncOldestXminInNodeTable()
 {
 /* USE_UB_TXN_CACHE - BEGIN */
     UBOldestXminBuffer *ubBuf = (UBOldestXminBuffer *)g_instance.shmem_cxt.UBOldestXminBufPtr;
-    if (ubBuf == nullptr) return false;
+    if (ubBuf == nullptr) {
+        return false;
+    }
 
     ss_xmin_info_t *xmin_info = &g_instance.dms_cxt.SSXminInfo;
     bool synced = false;
-
-    if (UB_DEBUG_LOG) {
-        ereport(LOG, (errmsg("[UB XMIN] SyncOldestXminInNodeTable: start syncing")));
-    }
 
     for (uint32 node_id = 0; node_id < DMS_MAX_INSTANCES; node_id++) {
         uint64 ub_oldest_xmin = ubBuf->slots[node_id].load(std::memory_order_acquire);
@@ -91,11 +89,6 @@ bool UBSyncOldestXminInNodeTable()
             item->notify_oldest_xmin = ub_oldest_xmin;
             synced = true;
 
-            if (UB_DEBUG_LOG) {
-                ereport(LOG, (errmsg("[UB XMIN] SyncOldestXminInNodeTable: node_id=%u, oldest_xmin=%lu",
-                                     node_id, ub_oldest_xmin)));
-            }
-
             if (!item->active) {
                 item->active = true;
                 SpinLockAcquire(&xmin_info->bitmap_active_nodes_lock);
@@ -104,9 +97,6 @@ bool UBSyncOldestXminInNodeTable()
             }
         }
         SpinLockRelease(&item->item_lock);
-    }
-    if (UB_DEBUG_LOG) {
-        ereport(LOG, (errmsg("[UB XMIN] SyncOldestXminInNodeTable: done, synced=%s", synced ? "true" : "false")));
     }
     return synced;
 /* USE_UB_TXN_CACHE - END */
@@ -183,10 +173,6 @@ void MaintXminInStandby(void)
 /* USE_UB_TXN_CACHE - BEGIN */
     UBOldestXminBuffer *ubBuf = (UBOldestXminBuffer *)g_instance.shmem_cxt.UBOldestXminBufPtr;
     if (ENABLE_UB && ubBuf != nullptr) {
-        if (UB_DEBUG_LOG) {
-            ereport(LOG, (errmsg("[UB XMIN] MaintXminInStandby: oldest_xmin=%lu, my_inst_id=%u",
-                                 oldest_xmin, (uint32)SS_MY_INST_ID)));
-        }
         uint32 node_id = (uint32)SS_MY_INST_ID;
         if (UBOldestXminBufferSetSlot(ubBuf, node_id, oldest_xmin)) {
             return;
@@ -338,27 +324,17 @@ void UBOldestXminBufferInit(UBOldestXminBuffer *buf)
 bool UBOldestXminBufferSetSlot(UBOldestXminBuffer *buf, uint32 node_id, uint64 oldest_xmin)
 {
     if (buf == nullptr) {
-        if (UB_DEBUG_LOG) {
-            ereport(LOG, (errmsg("[UB XMIN] SetSlot: buf is null")));
-        }
         return false;
     }
     if (node_id >= UB_OLDEST_XMIN_SLOTS) {
-        if (UB_DEBUG_LOG) {
-            ereport(LOG, (errmsg("[UB XMIN] SetSlot: node_id=%u out of range", node_id)));
-        }
         return false;
     }
     if (oldest_xmin == 0) {
-        if (UB_DEBUG_LOG) {
-            ereport(LOG, (errmsg("[UB XMIN] SetSlot: invalid oldest_xmin=0 (node_id=%u)", node_id)));
-        }
         return false;
     }
 
     uint32 slot_idx = node_id;
     uint64 old_val = buf->slots[slot_idx].load(std::memory_order_acquire);
-
     if (old_val != 0 && oldest_xmin <= old_val) {
         ENTER_ESB();
         return true;
@@ -366,38 +342,24 @@ bool UBOldestXminBufferSetSlot(UBOldestXminBuffer *buf, uint32 node_id, uint64 o
 
     buf->slots[slot_idx].store(oldest_xmin, std::memory_order_release);
     ENTER_ESB();
-
-    if (UB_DEBUG_LOG) {
-        ereport(LOG, (errmsg("[UB XMIN] SetSlot: node_id=%u, oldest_xmin=%lu, old_val=%lu",
-                             node_id, oldest_xmin, old_val)));
-    }
     return true;
 }
 
 uint64 UBOldestXminBufferGetSlot(UBOldestXminBuffer *buf, uint32 node_id)
 {
     if (buf == nullptr) {
-        if (UB_DEBUG_LOG) {
-            ereport(LOG, (errmsg("[UB XMIN] GetSlot: buf is null")));
-        }
         return 0;
     }
     if (node_id >= UB_OLDEST_XMIN_SLOTS) {
-        if (UB_DEBUG_LOG) {
-            ereport(LOG, (errmsg("[UB XMIN] GetSlot: node_id=%u out of range", node_id)));
-        }
         return 0;
     }
     uint32 slot_idx = node_id;
     uint64 val = buf->slots[slot_idx].load(std::memory_order_acquire);
     ENTER_ESB();
-    if (UB_DEBUG_LOG) {
-        ereport(LOG, (errmsg("[UB XMIN] GetSlot: node_id=%u, oldest_xmin=%lu", node_id, val)));
-    }
     return val;
 }
 
-Size UBOldestXminBufferSize(void)
+size_t UBOldestXminBufferSize(void)
 {
     return sizeof(UBOldestXminBuffer);
 }

@@ -1,15 +1,35 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+ *
+ * openGauss is licensed under Mulan PSL v2.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *
+ *          http://license.coscl.org.cn/MulanPSL2
+ *
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ * ---------------------------------------------------------------------------------------
+ * ubmem_buf.h
+ * UB transaction cache buffer manager
+ *
+ * src/include/access/ubmem_buf.h
+ * ---------------------------------------------------------------------------------------
+ */
+
 #ifndef UBMEM_BUF_H
 #define UBMEM_BUF_H
 
 /* USE_UB_TXN_CACHE - BEGIN */
-#include "c.h"
 #include <atomic>
+#include "c.h"
 
 #define UB_MAX_HOST_NAME_LENGTH 255
 #define UB_MAX_SHM_NAME_LENGTH 256
 #define UB_MAX_REGION_NAME_DESC_LENGTH 256
 
-// #define ENTER_ESB() asm volatile("esb" ::: "memory")
 #define ENTER_ESB()
 
 typedef struct {

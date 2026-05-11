@@ -869,28 +869,40 @@ void SSCSNLOGShmemClear(void)
 
 /* USE_UB_TXN_CACHE - BEGIN */
 
-void UBCSNLogBufferInit(UBCSNLogBuffer *buf) {
-    memset(buf, 0, sizeof(UBCSNLogBuffer));
-}
-
-void UBCSNLogBufferSetSlot(UBCSNLogBuffer *buf, TransactionId xid, uint64 csn) {
-    if (buf == nullptr) return;
-    if (csn == 0) return;
-    if (!UBCSNLogIsValidXid(xid)) return;
-
-    uint32 slot_idx = (uint32)UB_CSNLOG_CAL_SLOT_INDEX(xid);
-    uint64 expected_timeline = (uint64)UB_CSNLOG_EXPECTED_TIMELINE(xid);
-    __uint128_t packed_val = UB_CSNLOG_PACK_SLOT(expected_timeline, csn);
-    buf->slots[slot_idx].store(packed_val, std::memory_order_release);
-    ENTER_ESB();
-
-    if (UB_DEBUG_LOG) {
-        ereport(LOG, (errmsg("[UB CSNLOG] SetSlot: xid=%lu, csn=%lu, timeline=%lu, slot_idx=%u",
-                             xid, csn, expected_timeline, slot_idx)));
+void UBCSNLogBufferInit(UBCSNLogBuffer *buf)
+{
+    const size_t CHUNK_SIZE = 1024 * 1024 * 1024;
+    size_t total_size = sizeof(UBCSNLogBuffer);
+    size_t offset = 0;
+    
+    while (offset < total_size) {
+        size_t chunk = (total_size - offset) < CHUNK_SIZE ? (total_size - offset) : CHUNK_SIZE;
+        errno_t rc = memset_s((char *)buf + offset, chunk, 0, chunk);
+        if (rc != EOK) {
+            ereport(ERROR, (errmsg("memset_s failed for UBCSNLogBuffer at offset %zu, rc=%d",
+                                    offset, rc)));
+        }
+        offset += chunk;
     }
 }
 
-Size UBCSNLogBufferSize(void)
+void UBCSNLogBufferSetSlot(UBCSNLogBuffer *buf, TransactionId xid, uint64 csn)
+{
+    if (buf == nullptr || csn == 0) {
+        return;
+    }
+    if (!UBCSNLogIsValidXid(xid)) {
+        return;
+    }
+
+    uint32 slot_idx = (uint32)UBCSNLogCalSlotIndex(xid);
+    uint64 expected_timeline = (uint64)UBCSNLogExpectedTimeline(xid);
+    __uint128_t packed_val = UBCSNLogPackSlot(expected_timeline, csn);
+    buf->slots[slot_idx].store(packed_val, std::memory_order_release);
+    ENTER_ESB();
+}
+
+size_t UBCSNLogBufferSize(void)
 {
     return sizeof(UBCSNLogBuffer);
 }
@@ -923,37 +935,22 @@ bool UBGetCSNFromPrimary(TransactionId xid, uint64 *csn)
     }
 
     if (!UBCSNLogIsValidXid(xid)) {
-        if (UB_DEBUG_LOG) {
-            ereport(LOG, (errmsg("[UB CSNLOG] GetCSN: xid=%lu is invalid (timeline exceeds max)", xid)));
-        }
         return false;
     }
 
-    uint32 slot_idx = (uint32)UB_CSNLOG_CAL_SLOT_INDEX(xid);
-    uint64 expected_timeline = (uint64)UB_CSNLOG_EXPECTED_TIMELINE(xid);
+    uint32 slot_idx = (uint32)UBCSNLogCalSlotIndex(xid);
+    uint64 expected_timeline = (uint64)UBCSNLogExpectedTimeline(xid);
     __uint128_t slot_val = ubCSNLogBuf->slots[slot_idx].load(std::memory_order_acquire);
     ENTER_ESB();
 
-    uint64 timelineid = UB_CSNLOG_UNPACK_TIMELINEID(slot_val);
-    uint64 csn_val = UB_CSNLOG_UNPACK_CSN(slot_val);
-
+    uint64 timelineid = UBCSNLogUnpackTimelineId(slot_val);
+    uint64 csn_val = UBCSNLogUnpackCSN(slot_val);
     if (timelineid == expected_timeline && csn_val != 0) {
         if (COMMITSEQNO_IS_COMMITTING(csn_val)) {
-            if (UB_DEBUG_LOG) {
-                ereport(LOG, (errmsg("[UB CSNLOG] GetCSN: xid=%lu is COMMITTING, fallback to network", xid)));
-            }
             return false;
         }
         *csn = csn_val;
-        if (UB_DEBUG_LOG) {
-            ereport(LOG, (errmsg("[UB CSNLOG] GetCSN: xid=%lu, csn=%lu, timeline=%lu",
-                         xid, *csn, expected_timeline)));
-        }
         return true;
-    }
-    if (UB_DEBUG_LOG) {
-        ereport(LOG, (errmsg("[UB CSNLOG] GetCSN: xid=%lu, timeline mismatch or expected=%lu, actual=%lu",
-                     xid, expected_timeline, timelineid)));
     }
     return false;
 }

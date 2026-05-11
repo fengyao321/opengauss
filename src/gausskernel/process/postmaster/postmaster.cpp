@@ -298,6 +298,14 @@
 
 #include "utils/postinit.h"
 
+/* USE_UB_TXN_CACHE - BEGIN */
+#include "access/clog.h"
+#include "access/csnlog.h"
+#include "ddes/dms/ss_transaction.h"
+#include "ddes/dms/ss_xmin.h"
+#include "access/ubmem_buf.h"
+/* USE_UB_TXN_CACHE - END */
+
 extern void InitGlobalSeq();
 extern void auto_explain_init(void);
 extern int S3_init();
@@ -3232,6 +3240,33 @@ int PostmasterMain(int argc, char* argv[])
     if (SS_PRIMARY_MODE) {
         SSGrantDSSWritePermission();
     }
+
+    /*
+    * Initialize UB shared memory.
+    */
+/* USE_UB_TXN_CACHE - BEGIN */
+    if (ENABLE_UB) {
+            if (!UBMemRegionInit()) {
+                ereport(FATAL, (errmsg("Failed to initialize UB memory region")));
+            }
+            ereport(LOG, (errmsg("[postmaster]success initialize UB memory region")));
+            if (!UBSMemLogBufferCreate()) {
+                ereport(FATAL, (errmsg("Failed to create UB shared memory")));
+            }
+            ereport(LOG, (errmsg("[postmaster]success create UB shared memory")));
+            UBCLogShmemInit();
+            UBCSNLogShmemInit();
+            UBOldestXminShmemInit();
+            UBSnapshotShmemInit();
+            ereport(LOG, (errmsg("[postmaster]success init UB shared memory")));
+            ereport(LOG, (errmsg("[UB DEBUG] UBTxnCachePtr=%p, UBClogBufPtr=%p, UBCSNLogBufPtr=%p, UBOldestXminBufPtr=%p, UBSnapshotBufPtr=%p",
+                                 g_instance.shmem_cxt.UBTxnCachePtr,
+                                 g_instance.shmem_cxt.UBClogBufPtr,
+                                 g_instance.shmem_cxt.UBCSNLogBufPtr,
+                                 g_instance.shmem_cxt.UBOldestXminBufPtr,
+                                 g_instance.shmem_cxt.UBSnapshotBufPtr)));
+    }
+/* USE_UB_TXN_CACHE - END */
 
     /*
      * Save backend variables for DCF call back thread,

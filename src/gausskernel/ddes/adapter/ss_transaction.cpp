@@ -29,6 +29,7 @@
 #include "storage/buf/bufmgr.h"
 #include "storage/smgr/segment_internal.h"
 #include "access/multi_redo_api.h"
+#include "access/ubmem_buf.h"
 #include "ddes/dms/ss_transaction.h"
 #include "ddes/dms/ss_reform_common.h"
 #include "ddes/dms/ss_dms_bufmgr.h"
@@ -36,6 +37,7 @@
 #include "replication/libpqsw.h"
 #include "replication/walsender.h"
 #include "replication/ss_disaster_cluster.h"
+#include "access/transam.h"
 #ifdef ENABLE_HTAP
 #include "access/htap/imcs_hash_table.h"
 #include "access/htap/imcs_ctlg.h"
@@ -46,6 +48,7 @@ static inline void txnstatusNetworkStats(uint64 timeDiff);
 static inline void txnstatusHashStats(uint64 timeDiff);
 
 #define SYNC_TRY_COUNT 3
+#define SNAPSHOT_RETRY_COUNT 100
 #define TxnStatusCalcStats(startTime, endTime, timeDiff, isHash) \
  do {                                                            \
     (void)INSTR_TIME_SET_CURRENT(endTime);                       \
@@ -127,6 +130,38 @@ Snapshot SSGetSnapshotData(Snapshot snapshot)
         u_sess->utils_cxt.RecentGlobalDataXmin = u_sess->utils_cxt.RecentGlobalXmin;
         return snapshot;
     }
+
+/* USE_UB_TXN_CACHE - BEGIN */
+    if (ENABLE_UB) {
+        TransactionId ub_xmin;
+        TransactionId ub_xmax;
+        CommitSeqNo ub_csn;
+        
+        if (UBGetSnapshotFromPrimary(&ub_xmin, &ub_xmax, &ub_csn)) {
+            snapshot->xmin = ub_xmin;
+            snapshot->xmax = ub_xmax;
+            snapshot->snapshotcsn = ub_csn;
+            
+            if (ENABLE_SS_BCAST_SNAPSHOT) {
+                t_thrd.dms_cxt.latest_snapshot_xmin = ub_xmin;
+                t_thrd.dms_cxt.latest_snapshot_xmax = ub_xmax;
+                t_thrd.dms_cxt.latest_snapshot_csn = ub_csn;
+            }
+            
+            if (!TransactionIdIsValid(t_thrd.pgxact->xmin)) {
+                t_thrd.pgxact->xmin = u_sess->utils_cxt.TransactionXmin = snapshot->xmin;
+            }
+            
+            if (!TransactionIdIsNormal(u_sess->utils_cxt.RecentGlobalXmin)) {
+                u_sess->utils_cxt.RecentGlobalXmin = FirstNormalTransactionId;
+            }
+            u_sess->utils_cxt.RecentGlobalDataXmin = u_sess->utils_cxt.RecentGlobalXmin;
+            u_sess->utils_cxt.RecentXmin = snapshot->xmin;
+            
+            return snapshot;
+        }
+    }
+/* USE_UB_TXN_CACHE - END */
 
     if (!ENABLE_SS_BCAST_SNAPSHOT ||
         (g_instance.dms_cxt.latest_snapshot_xmax == InvalidTransactionId &&
@@ -318,6 +353,18 @@ CommitSeqNo SSTransactionIdGetCommitSeqNo(TransactionId transactionId, bool isCo
     }
 
     do {
+/* USE_UB_TXN_CACHE - BEGIN */
+        if (ENABLE_UB) {
+            CommitSeqNo ub_csn = 0;
+            CLogXidStatus ub_clogstatus = CLOG_XID_STATUS_IN_PROGRESS;
+            if (UBGetTxnStatusFromPrimary(transactionId, &ub_clogstatus) &&
+                UBGetCSNFromPrimary(transactionId, &ub_csn)) {
+                csn = ub_csn;
+                clogstatus = ub_clogstatus;
+                break;
+            }
+        }
+/* USE_UB_TXN_CACHE - END */
         if (SSTransactionIdGetCSN(&dms_txn_info, &xid_csn_result) == DMS_SUCCESS) {
             csn = xid_csn_result.csn;
             clogstatus = (int)xid_csn_result.clogstatus;
@@ -410,6 +457,23 @@ void SSTransactionIdDidCommit(TransactionId transactionId, bool* ret_did_commit)
 
         do {
             dms_ctx.xid_ctx.inst_id = (unsigned char)SS_PRIMARY_ID;
+/* USE_UB_TXN_CACHE - BEGIN */
+            if (ENABLE_UB) {
+                CLogXidStatus xidstatus;
+                if (TransactionLogFetch(transactionId) == CLOG_XID_STATUS_COMMITTED) {
+                    did_commit = true;
+                    remote_get = false;
+                    break;
+                }
+
+                if (UBGetTxnStatusFromPrimary(transactionId, &xidstatus)) {
+                    did_commit = (xidstatus == CLOG_XID_STATUS_COMMITTED);
+                    remote_get = true;
+                    CLogSetTreeStatus(transactionId, 0, NULL, xidstatus, InvalidXLogRecPtr);
+                    break;
+                }
+            }
+/* USE_UB_TXN_CACHE - END */
             if (dms_request_opengauss_txn_status(&dms_ctx, (uint8)XID_COMMITTED, (uint8 *)&did_commit)
                 == DMS_SUCCESS) {
                 remote_get = true;
@@ -446,6 +510,21 @@ void SSTransactionIdIsInProgress(TransactionId transactionId, bool *in_progress)
 
     do {
         dms_ctx.xid_ctx.inst_id = (unsigned char)SS_PRIMARY_ID;
+/* USE_UB_TXN_CACHE - BEGIN */
+        if (ENABLE_UB) {
+            CLogXidStatus xidstatus;
+            if (TransactionLogFetch(transactionId) == CLOG_XID_STATUS_IN_PROGRESS) {
+                *in_progress = true;
+                break;
+            }
+
+            if (UBGetTxnStatusFromPrimary(transactionId, &xidstatus)) {
+                *in_progress = (xidstatus == CLOG_XID_STATUS_IN_PROGRESS);
+                CLogSetTreeStatus(transactionId, 0, NULL, xidstatus, InvalidXLogRecPtr);
+                break;
+            }
+        }
+/* USE_UB_TXN_CACHE - END */
         if (dms_request_opengauss_txn_status(&dms_ctx, (uint8)XID_INPROGRESS, (uint8 *)in_progress) == DMS_SUCCESS) {
             ereport(DEBUG1, (errmsg("SS get txn in_progress success, xid=%lu, in_progress=%d.",
                 transactionId, *in_progress)));
@@ -1663,3 +1742,93 @@ int32 SSUpdateIMCStoreVacuumLocalMemoryDelta(char *data, uint32 len)
     return DMS_SUCCESS;
 }
 #endif
+
+/* USE_UB_TXN_CACHE - BEGIN */
+void UBSnapshotBufferInit(UBSnapshotBuffer *buf)
+{
+    if (buf == nullptr) {
+        return;
+    }
+    errno_t rc = memset_s(buf, sizeof(UBSnapshotBuffer), 0, sizeof(UBSnapshotBuffer));
+    if (rc != EOK) {
+        ereport(ERROR, (errmsg("memset_s failed for UBSnapshotBuffer")));
+    }
+}
+
+void UBSnapshotBufferSetSlot(UBSnapshotBuffer *buf,
+                              TransactionId xmin,
+                              TransactionId xmax,
+                              CommitSeqNo csn)
+{
+    if (buf == nullptr) {
+        return;
+    }
+    if (!TransactionIdIsValid(xmin) || !TransactionIdIsValid(xmax)) {
+        return;
+    }
+    
+    UBSnapshotSlotSet(&buf->slots[0], xmin, xmax, csn);
+    ENTER_ESB();
+}
+
+bool UBGetSnapshotFromPrimary(TransactionId *xmin,
+                               TransactionId *xmax,
+                               CommitSeqNo *csn)
+{
+    UBSnapshotBuffer *buf = (UBSnapshotBuffer *)g_instance.shmem_cxt.UBSnapshotBufPtr;
+    if (buf == nullptr) {
+        return false;
+    }
+    
+    for (int retry = 0; retry < SNAPSHOT_RETRY_COUNT; retry++) {
+        if (UBSnapshotSlotGet(&buf->slots[0], xmin, xmax, csn)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool UBSnapshotSlotGet(UBSnapshotSlot *slot,
+                        TransactionId *xmin,
+                        TransactionId *xmax,
+                        CommitSeqNo *csn)
+{
+    uint64 ver_before = slot->version.load(std::memory_order_acquire);
+    if (ver_before == 0 || (ver_before & 1)) {
+        return false;
+    }
+    
+    std::atomic_thread_fence(std::memory_order_acquire);
+    
+    *xmin = slot->xmin.load(std::memory_order_relaxed);
+    *xmax = slot->xmax.load(std::memory_order_relaxed);
+    *csn = slot->snapshotcsn.load(std::memory_order_relaxed);
+    
+    uint64 ver_after = slot->version.load(std::memory_order_acquire);
+    if (ver_before != ver_after) {
+        return false;
+    }
+    
+    return true;
+}
+
+Size UBSnapshotBufferSize(void)
+{
+    return sizeof(UBSnapshotBuffer);
+}
+
+void UBSnapshotShmemInit(void)
+{
+    char *base = g_instance.shmem_cxt.UBTxnCachePtr;
+    if (base == nullptr) {
+        ereport(FATAL, (errmsg("UB shared memory not initialized")));
+        return;
+    }
+    UBShmControlBlock *ctrl = (UBShmControlBlock *)base;
+    uint64 offset = ctrl->snapshot_offset.load(std::memory_order_acquire);
+    UBSnapshotBuffer *buf = (UBSnapshotBuffer *)(base + offset);
+    g_instance.shmem_cxt.UBSnapshotBufPtr = buf;
+    ereport(LOG, (errmsg("[UB DEBUG] UBSnapshotShmemInit: base=%p, offset=%lu, buf=%p", base, offset, buf)));
+}
+/* USE_UB_TXN_CACHE - END */
