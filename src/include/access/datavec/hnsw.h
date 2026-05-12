@@ -807,6 +807,9 @@ void FlushChunkInfoInternal(Relation index, char* table, BlockNumber startBlkno,
 RabitQConfig *InitRbqConfigOnDisk(Relation index, bool *enableRabitQ, float **centroid, int dim);
 Datum HnswGetVectorFromHeap(Relation heap, ItemPointer heaptids, IndexInfo *indexInfo, HeapTuple tuple,
                              FmgrInfo *procinfo, FmgrInfo *normprocinfo, Oid collation, Buffer* userbuf);
+bool HnswTryGetVectorFromHeap(Relation heap, ItemPointer heaptids, IndexInfo *indexInfo, HeapTuple tuple,
+                              FmgrInfo *procinfo, FmgrInfo *normprocinfo, Oid collation, Buffer* userbuf,
+                              Datum *origin);
 void HnswComputeVectorRBQCode(HnswElement element, Vector *transformedVec, float *centroid, int funcType, char *base);
 void BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo, HnswBuildState *buildstate,
                        ForkNumber forkNum, bool insert);

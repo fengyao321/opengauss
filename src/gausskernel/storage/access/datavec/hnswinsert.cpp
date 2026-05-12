@@ -623,6 +623,16 @@ static void UpdateGraphOnDisk(Relation index, FmgrInfo *procinfo, Oid collation,
     }
 }
 
+static bool HnswRabitQEntryPointIsVisible(Relation index, HnswElement entryPoint, FmgrInfo *procinfo, Oid collation,
+                                          RabitqInsertOnDiskParams *rbqDiskParams)
+{
+    if (entryPoint == NULL) {
+        return false;
+    }
+
+    return HnswLoadElement(entryPoint, NULL, NULL, index, procinfo, collation, false, NULL, true, NULL, rbqDiskParams);
+}
+
 /*
  * Insert a tuple into the index
  */
@@ -704,6 +714,10 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
 
     HnswPtrStore(base, element->value, DatumGetPointer(value));
 
+    if (enableRabitQ && !HnswRabitQEntryPointIsVisible(index, entryPoint, procinfo, collation, &rbqDiskParams)) {
+        entryPoint = NULL;
+    }
+
     /* Prevent concurrent inserts when likely updating entry point */
     if (entryPoint == NULL || element->level > entryPoint->level) {
         /* Release shared lock */
@@ -715,6 +729,9 @@ bool HnswInsertTupleOnDisk(Relation index, Datum value, const bool *isnull, Item
 
         /* Get latest entry point after lock is acquired */
         entryPoint = HnswGetEntryPoint(index);
+        if (enableRabitQ && !HnswRabitQEntryPointIsVisible(index, entryPoint, procinfo, collation, &rbqDiskParams)) {
+            entryPoint = NULL;
+        }
     }
 
     InitPQParamsOnDisk(&params, index, procinfo, dim, &enablePQ, false);
