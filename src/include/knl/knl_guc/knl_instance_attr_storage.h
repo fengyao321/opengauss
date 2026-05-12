@@ -136,6 +136,7 @@ typedef struct knl_instance_attr_dms {
     int32 sslog_backup_file_count;
     int32 sslog_max_file_size; //Unit:KB
     int parallel_thread_num;
+    char* ss_shm_ub_comm_cpu_bind;
     int32 txnstatus_cache_size;
     bool enable_bcast_getoldestxmin;
     bool enable_bcast_snapshot;
@@ -143,6 +144,7 @@ typedef struct knl_instance_attr_dms {
     int32 work_thread_pool_max_cnt;
     bool enable_dyn_trace;
     bool enable_reform_trace;
+    bool ss_mes_elapsed_switch;
     bool enable_distirbution_storage;
 } knl_instance_attr_dms;
 

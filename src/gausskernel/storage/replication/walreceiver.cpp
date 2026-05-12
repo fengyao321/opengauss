@@ -187,6 +187,7 @@ const char *g_reserve_param[] = {
     "ss_dss_vg_name",
     "ss_dss_conn_path",
     "ss_rdma_work_config",
+    "ss_shm_ub_comm_cpu_bind",
     "ss_ock_log_path",
     "ss_scrlock_server_port",
     "ss_enable_ondemand_recovery",
