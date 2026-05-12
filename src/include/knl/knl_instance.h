@@ -1051,6 +1051,13 @@ typedef struct knl_g_shmem_context {
     int MaxReserveBackendId;
     int ThreadPoolGroupNum;
     int numaNodeNum;
+    /* USE_UB_TXN_CACHE - BEGIN */
+    char *UBTxnCachePtr;
+    void *UBClogBufPtr;
+    void *UBCSNLogBufPtr;
+    void *UBOldestXminBufPtr;
+    void *UBSnapshotBufPtr;
+    /* USE_UB_TXN_CACHE - END */
 } knl_g_shmem_context;
 
 typedef struct knl_g_executor_context {

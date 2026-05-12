@@ -76,6 +76,7 @@
 
 #include "access/clog.h"
 #include "access/csnlog.h"
+#include "ddes/dms/ss_transaction.h"
 #include "access/extreme_rto/page_redo.h"
 #include "access/subtrans.h"
 #include "access/transam.h"
@@ -5242,6 +5243,15 @@ void CalculateLocalLatestSnapshot(bool forceCalc)
             if (ENABLE_SS_BCAST_SNAPSHOT && !ENABLE_SS_BCAST_GETOLDESTXMIN) {
                 SSSendLatestSnapshotToStandby(xmin, xmax, t_thrd.xact_cxt.ShmemVariableCache->nextCommitSeqNo);
             }
+
+/* USE_UB_TXN_CACHE - BEGIN */
+            if (ENABLE_UB) {
+                UBSnapshotBuffer *ubBuf = (UBSnapshotBuffer *)g_instance.shmem_cxt.UBSnapshotBufPtr;
+                if (ubBuf != nullptr) {
+                    UBSnapshotBufferSetSlot(ubBuf, xmin, xmax, t_thrd.xact_cxt.ShmemVariableCache->nextCommitSeqNo);
+                }
+            }
+/* USE_UB_TXN_CACHE - END */
         }
 
         t_thrd.xact_cxt.ShmemVariableCache->xmin = xmin;
