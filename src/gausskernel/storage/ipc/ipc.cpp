@@ -38,6 +38,7 @@
 #include "gssignal/gs_signal.h"
 #include "storage/plpython_init.h"
 #include "storage/pmsignal.h"
+#include "access/nbtree.h"
 #include "access/gtm.h"
 #include "access/ustore/undo/knl_uundoapi.h"
 #include "workload/workload.h"
@@ -261,6 +262,9 @@ void proc_exit(int code)
     if (IS_THREAD_POOL_WORKER) {
         if (t_thrd.threadpool_cxt.worker != NULL)
             t_thrd.threadpool_cxt.worker->CleanUpSessionWithLock();
+        if (u_sess != NULL && u_sess->storage_cxt.btMetaCacheResOwner != NULL) {
+            BtRootbufCacheSessionOwnerCleanup("threadpool_proc_exit");
+        }
         DecreaseUserCount(u_sess->proc_cxt.MyRoleId);
     }
     RemoveFromDnHashTable();
