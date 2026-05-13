@@ -902,7 +902,12 @@ void HnswLoadElementFromTuple(HnswElement element, HnswElementTuple etup, bool l
         HnswPtrStore(base, element->value, DatumGetPointer(value));
     }
 }
-void HnswGetTupleFromHeap(Relation relation, ItemPointer heaptids, HeapTuple tuple, Buffer* userbuf)
+static bool HnswElementTupleIsDead(HnswElementTuple etup)
+{
+    return etup->deleted || !ItemPointerIsValid(&etup->heaptids[0]);
+}
+
+bool HnswTryGetTupleFromHeap(Relation relation, ItemPointer heaptids, HeapTuple tuple, Buffer* userbuf)
 {
     bool find = false;
     for (int i = 0; i < HNSW_HEAPTIDS; i++) {
@@ -921,48 +926,74 @@ void HnswGetTupleFromHeap(Relation relation, ItemPointer heaptids, HeapTuple tup
             break;
         }
     }
-    if (!find) {
+    return find;
+}
+
+void HnswGetTupleFromHeap(Relation relation, ItemPointer heaptids, HeapTuple tuple, Buffer* userbuf)
+{
+    if (!HnswTryGetTupleFromHeap(relation, heaptids, tuple, userbuf)) {
         ereport(ERROR, (errcode(ERRCODE_SYSTEM_ERROR), errmsg("The tuple is not found"),
             errdetail("Another user is getting tuple or the datum is NULL")));
     }
 }
 
-Datum HnswGetVectorFromHeap(Relation heap, ItemPointer heaptids, IndexInfo *indexInfo, HeapTuple tuple,
-                             FmgrInfo *procinfo, FmgrInfo *normprocinfo, Oid collation, Buffer* userbuf)
+bool HnswTryGetVectorFromHeap(Relation heap, ItemPointer heaptids, IndexInfo *indexInfo, HeapTuple tuple,
+                             FmgrInfo *procinfo, FmgrInfo *normprocinfo, Oid collation, Buffer* userbuf,
+                             Datum *origin)
 {
+    Datum result = 0;
+    bool foundOrigin = false;
+
     if (indexInfo->ii_NumIndexAttrs != 1) {
         ereport(ERROR, (errmsg("Supports vector indexing exclusively for a single column.")));
     }
-    HnswGetTupleFromHeap(heap, heaptids, tuple, userbuf);
+    if (!HnswTryGetTupleFromHeap(heap, heaptids, tuple, userbuf)) {
+        return false;
+    }
 
     TupleDesc relTupleDesc = heap->rd_att;
     Datum *val = (Datum *)palloc(sizeof(Datum) * (relTupleDesc->natts + 1));
     bool *null = (bool *)palloc(sizeof(bool) * (relTupleDesc->natts + 1));
 
     tableam_tops_deform_tuple(tuple, relTupleDesc, val, null);
-    Datum origin;
 
     for (int i = 0; i < indexInfo->ii_NumIndexAttrs; i++) {
         int keycol = indexInfo->ii_KeyAttrNumbers[i];
-        if (keycol != 0) {
-            origin = (Datum)(PG_DETOAST_DATUM(val[keycol - 1]));
+        if (keycol != 0 && !null[keycol - 1]) {
+            result = (Datum)(PG_DETOAST_DATUM(val[keycol - 1]));
+            foundOrigin = true;
         } else {
+            pfree(null);
+            pfree(val);
             ereport(ERROR, (errmsg("Failed to get origin vector from heap.")));
         }
     }
 
     if (IS_HALFVEC(procinfo->fn_oid)) {
         if (normprocinfo != NULL) {
-            origin = DirectFunctionCall1Coll(halfvec_l2_normalize, collation, origin);
+            result = DirectFunctionCall1Coll(halfvec_l2_normalize, collation, result);
         }
     } else {
         if (normprocinfo != NULL) {
-            origin = DirectFunctionCall1Coll(l2_normalize, collation, origin);
+            result = DirectFunctionCall1Coll(l2_normalize, collation, result);
         }
     }
 
     pfree(null);
     pfree(val);
+    *origin = result;
+    return foundOrigin;
+}
+
+Datum HnswGetVectorFromHeap(Relation heap, ItemPointer heaptids, IndexInfo *indexInfo, HeapTuple tuple,
+                             FmgrInfo *procinfo, FmgrInfo *normprocinfo, Oid collation, Buffer* userbuf)
+{
+    Datum origin = 0;
+    if (!HnswTryGetVectorFromHeap(heap, heaptids, indexInfo, tuple, procinfo, normprocinfo, collation, userbuf,
+                                  &origin)) {
+        ereport(ERROR, (errcode(ERRCODE_SYSTEM_ERROR), errmsg("The tuple is not found"),
+            errdetail("Another user is getting tuple or the datum is NULL")));
+    }
     return origin;
 }
 
@@ -999,6 +1030,14 @@ bool HnswLoadElement(HnswElement element, float *distance, Datum *q, Relation in
 
     Assert(HnswIsElementTuple(etup));
 
+    if (enableRabitQ && HnswElementTupleIsDead(etup)) {
+        if (distance != NULL) {
+            *distance = FLT_MAX;
+        }
+        UnlockReleaseBuffer(buf);
+        return false;
+    }
+
     /* Calculate distance */
     if (distance != NULL) {
         if (enablePQ && pqinfo->lc == 0) {
@@ -1025,15 +1064,13 @@ bool HnswLoadElement(HnswElement element, float *distance, Datum *q, Relation in
             if (DatumGetPointer(*q) == NULL) {
                 *distance = 0;
             } else if (rbqDiskParams != NULL) {
-                if (!ItemPointerIsValid(&etup->heaptids[0])) {
+                if (!HnswTryGetVectorFromHeap(rbqDiskParams->heap, etup->heaptids, rbqDiskParams->indexInfo,
+                                              rbqDiskParams->heapTuple, procinfo, rbqDiskParams->normprocinfo,
+                                              rbqDiskParams->collation, &heapbuf, &eRbqDiskData)) {
                     *distance = FLT_MAX;
                     UnlockReleaseBuffer(buf);
                     return false;
                 }
-                Relation heap = rbqDiskParams->heap;
-                eRbqDiskData = HnswGetVectorFromHeap(rbqDiskParams->heap, etup->heaptids, rbqDiskParams->indexInfo,
-                                                     rbqDiskParams->heapTuple, procinfo, rbqDiskParams->normprocinfo,
-                                                     rbqDiskParams->collation, &heapbuf);
                 *distance = (float)DatumGetFloat8(FunctionCall2Coll(procinfo, collation, *q, eRbqDiskData));
             } else if (rbqQueryParams != NULL) {
                 RabitqVector *rbqVec = (RabitqVector *)PointerGetDatum(&etup->data);
@@ -1059,9 +1096,12 @@ bool HnswLoadElement(HnswElement element, float *distance, Datum *q, Relation in
     if (distance == NULL && enableRabitQ && rbqDiskParams != NULL) {
         VectorTransform *vtrans = rbqDiskParams->vtrans;
         Relation heap = rbqDiskParams->heap;
-        eRbqDiskData = HnswGetVectorFromHeap(heap, etup->heaptids, rbqDiskParams->indexInfo,
-                                             rbqDiskParams->heapTuple, procinfo, rbqDiskParams->normprocinfo,
-                                             rbqDiskParams->collation, &heapbuf);
+        if (!HnswTryGetVectorFromHeap(heap, etup->heaptids, rbqDiskParams->indexInfo, rbqDiskParams->heapTuple,
+                                      procinfo, rbqDiskParams->normprocinfo, rbqDiskParams->collation, &heapbuf,
+                                      &eRbqDiskData)) {
+            UnlockReleaseBuffer(buf);
+            return false;
+        }
     }
 
     /* Load element */
