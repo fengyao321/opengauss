@@ -54,6 +54,7 @@
 #include "replication/walreceiver.h"
 /* USE_UB_TXN_CACHE - BEGIN */
 #include "access/ubmem_buf.h"
+#include "access/ub_sigbus_handler.h"
 /* USE_UB_TXN_CACHE - END */
 /*
  * Defines for CSNLOG page sizes.  A page is the same BLCKSZ as is used
@@ -878,12 +879,10 @@ void UBCSNLogBufferInit(UBCSNLogBuffer *buf)
     while (offset < total_size) {
         size_t chunk = (total_size - offset) < CHUNK_SIZE ? (total_size - offset) : CHUNK_SIZE;
         errno_t rc = memset_s((char *)buf + offset, chunk, 0, chunk);
-        if (rc != EOK) {
-            ereport(ERROR, (errmsg("memset_s failed for UBCSNLogBuffer at offset %zu, rc=%d",
-                                    offset, rc)));
-        }
+        securec_check_c(rc, "\0", "\0");
         offset += chunk;
     }
+    EXECUTE_ESB();
 }
 
 void UBCSNLogBufferSetSlot(UBCSNLogBuffer *buf, TransactionId xid, uint64 csn)
@@ -899,7 +898,7 @@ void UBCSNLogBufferSetSlot(UBCSNLogBuffer *buf, TransactionId xid, uint64 csn)
     uint64 expected_timeline = (uint64)UBCSNLogExpectedTimeline(xid);
     __uint128_t packed_val = UBCSNLogPackSlot(expected_timeline, csn);
     buf->slots[slot_idx].store(packed_val, std::memory_order_release);
-    ENTER_ESB();
+    EXECUTE_ESB();
 }
 
 size_t UBCSNLogBufferSize(void)
@@ -941,7 +940,7 @@ bool UBGetCSNFromPrimary(TransactionId xid, uint64 *csn)
     uint32 slot_idx = (uint32)UBCSNLogCalSlotIndex(xid);
     uint64 expected_timeline = (uint64)UBCSNLogExpectedTimeline(xid);
     __uint128_t slot_val = ubCSNLogBuf->slots[slot_idx].load(std::memory_order_acquire);
-    ENTER_ESB();
+    EXECUTE_ESB();
 
     uint64 timelineid = UBCSNLogUnpackTimelineId(slot_val);
     uint64 csn_val = UBCSNLogUnpackCSN(slot_val);
