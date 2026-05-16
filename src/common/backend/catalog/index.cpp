@@ -2665,7 +2665,7 @@ void index_drop(Oid indexId, bool concurrent, bool concurrent_lock_mode)
     }
 }
 
-static bool check_func_user_created_walker(Node* node, Node* cxt)
+static bool get_index_expr_user_func_owner_walker(Node* node, Oid* owner)
 {
     if (node == NULL) {
         return false;
@@ -2673,11 +2673,20 @@ static bool check_func_user_created_walker(Node* node, Node* cxt)
     if (IsA(node, FuncExpr)) {
         FuncExpr* func = (FuncExpr*)node;
         if (func->funcid >= FirstNormalObjectId) {
+            bool isNull = false;
+            HeapTuple tup = SearchSysCache1(PROCOID, ObjectIdGetDatum(func->funcid));
+            if (!HeapTupleIsValid(tup)) {
+                ereport(ERROR,
+                    (errcode(ERRCODE_CACHE_LOOKUP_FAILED),
+                     errmsg("cache lookup failed for index expression func oid %u", func->funcid)));
+            }
+            *owner = (Oid)SysCacheGetAttr(PROCOID, tup, Anum_pg_proc_proowner, &isNull);
+            ReleaseSysCache(tup);
             return true;
         }
     }
 
-    return expression_tree_walker(node, (bool (*)())check_func_user_created_walker, (void*)node);
+    return expression_tree_walker(node, (bool (*)())get_index_expr_user_func_owner_walker, owner);
 }
 
 List* get_user_from_index_expressions(List* indexExpressions)
@@ -2687,18 +2696,9 @@ List* get_user_from_index_expressions(List* indexExpressions)
     }
     ListCell* expr = NULL;
     List* user_oid_list = NIL;
-    bool is_null = false;
     foreach (expr, indexExpressions) {
-        if (check_func_user_created_walker((Node*)(lfirst(expr)), NULL) && IsA(lfirst(expr), FuncExpr)) {
-            Oid func_oid = ((FuncExpr*)(lfirst(expr)))->funcid;
-            HeapTuple tup = SearchSysCache1(PROCOID, ObjectIdGetDatum(func_oid));
-            if (!HeapTupleIsValid(tup)) {
-                ereport(ERROR,
-                    (errcode(ERRCODE_CACHE_LOOKUP_FAILED),
-                     errmsg("cache lookup failed for index expression func oid %u", func_oid)));
-            }
-            Oid proowner = (Oid)SysCacheGetAttr(PROCOID, tup, Anum_pg_proc_proowner, &is_null);
-            ReleaseSysCache(tup);
+        Oid proowner = InvalidOid;
+        if (get_index_expr_user_func_owner_walker((Node*)(lfirst(expr)), &proowner)) {
             user_oid_list = lappend_oid(user_oid_list, proowner);
             continue;
         }
