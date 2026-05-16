@@ -30,6 +30,7 @@
 #include "storage/smgr/segment_internal.h"
 #include "access/multi_redo_api.h"
 #include "access/ubmem_buf.h"
+#include "access/ub_sigbus_handler.h"
 #include "ddes/dms/ss_transaction.h"
 #include "ddes/dms/ss_reform_common.h"
 #include "ddes/dms/ss_dms_bufmgr.h"
@@ -1754,6 +1755,7 @@ void UBSnapshotBufferInit(UBSnapshotBuffer *buf)
     if (rc != EOK) {
         ereport(ERROR, (errmsg("memset_s failed for UBSnapshotBuffer")));
     }
+    EXECUTE_ESB();
 }
 
 void UBSnapshotBufferSetSlot(UBSnapshotBuffer *buf,
@@ -1769,7 +1771,7 @@ void UBSnapshotBufferSetSlot(UBSnapshotBuffer *buf,
     }
     
     UBSnapshotSlotSet(&buf->slots[0], xmin, xmax, csn);
-    ENTER_ESB();
+    EXECUTE_ESB();
 }
 
 bool UBGetSnapshotFromPrimary(TransactionId *xmin,
@@ -1807,6 +1809,7 @@ bool UBSnapshotSlotGet(UBSnapshotSlot *slot,
     *csn = slot->snapshotcsn.load(std::memory_order_relaxed);
     
     uint64 ver_after = slot->version.load(std::memory_order_acquire);
+    EXECUTE_ESB();
     if (ver_before != ver_after) {
         return false;
     }

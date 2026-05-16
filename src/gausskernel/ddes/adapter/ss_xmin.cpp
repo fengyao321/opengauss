@@ -32,6 +32,7 @@
 #include "knl/knl_instance.h"
 /* USE_UB_TXN_CACHE - BEGIN */
 #include "access/ubmem_buf.h"
+#include "access/ub_sigbus_handler.h"
 /* USE_UB_TXN_CACHE - END */
 extern void CalculateLocalLatestSnapshot(bool forceCalc);
 
@@ -77,7 +78,7 @@ bool UBSyncOldestXminInNodeTable()
 
     for (uint32 node_id = 0; node_id < DMS_MAX_INSTANCES; node_id++) {
         uint64 ub_oldest_xmin = ubBuf->slots[node_id].load(std::memory_order_acquire);
-        ENTER_ESB();
+        EXECUTE_ESB();
         if (ub_oldest_xmin == 0) {
             continue;
         }
@@ -319,6 +320,7 @@ void UBOldestXminBufferInit(UBOldestXminBuffer *buf)
     for (int i = 0; i < UB_OLDEST_XMIN_SLOTS; i++) {
         buf->slots[i].store(0, std::memory_order_release);
     }
+    EXECUTE_ESB();
 }
 
 bool UBOldestXminBufferSetSlot(UBOldestXminBuffer *buf, uint32 node_id, uint64 oldest_xmin)
@@ -336,12 +338,12 @@ bool UBOldestXminBufferSetSlot(UBOldestXminBuffer *buf, uint32 node_id, uint64 o
     uint32 slot_idx = node_id;
     uint64 old_val = buf->slots[slot_idx].load(std::memory_order_acquire);
     if (old_val != 0 && oldest_xmin <= old_val) {
-        ENTER_ESB();
+        EXECUTE_ESB();
         return true;
     }
 
     buf->slots[slot_idx].store(oldest_xmin, std::memory_order_release);
-    ENTER_ESB();
+    EXECUTE_ESB();
     return true;
 }
 
@@ -355,7 +357,7 @@ uint64 UBOldestXminBufferGetSlot(UBOldestXminBuffer *buf, uint32 node_id)
     }
     uint32 slot_idx = node_id;
     uint64 val = buf->slots[slot_idx].load(std::memory_order_acquire);
-    ENTER_ESB();
+    EXECUTE_ESB();
     return val;
 }
 

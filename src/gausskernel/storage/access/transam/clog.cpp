@@ -54,6 +54,7 @@
 #include "storage/procarray.h"
 /* USE_UB_TXN_CACHE - BEGIN */
 #include "access/ubmem_buf.h"
+#include "access/ub_sigbus_handler.h"
 /* USE_UB_TXN_CACHE - END */
 #ifdef USE_ASSERT_CHECKING
 #include "utils/builtins.h"
@@ -1436,12 +1437,10 @@ void UBCLogBufferInit(UBCLogBuffer *buf)
     while (offset < total_size) {
         size_t chunk = (total_size - offset) < CHUNK_SIZE ? (total_size - offset) : CHUNK_SIZE;
         errno_t rc = memset_s((char *)buf->slots + offset, chunk, 0xFFFF, chunk);
-        if (rc != EOK) {
-            ereport(ERROR, (errmsg("memset_s failed for UBCLogBuffer slots at offset %zu, rc=%d",
-                                    offset, rc)));
-        }
+        securec_check_c(rc, "\0", "\0");
         offset += chunk;
     }
+    EXECUTE_ESB();
 }
 
 void UBCLogBufferSetSlot(UBCLogBuffer *buf, TransactionId xid, CLogXidStatus status)
@@ -1460,7 +1459,7 @@ void UBCLogBufferSetSlot(UBCLogBuffer *buf, TransactionId xid, CLogXidStatus sta
     uint16 expected_timeline = (uint16)UBCLogExpectedTimeline(xid);
     uint16 slot_val = UBCLogSlotMake(status, expected_timeline);
     buf->slots[slot_idx].store(slot_val, std::memory_order_release);
-    ENTER_ESB();
+    EXECUTE_ESB();
 }
 
 size_t UBCLogBufferSize(void)
@@ -1502,7 +1501,7 @@ bool UBGetTxnStatusFromPrimary(TransactionId xid, CLogXidStatus *status)
     uint64 slot_idx = UBCLogCalSlotIndex(xid);
     uint16 expected_timeline = (uint16)UBCLogExpectedTimeline(xid);
     uint16 slot_val = ubCLogBuf->slots[slot_idx].load(std::memory_order_acquire);
-    ENTER_ESB();
+    EXECUTE_ESB();
 
     if (slot_val == 0xFFFF) {
         return false;

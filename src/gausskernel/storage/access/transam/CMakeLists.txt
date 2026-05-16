@@ -19,6 +19,7 @@ list(APPEND TGT_transam_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/twophase.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/twophase_rmgr.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ubmem_buf.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ub_sigbus_handler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/varsup.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/xact.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/xlog.cpp

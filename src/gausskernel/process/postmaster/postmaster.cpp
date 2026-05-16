@@ -1,4 +1,4 @@
-/* -------------------------------------------------------------------------
+﻿/* -------------------------------------------------------------------------
  *
  * postmaster.cpp
  *	  This program acts as a clearing house for requests to the
@@ -304,6 +304,7 @@
 #include "ddes/dms/ss_transaction.h"
 #include "ddes/dms/ss_xmin.h"
 #include "access/ubmem_buf.h"
+#include "access/ub_sigbus_handler.h"
 /* USE_UB_TXN_CACHE - END */
 
 extern void InitGlobalSeq();
@@ -3266,7 +3267,14 @@ int PostmasterMain(int argc, char* argv[])
                                  g_instance.shmem_cxt.UBSnapshotBufPtr)));
     }
 /* USE_UB_TXN_CACHE - END */
-
+#if defined(__aarch64__)
+    if (ENABLE_UB) {
+        if (register_sigbus_handler() != 0) {
+            ereport(FATAL, (errmsg("[postmaster] register_sigbus_handler() failed!!!")));
+        }
+        ereport(LOG, (errmsg("[postmaster] register_sigbus_handler() success!!!")));
+    }
+#endif
     /*
      * Save backend variables for DCF call back thread,
      * the saved backend variables will be restored in
