@@ -33,6 +33,8 @@
 
 ss_dms_func_t g_ss_dms_func = { 0 };
 
+#define SS_DMS_FUNC_AVAILABLE(func) (g_ss_dms_func.inited && g_ss_dms_func.func != NULL)
+
 // return DMS_ERROR if error occurs
 #define SS_RETURN_IFERR(ret)                            \
     do {                                                \
@@ -160,11 +162,14 @@ int ss_dms_func_init()
 
 void ss_dms_func_uninit()
 {
-    if (g_ss_dms_func.handle != NULL) {
-        dms_close_dl(g_ss_dms_func.handle);
-        g_ss_dms_func.handle = NULL;
-        g_ss_dms_func.inited = false;
+    void *lib_handle = g_ss_dms_func.handle;
+
+    if (lib_handle != NULL) {
+        dms_close_dl(lib_handle);
     }
+
+    errno_t rc = memset_s(&g_ss_dms_func, sizeof(g_ss_dms_func), 0, sizeof(g_ss_dms_func));
+    securec_check(rc, "\0", "\0");
 }
 
 static int dms_get_lib_version()
@@ -217,7 +222,12 @@ void dms_fsync_logfile(void)
 
 void dms_uninit(void)
 {
-    g_ss_dms_func.dms_uninit();
+    void (*dms_uninit_func)(void) = g_ss_dms_func.dms_uninit;
+
+    g_ss_dms_func.inited = false;
+    if (dms_uninit_func != NULL) {
+        dms_uninit_func();
+    }
     ss_dms_func_uninit();
 }
 
@@ -292,16 +302,25 @@ void dms_init_latch2(dms_drlatch_t *dlatch, dms_dr_type_t type, unsigned int oid
 
 bool dms_latch_timed_x(dms_drlatch_t *dlatch, unsigned int sid, unsigned int wait_ticks, void *dms_stat)
 {
+    if (!SS_DMS_FUNC_AVAILABLE(dms_latch_timed_x)) {
+        return false;
+    }
     return (bool)g_ss_dms_func.dms_latch_timed_x(dlatch, sid, wait_ticks, dms_stat);
 }
 
 bool dms_latch_timed_s(dms_drlatch_t *dlatch, unsigned int sid, unsigned int wait_ticks, unsigned char is_force, void *dms_stat)
 {
+    if (!SS_DMS_FUNC_AVAILABLE(dms_latch_timed_s)) {
+        return false;
+    }
     return (bool)g_ss_dms_func.dms_latch_timed_s(dlatch, sid, wait_ticks, is_force, dms_stat);
 }
 
 void dms_unlatch(dms_drlatch_t *dlatch, void *dms_stat)
 {
+    if (!SS_DMS_FUNC_AVAILABLE(dms_unlatch)) {
+        return;
+    }
     g_ss_dms_func.dms_unlatch(dlatch, dms_stat);
 }
 

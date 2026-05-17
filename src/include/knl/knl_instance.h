@@ -1057,6 +1057,7 @@ typedef struct knl_g_shmem_context {
     void *UBCSNLogBufPtr;
     void *UBOldestXminBufPtr;
     void *UBSnapshotBufPtr;
+    void *UBLocalMapRecordsPtr;
     /* USE_UB_TXN_CACHE - END */
 } knl_g_shmem_context;
 

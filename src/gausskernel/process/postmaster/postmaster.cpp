@@ -3259,12 +3259,6 @@ int PostmasterMain(int argc, char* argv[])
             UBOldestXminShmemInit();
             UBSnapshotShmemInit();
             ereport(LOG, (errmsg("[postmaster]success init UB shared memory")));
-            ereport(LOG, (errmsg("[UB DEBUG] UBTxnCachePtr=%p, UBClogBufPtr=%p, UBCSNLogBufPtr=%p, UBOldestXminBufPtr=%p, UBSnapshotBufPtr=%p",
-                                 g_instance.shmem_cxt.UBTxnCachePtr,
-                                 g_instance.shmem_cxt.UBClogBufPtr,
-                                 g_instance.shmem_cxt.UBCSNLogBufPtr,
-                                 g_instance.shmem_cxt.UBOldestXminBufPtr,
-                                 g_instance.shmem_cxt.UBSnapshotBufPtr)));
     }
 /* USE_UB_TXN_CACHE - END */
 #if defined(__aarch64__)
@@ -6870,12 +6864,45 @@ static void PrepareDemoteResponse(void)
 
     if (ENABLE_DMS) {
         ss_reform_info_t *reform_info = &g_instance.dms_cxt.SSReformInfo;
+        XLogRecPtr insertEnd = InvalidXLogRecPtr;
+        XLogRecPtr flushPtr = InvalidXLogRecPtr;
         if (g_instance.dms_cxt.SSClusterState != NODESTATE_PRIMARY_DEMOTING &&
             (dms_reform_failed() || dms_reform_last_failed() || reform_info->in_reform == false)) {
             ereport(LOG,
                 (errmsg("[SS switchover] primary demoting: current switchover round failed caused by"
                 " remote instance; new round of reform has been running concurrently, exit now")));
             _exit(0);
+        }
+        /*
+         * During DD switchover the old primary is restarted as a standby
+         * without resetting shared memory. If the last committed WAL is still
+         * only in wal buffers here, the startup thread will recover from a
+         * stale EndOfLog and the demoted primary can miss the last committed
+         * transaction. Force WAL durable before advertising demote success.
+         */
+        insertEnd = GetXLogInsertEndRecPtr();
+        flushPtr = GetFlushRecPtr();
+        if (XLByteLT(flushPtr, insertEnd)) {
+            ereport(LOG,
+                (errmsg("[SS switchover] primary demoting: flushing pending WAL before restart, "
+                        "insertEnd=%X/%X flush=%X/%X",
+                        (uint32)(insertEnd >> 32), (uint32)insertEnd,
+                        (uint32)(flushPtr >> 32), (uint32)flushPtr)));
+            XLogWaitFlush(insertEnd);
+            flushPtr = GetFlushRecPtr();
+            if (XLByteLT(flushPtr, insertEnd)) {
+                ereport(WARNING,
+                    (errmsg("[SS switchover] primary demoting: WAL flush is still behind after wait, "
+                            "insertEnd=%X/%X flush=%X/%X",
+                            (uint32)(insertEnd >> 32), (uint32)insertEnd,
+                            (uint32)(flushPtr >> 32), (uint32)flushPtr)));
+            } else {
+                ereport(LOG,
+                    (errmsg("[SS switchover] primary demoting: WAL flush caught up, "
+                            "insertEnd=%X/%X flush=%X/%X",
+                            (uint32)(insertEnd >> 32), (uint32)insertEnd,
+                            (uint32)(flushPtr >> 32), (uint32)flushPtr)));
+            }
         }
         ereport(LOG,
             (errmsg("[SS switchover] primary demoting: shutdown ckpt done, demote success. restart now")));

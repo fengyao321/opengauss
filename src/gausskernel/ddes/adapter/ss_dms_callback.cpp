@@ -36,6 +36,7 @@
 #include "access/xact.h"
 #include "access/transam.h"
 #include "access/csnlog.h"
+#include "access/ubmem_buf.h"
 #include "access/nbtree.h"
 #include "access/xlog.h"
 #include "access/multi_redo_api.h"
@@ -2239,6 +2240,9 @@ static void CBReformStartNotify(void *db_handle, dms_reform_start_context_t *rs_
     }
     reform_info->reform_ver = reform_info->reform_start_time;
     reform_info->in_reform = true;
+    if (ENABLE_UB && g_instance.dms_cxt.SSReformerControl.primaryInstId == SS_MY_INST_ID) {
+        UBTxnCacheResetReformMeta();
+    }
     char reform_type_str[reform_type_str_len] = {0};
     ReformTypeToString(reform_info->reform_type, reform_type_str);
     ereport(LOG, (errmodule(MOD_DMS),
@@ -2295,6 +2299,17 @@ static int CBReformDoneNotify(void *db_handle)
         if (SS_DISASTER_MAIN_STANDBY_NODE) {
             SSDisasterBroadcastIsExtremeRedo();
         }
+    }
+
+    /*
+     * Before reform finishes, standby nodes in switchover/failover need to
+     * detach the old primary UB mapping and attach the current primary one.
+     * Standby only remaps and refreshes local pointers, without touching the
+     * actual shared memory contents.
+     */
+    if (ENABLE_UB && SS_STANDBY_MODE && (SS_PERFORMING_SWITCHOVER || SS_PERFORMING_FAILOVER) &&
+        !UBTxnCacheAttachPrimary()) {
+        return DMS_ERROR;
     }
    
     /* SSClusterState and in_reform must be set atomically */

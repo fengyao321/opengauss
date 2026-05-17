@@ -23,7 +23,6 @@
 #include <string.h>
 #include <pwd.h>
 #include <unistd.h>
-#include <sys/time.h>
 #include "knl/knl_thread.h"
 #include "access/clog.h"
 #include "access/csnlog.h"
@@ -35,6 +34,117 @@
 #include "access/ub_sigbus_handler.h"
 #include "securec_check.h"
 #include "access/ubmem_buf.h"
+
+namespace {
+struct UBLocalMapRecord {
+    std::atomic<uintptr_t> addr;
+    std::atomic<uint64> size;
+};
+}  // namespace
+
+static inline UBLocalMapRecord *UBGetLocalMapRecords(void)
+{
+    return (UBLocalMapRecord *)g_instance.shmem_cxt.UBLocalMapRecordsPtr;
+}
+
+/* Allocate the per-process remembered UB mapping table during UB init. */
+static bool UBInitLocalMapRecords(void)
+{
+    if (UBGetLocalMapRecords() != nullptr || !ENABLE_UB) {
+        return true;
+    }
+
+    /*
+     * ProcessMemory itself is sealed after startup, so allocate this small
+     * per-process helper table from the default instance memory context.
+     */
+    UBLocalMapRecord *records = (UBLocalMapRecord *)MemoryContextAllocZero(
+        INSTANCE_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_DEFAULT), sizeof(UBLocalMapRecord) * DMS_MAX_INSTANCE);
+    if (records == nullptr) {
+        ereport(ERROR, (errmsg("Failed to allocate UB local map records")));
+        return false;
+    }
+
+    g_instance.shmem_cxt.UBLocalMapRecordsPtr = records;
+    return true;
+}
+
+/* Release the remembered UB mapping table when the UB runtime is finalized. */
+static void UBReleaseLocalMapRecords(void)
+{
+    UBLocalMapRecord *records = UBGetLocalMapRecords();
+    if (records != nullptr) {
+        pfree(records);
+        g_instance.shmem_cxt.UBLocalMapRecordsPtr = nullptr;
+    }
+}
+
+/* Remember one successfully mapped UB shm address for later reuse on remap failures. */
+static void UBRememberLocalMapping(int32 instance_id, void *addr, size_t size)
+{
+    if (instance_id < 0 || instance_id >= DMS_MAX_INSTANCE || addr == nullptr) {
+        return;
+    }
+
+    UBLocalMapRecord *records = UBGetLocalMapRecords();
+    if (records == nullptr) {
+        return;
+    }
+    records[instance_id].size.store((uint64)size, std::memory_order_release);
+    records[instance_id].addr.store((uintptr_t)addr, std::memory_order_release);
+}
+
+/* Forget a remembered UB mapping once the corresponding unmap succeeds. */
+static void UBForgetLocalMappingByAddr(void *addr)
+{
+    UBLocalMapRecord *records = UBGetLocalMapRecords();
+    if (addr == nullptr || records == nullptr) {
+        return;
+    }
+
+    uintptr_t target = (uintptr_t)addr;
+    for (int32 i = 0; i < DMS_MAX_INSTANCE; ++i) {
+        uintptr_t saved_addr = records[i].addr.load(std::memory_order_acquire);
+        if (saved_addr == target) {
+            records[i].size.store(0, std::memory_order_release);
+            records[i].addr.store(0, std::memory_order_release);
+        }
+    }
+}
+
+/* Reuse a still-valid remembered mapping when the SDK rejects a duplicate map. */
+static bool UBTryReuseRememberedMapping(int32 instance_id, size_t expected_size, char **reuse_addr)
+{
+    UBLocalMapRecord *records = UBGetLocalMapRecords();
+    if (reuse_addr == nullptr || instance_id < 0 || instance_id >= DMS_MAX_INSTANCE || records == nullptr) {
+        return false;
+    }
+
+    uintptr_t saved_addr = records[instance_id].addr.load(std::memory_order_acquire);
+    uint64 saved_size = records[instance_id].size.load(std::memory_order_acquire);
+    if (saved_addr == 0) {
+        return false;
+    }
+
+    char *addr = (char *)saved_addr;
+    if (saved_size != 0 && (size_t)saved_size != expected_size) {
+        ereport(WARNING, (errmsg("Remembered UB shared memory size mismatch: inst=%d, addr=%p, "
+                                 "saved_size=%lu, expected_size=%lu",
+                                 instance_id, addr, (unsigned long)saved_size, (unsigned long)expected_size)));
+        UBForgetLocalMappingByAddr(addr);
+        return false;
+    }
+
+    if (!UBSMemVerification(addr)) {
+        ereport(WARNING, (errmsg("Remembered UB shared memory verification failed: inst=%d, addr=%p",
+                                 instance_id, addr)));
+        UBForgetLocalMappingByAddr(addr);
+        return false;
+    }
+
+    *reuse_addr = addr;
+    return true;
+}
 
 static const char* GetOSUserName(char *buf, size_t len)
 {
@@ -68,7 +178,7 @@ void UBMemRegionName(const char *host_name, char *region_name, size_t len)
         ereport(ERROR, (errmsg("Invalid arguments")));
         return;
     }
-    errno_t rc = snprintf_s(region_name, len, len - 1, "mem_pool_%s", host_name);
+    errno_t rc = snprintf_s(region_name, len, len - 1, "mem_pool_%s_inst%d", host_name, SS_MY_INST_ID);
     securec_check_ss_c(rc, "\0", "\0");
 }
 
@@ -184,6 +294,23 @@ static UBShmStdSize CalUBSMemSize(void)
     return sz;
 }
 
+static void UBClearTxnCachePointers(void)
+{
+    g_instance.shmem_cxt.UBTxnCachePtr = nullptr;
+    g_instance.shmem_cxt.UBClogBufPtr = nullptr;
+    g_instance.shmem_cxt.UBCSNLogBufPtr = nullptr;
+    g_instance.shmem_cxt.UBOldestXminBufPtr = nullptr;
+    g_instance.shmem_cxt.UBSnapshotBufPtr = nullptr;
+}
+
+static void UBRefreshTxnCachePointers(void)
+{
+    UBCLogShmemInit();
+    UBCSNLogShmemInit();
+    UBOldestXminShmemInit();
+    UBSnapshotShmemInit();
+}
+
 bool UBSMemAllocate(const char *buffer_name, size_t buffer_size)
 {
     char host_name[UB_MAX_HOST_NAME_LENGTH + 1];
@@ -195,9 +322,6 @@ bool UBSMemAllocate(const char *buffer_name, size_t buffer_size)
 
     char region_name[UB_MAX_REGION_NAME_DESC_LENGTH];
     UBMemRegionName(host_name, region_name, sizeof(region_name));
-
-    ereport(LOG, (errmsg("[UB DEBUG] UBSMemAllocate: region_name=%s, buffer_name=%s, size=%lu",
-                         region_name, buffer_name, buffer_size)));
 
     int ret = ubsmem_shmem_allocate(region_name, buffer_name, buffer_size, 0600,
                                     UBSM_FLAG_ONLY_IMPORT_NONCACHE | UBSM_FLAG_WR_DELAY_COMP);
@@ -233,8 +357,9 @@ bool UBSMemLogBufferCreate()
                         "ub_node%02d_%s_txn_cache", SS_PRIMARY_ID, user_name);
     securec_check_ss_c(rc, "\0", "\0");
 
-    ereport(LOG, (errmsg("[UB DEBUG] Local node=%d, Primary node=%d", SS_MY_INST_ID, SS_PRIMARY_ID)));
-    ereport(LOG, (errmsg("[UB DEBUG] Local shm_name=%s, Primary shm_name=%s", local_shm_name, primary_shm_name)));
+    if (!UBInitLocalMapRecords()) {
+        return false;
+    }
 
     if (!UBSMemAllocate(local_shm_name, sz.total_size)) {
         return false;
@@ -247,8 +372,7 @@ bool UBSMemLogBufferCreate()
         ereport(ERROR, (errmsg("Failed to map UB shared memory: %d, local_shm_name=%s", ret, local_shm_name)));
         return false;
     }
-
-    ereport(LOG, (errmsg("[UB DEBUG] ubsmem_shmem_map success: addr=%p", local_addr)));
+    UBRememberLocalMapping(SS_MY_INST_ID, local_addr, sz.total_size);
 
     UBShmControlBlock *ctrl = (UBShmControlBlock *)local_addr;
     bool new_created = (ctrl->total_size.load(std::memory_order_relaxed) == 0);
@@ -266,9 +390,9 @@ bool UBSMemLogBufferCreate()
     ret = ubsmem_shmem_unmap(local_addr, sz.total_size);
     if (ret != UBSM_OK) {
         ereport(WARNING, (errmsg("Failed to unmap local UB shared memory: %d", ret)));
+    } else {
+        UBForgetLocalMappingByAddr(local_addr);
     }
-
-    ereport(LOG, (errmsg("[UB DEBUG] ubsmem_shmem_map: name=%s, size=%lu", primary_shm_name, sz.total_size)));
 
     void *addr = nullptr;
     ret = ubsmem_shmem_map(nullptr, sz.total_size, PROT_READ | PROT_WRITE,
@@ -277,14 +401,12 @@ bool UBSMemLogBufferCreate()
         ereport(ERROR, (errmsg("Failed to map UB shared memory: %d, primary_shm_name=%s", ret, primary_shm_name)));
         return false;
     }
-
-    ereport(LOG, (errmsg("[UB DEBUG] ubsmem_shmem_map success: addr=%p", addr)));
+    UBRememberLocalMapping(SS_PRIMARY_ID, addr, sz.total_size);
 
     g_instance.shmem_cxt.UBTxnCachePtr = (char *)addr;
 
     ereport(LOG, (errmsg("UB shared memory initialized (size: %lu, %s)",
                          sz.total_size, new_created ? "new create" : "reused")));
-    ereport(LOG, (errmsg("[UB DEBUG] UBTxnCachePtr=%p", addr)));
     return true;
 }
 
@@ -297,8 +419,10 @@ bool UBSMemFinalize()
         int ret = ubsmem_shmem_unmap((void*)addr, length);
         if (ret != UBSM_OK) {
             ereport(WARNING, (errmsg("Failed to unmap UB shared memory: %d", ret)));
+        } else {
+            UBForgetLocalMappingByAddr(addr);
         }
-        g_instance.shmem_cxt.UBTxnCachePtr = nullptr;
+        UBClearTxnCachePointers();
     }
 
     int ret = ubsmem_finalize();
@@ -306,6 +430,7 @@ bool UBSMemFinalize()
         ereport(ERROR, (errmsg("Failed to finalize ubs-mem. ret: %d", ret)));
         return false;
     }
+    UBReleaseLocalMapRecords();
     return true;
 }
 
@@ -372,6 +497,100 @@ bool UBSMemVerification(char *ub_txn_cache_ptr)
     return valid;
 }
 
+/*
+ * Re-attach this process to the current primary UB txn cache.
+ *
+ * This is used by standby/reform flows after the primary role changes. We only
+ * need to remap the primary's existing UB shared memory and refresh the local
+ * cached pointers; the shared memory contents are owned by the primary side.
+ */
+bool UBTxnCacheAttachPrimary(void)
+{
+    UBShmStdSize sz = CalUBSMemSize();
+    size_t new_map_size = sz.total_size;
+    char primary_shm_name[UB_MAX_SHM_NAME_LENGTH];
+    if (!GetUBSMemName(SS_PRIMARY_ID, primary_shm_name, sizeof(primary_shm_name))) {
+        return false;
+    }
+
+    void *old_addr = (void *)g_instance.shmem_cxt.UBTxnCachePtr;
+    size_t old_map_size = new_map_size;
+    if (old_addr != nullptr) {
+        UBShmControlBlock *old_ctrl = (UBShmControlBlock *)old_addr;
+        if (old_ctrl->total_size.load(std::memory_order_acquire) != 0) {
+            old_map_size = (size_t)old_ctrl->total_size.load(std::memory_order_acquire);
+        }
+    }
+
+    void *new_addr = nullptr;
+    int ret = ubsmem_shmem_map(nullptr, new_map_size, PROT_READ | PROT_WRITE,
+                               MAP_SHARED, primary_shm_name, 0, &new_addr);
+    if (ret != UBSM_OK || new_addr == nullptr) {
+        /*
+         * If the previous unmap failed, the SDK may reject a second map of the
+         * same primary UB shm in this process. Reuse the remembered mapping
+         * after a light validation instead of failing the reform path.
+         */
+        if (ret == UBSM_ERR_PARAM_INVALID && UBTryReuseRememberedMapping(SS_PRIMARY_ID, new_map_size,
+            (char **)&new_addr)) {
+            ereport(WARNING, (errmsg("Current primary UB shared memory is already mapped locally, "
+                                     "reusing remembered mapping: shm_name=%s, addr=%p",
+                                     primary_shm_name, new_addr)));
+        } else {
+            ereport(ERROR, (errmsg("Failed to map current primary UB shared memory: %d, shm_name=%s",
+                                   ret, primary_shm_name)));
+            return false;
+        }
+    }
+    UBRememberLocalMapping(SS_PRIMARY_ID, new_addr, new_map_size);
+
+    if (!UBSMemVerification((char *)new_addr)) {
+        int unmap_ret = ubsmem_shmem_unmap(new_addr, new_map_size);
+        if (unmap_ret != UBSM_OK) {
+            ereport(WARNING, (errmsg("Failed to unmap invalid current primary UB shared memory: %d", unmap_ret)));
+        } else {
+            UBForgetLocalMappingByAddr(new_addr);
+        }
+        ereport(ERROR, (errmsg("Current primary UB shared memory verification failed, shm_name=%s",
+                               primary_shm_name)));
+        return false;
+    }
+
+    /*
+     * Publish the new base and derived UB pointers before unmapping the old
+     * primary shm, so concurrent UB users stop touching the old mapping first.
+     */
+    g_instance.shmem_cxt.UBTxnCachePtr = (char *)new_addr;
+    UBRefreshTxnCachePointers();
+    if (old_addr != nullptr && old_addr != new_addr) {
+        ret = ubsmem_shmem_unmap(old_addr, old_map_size);
+        if (ret != UBSM_OK) {
+            ereport(WARNING, (errmsg("Failed to unmap old primary UB shared memory after remap: %d", ret)));
+        } else {
+            UBForgetLocalMappingByAddr(old_addr);
+        }
+    }
+    return true;
+}
+
+void UBTxnCacheResetReformMeta(void)
+{
+    char *base_addr = g_instance.shmem_cxt.UBTxnCachePtr;
+    if (base_addr == nullptr) {
+        return;
+    }
+
+    UBShmControlBlock *ctrl = (UBShmControlBlock *)base_addr;
+    UBOldestXminBuffer *xmin_buf = (UBOldestXminBuffer *)(base_addr + ctrl->oldest_xmin_offset.load());
+    UBSnapshotBuffer *snapshot_buf = (UBSnapshotBuffer *)(base_addr + ctrl->snapshot_offset.load());
+
+    UBOldestXminBufferInit(xmin_buf);
+    ctrl->oldest_xmin_inited.store(true, std::memory_order_release);
+    UBSnapshotBufferInit(snapshot_buf);
+    ctrl->snapshot_inited.store(true, std::memory_order_release);
+    EXECUTE_ESB();
+}
+
 static bool UBSBufferSafeMemcpy(char *dest, const char *src, size_t size)
 {
     const size_t CHUNK_SIZE = 1024 * 1024 * 1024;
@@ -388,9 +607,6 @@ static bool UBSBufferSafeMemcpy(char *dest, const char *src, size_t size)
 
 bool UBSMemSyncFromOldPrimary(int32 old_primary_id, int32 new_primary_id)
 {
-    struct timeval start_time;
-    gettimeofday(&start_time, NULL);
-
     if (old_primary_id < 0 || old_primary_id >= DMS_MAX_INSTANCE) {
         ereport(ERROR, (errmsg("Invalid old primary ID: %d", old_primary_id)));
         return false;
@@ -417,9 +633,10 @@ bool UBSMemSyncFromOldPrimary(int32 old_primary_id, int32 new_primary_id)
         return false;
     }
     
+    UBShmStdSize sz = CalUBSMemSize();
     char *old_primary_addr = nullptr;
     char *new_primary_addr = nullptr;
-    size_t total_size = 0;
+    size_t total_size = sz.total_size;
     
     if (g_instance.shmem_cxt.UBTxnCachePtr != nullptr) {
         old_primary_addr = g_instance.shmem_cxt.UBTxnCachePtr;
@@ -433,6 +650,7 @@ bool UBSMemSyncFromOldPrimary(int32 old_primary_id, int32 new_primary_id)
     }
     UBShmControlBlock *old_ctrl = (UBShmControlBlock *)old_primary_addr;
     total_size = (size_t)old_ctrl->total_size.load(std::memory_order_acquire);
+    UBRememberLocalMapping(old_primary_id, old_primary_addr, total_size);
 
     int map_ret = ubsmem_shmem_map(nullptr, total_size, PROT_READ | PROT_WRITE,
                                     MAP_SHARED, new_shm_name, 0, (void **)&new_primary_addr);
@@ -457,9 +675,9 @@ bool UBSMemSyncFromOldPrimary(int32 old_primary_id, int32 new_primary_id)
         ereport(ERROR, (errmsg("Failed to map new primary UB shared memory: %d", map_ret)));
         return false;
     }
+    UBRememberLocalMapping(new_primary_id, new_primary_addr, total_size);
     UBShmControlBlock *new_ctrl = (UBShmControlBlock *)new_primary_addr;
 
-    UBShmStdSize sz = CalUBSMemSize();
     InitUBSMemControlBlock(new_ctrl, sz.total_size, sz.clog_size, sz.csnlog_size,
                           sz.xmin_size, sz.snapshot_size);
     InitUBSMemBuffer(new_ctrl, new_primary_addr);
@@ -476,55 +694,37 @@ bool UBSMemSyncFromOldPrimary(int32 old_primary_id, int32 new_primary_id)
         bool memcpy_ok = true;
 
         if (!UBSBufferSafeMemcpy(new_clog_ptr, old_clog_ptr, sz.clog_size)) {
-            struct timeval end_time;
-            gettimeofday(&end_time, NULL);
-            long elapsed_ms = (end_time.tv_sec - start_time.tv_sec) * 1000 +
-                              (end_time.tv_usec - start_time.tv_usec) / 1000;
-            ereport(WARNING, (errmsg("[UB SYNC TIMING] UBSMemSyncFromOldPrimary CLOG copy failed")));
+            ereport(WARNING, (errmsg("failed to copy CLOG data when syncing UB shared memory from old primary")));
             memcpy_ok = false;
         } else {
             copied_bytes += sz.clog_size;
         }
 
         if (!UBSBufferSafeMemcpy(new_csnlog_ptr, old_csnlog_ptr, sz.csnlog_size)) {
-            struct timeval end_time;
-            gettimeofday(&end_time, NULL);
-            long elapsed_ms = (end_time.tv_sec - start_time.tv_sec) * 1000 +
-                              (end_time.tv_usec - start_time.tv_usec) / 1000;
-            ereport(WARNING, (errmsg("[UB SYNC TIMING] UBSMemSyncFromOldPrimary CSNLOG copy failed")));
+            ereport(WARNING, (errmsg("failed to copy CSNLOG data when syncing UB shared memory from old primary")));
             memcpy_ok = false;
         } else {
             copied_bytes += sz.csnlog_size;
         }
 
-        if (memcpy_ok) {
-            ereport(LOG, (errmsg("[UB SYNC] UBSMemSyncFromOldPrimary memcpy succeeded")));
-        } else {
-            ereport(WARNING, (errmsg("[UB SYNC] UBSMemSyncFromOldPrimary memcpy partially failed, "
-                                     "using freshly initialized new primary UB shared memory")));
+        if (!memcpy_ok) {
+            ereport(WARNING, (errmsg("UB shared memory sync from old primary partially failed, "
+                                     "using initialized new-primary buffers")));
         }
     }
 
     g_instance.shmem_cxt.UBTxnCachePtr = new_primary_addr;
-    UBCLogShmemInit();
-    UBCSNLogShmemInit();
-    UBOldestXminShmemInit();
-    UBSnapshotShmemInit();
-    if (old_primary_addr != g_instance.shmem_cxt.UBTxnCachePtr) {
+    UBRefreshTxnCachePointers();
+    if (old_primary_addr != new_primary_addr) {
         map_ret = ubsmem_shmem_unmap((void*)old_primary_addr, total_size);
         if (map_ret != UBSM_OK) {
             ereport(WARNING, (errmsg("Failed to unmap old primary UB memory: %d", map_ret)));
+        } else {
+            UBForgetLocalMappingByAddr(old_primary_addr);
         }
     }
-    
-    struct timeval end_time;
-    gettimeofday(&end_time, NULL);
-    long elapsed_ms = (end_time.tv_sec - start_time.tv_sec) * 1000 +
-                      (end_time.tv_usec - start_time.tv_usec) / 1000;
-    ereport(LOG, (errmsg("[UB SYNC TIMING] UBSMemSyncFromOldPrimary SUCCESS: "
-                         "old=%d, new=%d, total_size=%lu, copied=%lu bytes, elapsed_ms=%ld ms",
-                         old_primary_id, new_primary_id, (unsigned long)total_size,
-                         (unsigned long)copied_bytes, elapsed_ms)));
+    ereport(LOG, (errmsg("UB shared memory sync from old primary finished: old=%d, new=%d, copied=%lu bytes",
+                         old_primary_id, new_primary_id, (unsigned long)copied_bytes)));
     
     return true;
 }
