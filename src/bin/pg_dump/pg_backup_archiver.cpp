@@ -2863,6 +2863,56 @@ static bool _tocEntryIsACL(TocEntry* te)
 }
 
 /*
+ * Helper function to handle dolphin.sql_mode specifically.
+ * Ensures 'ansi_quotes' is always present in the mode string.
+ */
+static void _emitSetSqlMode(ArchiveHandle* AH, const char* val)
+{
+    const char* param = "ansi_quotes";
+
+    if (strlen(val) == 0) {
+        (void)ahprintf(AH, "SET dolphin.sql_mode = '%s';\n", param);
+    } else if (strstr(val, param) != NULL) {
+        (void)ahprintf(AH, "SET dolphin.sql_mode = '%s';\n", val);
+    } else {
+        (void)ahprintf(AH, "SET dolphin.sql_mode = '%s,%s';\n", val, param);
+    }
+}
+
+/*
+ * Helper function to query a GUC parameter via SHOW and emit a SET statement.
+ * This ensures the restore script matches the source database's configuration.
+ */
+static void _emitSetGucFromShow(ArchiveHandle* AH, const char* guc_name, bool hasSingleQuotes)
+{
+    char query[256];
+    PGresult* res;
+    char* val;
+    PGconn* conn = GetConnection(&AH->publicArc);
+
+    snprintf(query, sizeof(query), "SHOW %s;", guc_name);
+    res = PQexec(conn, query);
+
+    if (res != NULL && PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) == 1) {
+        val = PQgetvalue(res, 0, 0);
+        if (val != NULL) {
+            if (strcmp(guc_name, "dolphin.sql_mode") == 0) {
+                _emitSetSqlMode(AH, val);
+            } else if (hasSingleQuotes) {
+                (void)ahprintf(AH, "SET %s = '%s';\n", guc_name, val);
+            } else {
+                (void)ahprintf(AH, "SET %s = %s;\n", guc_name, val);
+            }
+        }
+    }
+
+    if (res != NULL) {
+        PQclear(res);
+    }
+}
+
+
+/*
  * Issue SET commands for parameters that we want to have set the same way
  * at all times during execution of a restore script.
  */
@@ -2910,8 +2960,16 @@ static void _doSetFixedOutputState(ArchiveHandle* AH)
     if (!AH->publicArc.std_strings)
         (void)ahprintf(AH, "SET escape_string_warning = off;\n");
 
-    if (findDBCompatibility(&AH->publicArc, PQdb(GetConnection(&AH->publicArc))) && hasSpecificExtension(&AH->publicArc, "dolphin"))
-        (void)ahprintf(AH, "SET dolphin.sql_mode = 'sql_mode_full_group,pipes_as_concat,ansi_quotes,pad_char_to_full_length';\n");
+    if (findDBCompatibility(&AH->publicArc, PQdb(GetConnection(&AH->publicArc))) &&
+        hasSpecificExtension(&AH->publicArc, "dolphin")) {
+        _emitSetGucFromShow(AH, "dolphin.sql_mode", true);
+        _emitSetGucFromShow(AH, "dolphin.lower_case_table_names", false);
+        _emitSetGucFromShow(AH, "dolphin.use_const_value_as_colname", false);
+        _emitSetGucFromShow(AH, "dolphin.transform_unknown_param_type_as_column_type_first", false);
+        _emitSetGucFromShow(AH, "b_compatibility_user_host_auth", false);
+        _emitSetGucFromShow(AH, "b_format_behavior_compat_options", true);
+        _emitSetGucFromShow(AH, "enable_set_variable_b_format", false);
+    }
 
     (void)ahprintf(AH, "SET enable_dump_trigger_definer = on;\n");
 
