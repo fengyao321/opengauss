@@ -67,6 +67,7 @@
 #include "utils/timestamp.h"
 #include "access/heapam.h"
 #include "catalog/pg_job.h"
+#include "ddes/dms/ss_common_attr.h"
 #include "job/job_shmem.h"
 #include "job/job_scheduler.h"
 #include "gssignal/gs_signal.h"
@@ -96,6 +97,7 @@ static void jobschd_sigusr2_handler(SIGNAL_ARGS);
 static void jobschd_sigterm_handler(SIGNAL_ARGS);
 static void SchedulerDetermineSleep(bool canlaunch, struct timeval* nap);
 static void ScanExpireJobs();
+static inline bool JobSchedulerShouldExit();
 static int JobComparator(const void* a, const void* b);
 static void ActivateWorker();
 static void check_jobinfo();
@@ -103,6 +105,12 @@ static void check_jobinfo();
 /*****************************************************************************
  *					 JOB SCHEDULER IMPLEMENTS CODE : PRIVATE
  ****************************************************************************/
+static inline bool JobSchedulerShouldExit()
+{
+    return t_thrd.worker_sig_flags.got_SIGTERM ||
+        (ENABLE_DMS && (!g_instance.dms_cxt.dmsInited || SS_IN_REFORM || SS_STANDBY_FAILOVER));
+}
+
 /*
  * Description: Main loop for the job scheduler process.
  *
@@ -328,7 +336,7 @@ NON_EXEC_STATIC void JobScheduleMain()
     pgstat_report_appname("JobScheduler");
     pgstat_report_activity(STATE_IDLE, NULL);
 
-    if (t_thrd.worker_sig_flags.got_SIGTERM) {
+    if (JobSchedulerShouldExit()) {
         /* Normal exit */
         ereport(LOG, (errmsg("job scheduler is shutting down")));
 
@@ -394,7 +402,7 @@ NON_EXEC_STATIC void JobScheduleMain()
         }
 
         /* the normal shutdown case */
-        if (t_thrd.worker_sig_flags.got_SIGTERM) {
+        if (JobSchedulerShouldExit()) {
             break;
         }
 
@@ -472,6 +480,10 @@ NON_EXEC_STATIC void JobScheduleMain()
         }
         LWLockRelease(JobShmemLock); /* either shared or exclusive */
 
+        if (JobSchedulerShouldExit()) {
+            break;
+        }
+
         if (canceled_job_id > 0) {
             ereport(WARNING,
                 (errmsg("Job worker with job id:%d took too long "
@@ -485,7 +497,13 @@ NON_EXEC_STATIC void JobScheduleMain()
 
         /* Get expired job */
         if (DLIsEmpty(t_thrd.job_cxt.ExpiredJobList)) {
+            if (JobSchedulerShouldExit()) {
+                break;
+            }
             ScanExpireJobs();
+            if (JobSchedulerShouldExit()) {
+                break;
+            }
         }
 
         t_thrd.utils_cxt.CurrentResourceOwner = save;
@@ -720,6 +738,10 @@ static void ScanExpireJobs()
     MemoryContext oldCtx = NULL;
     int jobStatus = JOB_WORKER_INACTIVE;
     Datum curtime = TimestampGetDatum(GetCurrentTimestamp());
+
+    if (JobSchedulerShouldExit()) {
+        return;
+    }
 
     StartTransactionCommand();
 

@@ -1478,13 +1478,16 @@ void UBCLogShmemInit(void)
     uint64 offset = ctrl->clog_offset.load(std::memory_order_acquire);
     UBCLogBuffer *buf = (UBCLogBuffer *)(base + offset);
     g_instance.shmem_cxt.UBClogBufPtr = buf;
-    ereport(LOG, (errmsg("[UB DEBUG] UBCLogShmemInit: base=%p, offset=%lu, buf=%p", base, offset, buf)));
 }
 
 bool UBGetTxnStatusFromPrimary(TransactionId xid, CLogXidStatus *status)
 {
     if (status == nullptr) {
         ereport(WARNING, (errmsg("UB CLOG: status pointer is null")));
+        return false;
+    }
+
+    if (SS_IN_REFORM) {
         return false;
     }
 
@@ -1509,7 +1512,12 @@ bool UBGetTxnStatusFromPrimary(TransactionId xid, CLogXidStatus *status)
 
     if (UBCLogSlotGetTimeline(slot_val) == expected_timeline) {
         *status = (CLogXidStatus)UBCLogSlotGetStatus(slot_val);
-        return true;
+        /*
+         * UB reform switchover can observe a partially updated xid state at the
+         * copy boundary. Only trust definitive statuses from UB; fall back to
+         * DMS/SLRU for in-progress and sub-committed states.
+         */
+        return UBCLogStatusIsDefinitive(*status);
     }
     return false;
 }

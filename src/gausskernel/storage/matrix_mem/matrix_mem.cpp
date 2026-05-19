@@ -61,7 +61,8 @@ int MaxtrixMemOpenDl(void **libHandle, char *symbol)
 #ifdef FRONTEND
         fprintf(stderr, _("load matrix mem dynamic lib: %s, error: %s"), symbol, dlerror());
 #else
-        ereport(WARNING, (errmsg("load matrix mem dynamic lib: %s, error: %s", symbol, dlerror())));
+        int ret = ENABLE_UB ? ERROR : WARNING;
+        ereport(ret, (errmsg("load matrix mem dynamic lib: %s, error: %s", symbol, dlerror())));
 #endif
         return MATRIX_MEM_ERROR;
     }
@@ -94,7 +95,8 @@ void MatrixMemFuncInit(char* ubsMemPath)
 #ifdef FRONTEND
         fprintf(stderr, _("load matrix mem dynamic lib error: %s, lib not exists"), ubsMemPath);
 #else
-        ereport(WARNING, (errmsg("load matrix mem dynamic lib error: %s, lib not exists", ubsMemPath)));
+        int ret = ENABLE_UB ? ERROR : WARNING;
+        ereport(ret, (errmsg("load matrix mem dynamic lib error: %s, lib not exists", ubsMemPath)));
 #endif
         return;
     }

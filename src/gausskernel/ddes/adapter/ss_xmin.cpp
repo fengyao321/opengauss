@@ -68,6 +68,9 @@ uint64 GetOldestXminInNodeTable()
 bool UBSyncOldestXminInNodeTable()
 {
 /* USE_UB_TXN_CACHE - BEGIN */
+    if (SS_IN_REFORM) {
+        return false;
+    }
     UBOldestXminBuffer *ubBuf = (UBOldestXminBuffer *)g_instance.shmem_cxt.UBOldestXminBufPtr;
     if (ubBuf == nullptr) {
         return false;
@@ -325,6 +328,11 @@ void UBOldestXminBufferInit(UBOldestXminBuffer *buf)
 
 bool UBOldestXminBufferSetSlot(UBOldestXminBuffer *buf, uint32 node_id, uint64 oldest_xmin)
 {
+    /* Only used without reform */
+    if (SS_IN_REFORM) {
+        return false;
+    }
+
     if (buf == nullptr) {
         return false;
     }
@@ -377,7 +385,6 @@ void UBOldestXminShmemInit(void)
     uint64 offset = ctrl->oldest_xmin_offset.load(std::memory_order_acquire);
     UBOldestXminBuffer *buf = (UBOldestXminBuffer *)(base + offset);
     g_instance.shmem_cxt.UBOldestXminBufPtr = buf;
-    ereport(LOG, (errmsg("[UB DEBUG] UBOldestXminShmemInit: base=%p, offset=%lu, buf=%p", base, offset, buf)));
 }
 
 /* USE_UB_TXN_CACHE - END */

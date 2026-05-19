@@ -135,7 +135,8 @@ typedef struct knl_instance_attr_dms {
     int scrlock_worker_count;
     int32 sslog_level;
     int32 sslog_backup_file_count;
-    int32 sslog_max_file_size; //Unit:KB
+    int32 sslog_max_file_size; // Unit:KB
+    int32 init_clog_size; // Unit:KB
     int parallel_thread_num;
     char* ss_shm_ub_comm_cpu_bind;
     int32 txnstatus_cache_size;
@@ -290,4 +291,3 @@ typedef struct knl_instance_attr_storage {
 } knl_instance_attr_storage;
 
 #endif /* SRC_INCLUDE_KNL_KNL_INSTANCE_ATTR_STORAGE_H_ */
-

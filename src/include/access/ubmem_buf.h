@@ -61,6 +61,8 @@ extern bool UBSMemLogBufferCreate(void);
 extern bool UBSMemFinalize(void);
 extern bool UBSMemVerification(char *ub_txn_cache_ptr);
 extern bool UBSMemSyncFromOldPrimary(int32 old_primary_id, int32 new_primary_id);
+extern bool UBTxnCacheAttachPrimary(void);
+extern void UBTxnCacheResetReformMeta(void);
 
 /* USE_UB_TXN_CACHE - END */
 #endif /* UBMEM_BUF_H */

@@ -139,6 +139,10 @@ static inline uint16 UBCLogSlotMake(CLogXidStatus status, uint16 timeline)
 {
     return (uint16)((timeline << UB_CLOG_STATUS_BITS) | (status & 0x03));
 }
+static inline bool UBCLogStatusIsDefinitive(CLogXidStatus status)
+{
+    return status == CLOG_XID_STATUS_COMMITTED || status == CLOG_XID_STATUS_ABORTED;
+}
 static inline bool UBCLogIsValidXid(TransactionId xid)
 {
     return UBCLogExpectedTimeline(xid) <= UB_CLOG_MAX_TIMELINE;

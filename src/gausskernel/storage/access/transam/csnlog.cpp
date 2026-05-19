@@ -917,13 +917,16 @@ void UBCSNLogShmemInit(void)
     uint64 offset = ctrl->csnlog_offset.load(std::memory_order_acquire);
     UBCSNLogBuffer *buf = (UBCSNLogBuffer *)(base + offset);
     g_instance.shmem_cxt.UBCSNLogBufPtr = buf;
-    ereport(LOG, (errmsg("[UB DEBUG] UBCSNLogShmemInit: base=%p, offset=%lu, buf=%p", base, offset, buf)));
 }
 
 bool UBGetCSNFromPrimary(TransactionId xid, uint64 *csn)
 {
     if (csn == nullptr) {
         ereport(WARNING, (errmsg("UB CSNLOG: csn pointer is null")));
+        return false;
+    }
+
+    if (SS_IN_REFORM) {
         return false;
     }
 
