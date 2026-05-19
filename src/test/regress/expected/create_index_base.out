@@ -1508,3 +1508,38 @@ select * from ddl_index_visibility where id=698;
 
 reset enable_seqscan;
 DROP TABLE ddl_index_visibility;
+--
+-- User-defined functions inside non-FuncExpr index expressions should still
+-- resolve the expression owner's OID correctly.
+--
+CREATE USER index_expr_func_owner PASSWORD 'Gauss@123';
+CREATE USER index_expr_index_owner PASSWORD 'Gauss@123';
+CREATE SCHEMA index_expr_func_schema AUTHORIZATION index_expr_func_owner;
+CREATE SCHEMA index_expr_index_schema AUTHORIZATION index_expr_index_owner;
+SET ROLE index_expr_func_owner PASSWORD 'Gauss@123';
+CREATE TABLE index_expr_func_schema.index_expr_secret(fmt text, suffix text);
+INSERT INTO index_expr_func_schema.index_expr_secret VALUES ('yyyymmdd', 'ok'), ('yyyymmddhh24', 'ok');
+CREATE FUNCTION index_expr_func_schema.index_expr_user_func(timestamp, text) RETURNS text
+    LANGUAGE SQL IMMUTABLE
+    AS $$SELECT to_char($1, $2) || suffix FROM index_expr_func_schema.index_expr_secret WHERE fmt = $2$$;
+RESET ROLE;
+GRANT USAGE ON SCHEMA index_expr_func_schema TO index_expr_index_owner;
+GRANT EXECUTE ON FUNCTION index_expr_func_schema.index_expr_user_func(timestamp, text) TO index_expr_index_owner;
+SET ROLE index_expr_index_owner PASSWORD 'Gauss@123';
+CREATE TABLE index_expr_index_schema.index_expr_user_func_tbl(a int, b timestamp);
+INSERT INTO index_expr_index_schema.index_expr_user_func_tbl VALUES
+    (1, timestamp '2026-05-16 12:34:56'),
+    (2, timestamp '2026-05-16 13:34:56');
+CREATE INDEX index_expr_user_func_idx ON index_expr_index_schema.index_expr_user_func_tbl
+    ((CASE WHEN a = 1 THEN index_expr_func_schema.index_expr_user_func(b, 'yyyymmdd')
+           WHEN a = 2 THEN index_expr_func_schema.index_expr_user_func(b, 'yyyymmddhh24')
+      END));
+DROP INDEX index_expr_index_schema.index_expr_user_func_idx;
+DROP TABLE index_expr_index_schema.index_expr_user_func_tbl;
+RESET ROLE;
+DROP SCHEMA index_expr_index_schema;
+DROP FUNCTION index_expr_func_schema.index_expr_user_func(timestamp, text);
+DROP TABLE index_expr_func_schema.index_expr_secret;
+DROP SCHEMA index_expr_func_schema;
+DROP USER index_expr_index_owner;
+DROP USER index_expr_func_owner;
