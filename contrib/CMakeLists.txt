@@ -45,6 +45,7 @@ set(CMAKE_MODULE_PATH
     ${CMAKE_CURRENT_SOURCE_DIR}/age
     ${CMAKE_CURRENT_SOURCE_DIR}/rack_dev
     ${CMAKE_CURRENT_SOURCE_DIR}/ogai
+    ${CMAKE_CURRENT_SOURCE_DIR}/gv_graph
 )
 
 if(NOT "${ENABLE_LITE_MODE}" STREQUAL "ON")
@@ -112,3 +113,16 @@ add_subdirectory(gms_assert)
 add_subdirectory(shark)
 add_subdirectory(rack_dev)
 add_subdirectory(ogai)
+if(NOT "$ENV{VECTOR_HOME}" STREQUAL "")
+    set(VECTOR_HOME $ENV{VECTOR_HOME})
+else()
+    set(VECTOR_HOME "")
+endif()
+message(STATUS "VECTOR_HOME is ${VECTOR_HOME}")
+if(EXISTS "${VECTOR_HOME}" AND IS_DIRECTORY "${VECTOR_HOME}")
+    # VECTOR_HOME is set and exists, include the gv_graph module
+    add_subdirectory(gv_graph)
+    message(STATUS "VECTOR_HOME found, gv_graph is enabled.")
+else()
+    message(STATUS "VECTOR_HOME not found: ${VECTOR_HOME}, skipped gv_graph.")
+endif()

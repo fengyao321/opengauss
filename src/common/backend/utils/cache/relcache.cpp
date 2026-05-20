@@ -34,6 +34,7 @@
 #include <catalog/pg_obsscaninfo.h>
 #include <catalog/gs_obsscaninfo.h>
 
+#include "access/genam.h"
 #include "access/reloptions.h"
 #include "access/sysattr.h"
 #include "access/transam.h"
@@ -1578,11 +1579,14 @@ static Relation AllocateRelationDesc(Form_pg_class relp)
 static void meta_rel_init_index_amroutine(Relation relation)
 {
     IndexAmRoutine *tmp, *cached;
+    Oid amhandler = relation->rd_am->amhandler;
 
     if (relation->rd_rel->relam == HNSW_AM_OID) {
         tmp = get_index_amroutine_for_hnsw();
-    } else {
+    } else if ((!SUPPORT_CREATE_AM) || amhandler == InvalidOid) {
         tmp = get_index_amroutine_for_nbtree();
+    } else {
+        tmp = get_index_amroutine(amhandler, RelationGetRelationName(relation));
     }
     cached = (IndexAmRoutine*)MemoryContextAlloc(relation->rd_indexcxt, sizeof(IndexAmRoutine));
 

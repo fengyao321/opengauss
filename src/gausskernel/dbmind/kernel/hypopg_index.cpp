@@ -347,6 +347,7 @@ static hypoIndex *hypo_newIndex(Oid relid, char *accessMethod, int nkeycolumns, 
     entry->amcanunique = ((Form_pg_am)GETSTRUCT(tuple))->amcanunique;
     entry->amcanmulticol = ((Form_pg_am)GETSTRUCT(tuple))->amcanmulticol;
     amoptions = ((Form_pg_am)GETSTRUCT(tuple))->amoptions;
+    Oid amhandler = ((Form_pg_am)GETSTRUCT(tuple))->amhandler;
     entry->amcanorder = ((Form_pg_am)GETSTRUCT(tuple))->amcanorder;
 
     ReleaseSysCache(tuple);
@@ -387,7 +388,7 @@ static hypoIndex *hypo_newIndex(Oid relid, char *accessMethod, int nkeycolumns, 
          */
         reloptions = transformRelOptions((Datum)0, options, NULL, NULL, false, false);
 
-        (void)index_reloptions(amoptions, reloptions, true);
+        (void)index_reloptions(amoptions, amhandler, reloptions, true);
     }
 
     PG_TRY();
@@ -993,7 +994,7 @@ static void hypo_injectHypotheticalIndex(PlannerInfo *root, Oid relationObjectId
 
     index->unique = entry->unique;
 
-    index->amcostestimate = entry->amcostestimate;
+    index->amcostestimate_oid = entry->amcostestimate;
     index->immediate = entry->immediate;
     index->canreturn = entry->canreturn;
     index->amcanorderbyop = entry->amcanorderbyop;

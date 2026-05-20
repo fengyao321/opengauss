@@ -145,6 +145,29 @@
     }                                                                           \
 } while (0)
 
+bool use_index_am_routine(Relation index_relation)
+{
+    if (!SUPPORT_CREATE_AM) {
+        return u_sess->attr.attr_common.enable_indexscan_optimization
+            && index_relation->rd_rel->relam == BTREE_AM_OID;
+    }
+    static const Oid builtin_indexes_without_amhandler[] = {
+        HASH_AM_OID, GIST_AM_OID, GIN_AM_OID, SPGIST_AM_OID, PSORT_AM_OID, CBTREE_AM_OID,
+        CGIN_AM_OID, UBTREE_AM_OID, HNSW_AM_OID, IVFFLAT_AM_OID, BM25_AM_OID, DISKANN_AM_OID, BLOOM_AM_OID};
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization) {
+        return false;
+    }
+    Oid amid = index_relation->rd_rel->relam;
+    size_t array_len = sizeof(builtin_indexes_without_amhandler) / sizeof(Oid);
+    for (size_t i = 0; i < array_len; i++) {
+        if (amid == builtin_indexes_without_amhandler[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+
 static IndexScanDesc index_beginscan_internal(Relation index_relation, int nkeys, int norderbys, Snapshot snapshot,
     ParallelIndexScanDesc pscan = NULL);
 
@@ -220,6 +243,8 @@ void index_delete(Relation index_relation, Datum* values, const bool* isnull, It
          * In such case, return immediately.
          */
         return;
+    } else if (use_index_am_routine(index_relation)) {
+        index_relation->rd_amroutine->amdelete(index_relation, values, isnull, heap_t_ctid, isRollbackIndex);
     } else {
         HeapTuple tuple;
         char* accessMethodName;
@@ -371,9 +396,13 @@ static IndexScanDesc index_beginscan_internal(Relation index_relation, int nkeys
             scan=  hnswbeginscan_internal(index_relation, nkeys, norderbys);
             break;
         default:
-            GET_REL_PROCEDURE(ambeginscan);
-            scan = (IndexScanDesc)DatumGetPointer(FunctionCall3(
-                procedure, PointerGetDatum(index_relation), Int32GetDatum(nkeys), Int32GetDatum(norderbys)));
+            if (use_index_am_routine(index_relation)) {
+                scan = index_relation->rd_amroutine->ambeginscan(index_relation, nkeys, norderbys);
+            } else {
+                GET_REL_PROCEDURE(ambeginscan);
+                scan = (IndexScanDesc)DatumGetPointer(FunctionCall3(
+                    procedure, PointerGetDatum(index_relation), Int32GetDatum(nkeys), Int32GetDatum(norderbys)));
+            }
             break;
     }
 #ifdef USE_SPQ
@@ -422,7 +451,9 @@ void index_rescan(IndexScanDesc scan, ScanKey keys, int nkeys, ScanKey orderbys,
     scan->kill_prior_tuple = false; /* for safety */
 
     if (scan->indexRelation->rd_rel->relam == BTREE_AM_OID) {
-        btrescan_internal(scan, keys);
+        btrescan_internal(scan, keys, nkeys, orderbys, norderbys);
+    } else if (use_index_am_routine(scan->indexRelation)) {
+        scan->indexRelation->rd_amroutine->amrescan(scan, keys, nkeys, orderbys, norderbys);
     } else {
         GET_SCAN_PROCEDURE(amrescan);
         (void)FunctionCall5(procedure, PointerGetDatum(scan), PointerGetDatum(keys), Int32GetDatum(nkeys),
@@ -468,6 +499,8 @@ void index_endscan(IndexScanDesc scan)
     /* End the AM's scan */
     if (scan->indexRelation->rd_rel->relam == BTREE_AM_OID) {
         btendscan_internal(scan);
+    } else if (use_index_am_routine(scan->indexRelation)) {
+        scan->indexRelation->rd_amroutine->amendscan(scan);
     } else {
         GET_SCAN_PROCEDURE(amendscan);
         (void)FunctionCall1(procedure, PointerGetDatum(scan));
@@ -500,6 +533,8 @@ void index_markpos(IndexScanDesc scan)
 
     if (scan->indexRelation->rd_rel->relam == BTREE_AM_OID) {
         btmarkpos_internal(scan);
+    } else if (use_index_am_routine(scan->indexRelation)) {
+        scan->indexRelation->rd_amroutine->ammarkpos(scan);
     } else {
         GET_SCAN_PROCEDURE(ammarkpos);
         (void)FunctionCall1(procedure, PointerGetDatum(scan));
@@ -540,6 +575,8 @@ void index_restrpos(IndexScanDesc scan)
 
     if (scan->indexRelation->rd_rel->relam == BTREE_AM_OID) {
         btrestrpos_internal(scan);
+    } else if (use_index_am_routine(scan->indexRelation)) {
+        scan->indexRelation->rd_amroutine->amrestrpos(scan);
     } else {
         GET_SCAN_PROCEDURE(amrestrpos);
         (void)FunctionCall1(procedure, PointerGetDatum(scan));
@@ -602,8 +639,12 @@ rescan:
             found = hnswgettuple_internal(scan, direction);
             break;
         default:
-            GET_SCAN_PROCEDURE(amgettuple);
-            found = DatumGetBool(FunctionCall2(procedure, PointerGetDatum(scan), Int32GetDatum(direction)));
+            if (use_index_am_routine(scan->indexRelation)) {
+                found = scan->indexRelation->rd_amroutine->amgettuple(scan, direction);
+            } else {
+                GET_SCAN_PROCEDURE(amgettuple);
+                found = DatumGetBool(FunctionCall2(procedure, PointerGetDatum(scan), Int32GetDatum(direction)));
+            }
             break;
     }
 
@@ -1045,6 +1086,8 @@ int64 index_getbitmap(IndexScanDesc scan, TIDBitmap *bitmap)
      */
     if (scan->indexRelation->rd_rel->relam == BTREE_AM_OID) {
         d = btgetbitmap_internal(scan, bitmap);
+    } else if (use_index_am_routine(scan->indexRelation)) {
+        d = scan->indexRelation->rd_amroutine->amgetbitmap(scan, bitmap);
     } else {
         GET_SCAN_PROCEDURE(amgetbitmap);
         d = FunctionCall2(procedure, PointerGetDatum(scan), PointerGetDatum(bitmap));
@@ -1111,6 +1154,8 @@ IndexBulkDeleteResult *index_bulk_delete(IndexVacuumInfo *info, IndexBulkDeleteR
 
     if (index_relation->rd_rel->relam == BTREE_AM_OID) {
         result = btbulkdelete_internal(info, stats, callback, callback_state);
+    } else if (use_index_am_routine(index_relation)) {
+        result = index_relation->rd_amroutine->ambulkdelete(info, stats, callback, callback_state);
     } else {
         GET_REL_PROCEDURE(ambulkdelete);
         result = (IndexBulkDeleteResult *)DatumGetPointer(
@@ -1137,6 +1182,8 @@ IndexBulkDeleteResult *index_vacuum_cleanup(IndexVacuumInfo *info, IndexBulkDele
 
     if (index_relation->rd_rel->relam == BTREE_AM_OID) {
         result = btvacuumcleanup_internal(info, stats);
+    } else if (use_index_am_routine(index_relation)) {
+        result = index_relation->rd_amroutine->amvacuumcleanup(info, stats);
     } else {
         GET_REL_PROCEDURE(amvacuumcleanup);
         result = (IndexBulkDeleteResult *)DatumGetPointer(
@@ -1163,6 +1210,8 @@ bool index_can_return(Relation index_relation)
 
     if (index_relation->rd_rel->relam == BTREE_AM_OID) {
         result = btcanreturn_internal();
+    } else if (use_index_am_routine(index_relation)) {
+        result = index_relation->rd_amroutine->amcanreturn();
     } else {
         GET_REL_PROCEDURE(amcanreturn);
         result = DatumGetBool(FunctionCall1(procedure, PointerGetDatum(index_relation)));
@@ -1270,4 +1319,18 @@ FmgrInfo *index_getprocinfo(Relation irel, AttrNumber attnum, uint16 procnum)
     }
 
     return locinfo;
+}
+
+IndexAmRoutine *get_index_amroutine(Oid amhandler, const char* relname)
+{
+    Datum datum;
+    IndexAmRoutine *routine = NULL;
+
+    datum = OidFunctionCall0(amhandler);
+    routine = (IndexAmRoutine *)DatumGetPointer(datum);
+    if (routine == NULL || !IsA(routine, IndexAmRoutine)) {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                        errmsg("index access method \"%s\" did not return an amroutine struct", relname)));
+    }
+    return routine;
 }

@@ -77,7 +77,10 @@ typedef IndexScanDesc (*ambeginscan_function) (Relation indexRelation,
 											   int norderbys);
 
 typedef void (*amrescan_function) (IndexScanDesc scan,
-								   ScanKey keys);
+								   ScanKey keys,
+								   int nkeys,
+								   ScanKey orderbys,
+								   int norderbys);
 
 typedef bool (*amgettuple_function) (IndexScanDesc scan,
 									 ScanDirection direction);
@@ -93,6 +96,12 @@ typedef void (*amrestrpos_function) (IndexScanDesc scan);
 
 typedef IndexBuildResult* (*ammerge_function) (Relation dest_idx_rel, List *src_idx_rel_scans,
                                               List *src_part_merge_offsets);
+
+typedef bool (*amdelete_function) (Relation indexRelation,
+								   Datum *values,
+								   const bool *isnull,
+								   ItemPointer heap_t_ctid,
+								   bool isRollbackIndex);
 
 typedef struct IndexAmRoutine
 {
@@ -157,6 +166,7 @@ typedef struct IndexAmRoutine
 	ammarkpos_function ammarkpos;	
 	amrestrpos_function amrestrpos; 
     ammerge_function ammerge;
+	amdelete_function amdelete;
 
 	char ambuildfuncname[NAMEDATALEN];
 	char ambuildemptyfuncname[NAMEDATALEN];

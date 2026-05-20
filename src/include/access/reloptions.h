@@ -57,8 +57,9 @@ typedef enum relopt_kind {
     RELOPT_KIND_D_INDEX = (1 << 18),
     RELOPT_KIND_BLOOM = (1 << 19),
     RELOPT_KIND_BM25 = (1 << 20),
+    RELOPT_KIND_GRAPH = (1 << 21),
     /* if you add a new kind, make sure you update "last_default" too */
-    RELOPT_KIND_LAST_DEFAULT = RELOPT_KIND_BM25,
+    RELOPT_KIND_LAST_DEFAULT = RELOPT_KIND_GRAPH,
     /* some compilers treat enums as signed ints, so we can't use 1 << 31 */
     RELOPT_KIND_MAX = (1 << 30)
 } relopt_kind;
@@ -276,7 +277,8 @@ extern void fillRelOptions(void* rdopts, Size basesize, relopt_value* options, i
 extern void fillTdeRelOptions(List *options, char relkind);
 extern bytea* default_reloptions(Datum reloptions, bool validate, relopt_kind kind);
 extern bytea* heap_reloptions(char relkind, Datum reloptions, bool validate);
-extern bytea* index_reloptions(RegProcedure amoptions, Datum reloptions, bool validate);
+extern bytea* index_reloptions(Oid amoptions, Oid amhandler, Datum reloptions, bool validate);
+extern bytea* index_reloptions(Relation relation, Datum reloptions, bool validate);
 extern bytea* attribute_reloptions(Datum reloptions, bool validate);
 extern bytea* tablespace_reloptions(Datum reloptions, bool validate);
 extern bytea* tsearch_config_reloptions(Datum tsoptions, bool validate, Oid prsoid, bool missing_ok);

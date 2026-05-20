@@ -713,9 +713,8 @@ static void index_build_init_fork(Relation heapRelation, Relation indexRelation)
             /* first create INIT_FORKNUM file */
             smgrcreate(indexRelation->rd_smgr, INIT_FORKNUM, false);
             /* then callback will log and sync INIT_FORKNUM file content */
-            if (u_sess->attr.attr_common.enable_indexscan_optimization &&
-                indexRelation->rd_rel->relam == BTREE_AM_OID) {
-                indexRelation->rd_amroutine->ambuildempty(indexRelation);                   
+            if (use_index_am_routine(indexRelation)) {
+                indexRelation->rd_amroutine->ambuildempty(indexRelation);
             } else{
                 OidFunctionCall1(ambuildempty, PointerGetDatum(indexRelation));
             }
@@ -3350,11 +3349,11 @@ static IndexBuildResult* index_build_storage(Relation heapRelation, Relation ind
 {   
     IndexBuildResult* stats;
     RegProcedure procedure = indexRelation->rd_am->ambuild;
-    Assert(RegProcedureIsValid(procedure));
-
-    if (u_sess->attr.attr_common.enable_indexscan_optimization && indexRelation->rd_rel->relam == BTREE_AM_OID) {
+    
+    if (use_index_am_routine(indexRelation)) {
         stats = indexRelation->rd_amroutine->ambuild(heapRelation, indexRelation, indexInfo);
     } else {
+        Assert(RegProcedureIsValid(procedure));
         stats = (IndexBuildResult *)DatumGetPointer(OidFunctionCall3(
             procedure, PointerGetDatum(heapRelation), PointerGetDatum(indexRelation), PointerGetDatum(indexInfo)));
     }
@@ -7170,11 +7169,11 @@ void mergeBTreeIndexes(List* mergingBtreeIndexes, List* srcPartMergeOffset, int2
      * step2: Call the access method's build procedure, merge is a special build method
      */
     procedure = targetIndexRelation->rd_am->ammerge;
-    Assert(RegProcedureIsValid(procedure));
-
-    if (u_sess->attr.attr_common.enable_indexscan_optimization && targetIndexRelation->rd_rel->relam == BTREE_AM_OID) {
+    
+    if (use_index_am_routine(targetIndexRelation)) {
         targetIndexRelation->rd_amroutine->ammerge(targetIndexRelation, mergeBTScanList, srcPartMergeOffset);
     } else {
+        Assert(RegProcedureIsValid(procedure));
         DatumGetPointer(OidFunctionCall3(procedure, PointerGetDatum(targetIndexRelation),
                                          PointerGetDatum(mergeBTScanList), PointerGetDatum(srcPartMergeOffset)));
     }
