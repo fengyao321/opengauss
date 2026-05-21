@@ -2901,14 +2901,14 @@ static void _emitSetSqlMode(ArchiveHandle* AH, const char* val)
 
         char* pos;
         while ((pos = strstr(result, param2WithComma)) != NULL) {
-            size_t destSize = strlen(pos) + 1;
-            rc = strcpy_s(pos, destSize, pos + param2WithCommaLen);
+            size_t copyLen = strlen(pos + param2WithCommaLen) + 1;
+            rc = memmove_s(pos, copyLen, pos + param2WithCommaLen, copyLen);
             securec_check(rc, "\0", "\0");
         }
 
         while ((pos = strstr(result, param2LeadingComma)) != NULL) {
-            size_t destSize = strlen(pos) + 1;
-            rc = strcpy_s(pos, destSize, pos + param2LeadingCommaLen);
+            size_t copyLen = strlen(pos + param2LeadingCommaLen) + 1;
+            rc = memmove_s(pos, copyLen, pos + param2LeadingCommaLen, copyLen);
             securec_check(rc, "\0", "\0");
         }
 
