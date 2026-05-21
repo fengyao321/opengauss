@@ -198,3 +198,49 @@ select interval '-10 minutes 60 seconds' ;
  -00:09:00
 (1 row)
 
+\c regression
+drop database if exists modulo_zero_a;
+NOTICE:  database "modulo_zero_a" does not exist, skipping
+drop database if exists modulo_zero_c;
+NOTICE:  database "modulo_zero_c" does not exist, skipping
+create database modulo_zero_a dbcompatibility 'A';
+create database modulo_zero_c dbcompatibility 'C';
+\c modulo_zero_a
+select 5 % 0;
+ERROR:  division by zero
+select int1mod(3, 0);
+ERROR:  division by zero
+CONTEXT:  referenced column: int1mod
+select int2mod(3, 0);
+ERROR:  division by zero
+CONTEXT:  referenced column: int2mod
+select int4mod(3, 0);
+ERROR:  division by zero
+CONTEXT:  referenced column: int4mod
+select int8mod(3, 0);
+ERROR:  division by zero
+CONTEXT:  referenced column: int8mod
+select numeric_mod(1234.5678, 0.0);
+ERROR:  division by zero
+CONTEXT:  referenced column: numeric_mod
+\c modulo_zero_c
+select 5 % 0;
+ERROR:  division by zero
+select int1mod(3, 0);
+ERROR:  division by zero
+CONTEXT:  referenced column: int1mod
+select int2mod(3, 0);
+ERROR:  division by zero
+CONTEXT:  referenced column: int2mod
+select int4mod(3, 0);
+ERROR:  division by zero
+CONTEXT:  referenced column: int4mod
+select int8mod(3, 0);
+ERROR:  division by zero
+CONTEXT:  referenced column: int8mod
+select numeric_mod(1234.5678, 0.0);
+ERROR:  division by zero
+CONTEXT:  referenced column: numeric_mod
+\c regression
+drop database modulo_zero_a;
+drop database modulo_zero_c;
