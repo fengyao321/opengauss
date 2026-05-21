@@ -1373,6 +1373,7 @@ static bool ScanDeltaLogForMergePartition(OnlineDDLAppender* appender, TableScan
                         "(%u, %u), may not have been inserted yet.",
                         ItemPointerGetBlockNumber(&oldTupCtid), ItemPointerGetOffsetNumber(&oldTupCtid))));
     }
+    return true;
 }
 
 static bool OnlineDDLAppendScanDeltaLog(OnlineDDLAppender* appender, TableScanDesc deltaLogScan,
