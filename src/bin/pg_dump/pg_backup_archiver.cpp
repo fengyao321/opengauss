@@ -2864,18 +2864,60 @@ static bool _tocEntryIsACL(TocEntry* te)
 
 /*
  * Helper function to handle dolphin.sql_mode specifically.
- * Ensures 'ansi_quotes' is always present in the mode string.
+ * Ensures 'ansi_quotes' is always present in the mode string
+ * and 'no_zero_date' is never present in the mode string.
  */
 static void _emitSetSqlMode(ArchiveHandle* AH, const char* val)
 {
-    const char* param = "ansi_quotes";
+    const char* param1 = "ansi_quotes";
+    const char* param2 = "no_zero_date";
+    int rc = EOK;
 
-    if (strlen(val) == 0) {
-        (void)ahprintf(AH, "SET dolphin.sql_mode = '%s';\n", param);
-    } else if (strstr(val, param) != NULL) {
-        (void)ahprintf(AH, "SET dolphin.sql_mode = '%s';\n", val);
+    if (val == NULL || strlen(val) == 0) {
+        (void)ahprintf(AH, "SET dolphin.sql_mode = '%s';\n", param1);
     } else {
-        (void)ahprintf(AH, "SET dolphin.sql_mode = '%s,%s';\n", val, param);
+        char* result = strdup(val);
+
+        if (strstr(result, param1) == NULL) {
+            char* temp = result;
+            size_t newLen = strlen(temp) + strlen(param1) + 2;
+            result = (char*)pg_malloc(newLen);
+            rc = sprintf_s(result, newLen, "%s,%s", temp, param1);
+            securec_check(rc, "\0", "\0");
+            free(temp);
+        }
+
+        size_t param2Len = strlen(param2);
+        char* param2WithComma = (char*)pg_malloc(param2Len + 2);
+        char* param2LeadingComma = (char*)pg_malloc(param2Len + 2);
+        
+        rc = sprintf_s(param2WithComma, param2Len + 2, "%s,", param2);
+        securec_check(rc, "\0", "\0");
+        rc = sprintf_s(param2LeadingComma, param2Len + 2, ",%s", param2);
+        securec_check(rc, "\0", "\0");
+
+        size_t param2WithCommaLen = strlen(param2WithComma);
+        size_t param2LeadingCommaLen = strlen(param2LeadingComma);
+
+        char* pos;
+        while ((pos = strstr(result, param2WithComma)) != NULL) {
+            size_t destSize = strlen(pos) + 1;
+            rc = strcpy_s(pos, destSize, pos + param2WithCommaLen);
+            securec_check(rc, "\0", "\0");
+        }
+
+        while ((pos = strstr(result, param2LeadingComma)) != NULL) {
+            size_t destSize = strlen(pos) + 1;
+            rc = strcpy_s(pos, destSize, pos + param2LeadingCommaLen);
+            securec_check(rc, "\0", "\0");
+        }
+
+        free(param2WithComma);
+        free(param2LeadingComma);
+
+        (void)ahprintf(AH, "SET dolphin.sql_mode = '%s';\n", result);
+
+        free(result);
     }
 }
 
