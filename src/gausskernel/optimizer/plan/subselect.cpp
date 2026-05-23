@@ -5930,8 +5930,13 @@ convert_expr_subink_with_agg_targetlist(PlannerInfo *root,
         return inout_quals;
     }
 
-    /* Guc rewrite_rule need set to magicset. */
+    /*
+     * LIMIT/OFFSET on an aggregate expr-sublink must stay above the full
+     * aggregation result. Pushing outer quals into the subquery can change
+     * which aggregated row LIMIT picks and lead to inconsistent results.
+     */
     if (((u_sess->attr.attr_sql.rewrite_rule & MAGIC_SET) && permit_from_rewrite_hint(root, MAGIC_SET))
+        && subQuery->limitCount == NULL && subQuery->limitOffset == NULL
         && !contain_subplans((Node*)subQuery->jointree))
     {
         /* Get can push down to subquery's quals. */
