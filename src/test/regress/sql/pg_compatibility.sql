@@ -61,3 +61,29 @@ select interval '-10 hours 10 minutes' ;
 select interval '-10 hours 60 minutes' ;
 select interval '-10 minutes 10 seconds' ;
 select interval '-10 minutes 60 seconds' ;
+
+\c regression
+drop database if exists modulo_zero_a;
+drop database if exists modulo_zero_c;
+create database modulo_zero_a dbcompatibility 'A';
+create database modulo_zero_c dbcompatibility 'C';
+
+\c modulo_zero_a
+select 5 % 0;
+select int1mod(3, 0);
+select int2mod(3, 0);
+select int4mod(3, 0);
+select int8mod(3, 0);
+select numeric_mod(1234.5678, 0.0);
+
+\c modulo_zero_c
+select 5 % 0;
+select int1mod(3, 0);
+select int2mod(3, 0);
+select int4mod(3, 0);
+select int8mod(3, 0);
+select numeric_mod(1234.5678, 0.0);
+
+\c regression
+drop database modulo_zero_a;
+drop database modulo_zero_c;

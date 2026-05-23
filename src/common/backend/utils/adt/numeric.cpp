@@ -2652,20 +2652,20 @@ Numeric numeric_mod_opt_error(Numeric num1, Numeric num2, bool *haveError)
 
     init_var(&result);
 
-    // zero is allowed to be divisor
     if (0 == cmp_var(&arg2, &const_zero)) {
         free_var(&result);
         free_var(&arg2);
         free_var(&arg1);
 
-        if (DB_IS_CMPT(PG_FORMAT)) {
-            /* zero is not allowed to be divisor if compatible with PG */
-            ereport(ERROR, (errcode(ERRCODE_DIVISION_BY_ZERO), errmsg("division by zero")));
-
-            /* ensure compiler realizes we mustn't reach the division (gcc bug) */
+        if (haveError) {
+            *haveError = true;
             return NULL;
         }
-        return num1;
+
+        ereport(ERROR, (errcode(ERRCODE_DIVISION_BY_ZERO), errmsg("division by zero")));
+
+        /* ensure compiler realizes we mustn't reach the modulo (gcc bug) */
+        return NULL;
     }
     mod_var(&arg1, &arg2, &result, haveError);
 

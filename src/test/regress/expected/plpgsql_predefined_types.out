@@ -2377,7 +2377,8 @@ BEGIN
     a, b, c, d, e, f, g;
 END;
 /
-INFO:  a: <NULL>, b: 0, c: 6, d: 7, e: 1, f: -35, g: 5
+ERROR:  division by zero
+CONTEXT:  PL/pgSQL function inline_code_block line 12 at assignment
 DECLARE
     TYPE parr IS varray(5) of natural;
     TYPE tbl IS table of signtype;
