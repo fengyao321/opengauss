@@ -84,7 +84,7 @@ void ShareMemoryPool::Destroy()
 void ShareMemoryPool::GetShmChunkName(char* chunkName, Oid relOid, int shmChunkNumber)
 {
     errno_t rc = EOK;
-    rc = sprintf_s(chunkName, MAX_SHM_CHUNK_NAME_LENGTH, "%s_%d_%d", SHARE_MEM_NAME_PREFIX, relOid, shmChunkNumber);
+    rc = sprintf_s(chunkName, MAX_SHM_CHUNK_NAME_LENGTH, "%s_%u_%d", SHARE_MEM_NAME_PREFIX, relOid, shmChunkNumber);
     securec_check_ss_c(rc, "", "");
 }
 
