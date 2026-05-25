@@ -644,7 +644,7 @@ END IF;
     -- 8. Return processing results
     IF p_task_type = 'sync' THEN
         -- Sync mode result
-        IF array_length(v_error_rows, 1) IS NULL THEN
+        IF COALESCE(array_length(v_error_rows, 1), 0) = 0 THEN
             RETURN QUERY SELECT v_task_id, true, v_processed,
                                 format('Sync task completed with table: %s', p_src_table);
         ELSE
