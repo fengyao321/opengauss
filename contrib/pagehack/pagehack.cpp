@@ -2511,7 +2511,7 @@ static void parse_heap_item(const Item item, unsigned len, int blkno, int lineno
     if (tup->t_infomask & HEAP_HASEXTERNAL)
         fprintf(stdout, "HEAP_HASEXTERNAL ");
     if (tup->t_infomask & HEAP_HASOID)
-        fprintf(stdout, "HEAP_HASOID(%d) ", HeapTupleHeaderGetOid(tup));
+        fprintf(stdout, "HEAP_HASOID(%u) ", HeapTupleHeaderGetOid(tup));
     if (tup->t_infomask & HEAP_COMPRESSED)
         fprintf(stdout, "HEAP_COMPRESSED ");
     if (tup->t_infomask & HEAP_COMBOCID)
