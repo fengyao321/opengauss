@@ -32,7 +32,6 @@ CREATE FUNCTION pg_catalog.pg_lsn_send (
 ) RETURNS bytea LANGUAGE INTERNAL IMMUTABLE STRICT as 'pg_lsn_send';
 COMMENT ON FUNCTION pg_catalog.pg_lsn_send(pg_lsn) IS 'I/O';
 
-SET LOCAL inplace_upgrade_next_system_object_oids = IUO_TYPE, 3222, 3223, b;
 CREATE TYPE pg_catalog.pg_lsn (
     INPUT = pg_lsn_in,
     OUTPUT = pg_lsn_out,
