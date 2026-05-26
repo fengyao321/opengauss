@@ -3353,7 +3353,6 @@ static IndexBuildResult* index_build_storage(Relation heapRelation, Relation ind
     if (use_index_am_routine(indexRelation)) {
         stats = indexRelation->rd_amroutine->ambuild(heapRelation, indexRelation, indexInfo);
     } else {
-        Assert(RegProcedureIsValid(procedure));
         stats = (IndexBuildResult *)DatumGetPointer(OidFunctionCall3(
             procedure, PointerGetDatum(heapRelation), PointerGetDatum(indexRelation), PointerGetDatum(indexInfo)));
     }
