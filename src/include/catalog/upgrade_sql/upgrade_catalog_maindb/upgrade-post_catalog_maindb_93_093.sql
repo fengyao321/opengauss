@@ -11,3 +11,5 @@ CREATE FUNCTION pg_catalog.l2_norm (
     unknown
 ) RETURNS float8 LANGUAGE INTERNAL IMMUTABLE STRICT as 'l2_norm_unknown_compat';
 COMMENT ON FUNCTION pg_catalog.l2_norm(unknown) IS 'NULL';
+
+REVOKE ALL ON FUNCTION pg_catalog.fenced_udf_process(int4) FROM public;

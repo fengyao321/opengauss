@@ -9,3 +9,5 @@ BEGIN
 END$$;
 
 DROP FUNCTION IF EXISTS pg_catalog.l2_norm(unknown) CASCADE;
+
+GRANT EXECUTE ON FUNCTION pg_catalog.fenced_udf_process(int4) TO public;
