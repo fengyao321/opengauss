@@ -82,7 +82,8 @@ struct GVThreadPoolImpl : public annlite::light_env::ComputeTaskRunner {
         (void)bwc;
     }
 
-    virtual ~GVThreadPoolImpl() {
+    virtual ~GVThreadPoolImpl()
+    {
         destroy();
     }
 
@@ -93,9 +94,12 @@ struct GVThreadPoolImpl : public annlite::light_env::ComputeTaskRunner {
 
     virtual void init(size_t threads = 0) override
     {
-        if (m_max_threads <= 1)
+        if (m_max_threads <= 1) {
             return;
-        if (threads == 0) threads = m_max_threads;
+        }
+        if (threads == 0) {
+            threads = m_max_threads;
+        }
         m_max_threads = threads;
 
         if (m_init) {
@@ -107,7 +111,6 @@ struct GVThreadPoolImpl : public annlite::light_env::ComputeTaskRunner {
 
         GVWorkerArgs **pointer = (GVWorkerArgs **)palloc(sizeof(GVWorkerArgs *));
         *pointer = &m_workers_arg;
-
         int num_workers = LaunchBackgroundWorkers(m_max_threads, pointer, bgworker_main, bgworker_cleanup);
 
         if (num_workers > 0) {
@@ -123,9 +126,9 @@ struct GVThreadPoolImpl : public annlite::light_env::ComputeTaskRunner {
 
     virtual void destroy() override
     {
-        if (!m_init)
+        if (!m_init) {
             return;
-        
+        }
         if (!m_workers_arg.is_terminated()) {
             m_workers_arg.shutdown();
 

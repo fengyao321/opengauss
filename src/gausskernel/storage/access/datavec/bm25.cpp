@@ -1,4 +1,5 @@
 /*
+/*
 * Copyright (c) 2025 Huawei Technologies Co.,Ltd.
  *
  * openGauss is licensed under Mulan PSL v2.

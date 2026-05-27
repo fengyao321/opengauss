@@ -56,23 +56,21 @@ enum VectorIndexDmlType {
     VECTOR_DML_DELETE
 };
 
-inline bool vector_item_id_is_dead(const ItemIdData* item_id)
+static inline bool vector_item_id_is_dead(const ItemIdData* item_id)
 {
     return item_id->lp_flags == LP_DEAD;
 }
 
-inline void vector_set_xmin_xmax(VectorIndexXid vxid, VectorIndexDmlType dml_type, TransactionId xid)
+static inline void vector_set_xmin_xmax(VectorIndexXid vxid, VectorIndexDmlType dml_type, TransactionId xid)
 {
     if (dml_type == VECTOR_DML_INSERT) {
         vxid->xmin = GetCurrentTransactionId();
         vxid->xmax = InvalidTransactionId;
     }
-    
     if (dml_type == VECTOR_BUILD_INDEX_INSERT) {
         vxid->xmin = FrozenTransactionId;
         vxid->xmax = InvalidTransactionId;
     }
-
     if (dml_type == VECTOR_DML_DELETE) {
         vxid->xmax = GetCurrentTransactionId();
     }

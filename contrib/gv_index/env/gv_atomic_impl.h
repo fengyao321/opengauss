@@ -158,9 +158,10 @@ struct GVAtomicImpl : public annlite::light_env::Atomic {
             m_started = false;
             return;
         }
+        static constexpr int TWO = 2;
 
         XLogEnsureRecordSpace((int)block_max,
-            (int)(totalblocks * (annlite::toolkit::DirtyState::block_types * 2 + 1)));
+            (int)(totalblocks * (annlite::toolkit::DirtyState::block_types * TWO + 1)));
 
         START_CRIT_SECTION();
         XLogRecPtr recptr;

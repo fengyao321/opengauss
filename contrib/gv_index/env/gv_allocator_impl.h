@@ -61,7 +61,7 @@ struct GVAllocatorImpl : public annlite::light_env::Allocator {
 
     void deallocate(void *const ptr, size_t bytes) noexcept override
     {
-        if (ptr !=nullptr) {
+        if (ptr != nullptr) {
             Assert(((AllocSet)m_cxt)->totalSpace >= bytes || bytes == 0);
             pfree(ptr);
         }
@@ -93,7 +93,7 @@ struct GVAllocatorImpl : public annlite::light_env::Allocator {
         return ((AllocSet)m_cxt)->totalSpace;
     }
 
-private:  //adaptor for BaseZeroObject::new
+private:  // adaptor for BaseZeroObject::new
     template <class U, class... Args>
     void construct_internal(U *p, Args &&...args)
     {

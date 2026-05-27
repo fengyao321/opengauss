@@ -130,8 +130,6 @@ struct GaussErrorMeta<annlite::etPruneAlgUnrecognized> {
     static constexpr int level = ERROR;
 };
 
-
-
 } /* gs_vector */
 
 #endif /* GVGRAPH_ERROR_TYPE_H */

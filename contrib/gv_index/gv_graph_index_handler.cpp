@@ -77,7 +77,7 @@ static void validate_and_adjust_graph_options(Relation index, GraphOptions *opts
     static constexpr int MAX_DIMENSION = 1024;
     if (dim > MAX_DIMENSION) {
         ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                        errmsg("vector_dimension %d exceeds maxmium allowed %d", dim, MAX_DIMENSION )));
+                        errmsg("vector_dimension %d exceeds maxmium allowed %d", dim, MAX_DIMENSION)));
     }
 
     /* 2. subgraph_count 由 reloption 约束 [1, 64], SQL 层已保证非零，无需重复检查 */
@@ -103,23 +103,25 @@ static void validate_and_adjust_graph_options(Relation index, GraphOptions *opts
 /* 根据 quantization_type 字符串选择量化配置函数 */
 static annlite::IndexOptions make_quant_opts(const char *quant_type, uint32_t dim)
 {
+    static constexpr size_t default_lvq_clusters = 128;
+    static constexpr size_t pq_max_use_all_subs = 128;
     /* fp32:不量化 */
     if (strcmp(quant_type, "fp32") == 0) {
         FAST_NOTICE("fp32 is not supported now, defaulting to lvq");
-        return annlite::VectorQuantizationConfig::make_quantized_lvq(dim, 128);
+        return annlite::VectorQuantizationConfig::make_quantized_lvq(dim, default_lvq_clusters);
     }
     /* pq: Product Quantization (默认 16 centroids，即pq4bit) */
     if (strcmp(quant_type, "pq") == 0) {
-        size_t segment_count = ((dim > 128) && (dim % 2 == 0)) ? dim : dim/2;
+        size_t segment_count = ((dim > pq_max_use_all_subs) && (dim % 2 == 0)) ? dim : dim / 2;
         return annlite::VectorQuantizationConfig::make_quantized_pq4bit(dim, segment_count);
     }
     /* lvq: Locally Adaptive Vector Quantization (默认) */
     if (strcmp(quant_type, "lvq") == 0) {
-        return annlite::VectorQuantizationConfig::make_quantized_lvq(dim, 128);
+        return annlite::VectorQuantizationConfig::make_quantized_lvq(dim, default_lvq_clusters);
     }
     /* 未知类型，默认lvq */
     FAST_NOTICE("unknown quantization_type '%s', defaulting to lvq", quant_type);
-    return annlite::VectorQuantizationConfig::make_quantized_lvq(dim, 128);
+    return annlite::VectorQuantizationConfig::make_quantized_lvq(dim, default_lvq_clusters);
 }
 
 /* 填充 build_options, 使用 GraphOptions 中用户指定的参数，缺失则用默认值 */
@@ -203,7 +205,7 @@ static void graph_build_indexfile(Relation heap, Relation index, IndexInfo *inde
     LightEnvImpl light_env_impl(index);
     annlite::IndexOptions build_options = build_options_from_graph_options(index, opts, dist_type);
 
-    //数据源 - 从堆表读取向量数据，返回annlite::Value64(二进制与GraphValueTypeV3兼容)
+    // 数据源 - 从堆表读取向量数据，返回annlite::Value64(二进制与GraphValueTypeV3兼容)
     using DataSource = gs_vector::GVDataSourceImpl<KeyBase, annlite::Value64>;
     DataSource data_source(heap, index, index_info, true);
 
@@ -215,8 +217,8 @@ static void graph_build_indexfile(Relation heap, Relation index, IndexInfo *inde
     DestroyGraphIndex(graph_index);
 }
 
-/* 
- *SQL functions
+/*
+ * SQL functions
  */
 extern "C" Datum gv_graph_index_handler(PG_FUNCTION_ARGS);
 /* 极简实现：仅初始化基础元信息，所有接口留空（NULL） */
@@ -377,9 +379,11 @@ static void gv_graph_amcostestimate(PlannerInfo *root, IndexPath *path, double l
     indexRel = index_open(path->indexinfo->indexoid, AccessShareLock);
     FAST_NOTICE("amcostestimate called (index: %s)", RelationGetRelationName(indexRel));
     index_close(indexRel, AccessShareLock);
+    static constexpr double total_cost = 10.0;
+    static constexpr double selectivity = 0.5;
     *indexStartupCost = 1.0;
-    *indexTotalCost = 10.0;
-    *indexSelectivity = 0.5;
+    *indexTotalCost = total_cost;
+    *indexSelectivity = selectivity;
     *indexCorrelation = 0.0;
 }
 
@@ -621,8 +625,8 @@ Datum gv_graph_index_handler(PG_FUNCTION_ARGS)
 
     /* 基础元信息：标记为不支持任何功能 */
     amroutine->amstrategies = 0; // 无策略
-    amroutine->amsupport = 5; //辅助函数不超过5个
-    amroutine->amoptsprocnum = 0; 
+    amroutine->amsupport = 5; // 辅助函数不超过5个
+    amroutine->amoptsprocnum = 0;
     amroutine->amcanorder = true; // 不支持排序
     amroutine->amcanorderbyop = true; // 向量索引支持 order by operator
     amroutine->amcanbackward = false;

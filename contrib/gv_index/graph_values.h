@@ -89,7 +89,7 @@ struct IndexTupleDataWithTransInfo {
         errno_t rc = memcpy_s(
             &index_tuple, sizeof(IndexTupleData) + tuple_reserved_bytes,
             _index_tuple, tuplesize);
-        securec_check(rc, "", "");
+        securec_check(rc, "\0", "\0");
     }
 
     IndexTupleDataWithTransInfo(const IndexTupleDataWithTransInfo&) = default;

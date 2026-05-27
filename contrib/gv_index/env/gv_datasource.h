@@ -99,14 +99,18 @@ struct GVDataSourceImpl : public annlite::light_env::DataSource<Key, Value> {
     void scan(void *opr_context, ScanOperator scan_opr, annlite::light_env::ComputeTaskRunner *pool) override
     {
         bool need_open = !is_open();
-        if (need_open) open();
+        if (need_open) {
+            open();
+        }
         if (m_heap == NULL) {
             return;
         }
         ScanOperatorAndContext opr_cxt(scan_opr, opr_context);
         tableam_index_build_scan(m_heap, m_index, m_ii, true,
             ScanOperatorCallBack, &opr_cxt, NULL);
-        if (need_open) close();
+        if (need_open) {
+            close();
+        }
     }
 
     struct ReadIterator : public annlite::light_env::DataSourceIterator<Key, Value> {
@@ -248,9 +252,9 @@ private:
     static void ScanOperatorCallBack(Relation index, HeapTuple hup, Datum *values,
         const bool *isnull, bool tupleIsAlive, void *state)
     {
-        if (isnull[0])
+        if (isnull[0]) {
             return;
-        
+        }
         ScanOperatorAndContext* opr_cxt = static_cast<ScanOperatorAndContext*>(state);
         ScanOperator opr = opr_cxt->get_scanop();
         void *opr_context = opr_cxt->get_context();

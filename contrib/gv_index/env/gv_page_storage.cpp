@@ -30,9 +30,9 @@
 #include "utils/aiomem.h"
 #include "storage/buf/bufmgr.h"
 
-#include "gv_page_storage.h"
 #include "gv_light_env_impl.h"
 #include "lite/container/storage/header.h"
+#include "gv_page_storage.h"
 
 namespace gs_vector {
 
@@ -66,16 +66,16 @@ void GVPageStorage::block_set_accessable(BlockId start_block, BlockId last_block
 {
     RelationData* index = m_index;
     char *zero_buf = NULL;
-    if (last_block == InvalidBlockNumber)
+    if (last_block == InvalidBlockNumber) {
         return;
-    
+    }
     RelationOpenSmgr(m_index);
     zero_buf = g_instance.attr.attr_storage.enable_adio_function ?
         (char *)adio_align_alloc(BLCKSZ) :
         (char *)MemoryContextAlloc(THREAD_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_STORAGE), BLCKSZ);
     Assert(zero_buf != NULL);
     errno_t ret = memset_s(zero_buf, BLCKSZ, 0, BLCKSZ);
-    securec_check(ret, "", "");
+    securec_check(ret, "\0", "\0");
     // extend blocks.
     {
         if (IsSegmentFileNode(index->rd_node) || true) {
@@ -94,10 +94,11 @@ void GVPageStorage::block_set_accessable(BlockId start_block, BlockId last_block
         }
     }
 
-    if (g_instance.attr.attr_storage.enable_adio_function)
+    if (g_instance.attr.attr_storage.enable_adio_function) {
         adio_align_free(zero_buf);
-    else
+    } else {
         pfree_ext(zero_buf);
+    }
 }
 
 BlockPointer GVPageStorage::block_open(BlockId id, const OpenOptions& options, BlockModification*& modify)
@@ -321,6 +322,9 @@ uint16_t GVPageStorage::sizeof_itemcount_meta() const
 
 size_t GVPageStorage::max_item_count_of(annlite::ItemLayoutT layout, uint16_t itemsize) const
 {
+    if (itemsize == 0) {
+        return 0;
+    }
     return layout == annlite::ItemLayoutT::iltCompressedItemPage ?
             data_size / itemsize :
             data_size / (sizeof(ItemIdData) + annlite::AlignedAllocate::aligned_bytes(itemsize));

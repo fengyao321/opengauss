@@ -1175,13 +1175,11 @@ void cost_index(IndexPath* path, PlannerInfo* root, double loop_count)
                              Float8GetDatum(loop_count), PointerGetDatum(&indexStartupCost),
                              PointerGetDatum(&indexTotalCost), PointerGetDatum(&indexSelectivity),
                              PointerGetDatum(&indexCorrelation));
-
         } else {
             index->amcostestimate_func(root, path, loop_count, &indexStartupCost, &indexTotalCost, &indexSelectivity,
                                        &indexCorrelation);
         }
     }
-
 
     /*
      * Save amcostestimate's results for possible use in bitmap scan planning.

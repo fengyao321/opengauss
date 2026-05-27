@@ -355,7 +355,7 @@ static bool vector_check_xid_visibility(TransactionId xmin, TransactionId xmax,
     return true;
 }
 
-/* 
+/*
  * Check visibility by comparing snapshot curcid with xmax.
  */
 static bool vector_check_cid_visibility(IndexScanDesc scan, TransactionId xmax, bool *need_recheck)
@@ -455,7 +455,7 @@ static bool vector_show_any_tuple_check_simple(IndexScanDesc scan, const IndexTu
 }
 
 /*
- * Main entry point for graph index search visibility check. 
+ * Main entry point for graph index search visibility check.
  */
 IndexTupleData* vector_check_keys_simple(IndexScanDesc scan, const IndexTupleDataWithTransInfo& transInfo,
     ScanDirection dir, bool *need_recheck, bool is_alive)
@@ -533,14 +533,14 @@ bool gv_graph_get_tuple_xmin_xmax(Page page, OffsetNumber offnum, TransactionId 
             TransactionIdStatus ts = gv_graph_check_xid(*xmin);
             switch (ts) {
                 case XID_INPROGRESS:
-                break;
-            case XID_COMMITTED:
-                *xminCommitted = true;
-                break;
-            case XID_ABORTED:
-                idxXid->xmin = InvalidTransactionId;
-                *xmin = InvalidTransactionId;
-                break;
+                    break;
+                case XID_COMMITTED:
+                    *xminCommitted = true;
+                    break;
+                case XID_ABORTED:
+                    idxXid->xmin = InvalidTransactionId;
+                    *xmin = InvalidTransactionId;
+                    break;
             }
         }
     }

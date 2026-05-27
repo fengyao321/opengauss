@@ -26,8 +26,8 @@
  * --------------------------------------------------------------------------------------
  */
 
-#include "fmgr.h"
 #include "pg_init.h"
+#include "fmgr.h"
 #include "postgres.h"
 #include "access/amapi.h"
 #include "access/genam.h"

@@ -2303,7 +2303,7 @@ bytea *index_reloptions_internal(amoptions_function amoptions, Datum reloptions,
     return amoptions(reloptions, validate);
 }
 
-bytea *index_reloptions(Oid amoptions, Oid amhandler,Datum reloptions, bool validate)
+bytea *index_reloptions(Oid amoptions, Oid amhandler, Datum reloptions, bool validate)
 {
     if (OidIsValid(amoptions)) {
         return index_reloptions_internal(amoptions, reloptions, validate);

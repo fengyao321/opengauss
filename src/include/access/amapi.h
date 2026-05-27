@@ -166,7 +166,7 @@ typedef struct IndexAmRoutine
 	ammarkpos_function ammarkpos;	
 	amrestrpos_function amrestrpos; 
     ammerge_function ammerge;
-	amdelete_function amdelete;
+    amdelete_function amdelete;
 
 	char ambuildfuncname[NAMEDATALEN];
 	char ambuildemptyfuncname[NAMEDATALEN];

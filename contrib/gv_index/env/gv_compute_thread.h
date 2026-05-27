@@ -53,7 +53,7 @@ struct GVWorkerArgs {
     GVWorkerArgs() : max_worker(0), next_worker_id(0), total_workers(0), terminated(true) {}
 
     GVWorkerArgs(size_t _max_worker)
-        : max_worker(_max_worker), next_worker_id(0), total_workers(0),terminated(true)
+        : max_worker(_max_worker), next_worker_id(0), total_workers(0), terminated(true)
     {
         for (size_t i = 0; i < supported_max_threads; ++i) {
             tasks[i] = nullptr;
@@ -84,14 +84,18 @@ struct GVWorkerArgs {
 
     Task* get_task(size_t worker_id)
     {
-        if (worker_id >= supported_max_threads) return nullptr;
+        if (worker_id >= supported_max_threads) {
+            return nullptr;
+        }
         std::atomic<Task*>* taskslot = reinterpret_cast<std::atomic<Task*>*>(&tasks[worker_id]);
         return taskslot->load(std::memory_order_seq_cst);
     }
 
     void set_task(size_t worker_id, Task* task)
     {
-        if (worker_id >= supported_max_threads) return;
+        if (worker_id >= supported_max_threads) {
+            return;
+        }
         std::atomic<Task*>* taskslot = reinterpret_cast<std::atomic<Task*>*>(&tasks[worker_id]);
         taskslot->store(task, std::memory_order_seq_cst);
     }
@@ -118,7 +122,7 @@ struct GVWorkerArgs {
     {
         static constexpr std::chrono::duration<double, std::nano> duration(500);
         std::this_thread::sleep_for(duration);
-    } 
+    }
     
     Task* tasks[supported_max_threads];
     size_t max_worker;
