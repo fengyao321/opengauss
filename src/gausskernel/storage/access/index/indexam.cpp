@@ -305,6 +305,9 @@ bool index_insert(Relation index_relation, Datum *values, const bool *isnull, It
      */
     if (index_relation->rd_rel->relam == BTREE_AM_OID) {
         return btinsert_internal(index_relation, values, isnull, heap_t_ctid, heap_relation, check_unique);
+    } else if (use_index_am_routine(index_relation)) {
+        return index_relation->rd_amroutin->
+                    aminsert(index_relation, values, isnull, heap_t_ctid, heap_relation, check_unique);
     } else {
         GET_REL_PROCEDURE(aminsert);
         return DatumGetBool(FunctionCall6(procedure, PointerGetDatum(index_relation), PointerGetDatum(values),

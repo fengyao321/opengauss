@@ -180,7 +180,7 @@ static annlite::IndexOptions build_options_from_graph_options(Relation index, Gr
         {"graph_degree", (int)graph_degree},
         {"graph_degree_redundancy", (double)0.3},
         {"insert_beam_search_limit", (int)100},
-        {"insert_candidates", (int)400},
+        {"insert_candidates_limit", (int)400},
         {"enable_pq_min_rows", (int)256},
         {"is_ustore", (bool)is_ustore}
     };
@@ -358,8 +358,8 @@ static IndexBulkDeleteResult *gv_graph_amvacuumcleanup(IndexVacuumInfo *info, In
     if (info->analyze_only) {
         return stats;
     }
-    IndexBulkDeleteResult bulk_delete_res{};
-    stats = &bulk_delete_res;
+    IndexBulkDeleteResult *bulk_delete_res = (IndexBulkDeleteResult *)palloc0(sizeof(IndexBulkDeleteResult));
+    stats = bulk_delete_res;
     graph_vacuum(info->index, stats, NULL, NULL);
     return stats;
 }
