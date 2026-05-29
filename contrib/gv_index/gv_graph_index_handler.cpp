@@ -317,7 +317,7 @@ static void graph_vacuum(Relation index, IndexBulkDeleteResult *stats,
     using IndexType = annlite::Index<KeyBase, annlite::Value64, uint32_t, annlite::PageBasedToolKitEnv>;
     LightEnvImpl light_env_impl(index);
 
-    annlite::IndexOptions vaccum_options = {{"needs_wal", (bool)true}};
+    annlite::IndexOptions vaccum_options = {{"needs_wal", (bool)true}, {"enable_bptree", (bool)true}};
     IndexType* graph_index = CreateGraphIndex(&light_env_impl);
     graph_index->open(true);
     bool is_ustore = false;
