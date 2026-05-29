@@ -564,8 +564,6 @@ static bool gv_graph_amgettuple(IndexScanDesc scan, ScanDirection direction)
         }
         ++so->next_scan_index;
         return true;
-    } else {
-        // if failed get tuple from so->sortstate, sort more and insert into so->sortstate
     }
     return false; // 无实际元组
 }
