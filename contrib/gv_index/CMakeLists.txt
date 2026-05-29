@@ -1,3 +1,15 @@
+# Check VECTOR_HOME before building gv_index
+if(NOT "$ENV{VECTOR_HOME}" STREQUAL "")
+    set(VECTOR_HOME $ENV{VECTOR_HOME})
+else()
+    set(VECTOR_HOME "")
+endif()
+message(STATUS "VECTOR_HOME is ${VECTOR_HOME}")
+if(NOT EXISTS "${VECTOR_HOME}" OR NOT IS_DIRECTORY "${VECTOR_HOME}")
+    message(STATUS "VECTOR_HOME not found: ${VECTOR_HOME}, skipped gv_index.")
+    return()
+endif()
+
 # GaussVector-component 对接目录（变异产物）
 set(GAUSSVECTOR_INSTALL_DIR ${VECTOR_HOME})
 

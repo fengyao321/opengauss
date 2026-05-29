@@ -11,7 +11,7 @@ SELECT amname FROM pg_am WHERE amname = 'gv_graph';
 -- 2. 创建表和索引（观察回显：ambuild被调用）
 DROP TABLE IF EXISTS test_graph;
 CREATE TABLE test_graph (id int, repr vector(128)) WITH (storage_type=ustore);
-\copy test_graph from 'your/path/to/your_dataset.csv';
+\copy test_graph from 'your/path/to/sift1b_1w.csv';
 
 CREATE INDEX test_graph_index ON test_graph USING gv_graph (repr vector_l2_ops) WITH (graph_degree=48, quantization_type=lvq, subgraph_count=2, num_parallels=32);
 

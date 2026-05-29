@@ -78,13 +78,12 @@ void GVPageStorage::block_set_accessable(BlockId start_block, BlockId last_block
     securec_check(ret, "\0", "\0");
     // extend blocks.
     {
-        if (IsSegmentFileNode(index->rd_node) || true) {
+        if (IsSegmentFileNode(index->rd_node)) {
             for (BlockNumber b = start_block; b <= last_block; ++b) {
                 Buffer buf = ReadBufferExtended(index, MAIN_FORKNUM, P_NEW, RBM_ZERO, NULL);
                 ReleaseBuffer(buf);
             }
         } else {
-            RelationOpenSmgr(index);
             if (g_instance.attr.attr_storage.enable_adio_function && u_sess->attr.attr_sql.enable_fast_allocate) {
                 smgrextend(index->rd_smgr, MAIN_FORKNUM, last_block, nullptr, false);
             } else {

@@ -221,10 +221,9 @@ static void graph_build_indexfile(Relation heap, Relation index, IndexInfo *inde
  * SQL functions
  */
 extern "C" Datum gv_graph_index_handler(PG_FUNCTION_ARGS);
-/* 极简实现：仅初始化基础元信息，所有接口留空（NULL） */
 PG_FUNCTION_INFO_V1(gv_graph_index_handler);
 
-/* 1.构建索引 */
+/* 1. ambuild */
 PGDLLEXPORT PG_FUNCTION_INFO_V1(gv_graph_ambuild);
 static IndexBuildResult* gv_graph_ambuild(Relation heap, Relation index, IndexInfo *indexInfo)
 {
@@ -260,14 +259,14 @@ static IndexBuildResult* gv_graph_ambuild(Relation heap, Relation index, IndexIn
     return result;
 }
 
-/* 2. 构建空索引 */
+/* 2. ambuildempty */
 PGDLLEXPORT PG_FUNCTION_INFO_V1(gv_graph_ambuildempty);
 static void gv_graph_ambuildempty(Relation index)
 {
     FAST_NOTICE("ambuildempty called (index: %s)", RelationGetRelationName(index));
 }
 
-/* 3. 插入索引项 */
+/* 3. aminsert */
 PGDLLEXPORT PG_FUNCTION_INFO_V1(gv_graph_aminsert);
 static bool gv_graph_aminsert(Relation index, Datum *values, const bool *isnull,
                         ItemPointer heap_tid, Relation heap, IndexUniqueCheck checkUnique)
@@ -331,7 +330,7 @@ static void graph_vacuum(Relation index, IndexBulkDeleteResult *stats,
     DestroyGraphIndex(graph_index);
 }
 
-/* 4. 批量删除 */
+/* 4. ambulkdelete */
 PGDLLEXPORT PG_FUNCTION_INFO_V1(gv_graph_ambulkdelete);
 static IndexBulkDeleteResult *gv_graph_ambulkdelete(IndexVacuumInfo *info, IndexBulkDeleteResult *stats,
                                                IndexBulkDeleteCallback callback, const void *callback_state)
@@ -354,7 +353,7 @@ static IndexBulkDeleteResult *gv_graph_ambulkdelete(IndexVacuumInfo *info, Index
     return stats;
 }
 
-/* 5. 真空清理 */
+/* 5. amvacuumcleanup */
 PGDLLEXPORT PG_FUNCTION_INFO_V1(gv_graph_amvacuumcleanup);
 static IndexBulkDeleteResult *gv_graph_amvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 {
@@ -369,7 +368,7 @@ static IndexBulkDeleteResult *gv_graph_amvacuumcleanup(IndexVacuumInfo *info, In
     return stats;
 }
 
-/* 6. 成本估算 */
+/* 6. amcostestimate */
 PGDLLEXPORT PG_FUNCTION_INFO_V1(gv_graph_amcostestimate);
 static void gv_graph_amcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
                                Cost *indexStartupCost, Cost *indexTotalCost,
@@ -387,7 +386,7 @@ static void gv_graph_amcostestimate(PlannerInfo *root, IndexPath *path, double l
     *indexCorrelation = 0.0;
 }
 
-/* 7.处理索引选项 */
+/* 7. amoptions */
 PGDLLEXPORT PG_FUNCTION_INFO_V1(gv_graph_amoptions);
 static bytea *gv_graph_amoptions(Datum reloptions, bool validate)
 {
@@ -435,7 +434,7 @@ static bytea *gv_graph_amoptions(Datum reloptions, bool validate)
     return (bytea *)rdopts;
 }
 
-/* 8. 验证索引定义 */
+/* 8. amvalidate */
 PGDLLEXPORT PG_FUNCTION_INFO_V1(gv_graph_amvalidate);
 static bool gv_graph_amvalidate(Oid opclassoid)
 {
@@ -443,7 +442,7 @@ static bool gv_graph_amvalidate(Oid opclassoid)
     return true;
 }
 
-/* 9.开始扫描 */
+/* 9. ambeginscan */
 PGDLLEXPORT PG_FUNCTION_INFO_V1(gv_graph_ambeginscan);
 static IndexScanDesc gv_graph_ambeginscan(Relation index, int nkeys, int norderbys)
 {
@@ -464,7 +463,7 @@ static IndexScanDesc gv_graph_ambeginscan(Relation index, int nkeys, int norderb
     return scan;
 }
 
-/* 10.重新扫描 */
+/* 10. amrescan */
 PGDLLEXPORT PG_FUNCTION_INFO_V1(gv_graph_amrescan);
 static void gv_graph_amrescan(IndexScanDesc scan, ScanKey keys, int nkeys, ScanKey orderbys, int norderbys)
 {
@@ -480,12 +479,12 @@ static void gv_graph_amrescan(IndexScanDesc scan, ScanKey keys, int nkeys, ScanK
     if (keys && scan->numberOfKeys >0) {
         rc = memmove_s(scan->keyData, (size_t)(scan->numberOfKeys * sizeof(ScanKeyData)), keys,
                         (size_t)(scan->numberOfKeys * sizeof(ScanKeyData)));
-                        securec_check(rc, "", "");
+        securec_check(rc, "", "");
     }
     if (orderbys && scan->numberOfOrderBys >0) {
         rc = memmove_s(scan->orderByData, (size_t)(scan->numberOfOrderBys * sizeof(ScanKeyData)), orderbys,
                         (size_t)(scan->numberOfOrderBys * sizeof(ScanKeyData)));
-                        securec_check(rc, "", "");
+        securec_check(rc, "", "");
     }
 }
 
@@ -544,7 +543,7 @@ void graph_index_first(IndexScanDesc scan, GraphScanOpaque so)
     result_set.destructor();
 }
 
-/* 11.获取元组 */
+/* 11. amgettuple */
 PGDLLEXPORT PG_FUNCTION_INFO_V1(gv_graph_amgettuple);
 static bool gv_graph_amgettuple(IndexScanDesc scan, ScanDirection direction)
 {
@@ -571,7 +570,7 @@ static bool gv_graph_amgettuple(IndexScanDesc scan, ScanDirection direction)
     return false; // 无实际元组
 }
 
-/* 12.结束扫描 */
+/* 12. amendscan */
 PGDLLEXPORT PG_FUNCTION_INFO_V1(gv_graph_amendscan);
 static void gv_graph_amendscan(IndexScanDesc scan)
 {
@@ -583,7 +582,7 @@ static void gv_graph_amendscan(IndexScanDesc scan)
     scan->opaque = NULL;
 }
 
-/* 13.标记删除 */
+/* 13. amdelete */
 PGDLLEXPORT PG_FUNCTION_INFO_V1(gv_graph_amdelete);
 static bool gv_graph_amdelete(Relation index, Datum *values, const bool *isnull,
                                 ItemPointer heap_t_ctid, bool isRollbackIndex)
@@ -623,15 +622,15 @@ Datum gv_graph_index_handler(PG_FUNCTION_ARGS)
 {
     IndexAmRoutine *amroutine = makeNode(IndexAmRoutine);
 
-    /* 基础元信息：标记为不支持任何功能 */
-    amroutine->amstrategies = 0; // 无策略
-    amroutine->amsupport = 5; // 辅助函数不超过5个
+    /* Basic Metainfo */
+    amroutine->amstrategies = 0;
+    amroutine->amsupport = 5;
     amroutine->amoptsprocnum = 0;
-    amroutine->amcanorder = true; // 不支持排序
-    amroutine->amcanorderbyop = true; // 向量索引支持 order by operator
+    amroutine->amcanorder = true;
+    amroutine->amcanorderbyop = true;
     amroutine->amcanbackward = false;
-    amroutine->amcanunique = false; // 不支持唯一索引
-    amroutine->amcanmulticol = false; // 不支持多列
+    amroutine->amcanunique = false;
+    amroutine->amcanmulticol = false;
     amroutine->amoptionalkey = true;
     amroutine->amsearcharray = false;
     amroutine->amsearchnulls = false;
@@ -641,9 +640,9 @@ Datum gv_graph_index_handler(PG_FUNCTION_ARGS)
     
     amroutine->amcanparallel = false;
     amroutine->amcaninclude = false;
-    amroutine->amusemaintenanceworkmem = false; // 不使用内存
-    amroutine->amparallelvacuumoptions = 0; // 不涉及
-    amroutine->amkeytype = InvalidOid; // 无键类型
+    amroutine->amusemaintenanceworkmem = false;
+    amroutine->amparallelvacuumoptions = 0;
+    amroutine->amkeytype = InvalidOid;
 
     /* Interface functions */
     amroutine->ambuild = gv_graph_ambuild;

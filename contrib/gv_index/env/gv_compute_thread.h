@@ -32,6 +32,7 @@
 #include <atomic>
 #include <thread>
 #include "c.h"
+#include "port.h"
 
 namespace gs_vector {
 
@@ -120,8 +121,7 @@ struct GVWorkerArgs {
 
     static void snap()
     {
-        static constexpr std::chrono::duration<double, std::nano> duration(500);
-        std::this_thread::sleep_for(duration);
+        pg_usleep(100);
     }
     
     Task* tasks[supported_max_threads];
