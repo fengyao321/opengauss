@@ -53,14 +53,6 @@
 #include "storage/smgr/smgr.h"
 #include "access/generic_xlog.h"
 
-/* WAL常量 */
-#ifndef RM_GRAPH_ID
-#define RM_GRAPH_ID XLOG_GENERIC_LOG
-#endif
-#ifndef XLOG_GRAPH_WRITE_FULL_PAGES
-#define XLOG_GRAPH_WRITE_FULL_PAGES GENERIC_XLOG_FULL_IMAGE
-#endif
-
 /*
  * 使用 GRAPH_RELOPTIONS X-macro 生成 add_*_reloption 调用。
  */
@@ -95,7 +87,7 @@ void gv_graph_index_init(void)
 /*
  * 将 graph 索引的所有页刷入 WAL 日志并提交。
  */
-void gv_graph_xlog_write_page(Relation rel, BlockNumber nblocks)
+void gv_graph_xlog_write_page(Relation rel, BlockNumber nblocks, RmgrId rmid, uint8 info)
 {
     ereport(NOTICE, (errmsg("gv_graph_xlog_write_page: index \"%s\" nblocks %u",
         RelationGetRelationName(rel), nblocks)));
@@ -115,7 +107,7 @@ void gv_graph_xlog_write_page(Relation rel, BlockNumber nblocks)
 
         XLogBeginInsert();
         XLogRegisterBuffer(0, buff, REGBUF_FORCE_IMAGE | REGBUF_STANDARD);
-        recptr = XLogInsert(RM_GRAPH_ID, XLOG_GRAPH_WRITE_FULL_PAGES, RelationGetBktid(rel));
+        recptr = XLogInsert(rmid, info, RelationGetBktid(rel));
         PageSetLSN(page, recptr);
         END_CRIT_SECTION();
 

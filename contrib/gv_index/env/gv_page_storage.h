@@ -56,6 +56,7 @@ struct GVPageStorage : public annlite::light_env::PageStorage {
     using Buffer = int;
     using Page = void*;
     using PageHeaderFormat = PageHeaderData;
+    /* a page (8192) = header(24) + data_size(8000) + tail(168) */
     static constexpr size_t data_size = 8000;
 
     using Atomic = annlite::light_env::Atomic;

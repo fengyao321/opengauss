@@ -298,9 +298,9 @@ void GVPageStorage::atomic_end(Atomic* atomic)
     }
 }
 
-// PostgreSQL 页面布局元数据实现
-// ItemId 数组从 PageHeaderData 末尾开始（pd_linp），每个 ItemId 占 sizeof(ItemIdData) = 4 字节
-// pd_lower 字段保存空闲空间起始偏移（即ItemId 数组末尾 + 1）
+// PostgreSQL page layout metadata implementation
+// The itemId array starts from teh end of PageHeaderData (pd_linp). Each ItemId occupies 4 bytes.
+// The pd_lower field stores the start offset of the free space (the end of the ItemId array + 1).
 uint16_t GVPageStorage::offsetof_itemiddata(OffsetId item_id) const
 {
     return static_cast<uint16_t>(offsetof(PageHeaderData, pd_linp) + item_id * sizeof(ItemIdData));

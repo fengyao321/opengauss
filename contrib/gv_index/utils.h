@@ -103,7 +103,7 @@ void gv_graph_index_init(void);
 
 void register_graph_reloptions(relopt_kind kind);
 
-void gv_graph_xlog_write_page(Relation rel, BlockNumber nblocks);
+void gv_graph_xlog_write_page(Relation rel, BlockNumber nblocks, RmgrId rmid, uint8 info);
                     
 
 #endif /* GV_GRAPH_UTILS_H */

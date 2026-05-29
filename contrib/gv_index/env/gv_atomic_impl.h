@@ -39,11 +39,13 @@
 #include "utils/elog.h"
 #include "storage/buf/bufmgr.h"
 
-
+/* for xlog */
 #ifndef RM_GRAPH_ID
 #define RM_GRAPH_ID XLOG_GENERIC_LOG
 #endif
+#ifndef XLOG_GRAPH_WRITE_FULL_PAGES
 #define XLOG_GRAPH_WRITE_FULL_PAGES GENERIC_XLOG_FULL_IMAGE
+#endif
 
 namespace gs_vector {
 

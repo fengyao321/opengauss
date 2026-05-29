@@ -251,7 +251,8 @@ static IndexBuildResult* gv_graph_ambuild(Relation heap, Relation index, IndexIn
 
     /* 刷所有索引页到WAL日志并提交 */
     RelationOpenSmgr(index);
-    gv_graph_xlog_write_page(index, smgrnblocks(index->rd_smgr, MAIN_FORKNUM));
+    gv_graph_xlog_write_page(index, smgrnblocks(index->rd_smgr, MAIN_FORKNUM),
+                             RM_GRAPH_ID, XLOG_GRAPH_WRITE_FULL_PAGES);
 
     result->heap_tuples = 0;
     result->index_tuples = 0;
