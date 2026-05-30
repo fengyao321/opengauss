@@ -1363,7 +1363,7 @@ inline bool btcanreturn_internal()
 
 extern inline IndexScanDesc btbeginscan_internal(Relation rel, int nkeys, int norderbys);
 
-extern inline void btrescan_internal(IndexScanDesc scan, ScanKey scankey);
+extern inline void btrescan_internal(IndexScanDesc scan, ScanKey scankey, int nkeys, ScanKey orderbys, int norderbys);
 
 extern inline int64 btgetbitmap_internal(IndexScanDesc scan, TIDBitmap *tbm);
 

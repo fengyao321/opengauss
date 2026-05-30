@@ -246,4 +246,6 @@ inline bool cbi_scan_need_change_bucket(CBIScanDesc cbiscan, int2 bucketid)
     return (cbiscan->bucketid != bucketid);
 }
 
+IndexAmRoutine* get_index_amroutine(Oid amhandler, const char* relname);
+
 #endif /* GENAM_H */

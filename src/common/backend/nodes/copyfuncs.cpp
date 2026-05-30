@@ -7780,7 +7780,7 @@ static IndexOptInfo *_copyPartialIndexOptInfo(const IndexOptInfo *from)
     securec_check(rc, "", "");
 
     COPY_SCALAR_FIELD(relam);
-    COPY_SCALAR_FIELD(amcostestimate);
+    COPY_SCALAR_FIELD(amcostestimate_oid);
 
     COPY_NODE_FIELD(indexprs);
     COPY_NODE_FIELD(indpred);

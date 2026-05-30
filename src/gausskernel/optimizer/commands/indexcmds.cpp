@@ -852,7 +852,8 @@ ObjectAddress DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, 
         if (strcmp(stmt->accessMethod, "btree") == 0) {
             elog(ERROR, "btree index is not supported for ustore, please use ubtree instead");
         }
-        if (strcmp(stmt->accessMethod, "ubtree") != 0 && strcmp(stmt->accessMethod, "hnsw") != 0) {
+        if (strcmp(stmt->accessMethod, "ubtree") != 0 && strcmp(stmt->accessMethod, "hnsw") != 0 &&
+            strcmp(stmt->accessMethod, "gv_graph") != 0) {
             elog(ERROR, "%s index is not supported for ustore", (stmt->accessMethod));
         }
         if (strcmp(stmt->accessMethod, "bm25") == 0) {
@@ -1307,6 +1308,7 @@ ObjectAddress DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, 
 
     amcanorder = accessMethodForm->amcanorder;
     amoptions = accessMethodForm->amoptions;
+    Oid amhandler = accessMethodForm->amhandler;
 
     ReleaseSysCache(tuple);
 
@@ -1399,7 +1401,7 @@ ObjectAddress DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, 
      */
     reloptions = transformRelOptions((Datum)0, stmt->options, NULL, NULL, false, false);
 
-    index_relopts = (StdRdOptions *)index_reloptions(amoptions, reloptions, true);
+    index_relopts = (StdRdOptions *)index_reloptions(amoptions, amhandler, reloptions, true);
     if (index_relopts != NULL && (strcmp(accessMethodName, "btree") == 0)) {
         /* check if the table supports to create crossbucket index */
         if (is_contain_crossbucket(stmt->options) && !RELATION_HAS_BUCKET(rel) && !skip_build) {

@@ -943,7 +943,9 @@ typedef struct IndexOptInfo {
     bool* nulls_first;    /* do NULLs come first in the sort order? */
     Oid relam;            /* OID of the access method (in pg_am) */
 
-    RegProcedure amcostestimate; /* OID of the access method's cost fcn */
+    Oid amcostestimate_oid;
+    void (*amcostestimate_func)
+        (struct PlannerInfo *, struct IndexPath *, double, Cost *, Cost *, Selectivity *, double *);
 
     List* indexprs; /* expressions for non-simple index columns */
     List* indpred;  /* predicate if a partial index, else NIL */

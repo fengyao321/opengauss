@@ -282,6 +282,7 @@ typedef struct knl_session_attr_common {
     /* save session level objects, set when the session first uses plpython */
     PlySessionCtx* g_PlySessionCtx;
     bool enable_xact_abort;
+    int gv_graph_nprobes;
 } knl_session_attr_common;
 
 #endif /* SRC_INCLUDE_KNL_KNL_SESSION_ATTR_COMMON_H_ */

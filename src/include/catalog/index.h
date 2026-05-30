@@ -33,6 +33,7 @@
 #define DEFAULT_BM25_INDEX_TYPE "bm25"
 #define DEFAULT_DISKANN_INDEX_TYPE "diskann"
 #define DEFAULT_BLOOM_INDEX_TYPE "bloom"
+#define DEFAULT_GRAPH_INDEX_TYPE "gv_graph"
 
 /* Typedef for callback function for IndexBuildHeapScan */
 typedef void (*IndexBuildCallback)(Relation index, HeapTuple htup, Datum *values, const bool *isnull,
@@ -282,3 +283,5 @@ List* get_user_from_index_expressions(List* indexExpressions);
 extern Datum spq_get_root_ctid(HeapTuple tuple, Buffer buffer, ExprContext *econtext);
 #endif
 #endif   /* INDEX_H */
+
+extern bool use_index_am_routine(Relation index_relations);

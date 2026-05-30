@@ -1,0 +1,5 @@
+# gauss vector extension
+comment = 'gauss vector feature with test cases'
+default_version = '1.0'
+module_pathname = '$libdir/libgv_index'
+relocatable = true

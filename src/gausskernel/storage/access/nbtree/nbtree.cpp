@@ -545,11 +545,14 @@ Datum btrescan(PG_FUNCTION_ARGS)
 {
     IndexScanDesc scan = (IndexScanDesc)PG_GETARG_POINTER(0);
     ScanKey scankey = (ScanKey)PG_GETARG_POINTER(1);
-    btrescan_internal(scan, scankey);
+    int nkeys = PG_GETARG_INT32(2);
+    ScanKey orderbys = (ScanKey)PG_GETARG_POINTER(3);
+    int norderbys = PG_GETARG_INT32(4);
+    btrescan_internal(scan, scankey, nkeys, orderbys, norderbys);
     PG_RETURN_VOID();
 }
 
-void btrescan_internal(IndexScanDesc scan, ScanKey scankey)
+void btrescan_internal(IndexScanDesc scan, ScanKey scankey, int nkeys, ScanKey orderbys, int norderbys)
 {
     /* remaining arguments are ignored */
     BTScanOpaque so = (BTScanOpaque)scan->opaque;

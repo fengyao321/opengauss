@@ -185,6 +185,9 @@ extern const uint32 SELECT_STMT_HAS_ROTATE;
 extern const uint32 TABLE_FUNC_VERSION_NUM;
 extern const uint32 WITH_ORDINALITY_VERSION_NUM;
 
+extern const uint32 SUPPORT_CREATE_ACCESS_METHOD_VERSION_NUM;
+#define SUPPORT_CREATE_AM (t_thrd.proc->workingVersionNum >= SUPPORT_CREATE_ACCESS_METHOD_VERSION_NUM)
+
 extern void register_backend_version(uint32 backend_version);
 extern bool contain_backend_version(uint32 version_number);
 

@@ -77,12 +77,13 @@ bool will_shutdown = false;
  *
  ********************************************/
 
-const uint32 GRAND_VERSION_NUM = 93093;
+const uint32 GRAND_VERSION_NUM = 93094;
 
 /********************************************
  * 2.VERSION NUM FOR EACH FEATURE
  *   Please write indescending order.
  ********************************************/
+const uint32 SUPPORT_CREATE_ACCESS_METHOD_VERSION_NUM = 93094;
 const uint32 NEON_VERSION_NUM = 93090;
 const uint32 WITH_ORDINALITY_VERSION_NUM = 93089;
 const uint32 OGAI_VERSION_NUM = 93088;

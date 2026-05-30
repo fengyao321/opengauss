@@ -17,6 +17,7 @@
 #include "miscadmin.h"
 #include "knl/knl_variable.h"
 
+#include "access/amapi.h"
 #include "access/datavec/hnsw.h"
 #include "access/datavec/ivfflat.h"
 #include "access/datavec/diskann.h"
@@ -1178,6 +1179,7 @@ bytea *extractRelOptions(HeapTuple tuple, TupleDesc tupdesc, Oid amoptions)
     bool isnull = false;
     Datum datum;
     Form_pg_class classForm;
+    Oid amhandler = 0;
 
     datum = fastgetattr(tuple, Anum_pg_class_reloptions, tupdesc, &isnull);
     if (isnull)
@@ -1203,9 +1205,10 @@ bytea *extractRelOptions(HeapTuple tuple, TupleDesc tupdesc, Oid amoptions)
                         (errcode(ERRCODE_CACHE_LOOKUP_FAILED),
                             errmsg("cache lookup failed for access method %u", classForm->relam)));
                 amoptions = ((Form_pg_am)GETSTRUCT(tuple))->amoptions;
+                amhandler = ((Form_pg_am)GETSTRUCT(tuple))->amhandler;
                 ReleaseSysCache(tuple);
             }
-            options = index_reloptions(amoptions, datum, false);
+            options = index_reloptions(amoptions, amhandler, datum, false);
             break;
         case RELKIND_STREAM:
         case RELKIND_FOREIGN_TABLE:
@@ -2264,7 +2267,7 @@ bytea *heap_reloptions(char relkind, Datum reloptions, bool validate)
  *	reloptions	options as text[] datum
  *	validate	error flag
  */
-bytea *index_reloptions(RegProcedure amoptions, Datum reloptions, bool validate)
+bytea *index_reloptions_internal(RegProcedure amoptions, Datum reloptions, bool validate)
 {
     FmgrInfo flinfo;
     FunctionCallInfoData fcinfo;
@@ -2290,6 +2293,40 @@ bytea *index_reloptions(RegProcedure amoptions, Datum reloptions, bool validate)
         return NULL;
 
     return DatumGetByteaP(result);
+}
+bytea *index_reloptions_internal(amoptions_function amoptions, Datum reloptions, bool validate)
+{
+    Assert(amoptions != NULL);
+    /* Assume function is strict */
+    if (!PointerIsValid(DatumGetPointer(reloptions)))
+        return NULL;
+    return amoptions(reloptions, validate);
+}
+
+bytea *index_reloptions(Oid amoptions, Oid amhandler, Datum reloptions, bool validate)
+{
+    if (OidIsValid(amoptions)) {
+        return index_reloptions_internal(amoptions, reloptions, validate);
+    } else {
+        Assert(OidIsValid(amhandler) && SUPPORT_CREATE_AM);
+        Datum am_handler_datum = OidFunctionCall0(amhandler);
+        IndexAmRoutine* am_routine = (IndexAmRoutine*)DatumGetPointer(am_handler_datum);
+        return index_reloptions_internal(am_routine->amoptions, reloptions, validate);
+    }
+}
+
+bytea *index_reloptions(Relation relation, Datum reloptions, bool validate)
+{
+    if (OidIsValid(relation->rd_am->amoptions)) {
+        return index_reloptions_internal(relation->rd_am->amoptions, reloptions, validate);
+    } else if (relation->rd_amroutine->amoptions) {
+        return index_reloptions_internal(relation->rd_amroutine->amoptions, reloptions, validate);
+    } else {
+        Assert(OidIsValid(relation->rd_am->amhandler));
+        Datum am_handler_datum = OidFunctionCall0(relation->rd_am->amhandler);
+        IndexAmRoutine* am_routine = (IndexAmRoutine*)DatumGetPointer(am_handler_datum);
+        return index_reloptions_internal(am_routine->amoptions, reloptions, validate);
+    }
 }
 
 /*

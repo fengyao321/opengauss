@@ -1167,15 +1167,19 @@ void cost_index(IndexPath* path, PlannerInfo* root, double loop_count)
      * the fraction of main-table tuples we will have to retrieve) and its
      * correlation to the main-table tuple order.
      */
-    if (index->amcostestimate == F_BTCOSTESTIMATE) {
+    if (index->amcostestimate_oid == F_BTCOSTESTIMATE) {
         btcostestimate_internal(root, path, loop_count, &indexStartupCost, &indexTotalCost, &indexSelectivity, &indexCorrelation);
     } else {
-        OidFunctionCall7(index->amcostestimate, PointerGetDatum(root), PointerGetDatum(path),
-                         Float8GetDatum(loop_count), PointerGetDatum(&indexStartupCost),
-                         PointerGetDatum(&indexTotalCost), PointerGetDatum(&indexSelectivity),
-                         PointerGetDatum(&indexCorrelation));
+        if (OidIsValid(index->amcostestimate_oid)) {
+            OidFunctionCall7(index->amcostestimate_oid, PointerGetDatum(root), PointerGetDatum(path),
+                             Float8GetDatum(loop_count), PointerGetDatum(&indexStartupCost),
+                             PointerGetDatum(&indexTotalCost), PointerGetDatum(&indexSelectivity),
+                             PointerGetDatum(&indexCorrelation));
+        } else {
+            index->amcostestimate_func(root, path, loop_count, &indexStartupCost, &indexTotalCost, &indexSelectivity,
+                                       &indexCorrelation);
+        }
     }
-
 
     /*
      * Save amcostestimate's results for possible use in bitmap scan planning.
