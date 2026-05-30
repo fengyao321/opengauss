@@ -253,6 +253,7 @@ Datum ogai_notify(PG_FUNCTION_ARGS)
         }
     }
     SetLatch(&t_thrd.ogailauncher_cxt.ogaiWorkerShmem->latch);
+    PG_RETURN_VOID();
 }
 
 /*
