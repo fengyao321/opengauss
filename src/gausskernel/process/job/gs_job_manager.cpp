@@ -732,6 +732,7 @@ char *lookup_credential_username(Datum job_name)
                         erraction("Please check credential name.")));
     }
     pfree_ext(attribute_value_str);
+    check_credential_usage_privilege(credential_name);
     char *username = get_attribute_value_str(credential_name, "username", AccessShareLock, false, false);
     return username;
 }
