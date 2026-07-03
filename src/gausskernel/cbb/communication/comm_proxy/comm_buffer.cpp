@@ -1184,7 +1184,7 @@ bool CommPacketBuffer::NeedWait(bool block)
         while ((m_recv_packet = RemoveHeadPacket()) == NULL) {
             struct timeval now;
             struct timespec outtime;
-            gettimeofday(&now, NULL);
+            gettimeofday(&now, (struct timezone *)NULL);
             outtime.tv_sec = now.tv_sec;
             outtime.tv_nsec = now.tv_usec * 1000 + 100 * 1000;
             sem_timedwait(&m_data_queue_sem, &outtime);

@@ -29,27 +29,6 @@
 #include "storage/lmgr.h"
 
 
-static bool UBTreeFreezeOrInvalidIndexTuplesSetTd(const UBTreeItemId iid, uint8 *tdSlot)
-{
-    if (ItemIdIsDead(iid)) {
-        return true;
-    }
-
-    if (!ItemIdIsUsed(iid)) {
-        return true;
-    }
-    
-    *tdSlot = iid->lp_td_id;
-    Assert((*tdSlot <= UBTREE_MAX_TD_COUNT) && (*tdSlot >= 0));
-
-    return false;
-}
-
-
-/*
- * UBTreeFreezeOrInvalidIndexTuples
- * Clear the slot information or set invalid_xact flags.
- */
 void UBTreeFreezeOrInvalidIndexTuples(Buffer buf, int nSlots, const uint8 *slots, bool isFrozen)
 {
     Page page = BufferGetPage(buf);
@@ -65,38 +44,26 @@ void UBTreeFreezeOrInvalidIndexTuples(Buffer buf, int nSlots, const uint8 *slots
     OffsetNumber offnum = P_FIRSTDATAKEY((UBTPCRPageOpaque)PageGetSpecialPointer(page));
     for (; offnum <= maxoff; offnum = OffsetNumberNext(offnum)) {
         UBTreeItemId itemId = (UBTreeItemId)UBTreePCRGetRowPtr(page, offnum);
-        uint8 tdSlot = UBTreeInvalidTDSlotId;
-
-        if (UBTreeFreezeOrInvalidIndexTuplesSetTd(itemId, &tdSlot)) {
+        if (ItemIdIsDead(itemId) || !ItemIdIsUsed(itemId)) {
             continue;
         }
 
-        /*
-         * The slot number on tuple is always array location of slot plus
-         * one, so we need to subtract one here before comparing it with
-         * frozen slots. See PageReserveTransactionSlot.
-         */
-        tdSlot -= 1;
-        if (map[tdSlot] == 1) {
-            /*
-             * Set transaction slots of tuple as frozen to indicate tuple
-             * is all visible and mark the deleted itemids as dead.
-             */
-            if (isFrozen) {
-                if (IsUBTreePCRItemDeleted(itemId)) {
-                    ItemIdMarkDead(itemId);
-                } else {
-                    IndexItemIdSetFrozen(itemId);
-                    UBTreePCRSetIndexTupleTDSlot(itemId, UBTreeFrozenTDSlotId);
-                    UBTreePCRClearIndexTupleTDInvalid(itemId);
-                }
-            } else {
-                /*
-                 * We just set the invalid slot flag to indicate that for this
-                 * index tuple we need to fetch the transaction
-                 * information from undo record.
-                 */
-                UBTreePCRSetIndexTupleTDInvalid(itemId);
+        uint8 xmin_slot = UBTreePCRGetXminTDSlot(itemId);
+        uint8 xmax_slot = UBTreePCRGetXmaxTDSlot(itemId);
+
+        if (xmin_slot != UBTreeFrozenTDSlotId) {
+            uint8 actual_slot = xmin_slot - 1;
+            if (map[actual_slot] == 1) {
+                IndexItemIdSetFrozen(itemId);
+                UBTreePCRSetXminTDSlot(itemId, UBTreeFrozenTDSlotId);
+            }
+        }
+
+        if (xmax_slot != UBTreeFrozenTDSlotId) {
+            uint8 actual_slot = xmax_slot - 1;
+            if (map[actual_slot] == 1) {
+                ItemIdMarkDead(itemId);
+                UBTreePCRSetXmaxTDSlot(itemId, UBTreeFrozenTDSlotId);
             }
         }
     }
@@ -399,7 +366,7 @@ uint8 UBTreeExtendTDSlots(Relation relation, Buffer buf)
 
 void UBTreePCRHandlePreviousTD(Relation rel, Buffer buf, uint8 *slotNo, UBTreeItemId itemid, bool *needRetry)
 {
-    if (UBTreeTDSlotIsNormal(*slotNo) && !IsUBTreePCRTDReused(itemid)) {
+    if (UBTreeTDSlotIsNormal(*slotNo)) {
         Page page = BufferGetPage(buf);
         UBTreeTD td = UBTreePCRGetTD(page, *slotNo);
         TransactionId xid = td->xactid;
@@ -417,7 +384,7 @@ void UBTreePCRHandlePreviousTD(Relation rel, Buffer buf, uint8 *slotNo, UBTreeIt
             if (!TransactionIdDidCommit(xid)) {
                 ExecuteUndoActionsForUBTreePage(rel, buf, *slotNo);
             }
-            *slotNo = itemid->lp_td_id;
+            *slotNo = UBTreePCRGetLastTD(itemid);
         }
     }
 }

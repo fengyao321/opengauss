@@ -7158,9 +7158,9 @@ int regression_main(int argc, char* argv[], init_function ifunc, test_function t
             /* "make install" */
 #ifdef BUILD_BY_CMAKE
     (void)snprintf_s(buf, sizeof(buf), sizeof(buf) - 1,
-        SYSTEMQUOTE "cd %s && \"%s\" DESTDIR=\"%s/install\" install -j >> \"%s/log/install.log\" 2>&1" SYSTEMQUOTE,
+        SYSTEMQUOTE "cd %s && \"%s\" DESTDIR=\"%s/install\" install -j2 >> \"%s/log/install.log\" 2>&1" SYSTEMQUOTE,
         current_exe_dir, makeprog, temp_install, outputdir);
-    printf("cd %s && \"%s\" DESTDIR=\"%s/install\" install -j >> \"%s/log/install.log\" 2>&1\n", \
+    printf("cd %s && \"%s\" DESTDIR=\"%s/install\" install -j2 >> \"%s/log/install.log\" 2>&1\n", \
            current_exe_dir, makeprog, temp_install, outputdir);
 #elif !defined(WIN32_ONLY_COMPILER)
             (void)snprintf(buf,

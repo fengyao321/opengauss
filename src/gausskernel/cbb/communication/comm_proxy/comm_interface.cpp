@@ -897,7 +897,7 @@ CommWaitNextStatus comm_proxy_process_wait(struct timeval st, int timeout, bool 
         return CommWaitNextBreak;
     }
 
-    gettimeofday(&now, NULL);
+    gettimeofday(&now, (struct timezone *)NULL);
     outtime.tv_sec = now.tv_sec;
     outtime.tv_nsec = now.tv_usec * 1000;
 
@@ -919,7 +919,7 @@ CommWaitNextStatus comm_proxy_process_wait(struct timeval st, int timeout, bool 
         return CommWaitNextContinue;
     }
 
-    gettimeofday(&et, NULL);
+    gettimeofday(&et, (struct timezone *)NULL);
     double elaps_time = (et.tv_sec - st.tv_sec) * 1000 + (float)(et.tv_usec - st.tv_usec) / 1000;
     if (elaps_time >= timeout) {
         /* The timeout interval of the current invoking expires */

@@ -1332,9 +1332,8 @@ static void UBTree3XlogInsert(XLogReaderState* record, bool isDup)
             td->setInfo(xlrec->curXid, urec);
             if (isDup) {
                 iid->lp_flags = LP_NORMAL;
-                UBTreePCRSetIndexTupleTDSlot(iid, xlrec->tdId);
-                UBTreePCRClearIndexTupleTDInvalid(iid);
-                UBTreePCRClearIndexTupleDeleted(iid);
+                UBTreePCRSetXminTDSlot(iid, xlrec->tdId);
+                UBTreePCRSetXmaxTDSlot(iid, 0);
             }
             PageSetLSN(page, buffer.lsn);
             if (BufferIsValid(buffer.buf)) {

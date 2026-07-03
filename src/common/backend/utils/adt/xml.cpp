@@ -998,7 +998,7 @@ PgXmlErrorContext* pg_xml_init(PgXmlStrictness strictness)
     errcxt->saved_errcxt = xmlGenericErrorContext;
 #endif
 
-    xmlSetStructuredErrorFunc((void*)errcxt, xml_error_handler);
+    xmlSetStructuredErrorFunc((void*)errcxt, (xmlStructuredErrorFunc)xml_error_handler);
 
     /*
      * Verify that xmlSetStructuredErrorFunc set the context variable we

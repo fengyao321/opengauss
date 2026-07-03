@@ -456,7 +456,7 @@ void CommController::ProxyWaitProcess(SocketRequestType* param)
 {
     SocketRequestType sockreq = *(SocketRequestType*)param;
     struct timeval st;
-    gettimeofday(&st, NULL);
+    gettimeofday(&st, (struct timezone *)NULL);
     int ready_event_nums = 0;
 
     switch (sockreq) {

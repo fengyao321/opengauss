@@ -609,7 +609,8 @@ void UBTree3InsertOrDeleteSplit(StringInfo buf, char* rec, TransactionId xid)
     rec += SizeOfXLUndoHeader;
     UBTreeUndoInfo undoInfo = (UBTreeUndoInfo)rec;
     rec += SizeOfUBTreeUndoInfoData;
-    appendStringInfo(buf, "UBTreeUndoInfo: prevTdId: %hhu", undoInfo->prev_td_id);
+    appendStringInfo(buf, "UBTreeUndoInfo: old_itemid: %u, old_xmin_xactid: %lu, old_xmax_xactid: %lu",
+        undoInfo->old_itemid, undoInfo->old_xmin_xactid, undoInfo->old_xmax_xactid);
 
     UndoRecPtr blkPrev = INVALID_UNDO_REC_PTR;
     UndoRecPtr prevUrp = INVALID_UNDO_REC_PTR;
@@ -705,10 +706,10 @@ void UBTree3RollbackTxnDesc(StringInfo buf, XLogReaderState* record)
         UBTreeRedoRollbackItem items = 
             (UBTreeRedoRollbackItem)(((char *)xlrec) + sizeOfUbtree3RollbackTxn + sizeof(UBTreeTDData));
         for (int i = 0; i < xlrec->n_rollback; i++) {
-            appendStringInfo(buf, "[off:%u, lp_off:%u, lp_flag:%u, "
-                "lp_td_id:%u, lp_td_invalid:%u, lp_deleted:%u]",
+            appendStringInfo(buf, "[off:%u, lp_off:%u, lp_flags:%u, "
+                "lp_xmin_td_id:%u, lp_xmax_td_id:%u]",
                 items[i].offnum, items[i].iid.lp_off, items[i].iid.lp_flags,
-                items[i].iid.lp_td_id, items[i].iid.lp_td_invalid, items[i].iid.lp_deleted);
+                items[i].iid.lp_xmin_td_id, items[i].iid.lp_xmax_td_id);
             if (i != xlrec->n_rollback - 1) {
                 appendStringInfo(buf, ",");
             }

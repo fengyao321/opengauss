@@ -1199,12 +1199,32 @@ IndexTuple UBTreePCRCheckKeys(IndexScanDesc scan, Page page, OffsetNumber offnum
         if (so->scanMode == PCR_SCAN_MODE) {
             tupleVisible = showAnyTupleMode;
         } else {
-            if (IsUBTreePCRTDReused(iid)) {
+            uint8 xmax_tdid = UBTreePCRGetXmaxTDSlot(iid);
+            if (xmax_tdid == UBTreeFrozenTDSlotId) {
                 tupleVisible = showAnyTupleMode;
             } else {
-                UBTreeTD td = UBTreePCRGetTD(page, iid->lp_td_id);
+                UBTreeTD td = UBTreePCRGetTD(page, xmax_tdid);
                 if (UBTreePCRTDIsCommited(td) || UBTreePCRTDIsFrozen(td)) {
                     tupleVisible = showAnyTupleMode;
+                } else {
+                    bool reused = true;
+                    if (TransactionIdIsValid(td->xactid)) {
+                        IndexTuple itup = UBTreePCRGetIndexTuple(page, offnum);
+                        UndoRecord *urec = New(CurrentMemoryContext)UndoRecord();
+                        urec->SetMemoryContext(CurrentMemoryContext);
+                        urec->SetUrp(td->undoRecPtr);
+                        if (FetchUndoRecord(urec, NULL, InvalidBlockNumber, InvalidOffsetNumber,
+                            InvalidTransactionId, false, NULL) == UNDO_TRAVERSAL_COMPLETE) {
+                            IndexTuple undoItup = FetchTupleFromUndoRecord(urec);
+                            if (UBTreeItupEquals(itup, undoItup) && urec->Utype() == UNDO_UBT_DELETE) {
+                                reused = false;
+                            }
+                        }
+                        DELETE_EX(urec);
+                    }
+                    if (reused) {
+                        tupleVisible = showAnyTupleMode;
+                    }
                 }
             }
         }
@@ -1323,57 +1343,73 @@ IndexTuple UBTreePCRCheckKeys(IndexScanDesc scan, Page page, OffsetNumber offnum
     return tuple;
 }
 
-static bool IsXminXmaxEqual(IndexScanDesc scan, Page page, OffsetNumber offnum,
-    UndoRecPtr urecptr, TransactionId xmax)
+static bool UBTreePCRXidVisible(TransactionId xid, uint8 tdid, Page page, IndexTuple itup, Snapshot snapshot, bool is_xmin)
 {
-    Snapshot snapshot = scan->xs_snapshot;
-    IndexTuple itup = UBTreePCRGetIndexTuple(page, offnum);
-    IndexTuple undoItup;
-    UndoRecord *urec = New(CurrentMemoryContext)UndoRecord();
-    urec->SetMemoryContext(CurrentMemoryContext);
-    urec->SetUrp(urecptr);
-    bool xminXmaxEqual = false;
-
-    while (true) {
-        UndoTraversalState state = FetchUndoRecord(urec, NULL, InvalidBlockNumber, InvalidOffsetNumber,
-            InvalidTransactionId, false, NULL);
-        if (state == UNDO_TRAVERSAL_ABORT) {
-            int zoneId = (int)UNDO_PTR_GET_ZONE_ID(urec->Urp());
-            undo::UndoZone *uzone = undo::UndoZoneGroup::GetUndoZone(zoneId, false);
-            ereport(ERROR, (errmodule(MOD_UNDO), errmsg(
-                "snapshot too old! the undo record has been force discard. "
-                "Reason: PCR index IsXminXmaxEqual. "
-                "LogInfo: undo state %d. "
-                "globalRecycleXid %lu, globalFrozenXid %lu. "
-                "ZoneInfo: urp: %lu, zid %d, insertURecPtr %lu, forceDiscardURecPtr %lu, "
-                "discardURecPtr %lu, recycleXid %lu. "
-                "Snapshot: type %d, xmin %lu.",
-                state,
-                pg_atomic_read_u64(&g_instance.undo_cxt.globalRecycleXid),
-                pg_atomic_read_u64(&g_instance.undo_cxt.globalFrozenXid),
-                urec->Urp(), zoneId, PtrGetVal(uzone, GetInsertURecPtr()),
-                PtrGetVal(uzone, GetForceDiscardURecPtr()),
-                PtrGetVal(uzone, GetDiscardURecPtr()), PtrGetVal(uzone, GetRecycleXid()),
-                PtrGetVal(snapshot, satisfies), PtrGetVal(snapshot, xmin))));
-        } else if (state != UNDO_TRAVERSAL_COMPLETE) {
-            break;
-        }
-        if (urec->Xid() != xmax) {
-            break;
-        }
-        undoItup = FetchTupleFromUndoRecord(urec);
-        if (UBTreeItupEquals(itup, undoItup)) {
-            if (urec->Utype() == UNDO_UBT_INSERT) {
-                xminXmaxEqual = true;
-            } else if (urec->Utype() == UNDO_UBT_DELETE) {
-                xminXmaxEqual = false;
-            }
-        }
-        urec->Reset2Blkprev();
+    if (tdid == UBTreeFrozenTDSlotId) {
+        return is_xmin;
     }
 
-    DELETE_EX(urec);
-    return xminXmaxEqual;
+    UBTreeTD td = UBTreePCRGetTD(page, tdid);
+    if (UBTreePCRTDIsFrozen(td)) {
+        return is_xmin;
+    }
+
+    if (TransactionIdIsCurrentTransactionId(xid)) {
+        bool cidVisible = false;
+        UndoRecord *urec = New(CurrentMemoryContext)UndoRecord();
+        urec->SetMemoryContext(CurrentMemoryContext);
+        urec->SetUrp(td->undoRecPtr);
+        while (true) {
+            UndoTraversalState state = FetchUndoRecord(urec, NULL, InvalidBlockNumber, InvalidOffsetNumber,
+                InvalidTransactionId, false, NULL);
+            Assert(state != UNDO_TRAVERSAL_ABORT);
+            if (state != UNDO_TRAVERSAL_COMPLETE || xid != urec->Xid()) {
+                cidVisible = true;
+                break;
+            }
+            if (urec->Cid() < snapshot->curcid) {
+                cidVisible = true;
+                break;
+            }
+            IndexTuple undoItup = FetchTupleFromUndoRecord(urec);
+            if (UBTreeItupEquals(itup, undoItup)) {
+                if (urec->Utype() == (is_xmin ? UNDO_UBT_INSERT : UNDO_UBT_DELETE)) {
+                    break;
+                }
+            }
+            urec->Reset2Blkprev();
+        }
+        DELETE_EX(urec);
+        return cidVisible;
+    }
+
+    TransactionId globalRecycleXid = pg_atomic_read_u64(&g_instance.undo_cxt.globalRecycleXid);
+    TransactionId globalFrozenXid = pg_atomic_read_u64(&g_instance.undo_cxt.globalFrozenXid);
+    if (TransactionIdPrecedes(xid, globalRecycleXid) ||
+        (TransactionIdPrecedes(xid, globalFrozenXid) && TransactionIdPrecedes(xid, snapshot->xmin))) {
+        return true;
+    }
+
+    volatile CommitSeqNo csn;
+    bool looped = false;
+loop:
+    csn = (td->xactid == xid && UBTreePCRTDHasCsn(td)) ?
+        td->combine.csn : TransactionIdGetCommitSeqNo(xid, false, true, false, snapshot);
+    if (COMMITSEQNO_IS_COMMITTED(csn)) {
+        return csn < snapshot->snapshotcsn;
+    } else if (COMMITSEQNO_IS_COMMITTING(csn)) {
+        Assert(!looped);
+        CommitSeqNo latestCsn = GET_COMMITSEQNO(csn);
+        if (latestCsn > snapshot->snapshotcsn) {
+            return false;
+        } else {
+            SyncWaitXidEnd(xid, InvalidBuffer, snapshot);
+            looped = true;
+            goto loop;
+        }
+    } else {
+        return false;
+    }
 }
 
 static bool IndexTupleSatisfiesMvcc(IndexScanDesc scan, Page page, OffsetNumber offnum)
@@ -1382,161 +1418,108 @@ static bool IndexTupleSatisfiesMvcc(IndexScanDesc scan, Page page, OffsetNumber 
     UBTreeItemId iid = UBTreePCRGetRowPtr(page, offnum);
     Assert(!ItemIdIsDead(iid));
     IndexTuple itup = UBTreePCRGetIndexTuple(page, offnum);
-    uint8 tdid = iid->lp_td_id;
-    bool tupleDeleted = IsUBTreePCRItemDeleted(iid);
-    UBTPCRPageOpaque opaque = (UBTPCRPageOpaque)PageGetSpecialPointer(page);
-    IndexTuple undoItup;
 
-check_frozen:
-    /* tdid is frozen */
-    if (tdid == UBTreeFrozenTDSlotId) {
-        return !tupleDeleted;
-    }
-    UBTreeTD td = UBTreePCRGetTD(page, tdid);
-    TransactionId xid = td->xactid;
+    TransactionId xmin = InvalidTransactionId;
+    TransactionId xmax = InvalidTransactionId;
 
-    /* td is frozen */
-    if (UBTreePCRTDIsFrozen(td)) {
-        return !tupleDeleted;
-    }
+    uint8 xmin_tdid = UBTreePCRGetXminTDSlot(iid);
+    uint8 xmax_tdid = UBTreePCRGetXmaxTDSlot(iid);
 
-    /* current xid, check cid */
-    if (TransactionIdIsCurrentTransactionId(xid) && !IsUBTreePCRTDReused(iid)) {
-        bool cidVisible = false;
-        UndoRecord *urec = New(CurrentMemoryContext)UndoRecord();
-        urec->SetMemoryContext(CurrentMemoryContext);
-        urec->SetUrp(td->undoRecPtr);
-
-        while (true) {
-            UndoTraversalState state = FetchUndoRecord(urec, NULL, InvalidBlockNumber, InvalidOffsetNumber,
-                InvalidTransactionId, false, NULL);
-            Assert(state != UNDO_TRAVERSAL_ABORT);
-            if (state != UNDO_TRAVERSAL_COMPLETE || td->xactid != urec->Xid()) {
-                cidVisible = true;
-                break;
-            }
-            if (urec->Cid() < snapshot->curcid) {
-                cidVisible = true;
-                break;
-            }
-            undoItup = FetchTupleFromUndoRecord(urec);
-            if (UBTreeItupEquals(itup, undoItup)) {
-                if (!tupleDeleted) {
-                    /* undorec cid > snapshotcid xmin invisible */
-                    Assert(!cidVisible);
-                    break;
-                } else {
-                    /* undorec cid > snapshotcid xmax invisible, continue to check if xmin visible */
-                    tupleDeleted = false;
-                }
-            }
-            urec->Reset2Blkprev();
-        }
-        DELETE_EX(urec);
-        return cidVisible != tupleDeleted;
-    }
-
-    TransactionId globalRecycleXid = pg_atomic_read_u64(&g_instance.undo_cxt.globalRecycleXid);
-    TransactionId globalFrozenXid = pg_atomic_read_u64(&g_instance.undo_cxt.globalFrozenXid);
-    if (TransactionIdPrecedes(xid, globalRecycleXid) ||
-        (TransactionIdPrecedes(xid, globalFrozenXid) && TransactionIdPrecedes(xid, snapshot->xmin)) ||
-        (IsUBTreePCRTDReused(iid) && TransactionIdPrecedes(opaque->last_commit_xid, snapshot->xmin))) {
-        return !tupleDeleted;
-    }
-
-    bool xidVisible;
-    volatile CommitSeqNo csn;
-    bool looped = false;
-
-loop:
-    csn = UBTreePCRTDHasCsn(td) ?
-        td->combine.csn : TransactionIdGetCommitSeqNo(xid, false, true, false, snapshot);
-    if (COMMITSEQNO_IS_COMMITTED(csn)) {
-        xidVisible = csn < snapshot->snapshotcsn;
-    } else if (COMMITSEQNO_IS_COMMITTING(csn)) {
-        Assert(!looped);
-        CommitSeqNo latestCsn = GET_COMMITSEQNO(csn);
-        if (latestCsn > snapshot->snapshotcsn) {
-            xidVisible = false;
-        } else {
-            SyncWaitXidEnd(xid, InvalidBuffer, snapshot);
-            looped = true;
-            goto loop;
-        }
+    if (xmin_tdid == UBTreeFrozenTDSlotId) {
+        xmin = FrozenTransactionId;
     } else {
-        /* xid is in-progress or aborted */
-        Assert(!looped);
-        xidVisible = false;
-    }
-
-    if (xidVisible) {
-        return !tupleDeleted;
-    }
-
-    /* tdxid invisible, check tuple visibility through undo chain */
-    UndoRecord *urec = New(CurrentMemoryContext)UndoRecord();
-    urec->SetMemoryContext(CurrentMemoryContext);
-    urec->SetUrp(td->undoRecPtr);
-    bool changeXid = false;
-    while (true) {
-        UndoTraversalState state = FetchUndoRecord(urec, NULL, InvalidBlockNumber, InvalidOffsetNumber,
-            InvalidTransactionId, false, NULL);
-        if (state == UNDO_TRAVERSAL_ABORT) {
-            int zoneId = (int)UNDO_PTR_GET_ZONE_ID(urec->Urp());
-            undo::UndoZone *uzone = undo::UndoZoneGroup::GetUndoZone(zoneId, false);
-            ereport(ERROR, (errmodule(MOD_UNDO), errmsg(
-                "snapshot too old! the undo record has been force discard. "
-                "Reason: PCR index IndexTupleSatisfiesMvcc. "
-                "LogInfo: undo state %d. "
-                "globalRecycleXid %lu, globalFrozenXid %lu. "
-                "ZoneInfo: urp: %lu, zid %d, insertURecPtr %lu, forceDiscardURecPtr %lu, "
-                "discardURecPtr %lu, recycleXid %lu. "
-                "Snapshot: type %d, xmin %lu.",
-                state,
-                pg_atomic_read_u64(&g_instance.undo_cxt.globalRecycleXid),
-                pg_atomic_read_u64(&g_instance.undo_cxt.globalFrozenXid),
-                urec->Urp(), zoneId, PtrGetVal(uzone, GetInsertURecPtr()),
-                PtrGetVal(uzone, GetForceDiscardURecPtr()),
-                PtrGetVal(uzone, GetDiscardURecPtr()), PtrGetVal(uzone, GetRecycleXid()),
-                PtrGetVal(snapshot, satisfies), PtrGetVal(snapshot, xmin))));
-        } else if (state != UNDO_TRAVERSAL_COMPLETE) {
-            xidVisible = true;
-            break;
-        }
-        if (urec->Xid() != td->xactid) {
-            changeXid = true;
-        }
-        if (changeXid) {
-            if (urec->Xid() < snapshot->xmin) {
-                xidVisible = true;
-                break;
-            }
-            csn = TransactionIdGetCommitSeqNo(urec->Xid(), true, true, false, scan->xs_snapshot);
-            Assert(COMMITSEQNO_IS_COMMITTED(csn));
-            if (csn < snapshot->snapshotcsn) {
-                xidVisible = true;
-                break;
+        UBTreeTD td = UBTreePCRGetTD(page, xmin_tdid);
+        if (UBTreePCRTDIsFrozen(td)) {
+            xmin = FrozenTransactionId;
+        } else {
+            TransactionId xid = td->xactid;
+            if (UBTreePCRXidVisible(xid, xmin_tdid, page, itup, snapshot, true)) {
+                xmin = xid;
             }
         }
-        undoItup = FetchTupleFromUndoRecord(urec);
-        if (UBTreeItupEquals(itup, undoItup)) {
-            if (!tupleDeleted) {
-                Assert(!xidVisible);
-                break;
-            } else {
-                tupleDeleted = false;
-                UBTreeUndoInfo undoInfo = FetchUndoInfoFromUndoRecord(urec);
-                if (undoInfo->prev_td_id != tdid) {
-                    tdid = undoInfo->prev_td_id;
-                    DELETE_EX(urec);
-                    goto check_frozen;
+    }
+
+    if (xmax_tdid == UBTreeFrozenTDSlotId) {
+        xmax = InvalidTransactionId;
+    } else {
+        UBTreeTD td = UBTreePCRGetTD(page, xmax_tdid);
+        if (UBTreePCRTDIsFrozen(td)) {
+            xmax = FrozenTransactionId;
+        } else {
+            TransactionId xid = td->xactid;
+            if (UBTreePCRXidVisible(xid, xmax_tdid, page, itup, snapshot, false)) {
+                xmax = xid;
+            }
+        }
+    }
+
+    bool xmin_determined = (xmin != InvalidTransactionId);
+    bool xmax_determined = (xmax_tdid == UBTreeFrozenTDSlotId || xmax != InvalidTransactionId);
+
+    if (!xmin_determined || !xmax_determined) {
+        uint8 last_tdid = UBTreePCRGetLastTD(iid);
+        if (last_tdid != UBTreeFrozenTDSlotId) {
+            UBTreeTD td = UBTreePCRGetTD(page, last_tdid);
+            UndoRecord *urec = New(CurrentMemoryContext)UndoRecord();
+            urec->SetMemoryContext(CurrentMemoryContext);
+            urec->SetUrp(td->undoRecPtr);
+
+            while (true) {
+                UndoTraversalState state = FetchUndoRecord(urec, NULL, InvalidBlockNumber, InvalidOffsetNumber,
+                    InvalidTransactionId, false, NULL);
+                if (state == UNDO_TRAVERSAL_ABORT) {
+                    int zoneId = (int)UNDO_PTR_GET_ZONE_ID(urec->Urp());
+                    undo::UndoZone *uzone = undo::UndoZoneGroup::GetUndoZone(zoneId, false);
+                    ereport(ERROR, (errmodule(MOD_UNDO), errmsg(
+                        "snapshot too old! the undo record has been force discard. "
+                        "Reason: PCR index IndexTupleSatisfiesMvcc. "
+                        "LogInfo: undo state %d. "
+                        "globalRecycleXid %lu, globalFrozenXid %lu. "
+                        "Snapshot: type %d, xmin %lu.",
+                        state,
+                        pg_atomic_read_u64(&g_instance.undo_cxt.globalRecycleXid),
+                        pg_atomic_read_u64(&g_instance.undo_cxt.globalFrozenXid),
+                        PtrGetVal(snapshot, satisfies), PtrGetVal(snapshot, xmin))));
+                } else if (state != UNDO_TRAVERSAL_COMPLETE) {
+                    break;
                 }
+
+                IndexTuple undoItup = FetchTupleFromUndoRecord(urec);
+                if (UBTreeItupEquals(itup, undoItup)) {
+                    UBTreeUndoInfo undoinfo = FetchUndoInfoFromUndoRecord(urec);
+                    if (urec->Utype() == UNDO_UBT_INSERT) {
+                        xmin = urec->Xid();
+                        xmax = InvalidTransactionId;
+                        xmin_determined = true;
+                        xmax_determined = true;
+                        break;
+                    } else if (urec->Utype() == UNDO_UBT_DELETE) {
+                        xmax = urec->Xid();
+                        xmin = undoinfo->old_xmin_xactid;
+                        xmin_determined = true;
+                        xmax_determined = true;
+                        break;
+                    }
+                }
+                urec->Reset2Blkprev();
             }
+            DELETE_EX(urec);
         }
-        urec->Reset2Blkprev();
     }
-    DELETE_EX(urec);
-    return xidVisible != tupleDeleted;
+
+    if (xmin == InvalidTransactionId) {
+        return false;
+    }
+    bool xmin_visible = UBTreePCRXidVisible(xmin, xmin_tdid, page, itup, snapshot, true);
+    if (!xmin_visible) {
+        return false;
+    }
+
+    if (xmax == InvalidTransactionId) {
+        return true;
+    }
+    bool xmax_visible = UBTreePCRXidVisible(xmax, xmax_tdid, page, itup, snapshot, false);
+    return !xmax_visible;
 }
 
 static bool IndexTupleSatisfiesDirty(IndexScanDesc scan, Page page, OffsetNumber offnum)
@@ -1544,62 +1527,127 @@ static bool IndexTupleSatisfiesDirty(IndexScanDesc scan, Page page, OffsetNumber
     UBTreeItemId iid = UBTreePCRGetRowPtr(page, offnum);
     Assert(!ItemIdIsDead(iid));
     IndexTuple itup = UBTreePCRGetIndexTuple(page, offnum);
-    uint8 tdid = iid->lp_td_id;
-    bool tupleDeleted = IsUBTreePCRItemDeleted(iid);
 
-    /* items td id is frozen or reused */
-    if (tdid == UBTreeFrozenTDSlotId || IsUBTreePCRTDReused(iid)) {
-        return !tupleDeleted;
+    TransactionId xmin = InvalidTransactionId;
+    TransactionId xmax = InvalidTransactionId;
+
+    uint8 xmin_tdid = UBTreePCRGetXminTDSlot(iid);
+    uint8 xmax_tdid = UBTreePCRGetXmaxTDSlot(iid);
+
+    bool xmin_determined = false;
+    bool xmax_determined = false;
+
+    if (xmin_tdid == UBTreeFrozenTDSlotId) {
+        xmin = FrozenTransactionId;
+        xmin_determined = true;
+    } else {
+        UBTreeTD td = UBTreePCRGetTD(page, xmin_tdid);
+        if (UBTreePCRTDIsFrozen(td)) {
+            xmin = FrozenTransactionId;
+            xmin_determined = true;
+        } else {
+            TransactionId xid = td->xactid;
+            if (TransactionIdIsCurrentTransactionId(xid) || TransactionIdIsInProgress(xid)) {
+                xmin = xid;
+                xmin_determined = true;
+            }
+        }
     }
 
-    UBTreeTD td = UBTreePCRGetTD(page, tdid);
-    /* td is frozen */
-    if (UBTreePCRTDIsFrozen(td)) {
-        return !tupleDeleted;
+    if (xmax_tdid == UBTreeFrozenTDSlotId) {
+        xmax = InvalidTransactionId;
+        xmax_determined = true;
+    } else {
+        UBTreeTD td = UBTreePCRGetTD(page, xmax_tdid);
+        if (UBTreePCRTDIsFrozen(td)) {
+            xmax = FrozenTransactionId;
+            xmax_determined = true;
+        } else {
+            TransactionId xid = td->xactid;
+            if (TransactionIdIsCurrentTransactionId(xid) || TransactionIdIsInProgress(xid)) {
+                xmax = xid;
+                xmax_determined = true;
+            }
+        }
     }
 
-    TransactionId xid = td->xactid;
-    if (TransactionIdIsCurrentTransactionId(xid)) {
-        return !tupleDeleted;
+    if (!xmin_determined || !xmax_determined) {
+        uint8 last_tdid = UBTreePCRGetLastTD(iid);
+        if (last_tdid != UBTreeFrozenTDSlotId) {
+            UBTreeTD td = UBTreePCRGetTD(page, last_tdid);
+            UndoRecord *urec = New(CurrentMemoryContext)UndoRecord();
+            urec->SetMemoryContext(CurrentMemoryContext);
+            urec->SetUrp(td->undoRecPtr);
+
+            while (true) {
+                UndoTraversalState state = FetchUndoRecord(urec, NULL, InvalidBlockNumber, InvalidOffsetNumber,
+                    InvalidTransactionId, false, NULL);
+                if (state != UNDO_TRAVERSAL_COMPLETE) {
+                    break;
+                }
+
+                IndexTuple undoItup = FetchTupleFromUndoRecord(urec);
+                if (UBTreeItupEquals(itup, undoItup)) {
+                    UBTreeUndoInfo undoinfo = FetchUndoInfoFromUndoRecord(urec);
+                    if (urec->Utype() == UNDO_UBT_INSERT) {
+                        xmin = urec->Xid();
+                        xmax = InvalidTransactionId;
+                        xmin_determined = true;
+                        xmax_determined = true;
+                        break;
+                    } else if (urec->Utype() == UNDO_UBT_DELETE) {
+                        xmax = urec->Xid();
+                        xmin = undoinfo->old_xmin_xactid;
+                        xmin_determined = true;
+                        xmax_determined = true;
+                        break;
+                    }
+                }
+                urec->Reset2Blkprev();
+            }
+            DELETE_EX(urec);
+        }
     }
 
-    TransactionId globalRecycleXid = pg_atomic_read_u64(&g_instance.undo_cxt.globalRecycleXid);
-    TransactionId globalFrozenXid = pg_atomic_read_u64(&g_instance.undo_cxt.globalFrozenXid);
-    if (TransactionIdPrecedes(xid, globalRecycleXid) ||
-        (TransactionIdPrecedes(xid, globalFrozenXid) && TransactionIdPrecedes(xid, scan->xs_snapshot->xmin))) {
-        return !tupleDeleted;
+    if (xmin == InvalidTransactionId) {
+        return false;
     }
-
-    TransactionIdStatus ts = UBTreeCheckXid(xid);
-    if (ts == XID_ABORTED) {
-        /* xmin aborted, not visible */
-        if (!tupleDeleted) {
+    if (xmin != FrozenTransactionId) {
+        TransactionIdStatus ts = UBTreeCheckXid(xmin);
+        if (ts == XID_ABORTED) {
             return false;
         }
-        /* xmax aborted, visible if xmax != xmin */
-        return !IsXminXmaxEqual(scan, page, offnum, td->undoRecPtr, xid);
-    } else if (ts == XID_INPROGRESS) {
-        return true;
     }
 
-    return !tupleDeleted;
+    if (xmax != InvalidTransactionId && xmax != FrozenTransactionId) {
+        TransactionIdStatus ts = UBTreeCheckXid(xmax);
+        if (ts == XID_COMMITTED) {
+            return false;
+        }
+    } else if (xmax == FrozenTransactionId) {
+        return false;
+    }
+
+    return true;
 }
 
 static bool IndexTupleSatisfiesAnyAndToast(IndexScanDesc scan, Page page, OffsetNumber offnum)
 {
     UBTreeItemId iid = UBTreePCRGetRowPtr(page, offnum);
-    uint8 tdid = iid->lp_td_id;
-    bool tupleDeleted = IsUBTreePCRItemDeleted(iid);
-    /* items td id is frozen */
-    if (tdid == UBTreeFrozenTDSlotId) {
-        return !tupleDeleted;
+    uint8 xmax_tdid = UBTreePCRGetXmaxTDSlot(iid);
+    if (xmax_tdid == UBTreeFrozenTDSlotId) {
+        return true;
     }
-    UBTreeTD td = UBTreePCRGetTD(page, tdid);
-    /* td is frozen */
-    if (UBTreePCRTDIsFrozen(td)) {
-        return !tupleDeleted;
+    UBTreeTD td = UBTreePCRGetTD(page, xmax_tdid);
+    if (UBTreePCRTDIsFrozen(td) || UBTreePCRTDIsCommited(td)) {
+        return false;
     }
-    /* for inprogress and committed xid, tuple is always visible */
+    TransactionId xid = td->xactid;
+    if (TransactionIdIsValid(xid) && !TransactionIdIsInProgress(xid)) {
+        if (TransactionIdDidCommit(xid)) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -1893,88 +1941,74 @@ choose_scan_mode:
     return (so->currPos.firstItem <= so->currPos.lastItem);
 }
 
-static UndoRecPtr GetItupXidFromUndo(IndexTuple itup, UndoRecPtr urecptr, TransactionId *tdXid, uint8 *tdid,
-    bool *deleted)
-{
-    UndoRecord *urec = New(CurrentMemoryContext)UndoRecord();
-    urec->SetMemoryContext(CurrentMemoryContext);
-    urec->SetUrp(urecptr);
-
-    while (true) {
-        UndoTraversalState state = FetchUndoRecord(urec, NULL, InvalidBlockNumber, InvalidOffsetNumber,
-            InvalidTransactionId, false, NULL);
-        if (state != UNDO_TRAVERSAL_COMPLETE) {
-            *tdXid = InvalidTransactionId;
-            break;
-        }
-        *tdXid = urec->Xid();
-        *deleted = urec->Utype() == UNDO_UBT_DELETE;
-        IndexTuple undoItup = FetchTupleFromUndoRecord(urec);
-        if (UBTreeItupEquals(itup, undoItup)) {
-            UBTreeUndoInfo undoInfo = FetchUndoInfoFromUndoRecord(urec);
-            *tdid = undoInfo->prev_td_id;
-            break;
-        }
-        /* td reused */
-        urec->Reset2Blkprev();
-    }
-
-    UndoRecPtr prev = urec->Blkprev();
-    DELETE_EX(urec);
-    return prev;
-}
-
 static void GetItupTransInfo(IndexScanDesc scan, Page page, IndexTuple itup, OffsetNumber offnum,
     IndexTransInfo *transInfo)
 {
-    UBTPCRPageOpaque opaque = (UBTPCRPageOpaque)PageGetSpecialPointer(page);
     UBTreeItemId iid = UBTreePCRGetRowPtr(page, offnum);
     Assert(!ItemIdIsDead(iid));
 
-    uint8 tdid = iid->lp_td_id;
-    Assert(tdid != UBTreeInvalidTDSlotId);
-    bool deleted = IsUBTreePCRItemDeleted(iid);
+    TransactionId xmin = InvalidTransactionId;
+    TransactionId xmax = InvalidTransactionId;
 
-    if (tdid == UBTreeFrozenTDSlotId) {
-        transInfo->xmin = FrozenTransactionId;
-        transInfo->xmax = (deleted ? FrozenTransactionId : InvalidTransactionId);
-        return;
-    }
-    
-    UBTreeTD td = UBTreePCRGetTD(page, tdid);
-    if (UBTreePCRTDIsFrozen(td) || (IsUBTreePCRTDReused(iid) &&
-        TransactionIdPrecedes(opaque->last_commit_xid, pg_atomic_read_u64(&g_instance.undo_cxt.globalRecycleXid)))) {
-        transInfo->xmin = FrozenTransactionId;
-        transInfo->xmax = (deleted ? FrozenTransactionId : InvalidTransactionId);
-        return;
-    }
+    uint8 xmin_tdid = UBTreePCRGetXminTDSlot(iid);
+    uint8 xmax_tdid = UBTreePCRGetXmaxTDSlot(iid);
 
-    TransactionId tdXid;
-    uint8 prevTdid;
-    UndoRecPtr blkprev = GetItupXidFromUndo(itup, td->undoRecPtr, &tdXid, &prevTdid, &deleted);
-    if (!TransactionIdIsValid(tdXid)) {
-        tdXid = IsUBTreePCRTDReused(iid) ? tdXid : td->xactid;
-        if (deleted) {
-            transInfo->xmin = FrozenTransactionId;
-            transInfo->xmax = tdXid;
-            return;
+    if (xmin_tdid == UBTreeFrozenTDSlotId) {
+        xmin = FrozenTransactionId;
+    } else {
+        UBTreeTD td = UBTreePCRGetTD(page, xmin_tdid);
+        if (UBTreePCRTDIsFrozen(td)) {
+            xmin = FrozenTransactionId;
+        } else {
+            xmin = td->xactid;
         }
     }
 
-    if (!deleted) {
-        transInfo->xmin = tdXid;
-        transInfo->xmax = InvalidTransactionId;
-        return;
+    if (xmax_tdid == UBTreeFrozenTDSlotId) {
+        xmax = IsUBTreePCRItemDeleted(iid) ? FrozenTransactionId : InvalidTransactionId;
+    } else {
+        UBTreeTD td = UBTreePCRGetTD(page, xmax_tdid);
+        if (UBTreePCRTDIsFrozen(td)) {
+            xmax = FrozenTransactionId;
+        } else {
+            xmax = td->xactid;
+        }
     }
 
-    transInfo->xmax = tdXid;
-    if (prevTdid != tdid) {
-        td = UBTreePCRGetTD(page, prevTdid);
-        blkprev = td->undoRecPtr;
-    }
-    (void)GetItupXidFromUndo(itup, blkprev, &tdXid, &prevTdid, &deleted);
+    uint8 last_tdid = UBTreePCRGetLastTD(iid);
+    if (last_tdid != UBTreeFrozenTDSlotId) {
+        UBTreeTD td = UBTreePCRGetTD(page, last_tdid);
+        UndoRecord *urec = New(CurrentMemoryContext)UndoRecord();
+        urec->SetMemoryContext(CurrentMemoryContext);
+        urec->SetUrp(td->undoRecPtr);
 
-    transInfo->xmin = TransactionIdIsValid(tdXid) ? tdXid : FrozenTransactionId;
+        while (true) {
+            UndoTraversalState state = FetchUndoRecord(urec, NULL, InvalidBlockNumber, InvalidOffsetNumber,
+                InvalidTransactionId, false, NULL);
+            if (state != UNDO_TRAVERSAL_COMPLETE) {
+                break;
+            }
+
+            IndexTuple undoItup = FetchTupleFromUndoRecord(urec);
+            if (UBTreeItupEquals(itup, undoItup)) {
+                UBTreeUndoInfo undoinfo = FetchUndoInfoFromUndoRecord(urec);
+                if (urec->Utype() == UNDO_UBT_INSERT) {
+                    xmin = urec->Xid();
+                    xmax = InvalidTransactionId;
+                    break;
+                } else if (urec->Utype() == UNDO_UBT_DELETE) {
+                    xmax = urec->Xid();
+                    xmin = undoinfo->old_xmin_xactid;
+                    break;
+                }
+            }
+            urec->Reset2Blkprev();
+        }
+        DELETE_EX(urec);
+    }
+
+    transInfo->xmin = TransactionIdIsValid(xmin) ? xmin : FrozenTransactionId;
+    transInfo->xmax = xmax;
 }
 
 /* UBTreePCRSaveItem() -- Save an index item into so->currPos.items[itemIndex] */

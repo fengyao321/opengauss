@@ -304,7 +304,7 @@ top:
             if (off != InvalidOffsetNumber) {
                 UBTreeItemId iid = UBTreePCRGetRowPtr(page, off);
                 if (!ItemIdIsDead(iid)) {
-                    prevSlot = iid->lp_td_id;
+                    prevSlot = UBTreePCRGetLastTD(iid);
                     UBTreePCRHandlePreviousTD(rel, buf, &prevSlot, iid, &needRetry);
                     if (needRetry) {
                         buf = InvalidBuffer;
@@ -331,7 +331,28 @@ top:
         UndoPersistence persistence = UndoPersistenceForRelation(rel);
         Oid relOid = RelationIsPartition(rel) ? GetBaseRelOidOfParition(rel) : RelationGetRelid(rel);
         Oid partitionOid = RelationIsPartition(rel) ? RelationGetRelid(rel) : InvalidOid;
-        undoinfo.prev_td_id = prevSlot;
+        
+        if (off != InvalidOffsetNumber) {
+            UBTreeItemId iid = UBTreePCRGetRowPtr(page, off);
+            undoinfo.old_itemid = *(uint32*)iid;
+            uint8 xmin_slot = UBTreePCRGetXminTDSlot(iid);
+            if (xmin_slot != UBTreeFrozenTDSlotId) {
+                undoinfo.old_xmin_xactid = UBTreePCRGetTD(page, xmin_slot)->xactid;
+            } else {
+                undoinfo.old_xmin_xactid = FrozenTransactionId;
+            }
+            uint8 xmax_slot = UBTreePCRGetXmaxTDSlot(iid);
+            if (xmax_slot != UBTreeFrozenTDSlotId) {
+                undoinfo.old_xmax_xactid = UBTreePCRGetTD(page, xmax_slot)->xactid;
+            } else {
+                undoinfo.old_xmax_xactid = FrozenTransactionId;
+            }
+        } else {
+            undoinfo.old_itemid = 0;
+            undoinfo.old_xmin_xactid = FrozenTransactionId;
+            undoinfo.old_xmax_xactid = FrozenTransactionId;
+        }
+
         UndoRecPtr urecPtr = INVALID_UNDO_REC_PTR;
         urecPtr = UBTreePCRPrepareUndoInsert(relOid, partitionOid, RelationGetRelFileNode(rel),
             RelationGetRnodeSpace(rel), persistence, fxid, GetCurrentCommandId(true),
@@ -838,9 +859,8 @@ static void UBTreePCRDupInsertOnPage(Relation rel, Buffer buf, OffsetNumber offn
 
     START_CRIT_SECTION();
 
-    UBTreePCRSetIndexTupleTDSlot(iid, tdSlot);
-    UBTreePCRClearIndexTupleTDInvalid(iid);
-    UBTreePCRClearIndexTupleDeleted(iid);
+    UBTreePCRSetXminTDSlot(iid, tdSlot);
+    UBTreePCRSetXmaxTDSlot(iid, 0);
 
     iid->lp_flags = LP_NORMAL;
 
@@ -1585,19 +1605,19 @@ static TransactionId UBTreePCRCheckUnique(Relation rel, IndexTuple itup, Relatio
                                 return InvalidTransactionId;
                             }
                         }
-                        uint8 td_id = curitemid->lp_td_id;
+                        uint8 td_id = UBTreePCRGetLastTD(curitemid);
                         if (UBTreeTDSlotIsNormal(td_id)) {
                             UBTreeTD td = UBTreePCRGetTD(page, td_id);
                             TransactionId xid = td->xactid;
                             /* xid on tuple is not current and valid, return and wait */
                             if (!TransactionIdIsCurrentTransactionId(xid)) {
-                                if (!IsUBTreePCRTDReused(curitemid) && TransactionIdIsInProgress(xid)) {
+                                if (TransactionIdIsInProgress(xid)) {
                                     if (nbuf != InvalidBuffer) {
                                         _bt_relbuf(rel, nbuf);
                                     }
                                     return xid;
                                 }
-                                if (!IsUBTreePCRTDReused(curitemid) && TransactionIdIsValid(xid) &&
+                                if (TransactionIdIsValid(xid) &&
                                     !(UBTreePCRTDIsCommited(td) || UHeapTransactionIdDidCommit(xid))) {
                                     if (nbuf != InvalidBuffer) {
                                         LockBuffer(nbuf, BUFFER_LOCK_UNLOCK);
@@ -2319,14 +2339,12 @@ bool UBTreePCRPageAddTuple(Page page, Size itemsize, UBTreeItemId iid, IndexTupl
     UBTreeItemId curiid = UBTreePCRGetRowPtr(page, itup_off);
     
     if (copyflags) {
-        curiid->lp_td_id = iid->lp_td_id;
-        curiid->lp_td_invalid = iid->lp_td_invalid;
-        curiid->lp_deleted = iid->lp_deleted;
+        UBTreePCRSetXminTDSlot(curiid, UBTreePCRGetXminTDSlot(iid));
+        UBTreePCRSetXmaxTDSlot(curiid, UBTreePCRGetXmaxTDSlot(iid));
         curiid->lp_flags = iid->lp_flags;
     } else {
-        curiid->lp_td_id = tdslot;
-        curiid->lp_td_invalid = 0;
-        curiid->lp_deleted = 0;
+        UBTreePCRSetXminTDSlot(curiid, tdslot);
+        UBTreePCRSetXmaxTDSlot(curiid, 0);
     }
 
     return true;
@@ -2376,13 +2394,22 @@ OffsetNumber UBTreePCRFindDeleteLoc(Relation rel, Buffer* bufP, OffsetNumber off
                     return InvalidOffsetNumber;
                 }
                 curitup = (IndexTuple)UBTreePCRGetIndexTuple(page, offset);
-                if (UBTreeHasIncluding(rel)) {
-                    Size itupSize = IndexTupleSize(itup);
-                    if (itupSize == IndexTupleSize(curitup) && memcmp(curitup, itup, itupSize) == 0) {
+                /*
+                 * We must skip tuples that are already logically deleted
+                 * (lp_xmax_td_id > 0). In a batch UPDATE within a single
+                 * transaction, the old index key is deleted first and then a
+                 * new key is inserted. Without this check, we could match an
+                 * already-deleted version instead of the live one.
+                 */
+                if (!IsUBTreePCRItemDeleted(curitemid)) {
+                    if (UBTreeHasIncluding(rel)) {
+                        Size itupSize = IndexTupleSize(itup);
+                        if (itupSize == IndexTupleSize(curitup) && memcmp(curitup, itup, itupSize) == 0) {
+                            return offset;
+                        }
+                    } else if (UBTreePCRIndexTupleMatches(rel, page, offset, itup, NULL, partOid)) {
                         return offset;
                     }
-                } else if (UBTreePCRIndexTupleMatches(rel, page, offset, itup, NULL, partOid)) {
-                    return offset;
                 }
             }
         }
@@ -2471,7 +2498,7 @@ uint8 PreparePCRDelete(Relation rel, Buffer buf, OffsetNumber offnum, UBTreeUndo
     /* Get tuple's previous operation's xact info */
     Page page = BufferGetPage(buf);
     UBTreeItemId iid = (UBTreeItemId)UBTreePCRGetRowPtr(page, offnum);
-    uint8 slotNo = iid->lp_td_id;
+    uint8 slotNo = UBTreePCRGetLastTD(iid);
     UBTreePCRHandlePreviousTD(rel, buf, &slotNo, iid, needRetry);
     if (*needRetry) {
         return tdslot;
@@ -2508,7 +2535,19 @@ uint8 PreparePCRDelete(Relation rel, Buffer buf, OffsetNumber offnum, UBTreeUndo
         }
     }
 
-    undoInfo->prev_td_id = slotNo;
+    undoInfo->old_itemid = *(uint32*)iid;
+    uint8 xmin_slot = UBTreePCRGetXminTDSlot(iid);
+    if (xmin_slot != UBTreeFrozenTDSlotId) {
+        undoInfo->old_xmin_xactid = UBTreePCRGetTD(page, xmin_slot)->xactid;
+    } else {
+        undoInfo->old_xmin_xactid = FrozenTransactionId;
+    }
+    uint8 xmax_slot = UBTreePCRGetXmaxTDSlot(iid);
+    if (xmax_slot != UBTreeFrozenTDSlotId) {
+        undoInfo->old_xmax_xactid = UBTreePCRGetTD(page, xmax_slot)->xactid;
+    } else {
+        undoInfo->old_xmax_xactid = FrozenTransactionId;
+    }
 
     /* Update undo record */
     URecVector *urecvec = t_thrd.ustore_cxt.urecvec;
@@ -2882,7 +2921,7 @@ void LogSplit(Buffer buf, Buffer rbuf, Buffer sbuf, Buffer leftCbuf, OffsetNumbe
 
     if (newItemOnLeft) {
         UBTreeItemId iid = UBTreePCRGetRowPtr(leftpage, leftOff);
-        UBTreeTD td = UBTreePCRGetTD(leftpage, iid->lp_td_id);
+        UBTreeTD td = UBTreePCRGetTD(leftpage, UBTreePCRGetXminTDSlot(iid));
         xlrecSplit.fxid = td->xactid;
         xlrecSplit.urp = td->undoRecPtr;
     }

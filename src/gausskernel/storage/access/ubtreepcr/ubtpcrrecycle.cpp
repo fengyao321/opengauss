@@ -38,14 +38,13 @@ void PruneFirstDataKey(Page page, UBTreeItemId itemid, OffsetNumber offNum,
     Assert(IsUBTreePCRItemDeleted(itemid));
     Assert(offNum == P_FIRSTDATAKEY(opaque));
     TransactionId globalRecycleXid = pg_atomic_read_u64(&g_instance.undo_cxt.globalRecycleXid);
-    TransactionId xid = IsUBTreePCRTDReused(itemid) ? opaque->last_commit_xid :
-                         GetXidFromTD(page, itemid, frozenTDMap);
+    TransactionId xid = GetXidFromTD(page, itemid, frozenTDMap);
 
     if (TransactionIdPrecedes(xid, globalRecycleXid)) {
         RecordDeadTuple(prstate, offNum, xid);
         return;
     }
-    uint8 curTdId = itemid->lp_td_id;
+    uint8 curTdId = UBTreePCRGetLastTD(itemid);
     UBTreeTD curTd = (UBTreeTD)UBTreePCRGetTD(page, curTdId);
     IndexTuple itup = (IndexTuple)UBTreePCRGetIndexTuple(page, offNum);
     /* not match situation above, msut fetch the accurate xid from undo */
@@ -157,7 +156,7 @@ bool UBTreePCRPruneItem(Page page, OffsetNumber offNum, UBTreeItemId itemid, Tra
 {
     UBTPCRPageOpaque opaque = (UBTPCRPageOpaque)PageGetSpecialPointer(page);
     IndexTuple itup = (IndexTuple)UBTreePCRGetIndexTuple(page, offNum);
-    uint8 curTdId = itemid->lp_td_id;
+    uint8 curTdId = UBTreePCRGetLastTD(itemid);
     UBTreeTD curTd = (UBTreeTD)UBTreePCRGetTD(page, curTdId);
     if (!IsUBTreePCRItemDeleted(itemid)) {
         return true;
@@ -176,7 +175,7 @@ bool UBTreePCRPruneItem(Page page, OffsetNumber offNum, UBTreeItemId itemid, Tra
     }
 
     if (pruneDelete) {
-        if (IsUBTreePCRTDReused(itemid)) {
+        if (curTd->xactid != xid) {
             RecordDeadTuple(prstate, offNum, xid);
             return false;
         }
@@ -189,7 +188,7 @@ bool UBTreePCRPruneItem(Page page, OffsetNumber offNum, UBTreeItemId itemid, Tra
         }
     }
 
-    if (IsUBTreePCRTDReused(itemid)) {
+    if (curTd->xactid != xid) {
         /* TD is reused by others and the latest xid on this TD is not Frozen, try use last_commit_xid */
         /* TD is reused, therefore, lastest xid on TD is visible, last_commit_xid is also vivible,
             * we do not need to find accurate xid.
@@ -398,7 +397,7 @@ int ComputeCompactTDCount(int tdCount, bool* frozenTDMap)
 
 TransactionId GetXidFromTD(Page page, UBTreeItemId itemid, bool* frozenTDMap)
 {
-    uint8 tdId = itemid->lp_td_id;
+    uint8 tdId = UBTreePCRGetLastTD(itemid);
     return (tdId == UBTreeFrozenTDSlotId || frozenTDMap[tdId - 1]) ? FrozenTransactionId :
             ((UBTreeTD)UBTreePCRGetTD(page, tdId))->xactid;
 }
@@ -426,9 +425,13 @@ void CompactTd(Page page, int tdCount, int canCompactCount, bool* frozenTDMap)
     for (OffsetNumber offNum = P_FIRSTDATAKEY(opaque); offNum <= maxOff;
         offNum = OffsetNumberNext(offNum)) {
         UBTreeItemId itemid = UBTreePCRGetRowPtr(page, offNum);
-        uint8 tdId = itemid->lp_td_id;
-        if (tdId != UBTreeFrozenTDSlotId && frozenTDMap[tdId - 1]) {
-            UBTreePCRSetIndexTupleTDSlot(itemid, UBTreeFrozenTDSlotId);
+        uint8 xmin_tdId = UBTreePCRGetXminTDSlot(itemid);
+        if (xmin_tdId != UBTreeFrozenTDSlotId && frozenTDMap[xmin_tdId - 1]) {
+            UBTreePCRSetXminTDSlot(itemid, UBTreeFrozenTDSlotId);
+        }
+        uint8 xmax_tdId = UBTreePCRGetXmaxTDSlot(itemid);
+        if (xmax_tdId != UBTreeFrozenTDSlotId && frozenTDMap[xmax_tdId - 1]) {
+            UBTreePCRSetXmaxTDSlot(itemid, UBTreeFrozenTDSlotId);
         }
     }
 
@@ -473,9 +476,13 @@ void FreezeTd(Page page, bool* frozenTDMap, int tdCount)
     for (OffsetNumber offNum = P_FIRSTDATAKEY(opaque); offNum <= maxOff;
         offNum = OffsetNumberNext(offNum)) {
         UBTreeItemId itemid = UBTreePCRGetRowPtr(page, offNum);
-        uint8 tdId = itemid->lp_td_id;
-        if (tdId < tdCount && tdId != UBTreeFrozenTDSlotId && frozenTDMap[tdId - 1]) {
-            UBTreePCRSetIndexTupleTDSlot(itemid, UBTreeFrozenTDSlotId);
+        uint8 xmin_tdId = UBTreePCRGetXminTDSlot(itemid);
+        if (xmin_tdId < tdCount && xmin_tdId != UBTreeFrozenTDSlotId && frozenTDMap[xmin_tdId - 1]) {
+            UBTreePCRSetXminTDSlot(itemid, UBTreeFrozenTDSlotId);
+        }
+        uint8 xmax_tdId = UBTreePCRGetXmaxTDSlot(itemid);
+        if (xmax_tdId < tdCount && xmax_tdId != UBTreeFrozenTDSlotId && frozenTDMap[xmax_tdId - 1]) {
+            UBTreePCRSetXmaxTDSlot(itemid, UBTreeFrozenTDSlotId);
         }
     }
 }

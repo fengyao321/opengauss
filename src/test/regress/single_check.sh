@@ -310,7 +310,7 @@ function check_enum()
 {
     old_path=`pwd`
     cd $CODE_BASE
-    python $REGRESS_PATH/check_enum.py
+    python3 $REGRESS_PATH/check_enum.py
     if [ $? != 0 ]; then
         exit 1
     fi

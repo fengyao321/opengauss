@@ -3160,7 +3160,7 @@ int PostmasterMain(int argc, char* argv[])
     gs_lock_test_and_set_64(&g_instance.stat_cxt.NodeStatResetTime, GetCurrentTimestamp());
 
     /* PostmasterRandom wants its own copy */
-    gettimeofday(&t_thrd.postmaster_cxt.random_start_time, NULL);
+    gettimeofday(&t_thrd.postmaster_cxt.random_start_time, (struct timezone *)NULL);
 
     /* load primary id and reform stable list from control file in shared storage based on dms and dss.
      * (1) If the current instance startup in multimaster_primary mode, the condition is as follows:
@@ -11322,7 +11322,7 @@ long PostmasterRandom(void)
         do {
             struct timeval random_stop_time;
 
-            gettimeofday(&random_stop_time, NULL);
+            gettimeofday(&random_stop_time, (struct timezone *)NULL);
 
             /*
              * We are not sure how much precision is in tv_usec, so we swap

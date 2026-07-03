@@ -8,7 +8,7 @@ CREATE TABLE employees (
     name VARCHAR(100),
     department VARCHAR(50),
     salary DECIMAL(10, 2)
-);
+) WITH (storage_type=ustore);
 INSERT INTO employees (name, department, salary)
 VALUES 
 ('Alice', 'HR', 5000.00),
@@ -35,7 +35,7 @@ DROP TABLE IF EXISTS test_table;
 CREATE TABLE test_table (
     id SERIAL PRIMARY KEY,
     value INT
-);
+) WITH (storage_type=ustore);
 -- 批量插入固定值数据
 DO $$
 DECLARE
@@ -84,7 +84,7 @@ DROP TABLE IF EXISTS test_table;
 CREATE TABLE test_table (
     id SERIAL PRIMARY KEY,
     value INT
-);
+) WITH (storage_type=ustore);
 -- 批量插入固定值数据
 DO $$
 DECLARE
@@ -147,7 +147,7 @@ DROP TABLE IF EXISTS test_table;
 CREATE TABLE test_table (
     id SERIAL PRIMARY KEY,
     value INT
-);
+) WITH (storage_type=ustore);
 -- 批量插入固定值数据
 DO $$
 DECLARE
@@ -230,7 +230,7 @@ DROP TABLE IF EXISTS test_table;
 CREATE TABLE test_table (
     id SERIAL PRIMARY KEY,
     value INT
-);
+) WITH (storage_type=ustore);
 -- 批量插入固定值数据
 DO $$
 DECLARE
@@ -424,7 +424,7 @@ CREATE TABLE test_table (
     text_value TEXT,
     date_value DATE,
     bool_value BOOLEAN
-);
+) WITH (storage_type=ustore);
 -- 批量插入固定值数据
 DO $$
 DECLARE
@@ -656,7 +656,7 @@ CREATE TABLE dml_test_table (
     col_text TEXT,
     col_date DATE,
     col_bool BOOLEAN
-);
+) WITH (storage_type=ustore);
 CREATE INDEX idx_col_int ON dml_test_table (col_int) with (index_type = pcr);
 CREATE INDEX idx_col_text ON dml_test_table (col_text) with (index_type = pcr);
 INSERT INTO dml_test_table (col_int, col_text, col_date, col_bool)

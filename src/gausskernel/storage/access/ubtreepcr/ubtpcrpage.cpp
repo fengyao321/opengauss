@@ -365,9 +365,7 @@ void UBTreePCRDeleteOnPage(Relation rel, Buffer buf, OffsetNumber offset, bool i
     Assert(urecPtr != INVALID_UNDO_REC_PTR);
     Assert(xlumPtr != NULL);
 
-    UBTreePCRSetIndexTupleDeleted(itemid);
-    UBTreePCRClearIndexTupleTDInvalid(itemid);
-    itemid->lp_td_id = tdslot;
+    UBTreePCRSetXmaxTDSlot(itemid, tdslot);
 
     UBTreeTD thisTrans = UBTreePCRGetTD(page, tdslot);
     thisTrans->xactid = fxid;

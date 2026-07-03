@@ -164,9 +164,7 @@ extern ErrorLevel min_debug_level;
 #define MAX_CONTINUOUS_COUNT 10
 #define INIT_TX_ALLOC_BUFF_NUM 5
 
-#if (!defined WITH_OPENEULER_OS) && (!defined OPENEULER_MAJOR)
-extern int gettimeofday(struct timeval* tp, struct timezone* tzp);
-#endif
+#include <sys/time.h>
 //extern THR_LOCAL knl_thrd_context t_thrd;
 
 #define COMM_ELOG(elevel, format, ...)                     \

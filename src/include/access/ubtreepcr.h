@@ -69,13 +69,11 @@ const int CR_ROLLBACL_COUNT_THRESHOLD = 10;
  * An item pointer (also called line pointer) on a ubtree pcr index buffer page
  */
 typedef struct UBTreeItemIdData {
-    unsigned lp_off : 15, /* offset to tuple (from start of page) */
-        lp_flags : 2,     /* state of item pointer, see below */
-        lp_td_id : 8,
-        lp_td_invalid : 1,
-        lp_deleted : 1,
-        lp_xmin_frozen : 1,
-        lp_aligned : 4;
+    unsigned lp_off : 15,          /* 元组在页面中的偏移量 (0 ~ 32767) */
+             lp_flags : 2,         /* 行指针状态 */
+             lp_xmin_td_id : 7,    /* 插入事务的 TD 槽 ID (0 ~ 127) */
+             lp_xmax_td_id : 7,    /* 删除事务的 TD 槽 ID (0 ~ 127) */
+             lp_unused : 1;        /* 预留/对齐 */
 } UBTreeItemIdData;
 
 typedef UBTreeItemIdData* UBTreeItemId;
@@ -139,35 +137,37 @@ typedef UBTreeTDData* UBTreeTD;
 #define UBTreePCRTDIdIsNormal(td_id) \
     ((unsigned)(td_id) != UBTreeFrozenTDSlotId && (unsigned)(td_id) != UBTreeInvalidTDSlotId)
 
-#define UBTreePCRSetIndexTupleTDInvalid(iid) \
-    (((UBTreeItemId)(iid))->lp_td_invalid = 1)
+#define UBTreePCRGetXminTDSlot(iid)      (((UBTreeItemId)(iid))->lp_xmin_td_id)
+#define UBTreePCRSetXminTDSlot(iid, slot) (((UBTreeItemId)(iid))->lp_xmin_td_id = (slot))
 
-#define IsUBTreePCRTDReused(iid) \
-    (((UBTreeItemId)(iid))->lp_td_invalid == 1)
+#define UBTreePCRGetXmaxTDSlot(iid)      (((UBTreeItemId)(iid))->lp_xmax_td_id)
+#define UBTreePCRSetXmaxTDSlot(iid, slot) (((UBTreeItemId)(iid))->lp_xmax_td_id = (slot))
 
-#define UBTreePCRClearIndexTupleTDInvalid(iid) \
-    (((UBTreeItemId)(iid))->lp_td_invalid = 0)
-    
-#define UBTreePCRSetIndexTupleDeleted(iid) \
-    (((UBTreeItemId)(iid))->lp_deleted = 1)
+#define IsUBTreePCRItemDeleted(iid)     (UBTreePCRGetXmaxTDSlot(iid) > 0)
 
-#define UBTreePCRClearIndexTupleDeleted(iid) \
-    (((UBTreeItemId)(iid))->lp_deleted = 0)
+#define UBTreePCRGetLastTD(iid) \
+    (UBTreePCRGetXmaxTDSlot(iid) > 0 ? UBTreePCRGetXmaxTDSlot(iid) : UBTreePCRGetXminTDSlot(iid))
 
-#define IsUBTreePCRItemDeleted(iid) \
-    (((UBTreeItemId)(iid))->lp_deleted == 1)
-
+/* Helper setter macros */
 #define UBTreePCRSetIndexTupleTDSlot(iid, slot) \
-    (((UBTreeItemId)(iid))->lp_td_id = slot)
+    do { \
+        if (IsUBTreePCRItemDeleted(iid)) { \
+            UBTreePCRSetXmaxTDSlot(iid, slot); \
+        } else { \
+            UBTreePCRSetXminTDSlot(iid, slot); \
+        } \
+    } while (0)
 
 
 // ubtree undo
 typedef struct UBTreeUndoInfoData {
-    uint8 prev_td_id;
+    uint32 old_itemid;
+    TransactionId old_xmin_xactid;
+    TransactionId old_xmax_xactid;
 } UBTreeUndoInfoData;
 typedef UBTreeUndoInfoData* UBTreeUndoInfo;
 
-#define SizeOfUBTreeUndoInfoData (sizeof(uint8))
+#define SizeOfUBTreeUndoInfoData (sizeof(UBTreeUndoInfoData))
 
 typedef struct UBTree3WalInfo {
     Oid relOid;

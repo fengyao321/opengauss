@@ -2695,7 +2695,8 @@ static void parse_ubtree_index_item(const Item item, unsigned len)
 static void parse_ubtree_pcr_index_item(const Item item, const UBTreeItemId iid)
 {
     IndexTuple itup = (IndexTuple)item;
-    uint8 slotNo = iid->lp_td_id;
+    uint8 xmin_slot = UBTreePCRGetXminTDSlot(iid);
+    uint8 xmax_slot = UBTreePCRGetXmaxTDSlot(iid);
     bool hasnull = (itup->t_info & INDEX_NULL_MASK);
     unsigned int tuplen = (itup->t_info & INDEX_SIZE_MASK);
     unsigned int offset = 0;
@@ -2704,9 +2705,10 @@ static void parse_ubtree_pcr_index_item(const Item item, const UBTreeItemId iid)
     indentLevel = 3;
 
     fprintf(stdout,
-        "%s td_id:%d Tid: block %u/%u, offset %u\n",
+        "%s xmin_td_id:%d xmax_td_id:%d Tid: block %u/%u, offset %u\n",
         indents[indentLevel],
-        slotNo,
+        xmin_slot,
+        xmax_slot,
         itup->t_tid.ip_blkid.bi_hi,
         itup->t_tid.ip_blkid.bi_lo,
         itup->t_tid.ip_posid);

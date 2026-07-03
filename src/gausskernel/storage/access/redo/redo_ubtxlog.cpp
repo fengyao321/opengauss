@@ -1596,12 +1596,7 @@ void UBTree3XlogDeleteOperatorPage(RedoBufferInfo* buffer, void* recorddata, Und
     }
 
     UBTreeItemId iid = (UBTreeItemId)UBTreePCRGetRowPtr(page, xlrec->offNum);
-    UBTreePCRSetIndexTupleDeleted(iid);
-    UBTreePCRClearIndexTupleTDInvalid(iid);
-    UBTreePCRSetIndexTupleTDSlot(iid, xlrec->tdId);
-    if (uinfo->prev_td_id == UBTreeFrozenTDSlotId) {
-        IndexItemIdSetFrozen(iid);
-    }
+    UBTreePCRSetXmaxTDSlot(iid, xlrec->tdId);
 
     UBTPCRPageOpaque opaque = (UBTPCRPageOpaque)PageGetSpecialPointer(page);
     /* update active hint */
@@ -1694,9 +1689,8 @@ void UBTree3XlogRollbackTxnOperatorPage(RedoBufferInfo* buffer, void* recorddata
     for (uint32 i = 0; i < xlrec->n_rollback; i++) {
         UBTreeItemId iid = UBTreePCRGetRowPtr(page, items[i].offnum);
         iid->lp_flags = items[i].iid.lp_flags;
-        iid->lp_td_id = items[i].iid.lp_td_id;
-        iid->lp_td_invalid = items[i].iid.lp_td_invalid;
-        iid->lp_deleted = items[i].iid.lp_deleted;
+        UBTreePCRSetXminTDSlot(iid, UBTreePCRGetXminTDSlot(&items[i].iid));
+        UBTreePCRSetXmaxTDSlot(iid, UBTreePCRGetXmaxTDSlot(&items[i].iid));
         if (ItemIdIsDead(iid) || IsUBTreePCRItemDeleted(iid)) {
             opaque->activeTupleCount--;
         }

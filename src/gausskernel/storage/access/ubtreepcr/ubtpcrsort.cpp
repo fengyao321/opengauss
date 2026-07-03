@@ -341,9 +341,8 @@ static void UBTreePCRSortAddTuple(Page page, Size itemsize, IndexTuple itup,
                     errmsg("Index tuple cant fit in the page when creating index.")));
         }
         UBTreeItemId iid = UBTreePCRGetRowPtr(page, offnum);
-        UBTreePCRSetIndexTupleTDSlot(iid, UBTreeFrozenTDSlotId);
-        UBTreePCRClearIndexTupleTDInvalid(iid);
-        UBTreePCRClearIndexTupleDeleted(iid);
+        UBTreePCRSetXminTDSlot(iid, UBTreeFrozenTDSlotId);
+        UBTreePCRSetXmaxTDSlot(iid, 0);
         opaque->activeTupleCount ++;
     }
 }

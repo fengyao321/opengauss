@@ -397,7 +397,7 @@ void mc_elog(int elevel, const char* format, ...)
     char msbuf[MSLEN * 2];
     char timebuf[TIMELEN];
 
-    (void)gettimeofday(&tv, NULL);
+    (void)gettimeofday(&tv, (struct timezone *)NULL);
     stamp_time = (pg_time_t)tv.tv_sec;
 
     /* Session initialization status, which may be empty. */
@@ -491,7 +491,7 @@ void comm_ipc_log_get_time(char *now_date, int time_len)
     char msbuf[BUF_LEN];
     errno_t ss_rc = 0;
 
-    (void)gettimeofday(&tv, NULL);
+    (void)gettimeofday(&tv, (struct timezone *)NULL);
     stamp_time = (pg_time_t)tv.tv_sec;
     localtime = pg_localtime(&stamp_time, log_timezone);
     /* leave room for milliseconds. */
