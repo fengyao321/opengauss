@@ -47,6 +47,8 @@ extern Datum ubtbulkdelete(PG_FUNCTION_ARGS);
 extern Datum ubtvacuumcleanup(PG_FUNCTION_ARGS);
 extern Datum ubtcanreturn(PG_FUNCTION_ARGS);
 extern Datum ubtoptions(PG_FUNCTION_ARGS);
+extern Datum gs_ubtree_shrink(PG_FUNCTION_ARGS);
+extern Datum gs_ubtree_shrink_check(PG_FUNCTION_ARGS);
 
 extern bool UBTreeDelete(Relation index_relation, Datum* values, const bool* isnull, ItemPointer heapTCtid,
                          bool isRollbackIndex);
