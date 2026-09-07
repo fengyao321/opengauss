@@ -50,6 +50,18 @@ extern Datum ubtoptions(PG_FUNCTION_ARGS);
 extern Datum gs_ubtree_shrink(PG_FUNCTION_ARGS);
 extern Datum gs_ubtree_shrink_check(PG_FUNCTION_ARGS);
 
+typedef struct UBTreeShrinkStats {
+    BlockNumber totalBlocks;
+    BlockNumber targetMaxBlock;
+    BlockNumber freedTailBlocks;
+    BlockNumber migratedBlocks;
+    bool lockEscalationSuccess;
+    bool success;
+} UBTreeShrinkStats;
+
+extern void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats);
+extern bool UBTreeShrink(Relation rel, UBTreeShrinkStats *stats, bool isOnline = true);
+
 extern bool UBTreeDelete(Relation index_relation, Datum* values, const bool* isnull, ItemPointer heapTCtid,
                          bool isRollbackIndex);
 extern bool IndexPagePrepareForXid(Relation rel, Page page, TransactionId xid, bool needWal, Buffer buf);
