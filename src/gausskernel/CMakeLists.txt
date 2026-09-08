@@ -299,7 +299,11 @@ list(APPEND gaussdb_objects
     $<TARGET_OBJECTS:gausskernel_storage_matrix_mem>
 )
 find_library(OPENBLAS_LIB openblas HINTS /usr/lib64 /usr/lib)
-set(gaussdb_LINK_OPTIONS ${BIN_LINK_OPTIONS} ${HOTPATCH_ATOMIC_LDS} ${OPENBLAS_LIB} -Wl,-E)
+if(OPENBLAS_LIB)
+    set(gaussdb_LINK_OPTIONS ${BIN_LINK_OPTIONS} ${HOTPATCH_ATOMIC_LDS} ${OPENBLAS_LIB} -Wl,-E)
+else()
+    set(gaussdb_LINK_OPTIONS ${BIN_LINK_OPTIONS} ${HOTPATCH_ATOMIC_LDS} -Wl,-E)
+endif()
 
 set(gaussdb_LINK_DIRS "")
 message("******${gaussdb_server_lib}******")

@@ -61,6 +61,7 @@ typedef struct UBTreeShrinkStats {
 
 extern void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats);
 extern bool UBTreeShrink(Relation rel, UBTreeShrinkStats *stats, bool isOnline = true);
+extern bool RecycleQueueInitialized(Relation rel);
 
 extern bool UBTreeDelete(Relation index_relation, Datum* values, const bool* isnull, ItemPointer heapTCtid,
                          bool isRollbackIndex);
