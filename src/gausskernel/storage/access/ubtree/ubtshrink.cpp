@@ -101,40 +101,6 @@ static void UBTreePurgeRecycleQueueAboveWatermark(Relation rel, BlockNumber targ
 }
 
 /*
- * Allocate an available page from URQ strictly below targetWatermark.
- * Returns InvalidBuffer if no such page is available in URQ.
- * Crucial guarantee: Never calls RelationAddExtraBlocks or extends physical file!
- */
-static Buffer UBTreeGetFreePageBelowWatermark(Relation rel, BlockNumber targetWatermark,
-                                             UBTRecycleQueueAddress *addr)
-{
-    if (!RecycleQueueInitialized(rel)) {
-        return InvalidBuffer;
-    }
-
-    Buffer buf = UBTreeGetAvailablePage(rel, RECYCLE_FREED_FORK, addr, NULL);
-    if (!BufferIsValid(buf)) {
-        return InvalidBuffer;
-    }
-
-    BlockNumber blkno = BufferGetBlockNumber(buf);
-    if (blkno >= targetWatermark) {
-        /*
-         * Not below watermark; cannot be used as a migration target.
-         * Put it back or discard without advancing as target.
-         */
-        _bt_relbuf(rel, buf);
-        if (BufferIsValid(addr->queueBuf)) {
-            ReleaseBuffer(addr->queueBuf);
-            addr->queueBuf = InvalidBuffer;
-        }
-        return InvalidBuffer;
-    }
-
-    return buf;
-}
-
-/*
  * Scan backwards from trailing blocks of UBTree index to evaluate shrink feasibility.
  */
 void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats)
@@ -164,7 +130,7 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats)
         Buffer buf = ReadBuffer(rel, currentBlk);
         LockBuffer(buf, BT_READ);
         Page page = BufferGetPage(buf);
-        BTPageOpaque opaque = (BTPageOpaque)PageGetSpecialPointer(page);
+        UBTPageOpaqueInternal opaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(page);
 
         bool isDead = (P_ISDELETED(opaque) || PageIsEmpty(page) || PageIsNew(page));
 
@@ -210,6 +176,27 @@ static bool UBTreeOnlineTruncate(Relation rel, BlockNumber targetMaxBlock, UBTre
     }
 
     stats->lockEscalationSuccess = true;
+
+    /*
+     * Double-Check under AccessExclusiveLock:
+     * Ensure no concurrent transaction extended or wrote active pages into the tail region
+     * between the initial check and acquiring AccessExclusiveLock.
+     */
+    UBTreeShrinkStats recheckStats;
+    UBTreeShrinkCheckInternal(rel, &recheckStats);
+
+    /* If the valid truncation boundary shifted higher, adjust targetMaxBlock or abort if no blocks can be freed */
+    if (recheckStats.targetMaxBlock > targetMaxBlock) {
+        targetMaxBlock = recheckStats.targetMaxBlock;
+    }
+
+    stats->targetMaxBlock = targetMaxBlock;
+    stats->freedTailBlocks = recheckStats.totalBlocks > targetMaxBlock ? (recheckStats.totalBlocks - targetMaxBlock) : 0;
+
+    if (stats->freedTailBlocks == 0 || targetMaxBlock >= recheckStats.totalBlocks) {
+        UnlockRelation(rel, AccessExclusiveLock);
+        return true;
+    }
 
     /* Under AccessExclusiveLock: purge URQ and safely truncate file */
     UBTreePurgeRecycleQueueAboveWatermark(rel, targetMaxBlock);
@@ -269,10 +256,10 @@ bool UBTreeShrink(Relation rel, UBTreeShrinkStats *stats, bool isOnline)
 }
 
 /*
- * SQL callable system function: gs_ubtree_shrink(relname text)
- * Defaults to Online Shrink (Phase 3).
+ * SQL callable system function: gs_ubtree_shrink(relname text, is_online bool DEFAULT true)
+ * Supports both Phase 3 Online Shrink and Phase 1 Offline Shrink.
  */
-extern "C" Datum gs_ubtree_shrink(PG_FUNCTION_ARGS)
+Datum gs_ubtree_shrink(PG_FUNCTION_ARGS)
 {
     if (!superuser() && !systemDBA_arg(GetUserId())) {
         ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
@@ -280,27 +267,34 @@ extern "C" Datum gs_ubtree_shrink(PG_FUNCTION_ARGS)
     }
 
     text *relnameText = PG_GETARG_TEXT_P(0);
+    bool isOnline = true;
+    if (PG_NARGS() > 1 && !PG_ARGISNULL(1)) {
+        isOnline = PG_GETARG_BOOL(1);
+    }
+
     RangeVar *relvar = makeRangeVarFromNameList(textToQualifiedNameList(relnameText));
 
     /*
-     * Phase 3 Online Shrink:
-     * Acquire ShareUpdateExclusiveLock allowing concurrent reads and writes (IndexScan, Insert, Delete).
+     * Locking strategy:
+     * - Phase 3 Online Shrink: ShareUpdateExclusiveLock (allows concurrent SELECT/INSERT/DELETE)
+     * - Phase 1 Offline Shrink: AccessExclusiveLock (exclusive maintenance mode)
      */
-    Oid relid = RangeVarGetRelid(relvar, ShareUpdateExclusiveLock, false);
-    Relation rel = index_open(relid, ShareUpdateExclusiveLock);
+    LOCKMODE lockMode = isOnline ? ShareUpdateExclusiveLock : AccessExclusiveLock;
+    Oid relid = RangeVarGetRelid(relvar, lockMode, false);
+    Relation rel = index_open(relid, lockMode);
 
     if (rel->rd_rel->relam != UBTREE_AM_OID) {
-        index_close(rel, ShareUpdateExclusiveLock);
+        index_close(rel, lockMode);
         ereport(ERROR, (errcode(ERRCODE_WRONG_OBJECT_TYPE),
                         errmsg("\"%s\" is not a UBTree index", RelationGetRelationName(rel))));
     }
 
     UBTreeShrinkStats stats;
-    bool result = UBTreeShrink(rel, &stats, true /* isOnline */);
+    bool result = UBTreeShrink(rel, &stats, isOnline);
 
-    index_close(rel, ShareUpdateExclusiveLock);
+    index_close(rel, lockMode);
 
-    if (!result && !stats.lockEscalationSuccess) {
+    if (!result && isOnline && !stats.lockEscalationSuccess) {
         ereport(NOTICE, (errmsg("gs_ubtree_shrink for \"%s\" postponed: could not acquire brief exclusive lock "
                                 "within timeout, non-blocking online shrink backed off.",
                                 RelationGetRelationName(rel))));
@@ -312,7 +306,7 @@ extern "C" Datum gs_ubtree_shrink(PG_FUNCTION_ARGS)
 /*
  * SQL callable system function: gs_ubtree_shrink_check(relname text)
  */
-extern "C" Datum gs_ubtree_shrink_check(PG_FUNCTION_ARGS)
+Datum gs_ubtree_shrink_check(PG_FUNCTION_ARGS)
 {
     text *relnameText = PG_GETARG_TEXT_P(0);
     RangeVar *relvar = makeRangeVarFromNameList(textToQualifiedNameList(relnameText));

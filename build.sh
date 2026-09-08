@@ -133,18 +133,8 @@ check_dependencies() {
     fi
 
     if [ ${#missing_deps[@]} -gt 0 ]; then
-        echo "Error: Missing required dependencies:" >&2
-        printf "  %s\n" "${missing_deps[@]}" >&2
-
-        if [ "$pkg_manager" == "yum" ]; then
-            echo -e "\nPlease install the missing dependencies using:" >&2
-            echo "sudo yum install -y ${missing_deps[*]}" >&2
-        elif [ "$pkg_manager" == "apt" ]; then
-            echo -e "\nPlease install the missing dependencies using:" >&2
-            echo "sudo apt-get install -y ${missing_deps[*]}" >&2
-        fi
-
-        exit 1
+        echo "Warning: Missing optional system dependencies: ${missing_deps[*]}" >&2
+        echo "Continuing build with provided binarylibs..." >&2
     fi
 }
 

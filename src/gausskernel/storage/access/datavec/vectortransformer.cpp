@@ -22,8 +22,10 @@
  */
 #include "access/datavec/vectortransformer.h"
 
+#ifdef HAVE_LAPACKE
 #include <lapacke.h>
 #include <cblas.h>
+#endif
 
 void FloatRandom(float* x, size_t n)
 {
@@ -60,10 +62,11 @@ void FloatRandom(float* x, size_t n)
 }
 
 /*
- * QR decomposition
+ * QR decomposition (using modified Gram-Schmidt fallback if lapacke not available)
  */
 bool MatrixQR(int dim, float* x)
 {
+#ifdef HAVE_LAPACKE
     float *tau = (float *)palloc0(dim * sizeof(float));
     int sgeqrfRes = LAPACKE_sgeqrf(LAPACK_ROW_MAJOR, dim, dim, x, dim, tau);
     if (sgeqrfRes != 0) {
@@ -81,6 +84,32 @@ bool MatrixQR(int dim, float* x)
 
     pfree(tau);
     return true;
+#else
+    /* Modified Gram-Schmidt for orthogonalization of columns */
+    for (int i = 0; i < dim; i++) {
+        double norm = 0.0;
+        for (int k = 0; k < dim; k++) {
+            norm += (double)x[k * dim + i] * (double)x[k * dim + i];
+        }
+        if (norm < 1e-12) {
+            return false;
+        }
+        norm = sqrt(norm);
+        for (int k = 0; k < dim; k++) {
+            x[k * dim + i] = (float)(x[k * dim + i] / norm);
+        }
+        for (int j = i + 1; j < dim; j++) {
+            double dot = 0.0;
+            for (int k = 0; k < dim; k++) {
+                dot += (double)x[k * dim + i] * (double)x[k * dim + j];
+            }
+            for (int k = 0; k < dim; k++) {
+                x[k * dim + j] -= (float)(dot * x[k * dim + i]);
+            }
+        }
+    }
+    return true;
+#endif
 }
 
 void RomTrain(VectorTransform* vtrans)
@@ -99,9 +128,18 @@ void RomTrain(VectorTransform* vtrans)
 void RomTransform(VectorTransform* vtrans, const float* vec, float *transvec)
 {
     int dim = vtrans->dim;
+#ifdef HAVE_LAPACKE
     cblas_sgemv(CblasRowMajor, CblasNoTrans, dim, dim, 1.0f, vtrans->matrix,
                 dim, vec, 1, 0.0f, transvec, 1);
-    
+#else
+    for (int i = 0; i < dim; i++) {
+        double sum = 0.0;
+        for (int j = 0; j < dim; j++) {
+            sum += (double)vtrans->matrix[i * dim + j] * (double)vec[j];
+        }
+        transvec[i] = (float)sum;
+    }
+#endif
 }
 
 void *RomGetMatrix(VectorTransform* vtrans)

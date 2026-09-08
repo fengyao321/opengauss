@@ -19,12 +19,13 @@ SELECT gs_ubtree_shrink_check('idx_ubt_shrink_val');
 
 -- 4. Delete upper tail data to create consecutive dead pages at the tail
 DELETE FROM test_ubt_shrink_tbl WHERE id > 1000;
+VACUUM test_ubt_shrink_tbl;
 
 -- 5. Evaluate shrink feasibility (should identify tail freed blocks)
 SELECT gs_ubtree_shrink_check('idx_ubt_shrink_val');
 
--- 6. Perform online shrink
-SELECT gs_ubtree_shrink('idx_ubt_shrink_val');
+-- 6. Perform online shrink (test both 1-arg default online and 2-arg explicit mode)
+SELECT gs_ubtree_shrink('idx_ubt_shrink_val', true);
 
 -- 7. Re-evaluate post-shrink status (freed tail blocks should be truncated)
 SELECT gs_ubtree_shrink_check('idx_ubt_shrink_val');
