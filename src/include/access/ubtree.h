@@ -60,8 +60,10 @@ typedef struct UBTreeShrinkStats {
     bool success;
 } UBTreeShrinkStats;
 
-extern void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats);
-extern bool UBTreeShrink(Relation rel, UBTreeShrinkStats *stats, bool isOnline = true);
+extern void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats,
+                                      BlockNumber maxPages = 512, double costRatio = 0.50);
+extern bool UBTreeShrink(Relation rel, UBTreeShrinkStats *stats, bool isOnline = true,
+                         BlockNumber maxPages = 512, double costRatio = 0.50);
 extern bool RecycleQueueInitialized(Relation rel);
 
 extern bool UBTreeDelete(Relation index_relation, Datum* values, const bool* isnull, ItemPointer heapTCtid,

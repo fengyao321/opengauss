@@ -3,6 +3,7 @@
 [English](./README.en.md) | 简体中文
 
 - [什么是openGauss](#什么是openGauss)
+- [UBTree 物理在线收缩特性 (gs_ubtree_shrink)](#ubtree-物理在线收缩特性-gs_ubtree_shrink)
 - [安装](#安装)
   - [创建配置文件](#创建配置文件)
   - [初始化安装环境](#初始化安装环境)
@@ -92,6 +93,26 @@ openGauss支持SQL执行语句的诊断器，提前发现慢查询。
 - **参数自动调整**
 
 openGauss通过机器学习方法自动调整数据库参数，提高调参效率，降低正确调参成本。
+
+## UBTree 物理在线收缩特性 (gs_ubtree_shrink)
+
+### 1. 特性背景与设计方案
+为了解决原位更新引擎（Ustore）中 UBTree 索引由于频繁 UPDATE/DELETE 产生空间膨胀（Bloat）、但传统方式仅能依赖高代价的 `VACUUM FULL`（长时间排他锁、重建整表）或 `REINDEX` 回收物理磁盘空间的问题，openGauss 实现了 UBTree 物理在线收缩与目标页定向迁移技术（`gs_ubtree_shrink`）：
+- **两阶段双指针收缩可行性判定**：通过 `UBTreeShrinkCheckInternal` 快速扫描高水位物理页，评估尾部连续空页与可迁移活跃页，基于成本阈值（`costRatio`、`maxPages`）精准计算收缩分界线。
+- **层级感知父节点定位与双向链表修复**：在定向页迁移（`UBTreeMigrateOnePage`）中，引入层级感知与 `UBTreeGetStackBuf` 扫描机制，支持叶子页与分支页的父下行链接（Downlink）重定向，并严格遵照自顶向下与左右兄弟互斥加锁协议完成拓扑修复。
+- **级联多轮收缩（Multi-round Cascading Compaction）**：支持在迁移并释放尾部页后，循环多轮递进重估收缩边界，实现高层非叶子节点与下层叶子节点的级联收缩。
+- **微秒级锁升级物理截断（Online Truncate）**：整个迁移阶段维持非阻塞并发读写，仅在执行底层文件截断（`RelationTruncate`）的瞬间微秒级升级至 `AccessExclusiveLock`，最大限度降低对业务吞吐的影响。
+- **原子 WAL 日志与崩溃恢复**：迁移过程记录 `XLOG_UBTREE2_SHRINK_MOVE_LEAF` 原子日志，支持备机及故障场景下的 Redo 重放。
+
+### 2. 测试现状与验证
+- **回归测试套件**：内置回归用例 `src/test/regress/sql/test_ubtree_shrink.sql` 100% 通过（耗时 ~3s），完整覆盖空索引边界、尾部连续空页截断、跨层定向迁移、并发事务可见性（无错读/漏读）以及非法参数校验。
+- **端到端基准性能表现**：
+  - **高效空间回收**：在 100K 行数据尾部删除 80% 场景下，索引物理体积从 3096 kB 骤降至 640 kB（空间回收率 **79.3%**）。
+  - **极致执行时延**：`gs_ubtree_shrink` 仅耗时 **7.75 ms**，相较于 `VACUUM FULL`（190.6 ms）提速 **24.6 倍**，相较于 `REINDEX`（37.7 ms）提速 **4.9 倍**。
+  - **数据零损坏与查询性能无回退**：收缩后通过等值索引扫描与多范围聚集扫描校验，行数及数据完全保真，范围扫描查询延迟（12.17 ms）与 `REINDEX`（11.71 ms）持平。
+
+### 3. 开源协议
+本项目完全基于 **木兰宽松许可证 第2版 (MulanPSL-2.0)** 开源发布。开发者与企业可自由复制、使用、修改及分发本特性的所有源码与相关文档，详情请参阅 [License](./License)。
 
 ## 安装
 
