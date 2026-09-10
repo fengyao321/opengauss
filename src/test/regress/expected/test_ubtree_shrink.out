@@ -10,13 +10,15 @@
 --   7. Mode support: default online, explicit online (true), explicit offline (false)
 --   8. Post-shrink read/write integrity: index scan, range scan, new inserts
 -- =========================================================================
-
 -- Cleanup existing objects
 DROP TABLE IF EXISTS test_ubt_shrink_tbl CASCADE;
+NOTICE:  table "test_ubt_shrink_tbl" does not exist, skipping
 DROP TABLE IF EXISTS test_ubt_shrink_comp CASCADE;
+NOTICE:  table "test_ubt_shrink_comp" does not exist, skipping
 DROP TABLE IF EXISTS test_ubt_shrink_empty CASCADE;
+NOTICE:  table "test_ubt_shrink_empty" does not exist, skipping
 DROP TABLE IF EXISTS test_btree_tbl CASCADE;
-
+NOTICE:  table "test_btree_tbl" does not exist, skipping
 -- =========================================================================
 -- TestCase 1: Basic UBTree index shrink & Physical size verification
 -- =========================================================================
@@ -24,44 +26,92 @@ CREATE TABLE test_ubt_shrink_tbl (
     id int,
     val text
 ) WITH (storage_type=ustore);
-
 CREATE INDEX idx_ubt_shrink_val ON test_ubt_shrink_tbl USING ubtree (id);
-
 -- Insert batch data to grow index pages
 INSERT INTO test_ubt_shrink_tbl SELECT generate_series(1, 5000), 'test_val_' || generate_series(1, 5000);
-
 -- Record initial size & stats
 SELECT pg_relation_size('idx_ubt_shrink_val') AS init_size \gset
 SELECT gs_ubtree_shrink_check('idx_ubt_shrink_val');
+                          gs_ubtree_shrink_check                           
+---------------------------------------------------------------------------
+ TotalBlocks: 22, TargetMaxBlock: 22, FreeTailBlocks: 0, MigratedBlocks: 0
+(1 row)
 
 -- Delete large range of data at upper range
 DELETE FROM test_ubt_shrink_tbl WHERE id > 1000;
 SELECT pg_sleep(1);
-VACUUM test_ubt_shrink_tbl;
+ pg_sleep 
+----------
+ 
+(1 row)
 
+VACUUM test_ubt_shrink_tbl;
 -- Check shrink stats before shrink
 SELECT pg_relation_size('idx_ubt_shrink_val') AS pre_shrink_size \gset
 SELECT gs_ubtree_shrink_check('idx_ubt_shrink_val');
+                          gs_ubtree_shrink_check                           
+---------------------------------------------------------------------------
+ TotalBlocks: 22, TargetMaxBlock: 22, FreeTailBlocks: 0, MigratedBlocks: 0
+(1 row)
 
 -- Perform online shrink (is_online = true)
 SELECT gs_ubtree_shrink('idx_ubt_shrink_val', true);
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
 
 -- Verify size post shrink (size is maintained or reduced, no file bloating)
 SELECT pg_relation_size('idx_ubt_shrink_val') AS post_shrink_size \gset
 SELECT gs_ubtree_shrink_check('idx_ubt_shrink_val');
+                          gs_ubtree_shrink_check                           
+---------------------------------------------------------------------------
+ TotalBlocks: 22, TargetMaxBlock: 22, FreeTailBlocks: 0, MigratedBlocks: 0
+(1 row)
+
 SELECT (:post_shrink_size <= :pre_shrink_size) AS is_size_maintained_or_reduced;
+ is_size_maintained_or_reduced 
+-------------------------------
+ t
+(1 row)
 
 -- Verify read integrity via index scan
 SET enable_seqscan = off;
 EXPLAIN (COSTS OFF) SELECT * FROM test_ubt_shrink_tbl WHERE id = 500;
-SELECT * FROM test_ubt_shrink_tbl WHERE id = 500;
-SELECT count(*) FROM test_ubt_shrink_tbl;
-RESET enable_seqscan;
+                  QUERY PLAN                   
+-----------------------------------------------
+ Bitmap Heap Scan on test_ubt_shrink_tbl
+   Recheck Cond: (id = 500)
+   ->  Bitmap Index Scan on idx_ubt_shrink_val
+         Index Cond: (id = 500)
+(4 rows)
 
+SELECT * FROM test_ubt_shrink_tbl WHERE id = 500;
+ id  |     val      
+-----+--------------
+ 500 | test_val_500
+(1 row)
+
+SELECT count(*) FROM test_ubt_shrink_tbl;
+ count 
+-------
+  1000
+(1 row)
+
+RESET enable_seqscan;
 -- Verify write integrity: insert new records
 INSERT INTO test_ubt_shrink_tbl SELECT generate_series(5001, 6000), 'new_val_' || generate_series(5001, 6000);
 SELECT count(*) FROM test_ubt_shrink_tbl;
+ count 
+-------
+  2000
+(1 row)
+
 SELECT pg_relation_size('idx_ubt_shrink_val') > 0 AS valid_final_size;
+ valid_final_size 
+------------------
+ t
+(1 row)
 
 -- =========================================================================
 -- TestCase 2: Composite & Unique UBTree Index Shrink
@@ -71,29 +121,48 @@ CREATE TABLE test_ubt_shrink_comp (
     c2 text,
     c3 varchar(100)
 ) WITH (storage_type=ustore);
-
 CREATE UNIQUE INDEX idx_ubt_comp_uniq ON test_ubt_shrink_comp USING ubtree (c1, c2);
-
 INSERT INTO test_ubt_shrink_comp 
 SELECT g, 'category_' || (g % 10), repeat('pad_', 10) || g 
 FROM generate_series(1, 4000) g;
-
 SELECT pg_relation_size('idx_ubt_comp_uniq') AS comp_init_size \gset
 SELECT gs_ubtree_shrink_check('idx_ubt_comp_uniq');
+                          gs_ubtree_shrink_check                           
+---------------------------------------------------------------------------
+ TotalBlocks: 22, TargetMaxBlock: 22, FreeTailBlocks: 0, MigratedBlocks: 0
+(1 row)
 
 DELETE FROM test_ubt_shrink_comp WHERE c1 > 500;
 SELECT pg_sleep(1);
-VACUUM test_ubt_shrink_comp;
+ pg_sleep 
+----------
+ 
+(1 row)
 
+VACUUM test_ubt_shrink_comp;
 SELECT pg_relation_size('idx_ubt_comp_uniq') AS comp_pre_size \gset
 SELECT gs_ubtree_shrink('idx_ubt_comp_uniq', true);
-SELECT pg_relation_size('idx_ubt_comp_uniq') AS comp_post_size \gset
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
 
+SELECT pg_relation_size('idx_ubt_comp_uniq') AS comp_post_size \gset
 SELECT (:comp_post_size <= :comp_pre_size) AS is_comp_size_reduced;
+ is_comp_size_reduced 
+----------------------
+ t
+(1 row)
 
 -- Verify unique constraint still holds after shrink
 INSERT INTO test_ubt_shrink_comp VALUES (1, 'category_1', 'duplicate'); -- Should fail with duplicate key
+ERROR:  duplicate key value violates unique constraint "idx_ubt_comp_uniq"
+DETAIL:  Key (c1, c2)=(1, category_1) already exists.
 SELECT count(*) FROM test_ubt_shrink_comp WHERE c1 = 1;
+ count 
+-------
+     1
+(1 row)
 
 -- =========================================================================
 -- TestCase 3: Empty / Boundary cases
@@ -101,43 +170,72 @@ SELECT count(*) FROM test_ubt_shrink_comp WHERE c1 = 1;
 CREATE TABLE test_ubt_shrink_empty (
     id int
 ) WITH (storage_type=ustore);
-
 CREATE INDEX idx_ubt_empty ON test_ubt_shrink_empty USING ubtree (id);
-
 -- Check shrink on completely empty index
 SELECT gs_ubtree_shrink_check('idx_ubt_empty');
+                         gs_ubtree_shrink_check                          
+-------------------------------------------------------------------------
+ TotalBlocks: 1, TargetMaxBlock: 1, FreeTailBlocks: 0, MigratedBlocks: 0
+(1 row)
+
 SELECT gs_ubtree_shrink('idx_ubt_empty');
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
 SELECT pg_relation_size('idx_ubt_empty') > 0 AS empty_idx_valid_size;
+ empty_idx_valid_size 
+----------------------
+ t
+(1 row)
 
 -- Shrink again immediately (idempotent / already compacted index)
 SELECT gs_ubtree_shrink('idx_ubt_empty', false);
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
 
 -- =========================================================================
 -- TestCase 4: Explicit Offline Mode & Default Parameter Mode
 -- =========================================================================
 -- Call 1-argument default (online)
 SELECT gs_ubtree_shrink('idx_ubt_shrink_val');
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
 -- Call 2-argument explicit offline mode
 SELECT gs_ubtree_shrink('idx_ubt_shrink_val', false);
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
 
 -- =========================================================================
 -- TestCase 5: Error Handling & Invalid Invocations
 -- =========================================================================
 -- 5.1 Non-existent index
 SELECT gs_ubtree_shrink('idx_non_existent_shrink');
+ERROR:  relation "idx_non_existent_shrink" does not exist
+CONTEXT:  referenced column: gs_ubtree_shrink
 SELECT gs_ubtree_shrink_check('idx_non_existent_shrink');
-
+ERROR:  relation "idx_non_existent_shrink" does not exist
+CONTEXT:  referenced column: gs_ubtree_shrink_check
 -- 5.2 Non-UBTree index (regular standard btree)
 CREATE TABLE test_btree_tbl (
     id int
 );
 CREATE INDEX idx_std_btree ON test_btree_tbl USING btree (id);
-
 -- Attempting shrink on regular BTree index should cleanly error out
 SELECT gs_ubtree_shrink('idx_std_btree');
+ERROR:  "idx_std_btree" is not a UBTree index
+CONTEXT:  referenced column: gs_ubtree_shrink
 SELECT gs_ubtree_shrink_check('idx_std_btree');
-
-
+ERROR:  "idx_std_btree" is not a UBTree index
+CONTEXT:  referenced column: gs_ubtree_shrink_check
 -- =========================================================================
 -- Clean Up All Test Objects
 -- =========================================================================

@@ -1884,6 +1884,91 @@ void UBTree4Redo(XLogReaderState* record)
     }
 }
 
+void UBTree2XlogShrinkMoveLeaf(XLogReaderState* record)
+{
+    xl_ubtree2_shrink_move_leaf *xlrec = (xl_ubtree2_shrink_move_leaf *)XLogRecGetData(record);
+    XLogRecPtr lsn = record->EndRecPtr;
+
+    /* 0. Restore new leaf page */
+    RedoBufferInfo newbuf;
+    XLogInitBufferForRedo(record, 0, &newbuf);
+    char *datapos = NULL;
+    Size datalen = 0;
+    datapos = XLogRecGetBlockData(record, 0, &datalen);
+    if (BufferIsValid(newbuf.buf)) {
+        Page page = newbuf.pageinfo.page;
+        if (datalen == BLCKSZ) {
+            errno_t rc = memcpy_s(page, BLCKSZ, datapos, BLCKSZ);
+            securec_check(rc, "", "");
+            PageSetLSN(page, lsn);
+            MarkBufferDirty(newbuf.buf);
+        }
+        UnlockReleaseBuffer(newbuf.buf);
+    }
+
+    /* 1. Mark victim page deleted */
+    RedoBufferInfo victimbuf;
+    if (XLogReadBufferForRedo(record, 1, &victimbuf) == BLK_NEEDS_REDO) {
+        Page page = victimbuf.pageinfo.page;
+        UBTPageOpaqueInternal opaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(page);
+        opaque->btpo_flags &= ~BTP_HALF_DEAD;
+        opaque->btpo_flags |= BTP_DELETED;
+        PageSetLSN(page, lsn);
+        MarkBufferDirty(victimbuf.buf);
+    }
+    if (BufferIsValid(victimbuf.buf)) {
+        UnlockReleaseBuffer(victimbuf.buf);
+    }
+
+    /* 2. Update left sibling if present */
+    if (XLogRecHasBlockRef(record, 2)) {
+        RedoBufferInfo leftbuf;
+        if (XLogReadBufferForRedo(record, 2, &leftbuf) == BLK_NEEDS_REDO) {
+            Page page = leftbuf.pageinfo.page;
+            UBTPageOpaqueInternal opaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(page);
+            opaque->btpo_next = xlrec->newBlk;
+            PageSetLSN(page, lsn);
+            MarkBufferDirty(leftbuf.buf);
+        }
+        if (BufferIsValid(leftbuf.buf)) {
+            UnlockReleaseBuffer(leftbuf.buf);
+        }
+    }
+
+    /* 3. Update right sibling if present */
+    if (XLogRecHasBlockRef(record, 3)) {
+        RedoBufferInfo rightbuf;
+        if (XLogReadBufferForRedo(record, 3, &rightbuf) == BLK_NEEDS_REDO) {
+            Page page = rightbuf.pageinfo.page;
+            UBTPageOpaqueInternal opaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(page);
+            opaque->btpo_prev = xlrec->newBlk;
+            PageSetLSN(page, lsn);
+            MarkBufferDirty(rightbuf.buf);
+        }
+        if (BufferIsValid(rightbuf.buf)) {
+            UnlockReleaseBuffer(rightbuf.buf);
+        }
+    }
+
+    /* 4. Update parent downlink */
+    if (XLogRecHasBlockRef(record, 4)) {
+        RedoBufferInfo parentbuf;
+        if (XLogReadBufferForRedo(record, 4, &parentbuf) == BLK_NEEDS_REDO) {
+            Page page = parentbuf.pageinfo.page;
+            if (xlrec->parentOff <= PageGetMaxOffsetNumber(page)) {
+                ItemId pItem = PageGetItemId(page, xlrec->parentOff);
+                IndexTuple pItup = (IndexTuple)PageGetItem(page, pItem);
+                UBTreeTupleSetDownLink(pItup, xlrec->newBlk);
+                PageSetLSN(page, lsn);
+                MarkBufferDirty(parentbuf.buf);
+            }
+        }
+        if (BufferIsValid(parentbuf.buf)) {
+            UnlockReleaseBuffer(parentbuf.buf);
+        }
+    }
+}
+
 void UBTree2Redo(XLogReaderState* record)
 {
     uint8 info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
@@ -1903,6 +1988,9 @@ void UBTree2Redo(XLogReaderState* record)
             break;
         case XLOG_UBTREE2_FREEZE:
             UBTree2XlogFreeze(record);
+            break;
+        case XLOG_UBTREE2_SHRINK_MOVE_LEAF:
+            UBTree2XlogShrinkMoveLeaf(record);
             break;
         default:
             ereport(PANIC, (errmsg("UBTree2Redo: unknown op code %hhu", info)));

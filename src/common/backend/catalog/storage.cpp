@@ -664,9 +664,13 @@ void RelationTruncate(Relation rel, BlockNumber nblocks, TransactionId latest_re
     for (int i = 0; i < rel->rd_smgr->smgr_bcmarry_size; i++)
         rel->rd_smgr->smgr_bcm_nblocks[i] = InvalidBlockNumber;
 
-    /* Truncate the FSM first if it exists */
+    /*
+     * Truncate the FSM first if it exists.
+     * Note: UBTree indexes reuse FSM_FORKNUM for the UBTree Recycle Queue (URQ).
+     * We must NOT call FreeSpaceMapTruncateRel on UBTree indexes, as it would corrupt URQ pages.
+     */
     fsm = smgrexists(rel->rd_smgr, FSM_FORKNUM);
-    if (fsm)
+    if (fsm && !RelationIsUstoreIndex(rel))
         FreeSpaceMapTruncateRel(rel, nblocks);
 
     /* Truncate the visibility map too if it exists. */
@@ -776,9 +780,13 @@ void PartitionTruncate(Relation parent, Partition part, BlockNumber nblocks, Tra
     for (int i = 0; i < rel->rd_smgr->smgr_bcmarry_size; i++)
         rel->rd_smgr->smgr_bcm_nblocks[i] = InvalidBlockNumber;
 
-    /* Truncate the FSM first if it exists */
+    /*
+     * Truncate the FSM first if it exists.
+     * Note: UBTree indexes reuse FSM_FORKNUM for the UBTree Recycle Queue (URQ).
+     * We must NOT call FreeSpaceMapTruncateRel on UBTree indexes, as it would corrupt URQ pages.
+     */
     fsm = smgrexists(rel->rd_smgr, FSM_FORKNUM);
-    if (fsm)
+    if (fsm && !RelationIsUstoreIndex(rel))
         FreeSpaceMapTruncateRel(rel, nblocks);
 
     /* Truncate the visibility map too if it exists. */
