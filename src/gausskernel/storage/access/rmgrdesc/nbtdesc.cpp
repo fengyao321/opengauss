@@ -513,6 +513,13 @@ void UBTree2Desc(StringInfo buf, XLogReaderState* record)
             }
             break;
         }
+        case XLOG_UBTREE2_SHRINK_MOVE_LEAF: {
+            xl_ubtree2_shrink_move_leaf *xlrec = (xl_ubtree2_shrink_move_leaf *)rec;
+            appendStringInfo(buf, "shrink move leaf: victim %u, new %u, left %u, right %u, parent %u, offset %u, rightmost %s",
+                             xlrec->victimBlk, xlrec->newBlk, xlrec->leftBlk, xlrec->rightBlk,
+                             xlrec->parentBlk, xlrec->parentOff, xlrec->isRightMost ? "true" : "false");
+            break;
+        }
         default:
             appendStringInfo(buf, "UNKNOWN");
             break;
@@ -542,6 +549,10 @@ const char* ubtree2_type_name(uint8 subtype)
         }
         case XLOG_UBTREE2_FREEZE: {
             return "ubt2_freeze";
+            break;
+        }
+        case XLOG_UBTREE2_SHRINK_MOVE_LEAF: {
+            return "ubt2_shrink_move_leaf";
             break;
         }
         default:

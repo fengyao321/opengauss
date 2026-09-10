@@ -55,6 +55,7 @@ typedef struct UBTreeShrinkStats {
     BlockNumber targetMaxBlock;
     BlockNumber freedTailBlocks;
     BlockNumber migratedBlocks;
+    BlockNumber migrateTargetCutoff;
     bool lockEscalationSuccess;
     bool success;
 } UBTreeShrinkStats;
@@ -179,6 +180,7 @@ typedef UBTRecycleQueueHeaderData* UBTRecycleQueueHeader;
 #define XLOG_UBTREE2_RECYCLE_QUEUE_MODIFY 0x30
 
 #define XLOG_UBTREE2_FREEZE 0x40
+#define XLOG_UBTREE2_SHRINK_MOVE_LEAF 0x50
 
 #define XLOG_UBTREE3_INSERT_PCR_INTERNAL 0x00
 #define XLOG_UBTREE3_PRUNE_PAGE_PCR 0x10
@@ -335,6 +337,18 @@ typedef struct xl_ubtree2_freeze {
 } xl_ubtree2_freeze;
 
 #define SizeOfUBTree2Freeze (sizeof(xl_ubtree2_freeze))
+
+typedef struct xl_ubtree2_shrink_move_leaf {
+    BlockNumber victimBlk;
+    BlockNumber newBlk;
+    BlockNumber leftBlk;
+    BlockNumber rightBlk;
+    BlockNumber parentBlk;
+    OffsetNumber parentOff;
+    bool isRightMost;
+} xl_ubtree2_shrink_move_leaf;
+
+#define SizeOfUBTree2ShrinkMoveLeaf (sizeof(xl_ubtree2_shrink_move_leaf))
 
 typedef struct xl_ubtree_split {
     uint32 level;            /* tree level of page being split */
@@ -729,6 +743,7 @@ extern void UBTreeLogReusePage(Relation rel, BlockNumber blkno, TransactionId la
  */
 extern void UBTreeRedo(XLogReaderState* record);
 extern void UBTree2Redo(XLogReaderState* record);
+extern void UBTree2XlogShrinkMoveLeaf(XLogReaderState* record);
 extern void UBTree3Redo(XLogReaderState* record);
 extern void UBTree4Redo(XLogReaderState* record);
 extern void UBTreeDesc(StringInfo buf, XLogReaderState* record);
