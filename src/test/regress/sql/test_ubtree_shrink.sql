@@ -9,6 +9,11 @@
 --   6. Invalid input handling & error paths: non-ubtree index, non-existent index
 --   7. Mode support: default online, explicit online (true), explicit offline (false)
 --   8. Post-shrink read/write integrity: index scan, range scan, new inserts
+--   9. Forward and backward index scan integrity (ASC/DESC, range, aggregates)
+--  10. Partial index shrink (WHERE predicate filtering & verification)
+--  11. Multi-type & NULLS sorting indexes (timestamp, numeric, NULLS FIRST)
+--  12. Transaction rollback & abort safety (delete rollback, insert rollback)
+--  13. Multi-round growth and shrink lifecycle & idempotency
 -- =========================================================================
 
 -- Cleanup existing objects
@@ -139,9 +144,191 @@ SELECT gs_ubtree_shrink_check('idx_std_btree');
 
 
 -- =========================================================================
+-- TestCase 6: Forward and Backward Index Scan Integrity
+-- =========================================================================
+DROP TABLE IF EXISTS test_ubt_scan CASCADE;
+CREATE TABLE test_ubt_scan (
+    id int,
+    val text
+) WITH (storage_type=ustore);
+CREATE INDEX idx_ubt_scan_id ON test_ubt_scan USING ubtree (id);
+
+INSERT INTO test_ubt_scan SELECT g, 'val_' || g FROM generate_series(1, 4000) g;
+DELETE FROM test_ubt_scan WHERE id > 1000;
+SELECT pg_sleep(1);
+VACUUM test_ubt_scan;
+
+SELECT gs_ubtree_shrink_check('idx_ubt_scan_id');
+SELECT gs_ubtree_shrink('idx_ubt_scan_id', true);
+
+SET enable_seqscan = off;
+SET enable_bitmapscan = off;
+
+-- Forward scan (ASC)
+SELECT id FROM test_ubt_scan ORDER BY id ASC LIMIT 5;
+
+-- Backward scan (DESC)
+SELECT id FROM test_ubt_scan ORDER BY id DESC LIMIT 5;
+
+-- Forward range scan
+SELECT id FROM test_ubt_scan WHERE id BETWEEN 500 AND 505 ORDER BY id ASC;
+
+-- Backward range scan
+SELECT id FROM test_ubt_scan WHERE id BETWEEN 500 AND 505 ORDER BY id DESC;
+
+-- Aggregate check
+SELECT count(*), sum(id), min(id), max(id) FROM test_ubt_scan;
+
+RESET enable_seqscan;
+RESET enable_bitmapscan;
+DROP TABLE test_ubt_scan CASCADE;
+
+-- =========================================================================
+-- TestCase 7: Partial Index Shrink (WHERE clause)
+-- =========================================================================
+DROP TABLE IF EXISTS test_ubt_part CASCADE;
+CREATE TABLE test_ubt_part (
+    id int,
+    status varchar(20),
+    info text
+) WITH (storage_type=ustore);
+
+CREATE INDEX idx_ubt_part_active ON test_ubt_part USING ubtree (id) WHERE status = 'active';
+
+INSERT INTO test_ubt_part
+SELECT g, CASE WHEN g <= 3000 THEN 'active' ELSE 'inactive' END, 'info_' || g
+FROM generate_series(1, 4000) g;
+
+DELETE FROM test_ubt_part WHERE status = 'active' AND id > 500;
+SELECT pg_sleep(1);
+VACUUM test_ubt_part;
+
+SELECT gs_ubtree_shrink_check('idx_ubt_part_active');
+SELECT gs_ubtree_shrink('idx_ubt_part_active');
+
+SET enable_seqscan = off;
+EXPLAIN (COSTS OFF) SELECT id FROM test_ubt_part WHERE status = 'active' AND id = 250;
+SELECT id FROM test_ubt_part WHERE status = 'active' AND id = 250;
+SELECT count(*) FROM test_ubt_part WHERE status = 'active';
+RESET enable_seqscan;
+DROP TABLE test_ubt_part CASCADE;
+
+-- =========================================================================
+-- TestCase 8: Multi-Type Indexing (timestamp, numeric, NULLS)
+-- =========================================================================
+DROP TABLE IF EXISTS test_ubt_types CASCADE;
+CREATE TABLE test_ubt_types (
+    id int,
+    ts timestamp,
+    amount numeric(10,2)
+) WITH (storage_type=ustore);
+
+CREATE INDEX idx_ubt_types_all ON test_ubt_types USING ubtree (ts, amount);
+CREATE INDEX idx_ubt_types_nulls ON test_ubt_types USING ubtree (amount NULLS FIRST);
+
+INSERT INTO test_ubt_types
+SELECT g,
+       ('2026-01-01'::timestamp + (g || ' hours')::interval),
+       CASE WHEN g % 10 = 0 THEN NULL ELSE (g * 1.5)::numeric(10,2) END
+FROM generate_series(1, 3000) g;
+
+DELETE FROM test_ubt_types WHERE id > 500;
+SELECT pg_sleep(1);
+VACUUM test_ubt_types;
+
+SELECT gs_ubtree_shrink('idx_ubt_types_all');
+SELECT gs_ubtree_shrink('idx_ubt_types_nulls');
+
+SET enable_seqscan = off;
+-- Nulls scan verification
+SELECT count(*) FROM test_ubt_types WHERE amount IS NULL;
+SELECT count(*) FROM test_ubt_types WHERE amount IS NOT NULL;
+SELECT count(*) FROM test_ubt_types WHERE ts > '2026-01-01'::timestamp;
+RESET enable_seqscan;
+DROP TABLE test_ubt_types CASCADE;
+
+-- =========================================================================
+-- TestCase 9: Transaction Rollback & Abort Safety
+-- =========================================================================
+DROP TABLE IF EXISTS test_ubt_tx CASCADE;
+CREATE TABLE test_ubt_tx (
+    id int
+) WITH (storage_type=ustore);
+CREATE INDEX idx_ubt_tx_id ON test_ubt_tx USING ubtree (id);
+
+INSERT INTO test_ubt_tx SELECT generate_series(1, 1000);
+
+-- Transaction that deletes but rolls back
+BEGIN;
+DELETE FROM test_ubt_tx WHERE id > 200;
+ROLLBACK;
+
+SELECT pg_sleep(1);
+VACUUM test_ubt_tx;
+
+-- Shrink must NOT delete live data protected by rollback
+SELECT gs_ubtree_shrink('idx_ubt_tx_id');
+SELECT count(*) FROM test_ubt_tx;
+
+-- Transaction that inserts but rolls back
+BEGIN;
+INSERT INTO test_ubt_tx SELECT generate_series(1001, 3000);
+ROLLBACK;
+
+SELECT pg_sleep(1);
+VACUUM test_ubt_tx;
+
+SELECT gs_ubtree_shrink_check('idx_ubt_tx_id');
+SELECT gs_ubtree_shrink('idx_ubt_tx_id');
+SELECT count(*) FROM test_ubt_tx;
+DROP TABLE test_ubt_tx CASCADE;
+
+-- =========================================================================
+-- TestCase 10: Multi-Round Continuous Growth and Shrink Lifecycle
+-- =========================================================================
+DROP TABLE IF EXISTS test_ubt_cycle CASCADE;
+CREATE TABLE test_ubt_cycle (
+    id int,
+    data text
+) WITH (storage_type=ustore);
+CREATE INDEX idx_ubt_cycle_id ON test_ubt_cycle USING ubtree (id);
+
+-- Cycle 1: Insert 3000, Delete 2000, Shrink
+INSERT INTO test_ubt_cycle SELECT g, 'cycle1_' || g FROM generate_series(1, 3000) g;
+DELETE FROM test_ubt_cycle WHERE id > 1000;
+SELECT pg_sleep(1);
+VACUUM test_ubt_cycle;
+SELECT gs_ubtree_shrink('idx_ubt_cycle_id');
+SELECT count(*) FROM test_ubt_cycle;
+
+-- Cycle 2: Insert 2000 new records, Delete 1500, Shrink again
+INSERT INTO test_ubt_cycle SELECT g, 'cycle2_' || g FROM generate_series(3001, 5000) g;
+DELETE FROM test_ubt_cycle WHERE id > 3500;
+SELECT pg_sleep(1);
+VACUUM test_ubt_cycle;
+SELECT gs_ubtree_shrink('idx_ubt_cycle_id');
+SELECT count(*) FROM test_ubt_cycle;
+
+-- Cycle 3: Immediate second shrink (idempotent)
+SELECT gs_ubtree_shrink('idx_ubt_cycle_id');
+SELECT count(*) FROM test_ubt_cycle;
+
+-- Final read integrity
+SET enable_seqscan = off;
+SELECT count(*) FROM test_ubt_cycle WHERE id BETWEEN 500 AND 3200;
+RESET enable_seqscan;
+
+DROP TABLE test_ubt_cycle CASCADE;
+
+-- =========================================================================
 -- Clean Up All Test Objects
 -- =========================================================================
-DROP TABLE test_ubt_shrink_tbl CASCADE;
-DROP TABLE test_ubt_shrink_comp CASCADE;
-DROP TABLE test_ubt_shrink_empty CASCADE;
-DROP TABLE test_btree_tbl CASCADE;
+DROP TABLE IF EXISTS test_ubt_shrink_tbl CASCADE;
+DROP TABLE IF EXISTS test_ubt_shrink_comp CASCADE;
+DROP TABLE IF EXISTS test_ubt_shrink_empty CASCADE;
+DROP TABLE IF EXISTS test_btree_tbl CASCADE;
+DROP TABLE IF EXISTS test_ubt_scan CASCADE;
+DROP TABLE IF EXISTS test_ubt_part CASCADE;
+DROP TABLE IF EXISTS test_ubt_types CASCADE;
+DROP TABLE IF EXISTS test_ubt_tx CASCADE;
+DROP TABLE IF EXISTS test_ubt_cycle CASCADE;

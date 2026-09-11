@@ -29,6 +29,7 @@ test: test_ustore_index_including
 test: test_ustore_index
 test: test_ustore_index_cache_rightpage
 test: test_ustore_index_parallel
+test: test_ubtree_shrink
 test: test_ustore_repeatable_read
 test: test_ustore_insert_update
 #test: test_ustore_insert_select
