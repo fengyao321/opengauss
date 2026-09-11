@@ -57,9 +57,17 @@
   TotalBlocks: 1932, TargetMaxBlock: 411, FreeTailBlocks: 1521, MigratedBlocks: 7
   ```
 - **耗时对比**:
-  - `gs_ubtree_shrink`: **13.19 ms**
-  - `REINDEX`: 62.83 ms
-  - `VACUUM FULL`: 168.66 ms
+  - `gs_ubtree_shrink`: **22.91 ms**
+  - `REINDEX`: 74.14 ms
+  - `VACUUM FULL`: 194.67 ms
+
+#### 📦 物理空间变化 (`idx_perf_shrink_id`)
+| 执行方法 | 收缩前大小 | 收缩后大小 | 物理回收空间 | 空间回收率 | 耗时 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **gs_ubtree_shrink** | 15 MB (1932 块) | **3288 kB** (411 块) | **12168 kB** (1521 块) | **78.7%** | **22.91 ms** |
+| **VACUUM FULL** | 15 MB (1932 块) | **1560 kB** (195 块) | 13896 kB | 89.9% | 194.67 ms |
+| **REINDEX** | 15 MB (1932 块) | **1560 kB** (195 块) | 13896 kB | 89.9% | 74.14 ms |
+
 - **数据完整性**: 校验行数 50,000 行，数据完全一致。
 
 ---
@@ -84,9 +92,17 @@
   TotalBlocks: 3863, TargetMaxBlock: 411, FreeTailBlocks: 3452, MigratedBlocks: 14
   ```
 - **耗时对比**:
-  - `gs_ubtree_shrink`: **18.40 ms**
-  - `REINDEX`: 74.81 ms
-  - `VACUUM FULL`: 178.90 ms
+  - `gs_ubtree_shrink`: **54.37 ms**
+  - `REINDEX`: 114.77 ms
+  - `VACUUM FULL`: 280.88 ms
+
+#### 📦 物理空间变化 (`idx_perf_shrink_id`)
+| 执行方法 | 收缩前大小 | 收缩后大小 | 物理回收空间 | 空间回收率 | 耗时 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **gs_ubtree_shrink** | 30 MB (3863 块) | **3288 kB** (411 块) | **27616 kB** (3452 块) | **89.4%** | **54.37 ms** |
+| **VACUUM FULL** | 30 MB (3863 块) | **1560 kB** (195 块) | 29336 kB | 95.0% | 280.88 ms |
+| **REINDEX** | 30 MB (3863 块) | **1560 kB** (195 块) | 29336 kB | 95.0% | 114.77 ms |
+
 - **数据完整性**: 校验行数 50,000 行无偏差。
 
 ---
