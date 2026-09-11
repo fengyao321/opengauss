@@ -1,285 +1,173 @@
-# openGauss UBTree 物理在线收缩与定向页迁移全功能代码 Review 与实现细节深度剖析报告
+# PostgreSQL Hackers Review: UBTree Online Physical Shrink & Targeted Page Migration
+
+**Reviewer**: PostgreSQL Hackers Community Perspective (pgsql-hackers / Core Storage & Concurrency Mindset)  
+**Subject**: Re: [PATCH/RFC] openGauss UBTree Online Physical Shrink & Targeted Migration  
+**Status**: **NACK with reservation** (Needs fundamental architectural rethink on concurrency & WAL recovery before upstreaming)
 
 ---
 
-## 1. 模块代码架构与文件索引
+## 0. 总结与评审裁决 (Executive Verdict)
 
-UBTree 在线物理收缩（UBTree Physical Online Shrink & Compaction）功能覆盖了存储引擎访问方法（AM）、预写日志（WAL）原子保护、系统内建函数调用接口、并发控制锁协议以及回归测试套件。核心代码文件如下表所示：
+**Verdict**: **NACK (暂不建议合并)**。
 
-| 文件路径 | 模块归属 | 核心职责 |
+这个补丁实现了一套用于 UBTree 的物理文件在线收缩与定向页迁移机制（Targeted Migration + URQ Compaction + Online Lock Escalation Truncate），试图解决 B-Tree 索引长期以来“尾部空间难以安全归还 OS”的顽疾。该特性的工程动机完全成立，算法原型的思路也具有启发性。
+
+然而，从 PostgreSQL / 数据库内核工程的核心原则——**正确性绝对优先、零数据损坏容忍、无并发死锁风险、崩溃恢复一致性**的角度审视，当前实现存在多处破坏存储引擎核心契约的严重设计缺陷：
+1. **违背 B-Tree 加锁层级，引入直接且致命的 AB-BA 死锁路径**；
+2. **缺乏并发读事务 Pin-count 安全栅栏，可能导致并发 Index Scan 触发操作系统级 `read beyond EOF` 或脏页刷盘 Panic**；
+3. **URQ 水位线物理清理未记 WAL，导致 Standby 备机重放后元数据与物理文件撕裂**；
+4. **肆意污染 Session 级别的全局事务可见性水位线（`RecentGlobalDataXmin`）**；
+5. **单条 WAL 记录跨 5 个 Block 且强制全页写入，严重破坏备机并行回放流水线**。
+
+在这些基础设计缺陷得到彻底解决之前，该代码无法满足企业级生产环境的稳定性要求。
+
+---
+
+## 1. 并发与锁协议缺陷 (Locking & Concurrency Issues)
+
+### 1.1 页面锁逆序与 AB-BA 致命死锁
+- **相关代码**: `src/gausskernel/storage/access/ubtree/ubtshrink.cpp` (`UBTreeMigrateOnePage`)
+- **代码行为**:
+  在 `UBTreeMigrateOnePage()` 中，函数加锁顺序如下：
+  1. 通过 `UBTreeSearch` 或 `UBTreeGetStackBuf` 获取并持有 `parentBuf` 的 `BT_WRITE` 锁；
+  2. 保持 `parentBuf` 写锁不放，向下申请 `victimBuf` 的 `BT_WRITE` 锁；
+  3. 保持上述锁不放，向左申请 `leftBuf` 的 `BT_WRITE` 锁（自右向左加锁）；
+  4. 保持上述锁不放，申请 `rightBuf` 的 `BT_WRITE` 锁；
+  5. 申请 `newBuf` 的 `BT_WRITE` 锁。
+
+- **根本缺陷 (Hacker's Analysis)**:
+  标准 B-Tree（Lehman & Yao 并发协议及 PostgreSQL 变体）中，为了杜绝死锁，严格规定了加锁方向：
+  - **横向扫描与分裂链**：必须严格遵循**自左向右 (Left-to-Right)** 加锁；
+  - **向下遍历与树修正**：查找自顶向下（持读锁或松散耦合），而分裂与页面删除自底向上（Bottom-Up）。
+  
+  当前代码持有父节点写锁的同时，不仅向下去锁子节点（Top-Down Write Locking），还向左去锁左兄弟（Right-to-Left Write Locking）。
+  
+  **推演死锁场景**：
+  * **进程 A (Shrink Worker)**: 持有 `parentBuf` 写锁，正准备加锁 `victimBuf` 或 `leftBuf`。
+  * **进程 B (并发写事务/Split)**: 正在对 `victimBuf` 或 `leftBuf` 执行插入，页面装满触发 `_bt_split`，持有 `victimBuf` / `leftBuf` 的排他写锁，正向上调用 `_bt_insert_parent` 试图获取 `parentBuf` 的排他写锁。
+  * **结果**：**瞬时构成 AB-BA 死锁**。
+  
+  虽然代码在 `isOnline == true` 时使用了 `ConditionalLockBuffer` 退避，但：
+  - 在 `isOnline == false`（离线收缩模式）下，直接调用阻塞式 `LockBuffer(..., BT_WRITE)`，**百分之百会导致不可恢复的死锁**；
+  - 即便在 `isOnline` 模式下，当 `ConditionalLockBuffer` 失败退避时，由于父节点写锁在搜索阶段被长时间持有，高频并发下的退避率极高，严重阻断正常读写业务。
+
+---
+
+### 1.2 缺乏 Pin-count 安全保证与并发扫描丢数据风险 (Pin Invalidation & I/O Panic)
+- **相关代码**: `src/gausskernel/storage/access/ubtree/ubtshrink.cpp` (`UBTreeOnlineTruncate`)
+- **代码行为**:
+  ```cpp
+  LockRelationForExtension(rel, ExclusiveLock);
+  BlockNumber currentTotal = RelationGetNumberOfBlocks(rel);
+  if (currentTotal > targetMaxBlock) {
+      RelationTruncate(rel, targetMaxBlock);
+  }
+  UnlockRelationForExtension(rel, ExclusiveLock);
+  ```
+- **根本缺陷 (Hacker's Analysis)**:
+  `UBTreeOnlineTruncate` 仅使用带超时的 `ConditionalLockRelation(rel, AccessExclusiveLock)` 尝试获取表级锁。获取到锁后，**立即调用 `RelationTruncate` 缩容物理文件**。
+  
+  然而，在 PostgreSQL / openGauss 中，索引扫描（`IndexScan` / `BitmapIndexScan`）的读事务并发模型是：
+  1. 读事务持有 `AccessShareLock`（或者已经越过了锁检查点）；
+  2. 读事务固定 Buffer（`IncrBufferRefCount` / 持有 Pin），释放 Buffer Content Lock，读取数据；
+  3. 通过 `opaque->btpo_next` 准备读取下一个物理块。
+  
+  如果一个长查询正在读取 `victimBlk` 或物理尾部的某个 Block，即便它释放了 Buffer Lock，它的 Pin 依然挂在 Buffer Pool 中！
+  此时 Shrink 进程拿到几毫秒的 `AccessExclusiveLock` 并立即将 OS 文件截断：
+  - 该长查询唤醒后，若尝试重新读取或重校验该页，或者脏页刷盘线程（Buffer Sync / Checkpointer）试图将残留在内存池中的尾部脏页刷回磁盘时，底层的 `smgrwrite` / `smgrread` 将直接报出 **`seeking/reading beyond EOF`**，在很多内核路径中这会直接升级为 **PANIC**！
+  - **对比 PG 规范做法**：PostgreSQL 在做 `VACUUM` 截断表尾时，必须调用 `heap_truncate_find_min_clean` 等机制，检查 Buffer Pool 中每个 Block 的 Pin 状态与活跃事务，只有证明没有 Backend 在使用尾部 Block 时，才允许物理 Truncate。
+
+---
+
+## 2. 崩溃恢复与 WAL 契约缺陷 (Crash Recovery & WAL Protocol)
+
+### 2.1 URQ 水位线清理完全缺失 WAL (Standby Corruption Hole)
+- **相关代码**: `src/gausskernel/storage/access/ubtree/ubtshrink.cpp` (`UBTreePurgeRecycleQueueAboveWatermark`) 与 `src/gausskernel/storage/access/ubtree/ubtxlog.cpp`
+- **代码行为**:
+  在截断文件前，主库调用了 `UBTreePurgeRecycleQueueAboveWatermark(rel, targetMaxBlock)`，遍历并删除了 URQ 队列中所有大于等于 `targetMaxBlock` 的条目。
+  但是，该函数**没有记录任何专属 WAL**，也没有在事务日志中留下记录。
+- **灾难推演 (Hacker's Analysis)**:
+  1. 主库执行 Shrink：清理了主库自身的 URQ 内存/页面元数据，随后调用 `RelationTruncate`，写了一条 `XLOG_SMGR_TRUNCATE`。
+  2. 备机（Standby）接收到 WAL 并重放 `XLOG_SMGR_TRUNCATE`：备机的底层索引物理文件被截断到了 `targetMaxBlock`。
+  3. **然而，备机上的 URQ 页面从未被清理！** 备机上的 URQ 仍然记录着大量大于 `targetMaxBlock` 的“空闲块”。
+  4. 一旦发生主备倒换（Failover），备机升主，新的主库在后续插入需要申请新页时，从 URQ 中弹出了一个 BlockNumber（例如原来尾部的 1500 号块）。
+  5. 此时文件实际大小只有 500 个块，内核直接对 1500 号块执行写入，导致文件空洞（File Hole）、数据错乱，或者在无稀疏文件支持的文件系统上抛出严重 I/O 错误。
+
+---
+
+### 2.2 多块复合 WAL 原子性代价与备机回放停顿 (Multi-Block Redo Stall)
+- **相关代码**: `src/gausskernel/storage/access/ubtree/ubtshrink.cpp` (`UBTreeMigrateOnePage`)
+- **代码行为**:
+  ```cpp
+  XLogRegisterBuffer(0, newBuf, REGBUF_FORCE_IMAGE | REGBUF_STANDARD);
+  XLogRegisterBuffer(1, victimBuf, REGBUF_STANDARD);
+  XLogRegisterBuffer(2, leftBuf, REGBUF_STANDARD);
+  XLogRegisterBuffer(3, rightBuf, REGBUF_STANDARD);
+  XLogRegisterBuffer(4, parentBuf, REGBUF_STANDARD);
+  recptr = XLogInsert(RM_UBTREE2_ID, XLOG_UBTREE2_SHRINK_MOVE_LEAF);
+  ```
+- **架构审查 (Hacker's Analysis)**:
+  单条 WAL 记录一次性注册 5 个 Block，且对 `newBuf` 强制使用了 `REGBUF_FORCE_IMAGE`（整页 8KB 写入）：
+  1. **WAL 膨胀**：每迁移 1 个 Page，WAL 记录大小至少为 8KB + 额外开销。如果迁移 512 个 Page，将瞬时产生 > 4.5MB 的 WAL 写入，这在高频 OLTP 场景下会造成不必要的日志暴增。
+  2. **并行回放瓶颈 (Parallel Redo Pipeline Stall)**：现代数据库（包括 openGauss 的 Parallel Recovery）采用基于 Page ID 哈希的工作分发模型。当一条 WAL 记录同时引用 5 个不同的 Block 时，Dispatcher 必须对这 5 个 Worker 线程执行全局同步栅栏（Barrier Synchronization），导致备机回放吞吐急剧恶化。
+
+---
+
+## 3. 全局状态污染与架构反模式 (Global State Contamination)
+
+### 3.1 肆意篡改 Session 级事务水位线 (`RecentGlobalDataXmin`)
+- **相关代码**:
+  - `src/gausskernel/storage/access/ubtree/ubtshrink.cpp`: 行 494-498, 1015-1019, 1188-1192
+- **代码行为**:
+  ```cpp
+  TransactionId oldestXmin = GetOldestXminForUndo(&recycleXmin);
+  if (TransactionIdIsValid(recycleXmin)) {
+      u_sess->utils_cxt.RecentGlobalDataXmin = recycleXmin;
+  } else if (TransactionIdIsValid(oldestXmin)) {
+      u_sess->utils_cxt.RecentGlobalDataXmin = oldestXmin;
+  }
+  ```
+- **核心原则警告 (Unacceptable Pattern)**:
+  `RecentGlobalDataXmin` 是内核中用来判定元组可见性、Undo 链回收和快照有效性的全局关键变量。它的推进由事务管理器（Transaction Engine）和全局水位心跳统一维护。
+  一个底层的索引维护函数（Shrink）**绝对不能在局部逻辑中直接覆盖修改 Session 的全局变量**！
+  这种修改会产生难以追踪的副作用（Side-effects），可能导致同一 Session 在执行完 Shrink 后，后续的查询采用被意外推进的水位线，引发严重脏读或 Undo 悬空引用。
+  **正确方案**：必须将 `oldestXmin` 作为局部只读参数在调用栈中显式传递。
+
+---
+
+### 3.2 级联循环中的非收敛与雪崩风险 (Compaction Thrashing)
+- **相关代码**: `src/gausskernel/storage/access/ubtree/ubtshrink.cpp` (`UBTreeShrink`)
+- **代码行为**:
+  ```cpp
+  int migrationRounds = 0;
+  while (stats->migratedBlocks > 0 && migrationRounds < 10) {
+      ...
+      UBTreeMigratePages(rel, stats, isOnline);
+      migrationRounds++;
+      UBTreeShrinkCheckInternal(rel, stats, maxPages, costRatio);
+      ...
+  }
+  ```
+- **权衡核算 (Trade-off & Regression Risk)**:
+  在在线高并发负载下，下层空闲页的腾挪插入可能引发下层内部节点的重新分裂，进而分配新的尾部物理块。此时写死 10 轮循环可能会导致系统在尾部剧烈颠簸（Thrashing），消耗大量 I/O 和 CPU，而最终物理截断却因水位线漂移而失败（Abort）。缺乏自适应放弃机制和清晰的资源配额管控。
+
+---
+
+## 4. 改进路线图 (Required Refactor Roadmap)
+
+如果要使该特性达到进入生产主干的代码质量，必须完成以下重构：
+
+| 优先级 | 缺陷领域 | 重构方案与行动项 |
 | :--- | :--- | :--- |
-| [`src/gausskernel/storage/access/ubtree/ubtshrink.cpp`](file:///home/fengyao/openGauss-server/src/gausskernel/storage/access/ubtree/ubtshrink.cpp) | 核心收缩逻辑 | 实现可行性判定、URQ 库存收集升序编排、定向槽位匹配、跨层级页迁移、级联多轮收缩、微秒级锁升级物理截断以及 SQL 接口封装。 |
-| [`src/include/access/ubtree.h`](file:///home/fengyao/openGauss-server/src/include/access/ubtree.h) | 头文件定义 | 定义统计结构体 `UBTreeShrinkStats`、WAL 记录结构体 `xl_ubtree2_shrink_move_leaf`、宏定义与导出函数声明。 |
-| [`src/gausskernel/storage/access/ubtree/ubtxlog.cpp`](file:///home/fengyao/openGauss-server/src/gausskernel/storage/access/ubtree/ubtxlog.cpp) | 崩溃恢复 (Redo) | 在 `UBTree2Redo` 注册处理 `XLOG_UBTREE2_SHRINK_MOVE_LEAF`，实现备机复制与断电恢复时多页拓扑更新的幂等重放。 |
-| [`src/gausskernel/storage/access/rmgrdesc/nbtdesc.cpp`](file:///home/fengyao/openGauss-server/src/gausskernel/storage/access/rmgrdesc/nbtdesc.cpp) | WAL 解析与调试 | 解析 `XLOG_UBTREE2_SHRINK_MOVE_LEAF` 记录，输出可视化日志，支持 `pg_xlogdump` 审计。 |
-| [`src/common/backend/catalog/builtin_funcs.ini`](file:///home/fengyao/openGauss-server/src/common/backend/catalog/builtin_funcs.ini) | 内置函数注册 | 在内核系统目录中注册 `gs_ubtree_shrink`（单参数/多参数）及 `gs_ubtree_shrink_check`。 |
-| [`src/test/regress/sql/test_ubtree_shrink.sql`](file:///home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql) | 回归测试套件 | 包含基础流程、物理大小校验、复合/唯一索引、边界情况、错误处理等全维度验证。 |
-| [`src/test/regress/expected/test_ubtree_shrink.out`](file:///home/fengyao/openGauss-server/src/test/regress/expected/test_ubtree_shrink.out) | 标准测试输出 | 回归测试的标准输出对比基线。 |
+| **P0** | **加锁协议重构** | 废黜自顶向下加写锁的危险模式。参考 `_bt_pagedel` 的两阶段协议：采用自底向上获取锁；如果父节点发生变更或兄弟节点无法非阻塞锁定，立即释放所有锁重新定位，绝不跨层级反向持有写锁。 |
+| **P0** | **WAL 一致性补齐** | 引入专用的 `XLOG_UBTREE2_URQ_PURGE` 日志，记录 `targetMaxBlock` 的物理截断水位线，确保 Standby 节点在回放时同步剔除失效的 URQ 空闲块。 |
+| **P0** | **Pin-count 截断保护** | 在 `RelationTruncate` 之前，必须加入全局 Buffer Pool 检查（或强制与 ProcArray 活跃扫描器握手），确保待截断物理块的 Pin-count 严格归零，杜绝 `read beyond EOF`。 |
+| **P1** | **全局状态解耦** | 彻底移除对 `u_sess->utils_cxt.RecentGlobalDataXmin` 的直接赋值，所有快照与回收可见性计算均通过局部参数传递。 |
+| **P1** | **WAL 负载轻量化** | 避免对 `newBuf` 强制整页写入（除非处于 Checkpoint 后的首次写入场景），将多块操作分解为幂等的有序状态机，减轻备机并行重放的同步停顿。 |
 
 ---
 
-## 2. 核心数据结构设计
+## 5. 结语 (Conclusion)
 
-### 2.1 收缩统计与状态控制 (`UBTreeShrinkStats`)
-```c
-typedef struct UBTreeShrinkStats {
-    BlockNumber totalBlocks;           /* 索引当前总物理块数 */
-    BlockNumber freedTailBlocks;       /* 尾部可直接/迁移后截断的连续空块数 */
-    BlockNumber migratedBlocks;        /* 计划或已完成定向迁移的活跃块数 */
-    BlockNumber targetMaxBlock;        /* 物理截断目标水位线 (截断保留块数) */
-    BlockNumber migrateTargetCutoff;   /* 预估计算出的迁移目标截止块号 */
-    bool lockEscalationSuccess;        /* 微秒级锁升级是否成功 */
-    bool success;                      /* 整体收缩操作执行结果状态 */
-} UBTreeShrinkStats;
-```
-
-### 2.2 原子迁移 WAL 日志结构 (`xl_ubtree2_shrink_move_leaf`)
-为确保在单页迁移过程中目标块写入、源块删除、左右兄弟链表修复、父节点 Downlink 重定向 5 个页面修改的原子性，定义了专用的 WAL 日志：
-```c
-typedef struct xl_ubtree2_shrink_move_leaf {
-    BlockNumber victimBlk;     /* 被搬迁的源块 (高位活跃块) */
-    BlockNumber newBlk;        /* 搬迁目标新块 (低位空闲块) */
-    BlockNumber leftBlk;       /* 源块原左兄弟块号 (无则为 P_NONE) */
-    BlockNumber rightBlk;      /* 源块原右兄弟块号 (无则为 P_NONE) */
-    BlockNumber parentBlk;     /* 父节点所在物理块号 */
-    OffsetNumber parentOff;    /* 父节点中对应下行指针所在的偏移槽位 */
-    bool isRightMost;          /* 源块是否为当前层最右节点 */
-} xl_ubtree2_shrink_move_leaf;
-```
-
-### 2.3 URQ 空闲库存池结构 (`UBTreeURQInventory`)
-为了精确匹配低位空槽，避免盲目探测，维护了升序去重的空闲物理页池：
-```c
-typedef struct UBTreeFreeBlockEntry {
-    BlockNumber blkno;         /* 索引文件中的实际空闲块号 */
-    BlockNumber queueBlk;      /* 登记该空闲块的 URQ 队列页块号 */
-    uint16 offset;             /* 该条目在 URQ 队列页内的偏移插槽 */
-} UBTreeFreeBlockEntry;
-
-typedef struct UBTreeURQInventory {
-    UBTreeFreeBlockEntry *entries; /* 动态分配的条目数组 */
-    int count;                     /* 当前收集到的有效可用空闲块数 */
-    int capacity;                  /* 动态容量 */
-} UBTreeURQInventory;
-```
-
----
-
-## 3. 核心流程与实现细节深度剖析
-
-### 3.1 紧凑度分析与可行性预估 (`UBTreeShrinkCheckInternal`)
-
-该函数作为评估与规划引擎，负责探测索引尾部空洞、收集 URQ 低位空闲块、完成尾部待搬迁活跃页（Victims）与低位空页的一一映射，并计算最佳收缩截止点（`bestCutoff`）。
-
-#### 关键步骤细节：
-1. **边界与段页式保护**：
-   - 检查 `RelationIsSegmentTable(rel)`：openGauss 段页式（Segment-page）表空间由 Extent 分配机制管理，不支持物理文件的直接 `RelationTruncate`，提前阻断并返回说明；
-   - 若 `totalBlocks <= FirstNormalBlockNumber + 1`，说明只有元数据页或根页，无需收缩。
-2. **尾部反向扫描与半死页主动解链（Tail Backward Scan & Unlinking）**：
-   - 从文件末尾物理块 `totalBlocks - 1` 倒序向前扫描；
-   - 读取页面，若页面为 `PageIsNew(page)` 或已置 `P_ISDELETED`，则计入可直接截断的连续空块数 `freedTailBlocks++`；
-   - **创新性半死页主动解链**：若探测到 `P_ISHALFDEAD` 页面（VACUUM 标记删除但未完成链表剔除的半死页），通过 `ConditionalLockBuffer` 申请写锁，主动调用 `UBTreeUnlinkHalfDeadPage(rel, buf, &rightsib_empty, NULL)`。若解链成功，该页立即转为可截断的死页，避免因半死页阻断整段尾部的物理截断；
-   - 一旦遇到第一个正常活跃页，尾部直接截断扫描结束，确定基础截断边界 `targetMaxBlock = totalBlocks - freedTailBlocks`。
-3. **URQ 全量收集与升序编排 (`UBTreeCollectURQFreeBlocks`)**：
-   - 全量遍历 UBTree 的 `RECYCLE_FREED_FORK`（空闲页队列）与 `RECYCLE_EMPTY_FORK`（清空页队列）；
-   - 获取当前快照的事务水位线 `RecentGlobalDataXmin`，通过 `TransactionIdFollowsOrEquals(item->xid, oldestXmin)` 严格校验，仅收集**全局事务均不可见、已完全提交**的安全空页；
-   - 收集完成后使用 `qsort` 按照 `blkno ASC` 升序排列，并进行去重，得到由低到高物理连续的空页池。
-4. **确定性定向映射与成本收益模型**：
-   - 扫描指针 `highScan` 从 `targetMaxBlock - 1` 向前逆向遍历：
-     - 若遇到死页，判定若将当前位置作为截断点是否满足收益；
-     - 若遇到非根活跃页（Victim），从已升序排序的 `inv` 中由低到高匹配一个块号严格小于 `highScan` 的空页；
-     - 记录已分配空页的最大块号 `maxAllocatedSlot`，确保暂定截断边界 `tentativeCutoff >= maxAllocatedSlot + 1`；
-     - 计算收益比：`ratio = victimsCount / tentativeFreed`。仅当 `ratio <= costRatio`（默认 0.50，即每迁移 1 页可释放至少 2 页尾部空间）且释放空间大于先前最佳记录时，更新 `bestCutoff` 与 `bestVictims`。
-
----
-
-### 3.2 定向页面迁移与双向拓扑重构 (`UBTreeMigrateOnePage`)
-
-将一个尾部高位活跃页（叶子页或分支页）原子搬迁到低位空闲页，重构 B-Tree 双向链表与父级下行指针，是整个收缩特性的核心技术攻坚点。
-
-#### 关键实现细节：
-
-#### A. 拓扑探测与搜索键构建
-- 瞬时以 `BT_READ` 锁读取 Victim 页，提取其层级（`victimLevel`）、左兄弟（`btpo_prev`）、右兄弟（`btpo_next`）；
-- 构建用于向上检索父节点的扫描键（`itupKey`）：
-  - **非最右节点**：拷贝其 High Key（`P_HIKEY`），设置 `pivotsearch = true`；
-  - **最右节点**：提取其第 1 个有效元组（叶子页 Offset 1，分支页 Offset 2）；若页内无元组，尝试读取左兄弟的 High Key；
-- **防自死锁释放**：在调用 `UBTreeSearch` 之前，必须先释放 Victim 页上的 Read Lock，避免后续向下搜索遍历到该页时与自身死锁。
-
-#### B. 父节点双通道精准定位
-1. **自顶向下栈检索**：通过 `UBTreeSearch(rel, itupKey, &leafSearchBuf, BT_READ)` 顺着 B-Tree 下降，获取路径栈 `stack`，自底向上遍历栈帧，找到下行指针指向 `victimBlk` 的父节点，并通过 `UBTreeGetStackBuf` 锁定父节点并获取其偏移槽位 `parentOff`；
-2. **层级感知定位器回退（Level-Aware Parent Locator）**：
-   若因并发分裂或右边界键缺失导致栈检索未匹配：
-   - 检查元数据页获取整树高度 `maxLevel`；
-   - 调用 `UBTreeGetEndPoint(rel, victimLevel + 1, false)` 获取父级层最左块；
-   - 沿父层水平链表跨页扫描（`UBTreeGetStackBuf`）直接锁定下行指针等于 `victimBlk` 的父节点槽位。该机制对叶子页（Level 0）和多层分支页（Level > 0）均完全自适应生效。
-
-#### C. 严格无死锁加锁序（Lock Coupling Order）
-为了与并发业务事务（插入、更新、分段加锁）完全兼容且杜绝死锁，严格遵照自顶向下、由左至右的拓扑加锁顺序：
-```text
-Parent (BT_WRITE) -> Victim (BT_WRITE) -> Left Sibling (BT_WRITE) -> Right Sibling (BT_WRITE) -> Target New Page (BT_WRITE)
-```
-在在线模式（`isOnline = true`）下，所有加锁动作均采用 `ConditionalLockBuffer` 非阻塞尝试。若任何一个缓冲锁竞争失败，立刻按反序完全释放已持有的所有锁，优雅放弃并回退，绝不阻塞前台业务线程。
-
-#### D. 原子临界区与拓扑修改
-在 `START_CRIT_SECTION()` 保护下完成以下原子操作：
-1. `UBTreePageInit(newPage, BLCKSZ)` 初始化新块并 `memcpy` 复制源块所有元组与页面特有结构；
-2. 更新新块的 `btpo_prev = leftBlk`，`btpo_next = rightBlk`；
-3. 更新左兄弟的 `btpo_next = newBlk`；
-4. 更新右兄弟的 `btpo_prev = newBlk`；
-5. 更新父节点对应槽位元组中的下行块号：`UBTreeTupleSetDownLink(pItup, newBlk)`；
-6. 将源 Victim 页标记为废弃：`victimOpaque->btpo_flags |= BTP_DELETED`，并赋新事务 ID `ReadNewTransactionId()`；
-7. 将修改的 5 个 Buffer 均标记脏页（`MarkBufferDirty`）。
-
-#### E. 原子 WAL 日志写入与 LSN 统一
-- 调用 `XLogRegisterBuffer` 注册 5 个缓冲区（新块指定 `REGBUF_FORCE_IMAGE` 保存全页镜像）；
-- 写入 `XLogInsert(RM_UBTREE2_ID, XLOG_UBTREE2_SHRINK_MOVE_LEAF)`；
-- 将统一生成的 `recptr` 同步赋予所有 5 个页面的 LSN 头（`PageSetLSN`）。
-
-#### F. 原位 URQ 槽位消费清理
-离开临界区后，若目标块来自 URQ 预分配，直接获取记录的 `targetQueueBlk` 页面写锁，调用 `RemoveOneItemFromPage(rel, qbuf, targetOffset)` 物理擦除已使用的 URQ 插槽，从源头上杜绝了后续遍历重复读取导致死循环的隐患。
-
----
-
-### 3.3 级联多轮收缩循环 (`UBTreeShrink`)
-
-底层叶子页向低位搬迁并物理截断后，往往会引发级联效应：
-1. 原先指向已搬迁块的上层分支节点（Internal Pages），其下行项可能因此被清空或成为死页；
-2. 一旦整层分支页在尾部变为死页，上层的高水位线也具备了继续收缩的条件。
-
-因此，`UBTreeShrink` 设计了**最多 10 轮的级联收缩迭代循环**：
-```c
-int migrationRounds = 0;
-while (stats->migratedBlocks > 0 && migrationRounds < 10) {
-    BlockNumber prevFreedTail = stats->freedTailBlocks;
-    BlockNumber prevTargetMax = stats->targetMaxBlock;
-    UBTreeMigratePages(rel, stats, isOnline);
-    migrationRounds++;
-    UBTreeShrinkCheckInternal(rel, stats, maxPages, costRatio);
-    if (stats->freedTailBlocks <= prevFreedTail && stats->targetMaxBlock >= prevTargetMax) {
-        break; /* 无进一步可收缩空间，安全跳出 */
-    }
-}
-```
-该机制实现了自底向上（Bottom-up）的叶子层与多层分支页级联紧缩。
-
----
-
-### 3.4 微秒级锁升级物理截断 (`UBTreeOnlineTruncate`)
-
-在收缩的最后一步，需要调用底层存储引擎将物理文件末尾的空洞实际裁剪归还操作系统。
-
-#### 核心实现细节：
-1. **轻量锁常驻与极速锁升级**：
-   - 搬迁与页面处理阶段，外层 SQL 事务仅持有 `ShareUpdateExclusiveLock`，与 `AccessShareLock`（SELECT）、`RowExclusiveLock`（INSERT/UPDATE/DELETE）完全并发共存；
-   - 仅在最终物理截断前，调用 `UBTreeOnlineTruncate`，在最大 200ms 窗口内（每 5ms 重试一次）尝试通过 `ConditionalLockRelation(rel, AccessExclusiveLock)` 升级为短排他锁；
-   - 若超时未获取，立即放弃本次截断，非阻塞退出，保护业务 TPS 零抖动。
-2. **Double-Check 双重校验**：
-   - 在成功持有 `AccessExclusiveLock` 后，立即重新调用 `UBTreeShrinkCheckInternal`；
-   - 确认在加锁窗口期内是否有并发写入扩展了新页面或占用了尾部块，若实际截断边界发生上移，以最新校验的水位线为准，确保绝对不会截断任何存活数据。
-3. **URQ 残余清理与文件物理裁剪**：
-   - 调用 `UBTreePurgeRecycleQueueAboveWatermark(rel, targetMaxBlock)` 剔除回收队列中所有 `>= targetMaxBlock` 的条目；
-   - 锁定扩展锁 `LockRelationForExtension(rel, ExclusiveLock)`，调用 `RelationTruncate(rel, targetMaxBlock)` 执行磁盘物理截断并清理 Buffer Pool 中的残留失效页；
-   - **立即微秒级解锁**：完成截断后立即执行 `UnlockRelation(rel, AccessExclusiveLock)`，锁持有时间通常小于 **50 微秒**。
-
----
-
-### 3.5 WAL 崩溃恢复与重放实现 (`ubtxlog.cpp` & `nbtdesc.cpp`)
-
-为了保证数据库在异常断电或备机通过物理复制流接收日志时的一致性，在 `UBTree2Redo` 中实现了 `XLOG_UBTREE2_SHRINK_MOVE_LEAF`：
-
-```c
-void UBTree2XlogShrinkMoveLeaf(XLogReaderState* record)
-{
-    xl_ubtree2_shrink_move_leaf *xlrec = (xl_ubtree2_shrink_move_leaf *)XLogRecGetData(record);
-    XLogRecPtr lsn = record->EndRecPtr;
-
-    /* 0. 基于全页镜像完整恢复目标新块 */
-    RedoBufferInfo newbuf;
-    XLogInitBufferForRedo(record, 0, &newbuf);
-    ...
-    /* 1. 将源 Victim 页置为 BTP_DELETED */
-    ...
-    /* 2. 幂等更新左兄弟节点的 btpo_next 指向 newBlk */
-    ...
-    /* 3. 幂等更新右兄弟节点的 btpo_prev 指向 newBlk */
-    ...
-    /* 4. 幂等更新父节点的 Downlink 指向 newBlk */
-    ...
-}
-```
-重放逻辑使用 `XLogReadBufferForRedo` 并对 `BLK_NEEDS_REDO` 严格判断，完全具备幂等性（Idempotence），保证与主机拓扑完全一致。
-
----
-
-### 3.6 SQL 接口封装与安全防御
-
-在 `ubtshrink.cpp` 中导出了两个核心 C 函数并挂载至内核系统目录：
-
-#### 1. `gs_ubtree_shrink_check(relname text, max_pages int = 512, cost_ratio float8 = 0.50)`
-- 轻量只读接口，持有 `AccessShareLock`；
-- 输出当前总块数、目标截断块数、可释放尾块数以及需迁移块数，供管理员决策。
-
-#### 2. `gs_ubtree_shrink(relname text, is_online bool = true, max_pages int = 512, cost_ratio float8 = 0.50)`
-- 执行收缩接口，默认为非阻塞在线模式（`is_online = true`）；
-- 支持传入 `is_online = false` 进入离线快速维护模式（直接持有 `AccessExclusiveLock` 跳过条件锁重试）。
-
-#### 安全防御与权限控制：
-- **权限校验**：严格要求 `superuser()` 或系统管理员权限（`systemDBA_arg()`），防止非授权调用；
-- **类型防御**：校验 `rel->rd_rel->relam == UBTREE_AM_OID`，若对普通 B-Tree 或非索引对象调用，抛出明确的 `ERRCODE_WRONG_OBJECT_TYPE`；
-- **段页式防御**：对段页式索引安全拦截并给出友好 WARNING，防止误触发崩溃。
-
----
-
-## 4. 全场景测试覆盖与基准验证
-
-### 4.1 回归测试套件覆盖（`test_ubtree_shrink.sql`）
-| 测试用例编号 | 验证场景 | 校验预期与结果 |
-| :--- | :--- | :--- |
-| **TestCase 1** | 基础建表、插入、批量删除、VACUUM、在线收缩 | 磁盘空间缩减且只读点查/范围查/后续插入 100% 正常 (PASS) |
-| **TestCase 2** | 复合索引与唯一索引（Composite & Unique Index） | 收缩后唯一键约束依然严格生效，重复插入报错拦截 (PASS) |
-| **TestCase 3** | 边界条件：空索引、单块索引、已紧凑索引 | 安全检测跳过，零误删，幂等执行 (PASS) |
-| **TestCase 4** | 模式支持：默认在线模式 vs 显式离线模式 | 两种模式均能正确完成截断 (PASS) |
-| **TestCase 5** | 错误输入防御：不存在索引、非 UBTree 索引 | 正确抛出 ERRCODE 异常阻断 (PASS) |
-
-### 4.2 端到端全场景性能压测表现（`perf.sql`）
-在 4 种典型的数据分布与删除模式下，对 `gs_ubtree_shrink`、`VACUUM FULL` 和 `REINDEX` 进行了全量对比：
-
-```
-+---------------------------------------------------------------------------------------------------------------+
-| Scenario 1: 100K Rows, 80% Tail Delete                                                                        |
-|   gs_ubtree_shrink : 7.75 ms   | Size: 3096 kB -> 640 kB  (-79.3%) | 相比 VACUUM FULL 提速 24.6x (零业务中断)     |
-|   VACUUM FULL      : 190.63 ms | Size: 3096 kB -> 632 kB  (-79.6%) | 全程 AccessExclusiveLock 排他阻塞              |
-|   REINDEX          : 37.73 ms  | Size: 3096 kB -> 632 kB  (-79.6%) | 全程排他阻塞                                   |
-+---------------------------------------------------------------------------------------------------------------+
-| Scenario 2: 500K Rows, 90% Delete (Heavy Bloat, URQ Compaction)                                               |
-|   gs_ubtree_shrink : 22.91 ms  | Size: 15 MB -> 3288 kB   (-78.7%) | 相比 VACUUM FULL 提速 8.5x (1521块全部回收)    |
-|   VACUUM FULL      : 194.67 ms | Size: 15 MB -> 1560 kB   (-89.9%) | 全程 AccessExclusiveLock 排他阻塞              |
-|   REINDEX          : 74.14 ms  | Size: 15 MB -> 1560 kB   (-89.9%) | 全程排他阻塞                                   |
-+---------------------------------------------------------------------------------------------------------------+
-| Scenario 3: 200K Rows, 50% Scattered Delete (Random Fragmentation)                                            |
-|   gs_ubtree_shrink : 4.08 ms   | Size: 6200 kB -> 6200 kB (0.0%)   | 快速探测无尾部空洞，安全跳过，零无效 I/O 开销  |
-|   VACUUM FULL      : 301.68 ms | Size: 6200 kB -> 3096 kB (-50.0%) | 耗时巨大                                       |
-|   REINDEX          : 120.14 ms | Size: 6200 kB -> 3096 kB (-50.0%) | 耗时巨大                                       |
-+---------------------------------------------------------------------------------------------------------------+
-| Scenario 4: 1M Rows, 95% Extreme Delete (URQ Compaction)                                                      |
-|   gs_ubtree_shrink : 54.37 ms  | Size: 30 MB -> 3288 kB   (-89.4%) | 相比 VACUUM FULL 提速 5.2x (3452块全部回收)    |
-|   VACUUM FULL      : 280.88 ms | Size: 30 MB -> 1560 kB   (-95.0%) | 全程 AccessExclusiveLock 排他阻塞              |
-|   REINDEX          : 114.77 ms | Size: 30 MB -> 1560 kB   (-95.0%) | 全程排他阻塞                                   |
-+---------------------------------------------------------------------------------------------------------------+
-```
-
----
-
-## 5. 综合 Review 总结与设计亮点
-
-1. **零停机业务连续性（Zero Downtime）**：
-   传统重建或 VACUUM FULL 需要全程排他锁，大表往往导致业务停机数分钟甚至数小时。`gs_ubtree_shrink` 将加锁窗口缩短至物理截断的微秒瞬间，生产高频点查、插入、更新完全无感。
-2. **零额外临时磁盘空间开销（Zero Temporary Disk Overhead）**：
-   VACUUM FULL / REINDEX 均需在磁盘上生成新文件，若磁盘可用空间低于 50% 则无法执行甚至引发磁盘爆满宕机；`gs_ubtree_shrink` 采用原位搬迁与文件直接截断，磁盘临时开销为 0。
-3. **URQ 升序编排与确定性映射突破**：
-   摒弃盲目扫描与随机分配，通过全量收集 URQ、升序排序、确定性低位槽位映射与原位槽位移除，彻底攻克了 500K 和 1M 重度删除场景下的空间收缩死锁与回收失败问题，回收率高达 **78.7% ~ 89.4%**。
-4. **层级感知父节点定位（Level-Aware Locator）**：
-   彻底解耦了父节点 Downlink 定位对元组业务 Key 的强依赖，使得搬迁算法不仅能平稳迁移叶子页，更天然支持分支节点与多轮级联收缩。
-5. **严密工业级健壮性**：
-   包含了从权限校验、对象类型防御、段页式防御、无死锁加锁序、条件锁快速退避、Double-Check 校验到原子 5-Buffer WAL 日志与 Redo 幂等恢复的完整工业级实现。
+UBTree 在线物理收缩是一项极具生产价值的特性，但底层存储引擎的审查准则是：**数据正确性与崩溃恢复能力是一票否决项**。
+建议作者退回当前补丁，严格对照 PostgreSQL / openGauss 的并发与恢复模型，重构锁协议与 WAL 设计后重新提交 RFC。
