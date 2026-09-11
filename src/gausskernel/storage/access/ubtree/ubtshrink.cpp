@@ -919,7 +919,7 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
         UnlockReleaseBuffer(qbuf);
     } else if (newAddr.queueBuf != InvalidBuffer) {
         UBTreeRecordUsedPage(rel, newAddr);
-        ReleaseBuffer(newAddr.queueBuf);
+        newAddr.queueBuf = InvalidBuffer;
     }
 
     _bt_relbuf(rel, newBuf);

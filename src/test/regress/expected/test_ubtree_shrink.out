@@ -9,16 +9,25 @@
 --   6. Invalid input handling & error paths: non-ubtree index, non-existent index
 --   7. Mode support: default online, explicit online (true), explicit offline (false)
 --   8. Post-shrink read/write integrity: index scan, range scan, new inserts
+--   9. Forward and backward index scan integrity (ASC/DESC, range, aggregates)
+--  10. Partial index shrink (WHERE predicate filtering & verification)
+--  11. Multi-type & NULLS sorting indexes (timestamp, numeric, NULLS FIRST)
+--  12. Transaction rollback & abort safety (delete rollback, insert rollback)
+--  13. Multi-round growth and shrink lifecycle & idempotency
 -- =========================================================================
 -- Cleanup existing objects
 DROP TABLE IF EXISTS test_ubt_shrink_tbl CASCADE;
-NOTICE:  table "test_ubt_shrink_tbl" does not exist, skipping
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:20: NOTICE:  table "test_ubt_shrink_tbl" does not exist, skipping
+DROP TABLE
 DROP TABLE IF EXISTS test_ubt_shrink_comp CASCADE;
-NOTICE:  table "test_ubt_shrink_comp" does not exist, skipping
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:21: NOTICE:  table "test_ubt_shrink_comp" does not exist, skipping
+DROP TABLE
 DROP TABLE IF EXISTS test_ubt_shrink_empty CASCADE;
-NOTICE:  table "test_ubt_shrink_empty" does not exist, skipping
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:22: NOTICE:  table "test_ubt_shrink_empty" does not exist, skipping
+DROP TABLE
 DROP TABLE IF EXISTS test_btree_tbl CASCADE;
-NOTICE:  table "test_btree_tbl" does not exist, skipping
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:23: NOTICE:  table "test_btree_tbl" does not exist, skipping
+DROP TABLE
 -- =========================================================================
 -- TestCase 1: Basic UBTree index shrink & Physical size verification
 -- =========================================================================
@@ -26,9 +35,12 @@ CREATE TABLE test_ubt_shrink_tbl (
     id int,
     val text
 ) WITH (storage_type=ustore);
+CREATE TABLE
 CREATE INDEX idx_ubt_shrink_val ON test_ubt_shrink_tbl USING ubtree (id);
+CREATE INDEX
 -- Insert batch data to grow index pages
 INSERT INTO test_ubt_shrink_tbl SELECT generate_series(1, 5000), 'test_val_' || generate_series(1, 5000);
+INSERT 0 5000
 -- Record initial size & stats
 SELECT pg_relation_size('idx_ubt_shrink_val') AS init_size \gset
 SELECT gs_ubtree_shrink_check('idx_ubt_shrink_val');
@@ -39,6 +51,7 @@ SELECT gs_ubtree_shrink_check('idx_ubt_shrink_val');
 
 -- Delete large range of data at upper range
 DELETE FROM test_ubt_shrink_tbl WHERE id > 1000;
+DELETE 4000
 SELECT pg_sleep(1);
  pg_sleep 
 ----------
@@ -46,6 +59,7 @@ SELECT pg_sleep(1);
 (1 row)
 
 VACUUM test_ubt_shrink_tbl;
+VACUUM
 -- Check shrink stats before shrink
 SELECT pg_relation_size('idx_ubt_shrink_val') AS pre_shrink_size \gset
 SELECT gs_ubtree_shrink_check('idx_ubt_shrink_val');
@@ -77,6 +91,7 @@ SELECT (:post_shrink_size <= :pre_shrink_size) AS is_size_maintained_or_reduced;
 
 -- Verify read integrity via index scan
 SET enable_seqscan = off;
+SET
 EXPLAIN (COSTS OFF) SELECT * FROM test_ubt_shrink_tbl WHERE id = 500;
                   QUERY PLAN                   
 -----------------------------------------------
@@ -99,8 +114,10 @@ SELECT count(*) FROM test_ubt_shrink_tbl;
 (1 row)
 
 RESET enable_seqscan;
+RESET
 -- Verify write integrity: insert new records
 INSERT INTO test_ubt_shrink_tbl SELECT generate_series(5001, 6000), 'new_val_' || generate_series(5001, 6000);
+INSERT 0 1000
 SELECT count(*) FROM test_ubt_shrink_tbl;
  count 
 -------
@@ -121,10 +138,13 @@ CREATE TABLE test_ubt_shrink_comp (
     c2 text,
     c3 varchar(100)
 ) WITH (storage_type=ustore);
+CREATE TABLE
 CREATE UNIQUE INDEX idx_ubt_comp_uniq ON test_ubt_shrink_comp USING ubtree (c1, c2);
+CREATE INDEX
 INSERT INTO test_ubt_shrink_comp 
 SELECT g, 'category_' || (g % 10), repeat('pad_', 10) || g 
 FROM generate_series(1, 4000) g;
+INSERT 0 4000
 SELECT pg_relation_size('idx_ubt_comp_uniq') AS comp_init_size \gset
 SELECT gs_ubtree_shrink_check('idx_ubt_comp_uniq');
                           gs_ubtree_shrink_check                           
@@ -133,6 +153,7 @@ SELECT gs_ubtree_shrink_check('idx_ubt_comp_uniq');
 (1 row)
 
 DELETE FROM test_ubt_shrink_comp WHERE c1 > 500;
+DELETE 3500
 SELECT pg_sleep(1);
  pg_sleep 
 ----------
@@ -140,6 +161,7 @@ SELECT pg_sleep(1);
 (1 row)
 
 VACUUM test_ubt_shrink_comp;
+VACUUM
 SELECT pg_relation_size('idx_ubt_comp_uniq') AS comp_pre_size \gset
 SELECT gs_ubtree_shrink('idx_ubt_comp_uniq', true);
  gs_ubtree_shrink 
@@ -156,7 +178,7 @@ SELECT (:comp_post_size <= :comp_pre_size) AS is_comp_size_reduced;
 
 -- Verify unique constraint still holds after shrink
 INSERT INTO test_ubt_shrink_comp VALUES (1, 'category_1', 'duplicate'); -- Should fail with duplicate key
-ERROR:  duplicate key value violates unique constraint "idx_ubt_comp_uniq"
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:100: ERROR:  duplicate key value violates unique constraint "idx_ubt_comp_uniq"
 DETAIL:  Key (c1, c2)=(1, category_1) already exists.
 SELECT count(*) FROM test_ubt_shrink_comp WHERE c1 = 1;
  count 
@@ -170,7 +192,9 @@ SELECT count(*) FROM test_ubt_shrink_comp WHERE c1 = 1;
 CREATE TABLE test_ubt_shrink_empty (
     id int
 ) WITH (storage_type=ustore);
+CREATE TABLE
 CREATE INDEX idx_ubt_empty ON test_ubt_shrink_empty USING ubtree (id);
+CREATE INDEX
 -- Check shrink on completely empty index
 SELECT gs_ubtree_shrink_check('idx_ubt_empty');
                          gs_ubtree_shrink_check                          
@@ -219,27 +243,449 @@ SELECT gs_ubtree_shrink('idx_ubt_shrink_val', false);
 -- =========================================================================
 -- 5.1 Non-existent index
 SELECT gs_ubtree_shrink('idx_non_existent_shrink');
-ERROR:  relation "idx_non_existent_shrink" does not exist
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:132: ERROR:  relation "idx_non_existent_shrink" does not exist
 CONTEXT:  referenced column: gs_ubtree_shrink
 SELECT gs_ubtree_shrink_check('idx_non_existent_shrink');
-ERROR:  relation "idx_non_existent_shrink" does not exist
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:133: ERROR:  relation "idx_non_existent_shrink" does not exist
 CONTEXT:  referenced column: gs_ubtree_shrink_check
 -- 5.2 Non-UBTree index (regular standard btree)
 CREATE TABLE test_btree_tbl (
     id int
 );
+CREATE TABLE
 CREATE INDEX idx_std_btree ON test_btree_tbl USING btree (id);
+CREATE INDEX
 -- Attempting shrink on regular BTree index should cleanly error out
 SELECT gs_ubtree_shrink('idx_std_btree');
-ERROR:  "idx_std_btree" is not a UBTree index
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:142: ERROR:  "idx_std_btree" is not a UBTree index
 CONTEXT:  referenced column: gs_ubtree_shrink
 SELECT gs_ubtree_shrink_check('idx_std_btree');
-ERROR:  "idx_std_btree" is not a UBTree index
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:143: ERROR:  "idx_std_btree" is not a UBTree index
 CONTEXT:  referenced column: gs_ubtree_shrink_check
+-- =========================================================================
+-- TestCase 6: Forward and Backward Index Scan Integrity
+-- =========================================================================
+DROP TABLE IF EXISTS test_ubt_scan CASCADE;
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:149: NOTICE:  table "test_ubt_scan" does not exist, skipping
+DROP TABLE
+CREATE TABLE test_ubt_scan (
+    id int,
+    val text
+) WITH (storage_type=ustore);
+CREATE TABLE
+CREATE INDEX idx_ubt_scan_id ON test_ubt_scan USING ubtree (id);
+CREATE INDEX
+INSERT INTO test_ubt_scan SELECT g, 'val_' || g FROM generate_series(1, 4000) g;
+INSERT 0 4000
+DELETE FROM test_ubt_scan WHERE id > 1000;
+DELETE 3000
+SELECT pg_sleep(1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+VACUUM test_ubt_scan;
+VACUUM
+SELECT gs_ubtree_shrink_check('idx_ubt_scan_id');
+                          gs_ubtree_shrink_check                           
+---------------------------------------------------------------------------
+ TotalBlocks: 18, TargetMaxBlock: 18, FreeTailBlocks: 0, MigratedBlocks: 0
+(1 row)
+
+SELECT gs_ubtree_shrink('idx_ubt_scan_id', true);
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
+SET enable_seqscan = off;
+SET
+SET enable_bitmapscan = off;
+SET
+-- Forward scan (ASC)
+SELECT id FROM test_ubt_scan ORDER BY id ASC LIMIT 5;
+ id 
+----
+  1
+  2
+  3
+  4
+  5
+(5 rows)
+
+-- Backward scan (DESC)
+SELECT id FROM test_ubt_scan ORDER BY id DESC LIMIT 5;
+  id  
+------
+ 1000
+  999
+  998
+  997
+  996
+(5 rows)
+
+-- Forward range scan
+SELECT id FROM test_ubt_scan WHERE id BETWEEN 500 AND 505 ORDER BY id ASC;
+ id  
+-----
+ 500
+ 501
+ 502
+ 503
+ 504
+ 505
+(6 rows)
+
+-- Backward range scan
+SELECT id FROM test_ubt_scan WHERE id BETWEEN 500 AND 505 ORDER BY id DESC;
+ id  
+-----
+ 505
+ 504
+ 503
+ 502
+ 501
+ 500
+(6 rows)
+
+-- Aggregate check
+SELECT count(*), sum(id), min(id), max(id) FROM test_ubt_scan;
+ count |  sum   | min | max  
+-------+--------+-----+------
+  1000 | 500500 |   1 | 1000
+(1 row)
+
+RESET enable_seqscan;
+RESET
+RESET enable_bitmapscan;
+RESET
+DROP TABLE test_ubt_scan CASCADE;
+DROP TABLE
+-- =========================================================================
+-- TestCase 7: Partial Index Shrink (WHERE clause)
+-- =========================================================================
+DROP TABLE IF EXISTS test_ubt_part CASCADE;
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:189: NOTICE:  table "test_ubt_part" does not exist, skipping
+DROP TABLE
+CREATE TABLE test_ubt_part (
+    id int,
+    status varchar(20),
+    info text
+) WITH (storage_type=ustore);
+CREATE TABLE
+CREATE INDEX idx_ubt_part_active ON test_ubt_part USING ubtree (id) WHERE status = 'active';
+CREATE INDEX
+INSERT INTO test_ubt_part
+SELECT g, CASE WHEN g <= 3000 THEN 'active' ELSE 'inactive' END, 'info_' || g
+FROM generate_series(1, 4000) g;
+INSERT 0 4000
+DELETE FROM test_ubt_part WHERE status = 'active' AND id > 500;
+DELETE 2500
+SELECT pg_sleep(1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+VACUUM test_ubt_part;
+VACUUM
+SELECT gs_ubtree_shrink_check('idx_ubt_part_active');
+                          gs_ubtree_shrink_check                           
+---------------------------------------------------------------------------
+ TotalBlocks: 14, TargetMaxBlock: 14, FreeTailBlocks: 0, MigratedBlocks: 0
+(1 row)
+
+SELECT gs_ubtree_shrink('idx_ubt_part_active');
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
+SET enable_seqscan = off;
+SET
+EXPLAIN (COSTS OFF) SELECT id FROM test_ubt_part WHERE status = 'active' AND id = 250;
+                      QUERY PLAN                       
+-------------------------------------------------------
+ [Bypass]
+ Index Scan using idx_ubt_part_active on test_ubt_part
+   Index Cond: (id = 250)
+(3 rows)
+
+SELECT id FROM test_ubt_part WHERE status = 'active' AND id = 250;
+ id  
+-----
+ 250
+(1 row)
+
+SELECT count(*) FROM test_ubt_part WHERE status = 'active';
+ count 
+-------
+   500
+(1 row)
+
+RESET enable_seqscan;
+RESET
+DROP TABLE test_ubt_part CASCADE;
+DROP TABLE
+-- =========================================================================
+-- TestCase 8: Multi-Type Indexing (timestamp, numeric, NULLS)
+-- =========================================================================
+DROP TABLE IF EXISTS test_ubt_types CASCADE;
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:219: NOTICE:  table "test_ubt_types" does not exist, skipping
+DROP TABLE
+CREATE TABLE test_ubt_types (
+    id int,
+    ts timestamp,
+    amount numeric(10,2)
+) WITH (storage_type=ustore);
+CREATE TABLE
+CREATE INDEX idx_ubt_types_all ON test_ubt_types USING ubtree (ts, amount);
+CREATE INDEX
+CREATE INDEX idx_ubt_types_nulls ON test_ubt_types USING ubtree (amount NULLS FIRST);
+CREATE INDEX
+INSERT INTO test_ubt_types
+SELECT g,
+       ('2026-01-01'::timestamp + (g || ' hours')::interval),
+       CASE WHEN g % 10 = 0 THEN NULL ELSE (g * 1.5)::numeric(10,2) END
+FROM generate_series(1, 3000) g;
+INSERT 0 3000
+DELETE FROM test_ubt_types WHERE id > 500;
+DELETE 2500
+SELECT pg_sleep(1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+VACUUM test_ubt_types;
+VACUUM
+SELECT gs_ubtree_shrink('idx_ubt_types_all');
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
+SELECT gs_ubtree_shrink('idx_ubt_types_nulls');
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
+SET enable_seqscan = off;
+SET
+-- Nulls scan verification
+SELECT count(*) FROM test_ubt_types WHERE amount IS NULL;
+ count 
+-------
+    50
+(1 row)
+
+SELECT count(*) FROM test_ubt_types WHERE amount IS NOT NULL;
+ count 
+-------
+   450
+(1 row)
+
+SELECT count(*) FROM test_ubt_types WHERE ts > '2026-01-01'::timestamp;
+ count 
+-------
+   500
+(1 row)
+
+RESET enable_seqscan;
+RESET
+DROP TABLE test_ubt_types CASCADE;
+DROP TABLE
+-- =========================================================================
+-- TestCase 9: Transaction Rollback & Abort Safety
+-- =========================================================================
+DROP TABLE IF EXISTS test_ubt_tx CASCADE;
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:253: NOTICE:  table "test_ubt_tx" does not exist, skipping
+DROP TABLE
+CREATE TABLE test_ubt_tx (
+    id int
+) WITH (storage_type=ustore);
+CREATE TABLE
+CREATE INDEX idx_ubt_tx_id ON test_ubt_tx USING ubtree (id);
+CREATE INDEX
+INSERT INTO test_ubt_tx SELECT generate_series(1, 1000);
+INSERT 0 1000
+-- Transaction that deletes but rolls back
+BEGIN;
+BEGIN
+DELETE FROM test_ubt_tx WHERE id > 200;
+DELETE 800
+ROLLBACK;
+ROLLBACK
+SELECT pg_sleep(1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+VACUUM test_ubt_tx;
+VACUUM
+-- Shrink must NOT delete live data protected by rollback
+SELECT gs_ubtree_shrink('idx_ubt_tx_id');
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
+SELECT count(*) FROM test_ubt_tx;
+ count 
+-------
+  1000
+(1 row)
+
+-- Transaction that inserts but rolls back
+BEGIN;
+BEGIN
+INSERT INTO test_ubt_tx SELECT generate_series(1001, 3000);
+INSERT 0 2000
+ROLLBACK;
+ROLLBACK
+SELECT pg_sleep(1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+VACUUM test_ubt_tx;
+VACUUM
+SELECT gs_ubtree_shrink_check('idx_ubt_tx_id');
+                          gs_ubtree_shrink_check                          
+--------------------------------------------------------------------------
+ TotalBlocks: 14, TargetMaxBlock: 5, FreeTailBlocks: 9, MigratedBlocks: 2
+(1 row)
+
+SELECT gs_ubtree_shrink('idx_ubt_tx_id');
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
+SELECT count(*) FROM test_ubt_tx;
+ count 
+-------
+  1000
+(1 row)
+
+DROP TABLE test_ubt_tx CASCADE;
+DROP TABLE
+-- =========================================================================
+-- TestCase 10: Multi-Round Continuous Growth and Shrink Lifecycle
+-- =========================================================================
+DROP TABLE IF EXISTS test_ubt_cycle CASCADE;
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:289: NOTICE:  table "test_ubt_cycle" does not exist, skipping
+DROP TABLE
+CREATE TABLE test_ubt_cycle (
+    id int,
+    data text
+) WITH (storage_type=ustore);
+CREATE TABLE
+CREATE INDEX idx_ubt_cycle_id ON test_ubt_cycle USING ubtree (id);
+CREATE INDEX
+-- Cycle 1: Insert 3000, Delete 2000, Shrink
+INSERT INTO test_ubt_cycle SELECT g, 'cycle1_' || g FROM generate_series(1, 3000) g;
+INSERT 0 3000
+DELETE FROM test_ubt_cycle WHERE id > 1000;
+DELETE 2000
+SELECT pg_sleep(1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+VACUUM test_ubt_cycle;
+VACUUM
+SELECT gs_ubtree_shrink('idx_ubt_cycle_id');
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
+SELECT count(*) FROM test_ubt_cycle;
+ count 
+-------
+  1000
+(1 row)
+
+-- Cycle 2: Insert 2000 new records, Delete 1500, Shrink again
+INSERT INTO test_ubt_cycle SELECT g, 'cycle2_' || g FROM generate_series(3001, 5000) g;
+INSERT 0 2000
+DELETE FROM test_ubt_cycle WHERE id > 3500;
+DELETE 1500
+SELECT pg_sleep(1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+VACUUM test_ubt_cycle;
+VACUUM
+SELECT gs_ubtree_shrink('idx_ubt_cycle_id');
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
+SELECT count(*) FROM test_ubt_cycle;
+ count 
+-------
+  1500
+(1 row)
+
+-- Cycle 3: Immediate second shrink (idempotent)
+SELECT gs_ubtree_shrink('idx_ubt_cycle_id');
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
+SELECT count(*) FROM test_ubt_cycle;
+ count 
+-------
+  1500
+(1 row)
+
+-- Final read integrity
+SET enable_seqscan = off;
+SET
+SELECT count(*) FROM test_ubt_cycle WHERE id BETWEEN 500 AND 3200;
+ count 
+-------
+   701
+(1 row)
+
+RESET enable_seqscan;
+RESET
+DROP TABLE test_ubt_cycle CASCADE;
+DROP TABLE
 -- =========================================================================
 -- Clean Up All Test Objects
 -- =========================================================================
-DROP TABLE test_ubt_shrink_tbl CASCADE;
-DROP TABLE test_ubt_shrink_comp CASCADE;
-DROP TABLE test_ubt_shrink_empty CASCADE;
-DROP TABLE test_btree_tbl CASCADE;
+DROP TABLE IF EXISTS test_ubt_shrink_tbl CASCADE;
+DROP TABLE
+DROP TABLE IF EXISTS test_ubt_shrink_comp CASCADE;
+DROP TABLE
+DROP TABLE IF EXISTS test_ubt_shrink_empty CASCADE;
+DROP TABLE
+DROP TABLE IF EXISTS test_btree_tbl CASCADE;
+DROP TABLE
+DROP TABLE IF EXISTS test_ubt_scan CASCADE;
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:330: NOTICE:  table "test_ubt_scan" does not exist, skipping
+DROP TABLE
+DROP TABLE IF EXISTS test_ubt_part CASCADE;
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:331: NOTICE:  table "test_ubt_part" does not exist, skipping
+DROP TABLE
+DROP TABLE IF EXISTS test_ubt_types CASCADE;
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:332: NOTICE:  table "test_ubt_types" does not exist, skipping
+DROP TABLE
+DROP TABLE IF EXISTS test_ubt_tx CASCADE;
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:333: NOTICE:  table "test_ubt_tx" does not exist, skipping
+DROP TABLE
+DROP TABLE IF EXISTS test_ubt_cycle CASCADE;
+gsql:/home/fengyao/openGauss-server/src/test/regress/sql/test_ubtree_shrink.sql:334: NOTICE:  table "test_ubt_cycle" does not exist, skipping
+DROP TABLE
