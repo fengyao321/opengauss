@@ -1913,6 +1913,7 @@ void UBTree2XlogShrinkMoveLeaf(XLogReaderState* record)
         UBTPageOpaqueInternal opaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(page);
         opaque->btpo_flags &= ~BTP_HALF_DEAD;
         opaque->btpo_flags |= BTP_DELETED;
+        opaque->btpo_next = xlrec->newBlk;
         PageSetLSN(page, lsn);
         MarkBufferDirty(victimbuf.buf);
     }

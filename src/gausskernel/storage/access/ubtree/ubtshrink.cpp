@@ -864,8 +864,9 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
     UBTreeTupleSetDownLink(pItup, newBlk);
     MarkBufferDirty(parentBuf);
 
-    /* Mark victim page as deleted */
+    /* Mark victim page as deleted and point its right-link to newBlk for in-flight forward scanners */
     victimOpaque->btpo_flags |= BTP_DELETED;
+    victimOpaque->btpo_next = newBlk;
     ((UBTPageOpaque)victimOpaque)->xact = ReadNewTransactionId();
 
     MarkBufferDirty(newBuf);
