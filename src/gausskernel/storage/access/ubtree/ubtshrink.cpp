@@ -106,6 +106,128 @@ static void UBTreePurgeRecycleQueueAboveWatermark(Relation rel, BlockNumber targ
     }
 }
 
+typedef struct UBTreeFreeBlockEntry {
+    BlockNumber blkno;
+    BlockNumber queueBlk;
+    uint16 offset;
+} UBTreeFreeBlockEntry;
+
+typedef struct UBTreeURQInventory {
+    UBTreeFreeBlockEntry *entries;
+    int count;
+    int capacity;
+} UBTreeURQInventory;
+
+static int CompareFreeBlockEntries(const void *a, const void *b)
+{
+    BlockNumber blkA = ((const UBTreeFreeBlockEntry *)a)->blkno;
+    BlockNumber blkB = ((const UBTreeFreeBlockEntry *)b)->blkno;
+    if (blkA < blkB) {
+        return -1;
+    }
+    if (blkA > blkB) {
+        return 1;
+    }
+    return 0;
+}
+
+/*
+ * Collect valid, transaction-visible free blocks from the UBTree Recycle Queue (URQ).
+ * The resulting list is deduplicated and sorted ascending by block number.
+ */
+static void UBTreeCollectURQFreeBlocks(Relation rel, UBTreeURQInventory *inv)
+{
+    inv->count = 0;
+    inv->capacity = 1024;
+    inv->entries = (UBTreeFreeBlockEntry *)palloc0(sizeof(UBTreeFreeBlockEntry) * inv->capacity);
+
+    if (!RecycleQueueInitialized(rel)) {
+        return;
+    }
+
+    TransactionId oldestXmin = u_sess->utils_cxt.RecentGlobalDataXmin;
+    UBTRecycleForkNumber forks[] = {RECYCLE_FREED_FORK, RECYCLE_EMPTY_FORK};
+
+    for (int i = 0; i < 2; i++) {
+        UBTRecycleForkNumber fork = forks[i];
+        const BlockNumber metaBlockNumber = (BlockNumber)fork;
+        Buffer metaBuf = ReadRecycleQueueBuffer(rel, metaBlockNumber);
+        LockBuffer(metaBuf, BT_READ);
+        UBTRecycleMeta metaData = (UBTRecycleMeta)PageGetContents(BufferGetPage(metaBuf));
+        BlockNumber startBlkno = metaData->headBlkno;
+        LockBuffer(metaBuf, BUFFER_LOCK_UNLOCK);
+        ReleaseBuffer(metaBuf);
+
+        if (!BlockNumberIsValid(startBlkno)) {
+            continue;
+        }
+
+        Buffer currBuf = ReadRecycleQueueBuffer(rel, startBlkno);
+        LockBuffer(currBuf, BT_READ);
+        currBuf = MoveToEndpointPage(rel, currBuf, true, BT_READ);
+
+        BlockNumber firstVisited = BufferGetBlockNumber(currBuf);
+        for (;;) {
+            Page page = BufferGetPage(currBuf);
+            BlockNumber currBlkno = BufferGetBlockNumber(currBuf);
+            UBTRecycleQueueHeader header = GetRecycleQueueHeader(page, currBlkno);
+
+            uint16 offset = header->head;
+            while (IsNormalOffset(offset)) {
+                UBTRecycleQueueItem item = HeaderGetItem(header, offset);
+                uint16 nextOffset = item->next;
+
+                if (BlockNumberIsValid(item->blkno)) {
+                    bool visible = true;
+                    if (TransactionIdIsValid(item->xid) && TransactionIdIsValid(oldestXmin)) {
+                        if (TransactionIdFollowsOrEquals(item->xid, oldestXmin)) {
+                            visible = false;
+                        }
+                    }
+                    if (visible) {
+                        if (inv->count >= inv->capacity) {
+                            inv->capacity *= 2;
+                            inv->entries = (UBTreeFreeBlockEntry *)repalloc(inv->entries,
+                                                                            sizeof(UBTreeFreeBlockEntry) * inv->capacity);
+                        }
+                        inv->entries[inv->count].blkno = item->blkno;
+                        inv->entries[inv->count].queueBlk = currBlkno;
+                        inv->entries[inv->count].offset = offset;
+                        inv->count++;
+                    }
+                }
+                offset = nextOffset;
+            }
+
+            if ((header->flags & URQ_TAIL_PAGE) != 0) {
+                UnlockReleaseBuffer(currBuf);
+                break;
+            }
+
+            BlockNumber nextBlkno = header->nextBlkno;
+            UnlockReleaseBuffer(currBuf);
+
+            if (nextBlkno == firstVisited || !BlockNumberIsValid(nextBlkno)) {
+                break;
+            }
+
+            currBuf = ReadRecycleQueueBuffer(rel, nextBlkno);
+            LockBuffer(currBuf, BT_READ);
+        }
+    }
+
+    if (inv->count > 1) {
+        qsort(inv->entries, inv->count, sizeof(UBTreeFreeBlockEntry), CompareFreeBlockEntries);
+        int writeIdx = 1;
+        for (int readIdx = 1; readIdx < inv->count; readIdx++) {
+            if (inv->entries[readIdx].blkno != inv->entries[writeIdx - 1].blkno) {
+                inv->entries[writeIdx++] = inv->entries[readIdx];
+            }
+        }
+        inv->count = writeIdx;
+    }
+}
+
 /*
  * Scan backwards from trailing blocks of UBTree index to evaluate shrink feasibility.
  */
@@ -157,7 +279,23 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
         bool isNew = PageIsNew(page);
         bool isDead = (isNew || P_ISDELETED(opaque));
 
-        LockBuffer(buf, BUFFER_LOCK_UNLOCK);
+        if (!isDead && P_ISHALFDEAD(opaque)) {
+            /* Try to unlink half-dead page to promote to P_ISDELETED */
+            LockBuffer(buf, BUFFER_LOCK_UNLOCK);
+            if (ConditionalLockBuffer(buf)) {
+                page = BufferGetPage(buf);
+                opaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(page);
+                if (P_ISHALFDEAD(opaque)) {
+                    bool rightsib_empty = false;
+                    if (UBTreeUnlinkHalfDeadPage(rel, buf, &rightsib_empty, NULL)) {
+                        isDead = true;
+                    }
+                }
+                LockBuffer(buf, BUFFER_LOCK_UNLOCK);
+            }
+        } else {
+            LockBuffer(buf, BUFFER_LOCK_UNLOCK);
+        }
         ReleaseBuffer(buf);
 
         if (isDead) {
@@ -173,25 +311,29 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
 
     /*
      * Targeted Migration: Check if further truncation is possible by migrating
-     * isolated active pages (leaf or internal) from high-watermark blocks to free slots in low-watermark blocks.
-     * We use a two-pointer compaction strategy:
-     * - highScan starts at targetMaxBlock - 1 moving backward, identifying active victim pages.
-     * - lowScan starts at FirstNormalBlockNumber + 1 moving forward, identifying dead/empty slots.
-     * When highScan encounters dead pages or lowScan finds free slots, we track the compaction cutoff
-     * point where all victims above cutoff can be accommodated by free slots strictly below cutoff.
+     * isolated active pages (leaf or internal) from high-watermark blocks to free slots
+     * in lower blocks.
+     * We use a URQ-driven compaction strategy:
+     * 1. Collect free blocks from the UBTree Recycle Queue (URQ) and sort them ascending.
+     * 2. Scan backwards from targetMaxBlock - 1 to identify active victim pages.
+     * 3. Match victims with the lowest available free slots from URQ (or fallback dead pages).
+     * 4. When all victims above tentativeCutoff can be accommodated by free slots strictly below tentativeCutoff,
+     *    we compute the cost/benefit ratio and update bestCutoff.
      */
     if (stats->targetMaxBlock > FirstNormalBlockNumber + 2) {
+        UBTreeURQInventory inv;
+        UBTreeCollectURQFreeBlocks(rel, &inv);
+
         BlockNumber highScan = stats->targetMaxBlock - 1;
-        BlockNumber lowScan = FirstNormalBlockNumber + 1;
         BlockNumber victimsCount = 0;
-        BlockNumber freeSlotsCount = 0;
-        BlockNumber lastAllocatedSlot = 0;
+        int freeSlotIdx = 0;
+        BlockNumber maxAllocatedSlot = 0;
 
         BlockNumber bestCutoff = stats->targetMaxBlock;
         BlockNumber bestVictims = 0;
         BlockNumber bestFreed = stats->freedTailBlocks;
 
-        while (highScan > lowScan && victimsCount < effectiveMaxPages) {
+        while (highScan > FirstNormalBlockNumber && victimsCount < effectiveMaxPages) {
             Buffer hBuf = ReadBuffer(rel, highScan);
             LockBuffer(hBuf, BT_READ);
             Page hPage = BufferGetPage(hBuf);
@@ -204,13 +346,9 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
             ReleaseBuffer(hBuf);
 
             if (hDead) {
-                /*
-                 * High pointer found a dead page.
-                 * If we have victims and enough free slots, check if highScan can be a safe cutoff.
-                 * The cutoff must be strictly greater than all allocated slots below cutoff.
-                 */
-                if (victimsCount > 0 && freeSlotsCount >= victimsCount) {
-                    BlockNumber minSafeCutoff = lastAllocatedSlot + 1;
+                /* Dead page encountered: check if highScan can be an eligible cutoff */
+                if (victimsCount > 0) {
+                    BlockNumber minSafeCutoff = maxAllocatedSlot + 1;
                     if (highScan >= minSafeCutoff) {
                         BlockNumber tentativeCutoff = highScan;
                         BlockNumber tentativeFreed = stats->totalBlocks - tentativeCutoff;
@@ -225,34 +363,18 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
                     }
                 }
             } else if (!hRoot) {
-                /*
-                 * Active leaf or internal page - eligible victim for migration.
-                 * (Root page cannot be migrated).
-                 */
-                victimsCount++;
-
-                /* Advance lowScan to find at least victimsCount free slots */
-                while (lowScan < highScan && freeSlotsCount < victimsCount) {
-                    Buffer lBuf = ReadBuffer(rel, lowScan);
-                    LockBuffer(lBuf, BT_READ);
-                    Page lPage = BufferGetPage(lBuf);
-                    UBTPageOpaqueInternal lOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(lPage);
-
-                    bool lDead = (PageIsNew(lPage) || P_ISDELETED(lOpaque));
-
-                    LockBuffer(lBuf, BUFFER_LOCK_UNLOCK);
-                    ReleaseBuffer(lBuf);
-
-                    if (lDead) {
-                        freeSlotsCount++;
-                        lastAllocatedSlot = lowScan;
-                    }
-                    lowScan++;
+                /* Active page: candidate victim */
+                /* Find next available slot in inv strictly below highScan */
+                while (freeSlotIdx < inv.count && inv.entries[freeSlotIdx].blkno >= highScan) {
+                    freeSlotIdx++;
                 }
 
-                /* If we found enough free slots below highScan, evaluate shrink ratio */
-                if (freeSlotsCount >= victimsCount) {
-                    BlockNumber minSafeCutoff = lastAllocatedSlot + 1;
+                if (freeSlotIdx < inv.count) {
+                    maxAllocatedSlot = Max(maxAllocatedSlot, inv.entries[freeSlotIdx].blkno);
+                    victimsCount++;
+                    freeSlotIdx++;
+
+                    BlockNumber minSafeCutoff = maxAllocatedSlot + 1;
                     if (highScan >= minSafeCutoff) {
                         BlockNumber tentativeCutoff = highScan;
                         BlockNumber tentativeFreed = stats->totalBlocks - tentativeCutoff;
@@ -266,15 +388,19 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
                         }
                     }
                 } else {
-                    /* Not enough free slots available below highScan */
+                    /* No more free slots in URQ below highScan */
                     break;
                 }
             } else {
-                /* Root page encountered, cannot migrate root */
+                /* Root page encountered, stop */
                 break;
             }
 
             highScan--;
+        }
+
+        if (inv.entries != NULL) {
+            pfree(inv.entries);
         }
 
         if (bestVictims > 0 && bestCutoff < stats->targetMaxBlock) {
@@ -343,6 +469,7 @@ static bool UBTreeOnlineTruncate(Relation rel, BlockNumber targetMaxBlock, UBTre
     }
     UnlockRelationForExtension(rel, ExclusiveLock);
 
+    UnlockRelation(rel, AccessExclusiveLock);
 
     return true;
 }
@@ -356,7 +483,10 @@ static bool UBTreeOnlineTruncate(Relation rel, BlockNumber targetMaxBlock, UBTre
  * 3. rightBuf (BT_WRITE)
  * 4. parentBuf (BT_WRITE via UBTreeSearch/UBTreeGetStackBuf)
  */
-static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumber targetMaxBlock, bool isOnline)
+static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumber targetMaxBlock, bool isOnline,
+                                 BlockNumber targetFreeBlk = InvalidBlockNumber,
+                                 BlockNumber targetQueueBlk = InvalidBlockNumber,
+                                 uint16 targetOffset = 0)
 {
     /* Refresh transaction horizon for URQ page recycling */
     TransactionId recycleXmin = InvalidTransactionId;
@@ -602,35 +732,60 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
 
     /*
      * Step 6: Allocate free page below targetMaxBlock.
+     * If a specific targetFreeBlk from URQ was designated, try to acquire it first.
      */
     Buffer newBuf = InvalidBuffer;
     BlockNumber newBlk = InvalidBlockNumber;
     UBTRecycleQueueAddress newAddr;
     newAddr.queueBuf = InvalidBuffer;
+    bool fromURQDirect = false;
 
-    for (int retry = 0; retry < 50; retry++) {
-        UBTRecycleQueueAddress addr;
-        addr.queueBuf = InvalidBuffer;
-        newBuf = UBTreeGetAvailablePage(rel, RECYCLE_FREED_FORK, &addr, NULL);
-        if (newBuf == InvalidBuffer) {
-            newBuf = UBTreeGetAvailablePage(rel, RECYCLE_EMPTY_FORK, &addr, NULL);
+    if (BlockNumberIsValid(targetFreeBlk) && targetFreeBlk < targetMaxBlock &&
+        targetFreeBlk != leftBlk && targetFreeBlk != rightBlk && targetFreeBlk != victimBlk &&
+        (!BufferIsValid(parentBuf) || targetFreeBlk != BufferGetBlockNumber(parentBuf))) {
+        Buffer testBuf = ReadBuffer(rel, targetFreeBlk);
+        bool gotLock = isOnline ? ConditionalLockBuffer(testBuf) : (LockBuffer(testBuf, BT_WRITE), true);
+        if (gotLock) {
+            Page testPage = BufferGetPage(testBuf);
+            UBTPageOpaqueInternal testOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(testPage);
+            if (PageIsNew(testPage) || P_ISDELETED(testOpaque)) {
+                newBuf = testBuf;
+                newBlk = targetFreeBlk;
+                fromURQDirect = true;
+            } else {
+                LockBuffer(testBuf, BUFFER_LOCK_UNLOCK);
+                ReleaseBuffer(testBuf);
+            }
+        } else {
+            ReleaseBuffer(testBuf);
         }
-        if (newBuf == InvalidBuffer) {
+    }
+
+    if (!BufferIsValid(newBuf)) {
+        for (int retry = 0; retry < 50; retry++) {
+            UBTRecycleQueueAddress addr;
+            addr.queueBuf = InvalidBuffer;
+            newBuf = UBTreeGetAvailablePage(rel, RECYCLE_FREED_FORK, &addr, NULL);
+            if (newBuf == InvalidBuffer) {
+                newBuf = UBTreeGetAvailablePage(rel, RECYCLE_EMPTY_FORK, &addr, NULL);
+            }
+            if (newBuf == InvalidBuffer) {
+                if (addr.queueBuf != InvalidBuffer) {
+                    ReleaseBuffer(addr.queueBuf);
+                }
+                break;
+            }
+            newBlk = BufferGetBlockNumber(newBuf);
+            if (newBlk < targetMaxBlock) {
+                newAddr = addr;
+                break;
+            }
             if (addr.queueBuf != InvalidBuffer) {
                 ReleaseBuffer(addr.queueBuf);
             }
-            break;
+            _bt_relbuf(rel, newBuf);
+            newBuf = InvalidBuffer;
         }
-        newBlk = BufferGetBlockNumber(newBuf);
-        if (newBlk < targetMaxBlock) {
-            newAddr = addr;
-            break;
-        }
-        if (addr.queueBuf != InvalidBuffer) {
-            ReleaseBuffer(addr.queueBuf);
-        }
-        _bt_relbuf(rel, newBuf);
-        newBuf = InvalidBuffer;
     }
 
     if (newBuf == InvalidBuffer || newBlk >= targetMaxBlock) {
@@ -680,12 +835,14 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
     START_CRIT_SECTION();
 
     Page newPage = BufferGetPage(newBuf);
-    errno_t rc = memcpy_s(newPage, BLCKSZ, victimPage, BLCKSZ);
-    securec_check(rc, "", "");
+    UBTreePageInit(newPage, BLCKSZ);
+    memcpy(newPage, victimPage, BLCKSZ);
+
     UBTPageOpaqueInternal newOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(newPage);
     newOpaque->btpo_prev = leftBlk;
     newOpaque->btpo_next = rightBlk;
 
+    /* Update sibling links */
     if (BufferIsValid(leftBuf)) {
         Page leftPage = BufferGetPage(leftBuf);
         UBTPageOpaqueInternal leftOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(leftPage);
@@ -707,8 +864,7 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
     UBTreeTupleSetDownLink(pItup, newBlk);
     MarkBufferDirty(parentBuf);
 
-    /* Mark victimPage deleted */
-    victimOpaque->btpo_flags &= ~BTP_HALF_DEAD;
+    /* Mark victim page as deleted */
     victimOpaque->btpo_flags |= BTP_DELETED;
     ((UBTPageOpaque)victimOpaque)->xact = ReadNewTransactionId();
 
@@ -755,7 +911,12 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
 
     END_CRIT_SECTION();
 
-    if (newAddr.queueBuf != InvalidBuffer) {
+    if (fromURQDirect && BlockNumberIsValid(targetQueueBlk)) {
+        Buffer qbuf = ReadRecycleQueueBuffer(rel, targetQueueBlk);
+        LockBuffer(qbuf, BT_WRITE);
+        RemoveOneItemFromPage(rel, qbuf, targetOffset);
+        UnlockReleaseBuffer(qbuf);
+    } else if (newAddr.queueBuf != InvalidBuffer) {
         UBTreeRecordUsedPage(rel, newAddr);
         ReleaseBuffer(newAddr.queueBuf);
     }
@@ -783,10 +944,15 @@ static void UBTreeMigratePages(Relation rel, UBTreeShrinkStats *stats, bool isOn
         return;
     }
 
-    BlockNumber currentBlk = stats->totalBlocks - 1;
-    BlockNumber migratedCount = 0;
+    UBTreeURQInventory inv;
+    UBTreeCollectURQFreeBlocks(rel, &inv);
 
-    while (currentBlk >= stats->migrateTargetCutoff && migratedCount < stats->migratedBlocks) {
+    BlockNumber currentBlk = stats->totalBlocks - 1;
+    BlockNumber cutoff = stats->migrateTargetCutoff;
+    BlockNumber migratedCount = 0;
+    int freeSlotIdx = 0;
+
+    while (currentBlk >= cutoff) {
         Buffer buf = ReadBuffer(rel, currentBlk);
         LockBuffer(buf, BT_READ);
         Page page = BufferGetPage(buf);
@@ -799,7 +965,23 @@ static void UBTreeMigratePages(Relation rel, UBTreeShrinkStats *stats, bool isOn
         ReleaseBuffer(buf);
 
         if (!isDead && !isRoot) {
-            if (UBTreeMigrateOnePage(rel, currentBlk, stats->migrateTargetCutoff, isOnline)) {
+            BlockNumber targetFreeBlk = InvalidBlockNumber;
+            BlockNumber targetQueueBlk = InvalidBlockNumber;
+            uint16 targetOffset = 0;
+
+            while (freeSlotIdx < inv.count) {
+                if (inv.entries[freeSlotIdx].blkno < cutoff && inv.entries[freeSlotIdx].blkno < currentBlk) {
+                    targetFreeBlk = inv.entries[freeSlotIdx].blkno;
+                    targetQueueBlk = inv.entries[freeSlotIdx].queueBlk;
+                    targetOffset = inv.entries[freeSlotIdx].offset;
+                    freeSlotIdx++;
+                    break;
+                }
+                freeSlotIdx++;
+            }
+
+            if (UBTreeMigrateOnePage(rel, currentBlk, stats->migrateTargetCutoff, isOnline,
+                                     targetFreeBlk, targetQueueBlk, targetOffset)) {
                 migratedCount++;
             }
         }
@@ -808,6 +990,10 @@ static void UBTreeMigratePages(Relation rel, UBTreeShrinkStats *stats, bool isOn
             break;
         }
         currentBlk--;
+    }
+
+    if (inv.entries != NULL) {
+        pfree(inv.entries);
     }
 
     stats->migratedBlocks = migratedCount;

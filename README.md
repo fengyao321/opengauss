@@ -19,10 +19,11 @@
 
 ## 2. 核心架构与设计方案
 
-### 2.1 双指针收缩可行性判定（Two-Pointer Compaction Analysis）
-收缩核心函数 `UBTreeShrinkCheckInternal` 采用对向双指针扫描算法：
-- **右指针（尾部反向扫描）**：从文件当前最大块 `totalBlocks - 1` 向前探测，识别尾部的完全空页与可迁移死页，确定理论最大收缩边界；
-- **左指针（低位空闲页探测）**：在收缩水位线以下扫描已标记 `BTP_DELETED` 的可复用空槽或 URQ 队列中的空页；
+### 2.1 URQ 回收队列驱动的紧凑度分析与定向映射（URQ-Driven Compaction & Target Mapping）
+收缩核心函数 `UBTreeShrinkCheckInternal` 采用创新性的 URQ 回收队列驱动判定算法：
+- **URQ 空闲页清单收集与升序编排（`UBTreeCollectURQFreeBlocks`）**：全量遍历 UBTree 的 `RECYCLE_FREED_FORK` 与 `RECYCLE_EMPTY_FORK`，依据 `RecentGlobalDataXmin` 严格过滤已提交全局可见的空闲物理页，去重并按物理块号从小到大（`blkno ASC`）严格排序，建立低位空页库存池；
+- **尾部逆向扫描（Tail Backward Scan）与主动解链**：从当前文件最大块向前扫描探测连续可截断物理块。针对处于 `P_ISHALFDEAD` 状态的半死页面，主动调用 `UBTreeUnlinkHalfDeadPage` 完成安全解链，避免其阻断尾部连续空页截断；
+- **定向一一映射与搬迁计划**：将尾部需保留搬迁的活跃叶子页（Victim Blocks），由高到低与 URQ 库存池中处于收缩水位线以下（`< targetMaxBlock`）的物理块号最低的空页（Target Free Blocks）进行定向匹配，彻底杜绝盲目分配导致跨越目标水位线的问题；
 - **动态成本模型**：支持传入成本收缩比阈值（`costRatio`，默认 0.50）与最大迁移页数限制（`maxPages`，默认 512）。仅当迁移少量活跃页所释放的尾部连续物理空间满足收益期望时，才触发定向迁移与物理截断，避免无效 I/O。
 
 ### 2.2 层级感知父节点定位与双向链表拓扑修复（Level-Aware Parent Locator & Topology Repair）
@@ -93,9 +94,9 @@ SELECT gs_ubtree_shrink('idx_user_log_id', true, 1024, 0.40);
 | 测试场景 | 数据规模与删除模式 | `gs_ubtree_shrink` 耗时 | `VACUUM FULL` 耗时 | `REINDEX` 耗时 | 空间回收效果 (`gs_ubtree_shrink`) | 数据完整性校验 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Scenario 1** | 100K 行，尾部删除 80% | **7.75 ms** | 190.63 ms | 37.73 ms | **3096 kB → 640 kB (-79.3%)** | 100% 准确 (20,000 行) |
-| **Scenario 2** | 500K 行，删除 90% | **13.19 ms** | 168.66 ms | 62.83 ms | 15 MB → 14 MB (叶子层定向搬迁) | 100% 准确 (50,000 行) |
+| **Scenario 2** | 500K 行，删除 90% | **22.91 ms** | 194.67 ms | 74.14 ms | **15 MB → 3288 kB (-78.7%)** | 100% 准确 (50,000 行) |
 | **Scenario 3** | 200K 行，散列交替删除 50% | **4.08 ms** | 301.68 ms | 120.14 ms | 6200 kB → 6200 kB (无尾部空洞安全跳过) | 100% 准确 (100,000 行) |
-| **Scenario 4** | 1M 行，极端删除 95% | **18.40 ms** | 178.90 ms | 74.81 ms | 30 MB → 30 MB (毫秒级跳过无损执行) | 100% 准确 (50,000 行) |
+| **Scenario 4** | 1M 行，极端删除 95% | **54.37 ms** | 280.88 ms | 114.77 ms | **30 MB → 3288 kB (-89.4%)** | 100% 准确 (50,000 行) |
 
 #### 关键性能优势：
 - **执行速度极快**：在典型收缩场景下，`gs_ubtree_shrink` 仅需 **7.75 ms**，相比 `VACUUM FULL` 提速 **24.6 倍**，相比 `REINDEX` 提速 **4.9 倍**；
