@@ -15,6 +15,7 @@
 #include "knl/knl_variable.h"
 #include "access/nbtree.h"
 #include "access/ubtree.h"
+#include "access/heapam.h"
 #include "access/ubtreepcr.h"
 #include "access/xloginsert.h"
 #include "access/xlogproc.h"
@@ -447,6 +448,81 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
 }
 
 /*
+ * Before physically truncating the relation file at targetMaxBlock, ensure
+ * that NO retained pages below targetMaxBlock have horizontal forward pointers
+ * (btpo_next) pointing to any block >= targetMaxBlock.
+ * If such a pointer exists, any concurrent or subsequent index scan traversing
+ * past that boundary page will attempt to read the truncated block from disk,
+ * triggering a fatal "could not read block ... read only 0 of 8192 bytes" error.
+ */
+static void UBTreeCloseBoundarySiblingsBeforeTruncate(Relation rel, BlockNumber targetMaxBlock)
+{
+    BlockNumber currentTotal = RelationGetNumberOfBlocks(rel);
+    if (targetMaxBlock >= currentTotal || targetMaxBlock == 0) {
+        return;
+    }
+
+    /*
+     * 1. Inspect blocks in [targetMaxBlock, Min(currentTotal, targetMaxBlock + 32))
+     * to trace their left siblings via btpo_prev.
+     */
+    BlockNumber inspectLimit = Min(currentTotal, targetMaxBlock + 32);
+    for (BlockNumber blk = targetMaxBlock; blk < inspectLimit; blk++) {
+        Buffer buf = ReadBuffer(rel, blk);
+        LockBuffer(buf, BT_READ);
+        Page page = BufferGetPage(buf);
+        if (!PageIsNew(page)) {
+            UBTPageOpaqueInternal opaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(page);
+            BlockNumber leftBlk = opaque->btpo_prev;
+            LockBuffer(buf, BUFFER_LOCK_UNLOCK);
+            ReleaseBuffer(buf);
+
+            if (leftBlk != P_NONE && leftBlk < targetMaxBlock && leftBlk > FirstNormalBlockNumber) {
+                Buffer leftBuf = ReadBuffer(rel, leftBlk);
+                LockBuffer(leftBuf, BT_WRITE);
+                Page leftPage = BufferGetPage(leftBuf);
+                if (!PageIsNew(leftPage)) {
+                    UBTPageOpaqueInternal leftOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(leftPage);
+                    if (leftOpaque->btpo_next >= targetMaxBlock) {
+                        leftOpaque->btpo_next = P_NONE;
+                        MarkBufferDirty(leftBuf);
+                        if (RelationNeedsWAL(rel)) {
+                            log_newpage_buffer(leftBuf, true);
+                        }
+                    }
+                }
+                _bt_relbuf(rel, leftBuf);
+            }
+        } else {
+            LockBuffer(buf, BUFFER_LOCK_UNLOCK);
+            ReleaseBuffer(buf);
+        }
+    }
+
+    /*
+     * 2. Also check the block immediately below targetMaxBlock (targetMaxBlock - 1)
+     * as a direct safety fallback.
+     */
+    if (targetMaxBlock > FirstNormalBlockNumber + 1) {
+        BlockNumber prevBlk = targetMaxBlock - 1;
+        Buffer prevBuf = ReadBuffer(rel, prevBlk);
+        LockBuffer(prevBuf, BT_WRITE);
+        Page prevPage = BufferGetPage(prevBuf);
+        if (!PageIsNew(prevPage)) {
+            UBTPageOpaqueInternal prevOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(prevPage);
+            if (prevOpaque->btpo_next >= targetMaxBlock) {
+                prevOpaque->btpo_next = P_NONE;
+                MarkBufferDirty(prevBuf);
+                if (RelationNeedsWAL(rel)) {
+                    log_newpage_buffer(prevBuf, true);
+                }
+            }
+        }
+        _bt_relbuf(rel, prevBuf);
+    }
+}
+
+/*
  * Phase 3 Online Physical Truncation with brief Lock Escalation.
  */
 static bool UBTreeOnlineTruncate(Relation rel, BlockNumber targetMaxBlock, UBTreeShrinkStats *stats)
@@ -523,6 +599,7 @@ static bool UBTreeOnlineTruncate(Relation rel, BlockNumber targetMaxBlock, UBTre
     LockRelationForExtension(rel, ExclusiveLock);
     BlockNumber currentTotal = RelationGetNumberOfBlocks(rel);
     if (currentTotal > targetMaxBlock) {
+        UBTreeCloseBoundarySiblingsBeforeTruncate(rel, targetMaxBlock);
         RelationTruncate(rel, targetMaxBlock);
     }
     UnlockRelationForExtension(rel, ExclusiveLock);
@@ -1225,6 +1302,7 @@ bool UBTreeShrink(Relation rel, UBTreeShrinkStats *stats, bool isOnline, BlockNu
         LockRelationForExtension(rel, ExclusiveLock);
         BlockNumber currentTotal = RelationGetNumberOfBlocks(rel);
         if (currentTotal > targetMaxBlock) {
+            UBTreeCloseBoundarySiblingsBeforeTruncate(rel, targetMaxBlock);
             RelationTruncate(rel, targetMaxBlock);
         }
         UnlockRelationForExtension(rel, ExclusiveLock);
