@@ -61,9 +61,11 @@ typedef struct UBTreeShrinkStats {
 } UBTreeShrinkStats;
 
 extern void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats,
-                                      BlockNumber maxPages = 512, double costRatio = 0.50);
+                                      BlockNumber maxPages = 512, double costRatio = 0.50,
+                                      TransactionId safeRecycleXmin = InvalidTransactionId);
 extern bool UBTreeShrink(Relation rel, UBTreeShrinkStats *stats, bool isOnline = true,
                          BlockNumber maxPages = 512, double costRatio = 0.50);
+extern void UBTreePurgeRecycleQueueAboveWatermark(Relation rel, BlockNumber targetMaxBlock);
 extern bool RecycleQueueInitialized(Relation rel);
 
 extern bool UBTreeDelete(Relation index_relation, Datum* values, const bool* isnull, ItemPointer heapTCtid,
@@ -183,6 +185,8 @@ typedef UBTRecycleQueueHeaderData* UBTRecycleQueueHeader;
 
 #define XLOG_UBTREE2_FREEZE 0x40
 #define XLOG_UBTREE2_SHRINK_MOVE_LEAF 0x50
+#define XLOG_UBTREE2_URQ_PURGE 0x60
+#define XLOG_UBTREE2_SHRINK_UPDATE_PARENT 0x70
 
 #define XLOG_UBTREE3_INSERT_PCR_INTERNAL 0x00
 #define XLOG_UBTREE3_PRUNE_PAGE_PCR 0x10
@@ -345,12 +349,26 @@ typedef struct xl_ubtree2_shrink_move_leaf {
     BlockNumber newBlk;
     BlockNumber leftBlk;
     BlockNumber rightBlk;
-    BlockNumber parentBlk;
-    OffsetNumber parentOff;
     bool isRightMost;
 } xl_ubtree2_shrink_move_leaf;
 
 #define SizeOfUBTree2ShrinkMoveLeaf (sizeof(xl_ubtree2_shrink_move_leaf))
+
+typedef struct xl_ubtree2_shrink_update_parent {
+    BlockNumber parentBlk;
+    OffsetNumber parentOff;
+    BlockNumber oldChildBlk;
+    BlockNumber newChildBlk;
+} xl_ubtree2_shrink_update_parent;
+
+#define SizeOfUBTree2ShrinkUpdateParent (sizeof(xl_ubtree2_shrink_update_parent))
+
+typedef struct xl_ubtree2_urq_purge {
+    RelFileNode node;
+    BlockNumber targetMaxBlock;
+} xl_ubtree2_urq_purge;
+
+#define SizeOfUBTree2UrqPurge (sizeof(xl_ubtree2_urq_purge))
 
 typedef struct xl_ubtree_split {
     uint32 level;            /* tree level of page being split */

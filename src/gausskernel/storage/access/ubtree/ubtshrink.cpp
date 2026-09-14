@@ -44,7 +44,7 @@
  * Invalidate and remove any pending entries in Recycle Queue (both FREED and EMPTY forks)
  * whose block number is >= targetMaxBlock.
  */
-static void UBTreePurgeRecycleQueueAboveWatermark(Relation rel, BlockNumber targetMaxBlock)
+void UBTreePurgeRecycleQueueAboveWatermark(Relation rel, BlockNumber targetMaxBlock)
 {
     if (!RecycleQueueInitialized(rel)) {
         return;
@@ -106,6 +106,32 @@ static void UBTreePurgeRecycleQueueAboveWatermark(Relation rel, BlockNumber targ
     }
 }
 
+/*
+ * Check whether any buffer in relation with blkno >= firstDelBlock has an active pin.
+ * Used as a safety barrier before RelationTruncate to prevent read beyond EOF or dirty page panic.
+ */
+static bool UBTreeCheckBuffersPinned(Relation rel, BlockNumber firstDelBlock)
+{
+    RelFileNode node = rel->rd_node;
+    for (int i = 0; i < SegmentBufferStartID; i++) {
+        BufferDesc *buf_desc = GetBufferDescriptor(i);
+        if (!RelFileNodeEquals(buf_desc->tag.rnode, node)) {
+            continue;
+        }
+        uint64 buf_state = LockBufHdr(buf_desc);
+        if (RelFileNodeEquals(buf_desc->tag.rnode, node) &&
+            buf_desc->tag.forkNum == MAIN_FORKNUM &&
+            buf_desc->tag.blockNum >= firstDelBlock) {
+            if (BUF_STATE_GET_REFCOUNT(buf_state) != 0) {
+                UnlockBufHdr(buf_desc, buf_state);
+                return true;
+            }
+        }
+        UnlockBufHdr(buf_desc, buf_state);
+    }
+    return false;
+}
+
 typedef struct UBTreeFreeBlockEntry {
     BlockNumber blkno;
     BlockNumber queueBlk;
@@ -135,7 +161,7 @@ static int CompareFreeBlockEntries(const void *a, const void *b)
  * Collect valid, transaction-visible free blocks from the UBTree Recycle Queue (URQ).
  * The resulting list is deduplicated and sorted ascending by block number.
  */
-static void UBTreeCollectURQFreeBlocks(Relation rel, UBTreeURQInventory *inv)
+static void UBTreeCollectURQFreeBlocks(Relation rel, UBTreeURQInventory *inv, TransactionId safeRecycleXmin)
 {
     inv->count = 0;
     inv->capacity = 1024;
@@ -145,7 +171,7 @@ static void UBTreeCollectURQFreeBlocks(Relation rel, UBTreeURQInventory *inv)
         return;
     }
 
-    TransactionId oldestXmin = u_sess->utils_cxt.RecentGlobalDataXmin;
+    TransactionId oldestXmin = safeRecycleXmin;
     UBTRecycleForkNumber forks[] = {RECYCLE_FREED_FORK, RECYCLE_EMPTY_FORK};
 
     for (int i = 0; i < 2; i++) {
@@ -231,10 +257,20 @@ static void UBTreeCollectURQFreeBlocks(Relation rel, UBTreeURQInventory *inv)
 /*
  * Scan backwards from trailing blocks of UBTree index to evaluate shrink feasibility.
  */
-void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumber maxPages, double costRatio)
+void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumber maxPages, double costRatio,
+                                TransactionId safeRecycleXmin)
 {
     if (stats == NULL || rel == NULL) {
         return;
+    }
+
+    if (!TransactionIdIsValid(safeRecycleXmin)) {
+        TransactionId recycleXmin = InvalidTransactionId;
+        TransactionId oldestXmin = GetOldestXminForUndo(&recycleXmin);
+        safeRecycleXmin = TransactionIdIsValid(recycleXmin) ? recycleXmin : oldestXmin;
+        if (!TransactionIdIsValid(safeRecycleXmin)) {
+            safeRecycleXmin = u_sess->utils_cxt.RecentGlobalDataXmin;
+        }
     }
 
     BlockNumber effectiveMaxPages = (maxPages > 0) ? maxPages : UBTREE_SHRINK_MAX_MIGRATE_DEFAULT;
@@ -322,7 +358,7 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
      */
     if (stats->targetMaxBlock > FirstNormalBlockNumber + 2) {
         UBTreeURQInventory inv;
-        UBTreeCollectURQFreeBlocks(rel, &inv);
+        UBTreeCollectURQFreeBlocks(rel, &inv, safeRecycleXmin);
 
         BlockNumber highScan = stats->targetMaxBlock - 1;
         BlockNumber victimsCount = 0;
@@ -459,7 +495,29 @@ static bool UBTreeOnlineTruncate(Relation rel, BlockNumber targetMaxBlock, UBTre
         return true;
     }
 
-    /* Under AccessExclusiveLock: purge URQ and safely truncate file */
+    /*
+     * Safety Barrier: Check if any backend or background worker still holds
+     * a pin on any buffer in [targetMaxBlock, currentTotal).
+     * If so, gracefully back off instead of truncating under an active pin,
+     * which would lead to 'read/write beyond EOF' PANIC.
+     */
+    if (UBTreeCheckBuffersPinned(rel, targetMaxBlock)) {
+        UnlockRelation(rel, AccessExclusiveLock);
+        stats->lockEscalationSuccess = false;
+        return false;
+    }
+
+    /* Under AccessExclusiveLock: log URQ purge, purge URQ and safely truncate file */
+    if (RelationNeedsWAL(rel)) {
+        xl_ubtree2_urq_purge xlrec;
+        xlrec.node = rel->rd_node;
+        xlrec.targetMaxBlock = targetMaxBlock;
+
+        XLogBeginInsert();
+        XLogRegisterData((char *)&xlrec, SizeOfUBTree2UrqPurge);
+        (void)XLogInsert(RM_UBTREE2_ID, XLOG_UBTREE2_URQ_PURGE);
+    }
+
     UBTreePurgeRecycleQueueAboveWatermark(rel, targetMaxBlock);
 
     LockRelationForExtension(rel, ExclusiveLock);
@@ -477,30 +535,26 @@ static bool UBTreeOnlineTruncate(Relation rel, BlockNumber targetMaxBlock, UBTre
 /*
  * Migrate one active page (leaf or internal non-root page) from victimBlk
  * to a newly allocated free page below targetMaxBlock.
- * Locks coupling:
- * 1. victimBuf (BT_WRITE)
- * 2. leftBuf (BT_WRITE)
- * 3. rightBuf (BT_WRITE)
- * 4. parentBuf (BT_WRITE via UBTreeSearch/UBTreeGetStackBuf)
+ *
+ * Implements Lehman-Yao Two-Phase Decoupled Migration Protocol:
+ * Phase 1: Horizontal leaf chain migration (strictly Left-to-Right locking):
+ *          leftBuf -> victimBuf -> rightBuf -> newBuf.
+ *          Does NOT hold any parent lock, eliminating vertical AB-BA deadlocks with splits.
+ *          Sets Lehman-Yao forwarding pointer on victimPage (BTP_DELETED + btpo_next = newBlk)
+ *          to ensure concurrent index scans follow right-links to newBlk with zero loss.
+ * Phase 2: Bottom-Up parent downlink correction:
+ *          After Phase 1 locks are released, searches parent and updates downlink to newBlk.
+ *          If parent concurrently split, follows right-links (_bt_moveright) to find the downlink.
  */
 static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumber targetMaxBlock, bool isOnline,
                                  BlockNumber targetFreeBlk = InvalidBlockNumber,
                                  BlockNumber targetQueueBlk = InvalidBlockNumber,
-                                 uint16 targetOffset = 0)
+                                 uint16 targetOffset = 0,
+                                 TransactionId safeRecycleXmin = InvalidTransactionId)
 {
-    /* Refresh transaction horizon for URQ page recycling */
-    TransactionId recycleXmin = InvalidTransactionId;
-    TransactionId oldestXmin = GetOldestXminForUndo(&recycleXmin);
-    if (TransactionIdIsValid(recycleXmin)) {
-        u_sess->utils_cxt.RecentGlobalDataXmin = recycleXmin;
-    } else if (TransactionIdIsValid(oldestXmin)) {
-        u_sess->utils_cxt.RecentGlobalDataXmin = oldestXmin;
-    }
-
     /*
-     * Step 1: Read victim page to inspect topology and construct search key.
-     * We only hold a read lock momentarily to inspect the page and build the key,
-     * then unlock it so UBTreeSearch can safely descend without self-deadlock.
+     * Step 1: Read victim page momentarily with BT_READ to inspect topology and construct search key.
+     * We unlock it immediately so UBTreeSearch can safely descend without self-deadlock.
      */
     Buffer victimBuf = ReadBuffer(rel, victimBlk);
     LockBuffer(victimBuf, BT_READ);
@@ -551,188 +605,12 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
         }
     }
 
-    /* Release read lock on victim page before searching to prevent self-deadlock */
+    /* Release read lock on victim page */
     LockBuffer(victimBuf, BUFFER_LOCK_UNLOCK);
 
-    Buffer parentBuf = InvalidBuffer;
-    OffsetNumber parentOff = InvalidOffsetNumber;
-
-    if (itupKey != NULL) {
-        /*
-         * Step 2: Search B-Tree from root to find parent stack.
-         * With no write locks held, UBTreeSearch will not deadlock with our thread.
-         */
-        Buffer leafSearchBuf = InvalidBuffer;
-        BTStack stack = UBTreeSearch(rel, itupKey, &leafSearchBuf, BT_READ);
-        if (BufferIsValid(leafSearchBuf)) {
-            _bt_relbuf(rel, leafSearchBuf);
-        }
-
-        if (stack != NULL) {
-            BTStack targetStack = NULL;
-            for (BTStack s = stack; s != NULL; s = s->bts_parent) {
-                if (s->bts_btentry == victimBlk) {
-                    targetStack = s;
-                    break;
-                }
-            }
-            if (targetStack == NULL && isLeaf) {
-                targetStack = stack;
-                targetStack->bts_btentry = victimBlk;
-            }
-            if (targetStack != NULL) {
-                parentBuf = UBTreeGetStackBuf(rel, targetStack);
-                if (BufferIsValid(parentBuf)) {
-                    parentOff = targetStack->bts_offset;
-                }
-            }
-            _bt_freestack(stack);
-        }
-
-        pfree(itupKey);
-        if (targetKey != NULL) {
-            pfree(targetKey);
-        }
-    }
-
-    if (!BufferIsValid(parentBuf) || parentOff == InvalidOffsetNumber) {
-        if (BufferIsValid(parentBuf)) {
-            _bt_relbuf(rel, parentBuf);
-            parentBuf = InvalidBuffer;
-            parentOff = InvalidOffsetNumber;
-        }
-
-        /*
-         * Level-aware parent locator fallback:
-         * Works universally for both internal pages (victimLevel > 0) and leaf pages (victimLevel == 0).
-         * Safely check metadata level, retrieve the leftmost block of parentLevel (victimLevel + 1),
-         * and scan across the parent level using UBTreeGetStackBuf to locate and lock the parent downlink.
-         */
-        Buffer metabuf = _bt_getbuf(rel, BTREE_METAPAGE, BT_READ);
-        Page metapg = BufferGetPage(metabuf);
-        BTMetaPageData *metad = BTPageGetMeta(metapg);
-        uint32 maxLevel = metad->btm_level;
-        _bt_relbuf(rel, metabuf);
-
-        uint16 parentLevel = victimLevel + 1;
-        if (parentLevel <= maxLevel) {
-            Buffer pbuf = UBTreeGetEndPoint(rel, parentLevel, false);
-            if (BufferIsValid(pbuf)) {
-                BTStackData fakestack;
-                fakestack.bts_blkno = BufferGetBlockNumber(pbuf);
-                fakestack.bts_offset = InvalidOffsetNumber;
-                fakestack.bts_btentry = victimBlk;
-                fakestack.bts_parent = NULL;
-                _bt_relbuf(rel, pbuf);
-
-                parentBuf = UBTreeGetStackBuf(rel, &fakestack);
-                if (BufferIsValid(parentBuf)) {
-                    parentOff = fakestack.bts_offset;
-                }
-            }
-        }
-    }
-
-    if (!BufferIsValid(parentBuf) || parentOff == InvalidOffsetNumber) {
-        if (BufferIsValid(parentBuf)) {
-            _bt_relbuf(rel, parentBuf);
-        }
-        ReleaseBuffer(victimBuf);
-        return false;
-    }
-
     /*
-     * Step 3: Now acquire write lock on victimBuf and verify state.
-     * Top-down locking: parentBuf is already held with BT_WRITE, now lock victimBuf.
-     */
-    if (isOnline) {
-        if (!ConditionalLockBuffer(victimBuf)) {
-            _bt_relbuf(rel, parentBuf);
-            ReleaseBuffer(victimBuf);
-            return false;
-        }
-    } else {
-        LockBuffer(victimBuf, BT_WRITE);
-    }
-
-    victimPage = BufferGetPage(victimBuf);
-    victimOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(victimPage);
-    if (P_ISROOT(victimOpaque) || P_ISDELETED(victimOpaque) || P_ISHALFDEAD(victimOpaque)) {
-        _bt_relbuf(rel, victimBuf);
-        _bt_relbuf(rel, parentBuf);
-        return false;
-    }
-
-    Page parentPage = BufferGetPage(parentBuf);
-    ItemId pItem = PageGetItemId(parentPage, parentOff);
-    IndexTuple pItup = (IndexTuple)PageGetItem(parentPage, pItem);
-    if (BTreeInnerTupleGetDownLink(pItup) != victimBlk) {
-        _bt_relbuf(rel, victimBuf);
-        _bt_relbuf(rel, parentBuf);
-        return false;
-    }
-
-    /*
-     * Step 4: Lock left sibling if exists.
-     */
-    Buffer leftBuf = InvalidBuffer;
-    if (leftBlk != P_NONE) {
-        leftBuf = ReadBuffer(rel, leftBlk);
-        if (isOnline) {
-            if (!ConditionalLockBuffer(leftBuf)) {
-                ReleaseBuffer(leftBuf);
-                _bt_relbuf(rel, victimBuf);
-                _bt_relbuf(rel, parentBuf);
-                return false;
-            }
-        } else {
-            LockBuffer(leftBuf, BT_WRITE);
-        }
-        Page leftPage = BufferGetPage(leftBuf);
-        UBTPageOpaqueInternal leftOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(leftPage);
-        if (leftOpaque->btpo_next != victimBlk || P_ISDELETED(leftOpaque)) {
-            _bt_relbuf(rel, leftBuf);
-            _bt_relbuf(rel, victimBuf);
-            _bt_relbuf(rel, parentBuf);
-            return false;
-        }
-    }
-
-    /*
-     * Step 5: Lock right sibling if exists.
-     */
-    Buffer rightBuf = InvalidBuffer;
-    if (!isRightMost && rightBlk != P_NONE) {
-        rightBuf = ReadBuffer(rel, rightBlk);
-        if (isOnline) {
-            if (!ConditionalLockBuffer(rightBuf)) {
-                ReleaseBuffer(rightBuf);
-                if (BufferIsValid(leftBuf)) {
-                    _bt_relbuf(rel, leftBuf);
-                }
-                _bt_relbuf(rel, victimBuf);
-                _bt_relbuf(rel, parentBuf);
-                return false;
-            }
-        } else {
-            LockBuffer(rightBuf, BT_WRITE);
-        }
-        Page rightPage = BufferGetPage(rightBuf);
-        UBTPageOpaqueInternal rightOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(rightPage);
-        if (rightOpaque->btpo_prev != victimBlk || P_ISDELETED(rightOpaque)) {
-            _bt_relbuf(rel, rightBuf);
-            if (BufferIsValid(leftBuf)) {
-                _bt_relbuf(rel, leftBuf);
-            }
-            _bt_relbuf(rel, victimBuf);
-            _bt_relbuf(rel, parentBuf);
-            return false;
-        }
-    }
-
-    /*
-     * Step 6: Allocate free page below targetMaxBlock.
-     * If a specific targetFreeBlk from URQ was designated, try to acquire it first.
+     * Step 2: Allocate target free page below targetMaxBlock.
+     * We do this BEFORE acquiring sibling write locks to minimize lock hold duration.
      */
     Buffer newBuf = InvalidBuffer;
     BlockNumber newBlk = InvalidBlockNumber;
@@ -741,8 +619,7 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
     bool fromURQDirect = false;
 
     if (BlockNumberIsValid(targetFreeBlk) && targetFreeBlk < targetMaxBlock &&
-        targetFreeBlk != leftBlk && targetFreeBlk != rightBlk && targetFreeBlk != victimBlk &&
-        (!BufferIsValid(parentBuf) || targetFreeBlk != BufferGetBlockNumber(parentBuf))) {
+        targetFreeBlk != leftBlk && targetFreeBlk != rightBlk && targetFreeBlk != victimBlk) {
         Buffer testBuf = ReadBuffer(rel, targetFreeBlk);
         bool gotLock = isOnline ? ConditionalLockBuffer(testBuf) : (LockBuffer(testBuf, BT_WRITE), true);
         if (gotLock) {
@@ -790,8 +667,7 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
 
     if (newBuf == InvalidBuffer || newBlk >= targetMaxBlock) {
         for (BlockNumber blk = FirstNormalBlockNumber + 1; blk < targetMaxBlock; blk++) {
-            if (blk == leftBlk || blk == rightBlk || blk == victimBlk ||
-                (BufferIsValid(parentBuf) && blk == BufferGetBlockNumber(parentBuf))) {
+            if (blk == leftBlk || blk == rightBlk || blk == victimBlk) {
                 continue;
             }
             Buffer testBuf = ReadBuffer(rel, blk);
@@ -818,31 +694,172 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
         if (BufferIsValid(newBuf)) {
             _bt_relbuf(rel, newBuf);
         }
-        if (BufferIsValid(rightBuf)) {
-            _bt_relbuf(rel, rightBuf);
+        ReleaseBuffer(victimBuf);
+        if (itupKey != NULL) {
+            pfree(itupKey);
         }
-        if (BufferIsValid(leftBuf)) {
-            _bt_relbuf(rel, leftBuf);
+        if (targetKey != NULL) {
+            pfree(targetKey);
         }
-        _bt_relbuf(rel, victimBuf);
-        _bt_relbuf(rel, parentBuf);
         return false;
     }
 
     /*
-     * Step 7: Critical section - perform atomic migration.
+     * Step 3: Phase 1 Horizontal Locking (Strictly Left-to-Right).
+     * Lock sequence: leftBuf -> victimBuf -> rightBuf.
+     * Note: newBuf is already held with BT_WRITE.
+     */
+    Buffer leftBuf = InvalidBuffer;
+    if (leftBlk != P_NONE) {
+        leftBuf = ReadBuffer(rel, leftBlk);
+        if (isOnline) {
+            if (!ConditionalLockBuffer(leftBuf)) {
+                ReleaseBuffer(leftBuf);
+                _bt_relbuf(rel, newBuf);
+                if (newAddr.queueBuf != InvalidBuffer) {
+                    ReleaseBuffer(newAddr.queueBuf);
+                }
+                ReleaseBuffer(victimBuf);
+                if (itupKey != NULL) pfree(itupKey);
+                if (targetKey != NULL) pfree(targetKey);
+                return false;
+            }
+        } else {
+            LockBuffer(leftBuf, BT_WRITE);
+        }
+
+        Page leftPage = BufferGetPage(leftBuf);
+        UBTPageOpaqueInternal leftOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(leftPage);
+        /* Step right if left sibling split concurrently */
+        while (P_ISDELETED(leftOpaque) || leftOpaque->btpo_next != victimBlk) {
+            if (P_RIGHTMOST(leftOpaque) || leftBlk == leftOpaque->btpo_next) {
+                _bt_relbuf(rel, leftBuf);
+                _bt_relbuf(rel, newBuf);
+                if (newAddr.queueBuf != InvalidBuffer) {
+                    ReleaseBuffer(newAddr.queueBuf);
+                }
+                ReleaseBuffer(victimBuf);
+                if (itupKey != NULL) pfree(itupKey);
+                if (targetKey != NULL) pfree(targetKey);
+                return false;
+            }
+            BlockNumber nextLeft = leftOpaque->btpo_next;
+            _bt_relbuf(rel, leftBuf);
+            leftBlk = nextLeft;
+            leftBuf = ReadBuffer(rel, leftBlk);
+            if (isOnline) {
+                if (!ConditionalLockBuffer(leftBuf)) {
+                    ReleaseBuffer(leftBuf);
+                    _bt_relbuf(rel, newBuf);
+                    if (newAddr.queueBuf != InvalidBuffer) {
+                        ReleaseBuffer(newAddr.queueBuf);
+                    }
+                    ReleaseBuffer(victimBuf);
+                    if (itupKey != NULL) pfree(itupKey);
+                    if (targetKey != NULL) pfree(targetKey);
+                    return false;
+                }
+            } else {
+                LockBuffer(leftBuf, BT_WRITE);
+            }
+            leftPage = BufferGetPage(leftBuf);
+            leftOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(leftPage);
+        }
+    }
+
+    /* Lock victimBuf */
+    if (isOnline) {
+        if (!ConditionalLockBuffer(victimBuf)) {
+            if (BufferIsValid(leftBuf)) {
+                _bt_relbuf(rel, leftBuf);
+            }
+            _bt_relbuf(rel, newBuf);
+            if (newAddr.queueBuf != InvalidBuffer) {
+                ReleaseBuffer(newAddr.queueBuf);
+            }
+            ReleaseBuffer(victimBuf);
+            if (itupKey != NULL) pfree(itupKey);
+            if (targetKey != NULL) pfree(targetKey);
+            return false;
+        }
+    } else {
+        LockBuffer(victimBuf, BT_WRITE);
+    }
+
+    victimPage = BufferGetPage(victimBuf);
+    victimOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(victimPage);
+    if (P_ISROOT(victimOpaque) || P_ISDELETED(victimOpaque) || P_ISHALFDEAD(victimOpaque) ||
+        victimOpaque->btpo_prev != leftBlk) {
+        _bt_relbuf(rel, victimBuf);
+        if (BufferIsValid(leftBuf)) {
+            _bt_relbuf(rel, leftBuf);
+        }
+        _bt_relbuf(rel, newBuf);
+        if (newAddr.queueBuf != InvalidBuffer) {
+            ReleaseBuffer(newAddr.queueBuf);
+        }
+        if (itupKey != NULL) pfree(itupKey);
+        if (targetKey != NULL) pfree(targetKey);
+        return false;
+    }
+    rightBlk = victimOpaque->btpo_next;
+
+    /* Lock rightBuf */
+    Buffer rightBuf = InvalidBuffer;
+    if (!isRightMost && rightBlk != P_NONE) {
+        rightBuf = ReadBuffer(rel, rightBlk);
+        if (isOnline) {
+            if (!ConditionalLockBuffer(rightBuf)) {
+                ReleaseBuffer(rightBuf);
+                _bt_relbuf(rel, victimBuf);
+                if (BufferIsValid(leftBuf)) {
+                    _bt_relbuf(rel, leftBuf);
+                }
+                _bt_relbuf(rel, newBuf);
+                if (newAddr.queueBuf != InvalidBuffer) {
+                    ReleaseBuffer(newAddr.queueBuf);
+                }
+                if (itupKey != NULL) pfree(itupKey);
+                if (targetKey != NULL) pfree(targetKey);
+                return false;
+            }
+        } else {
+            LockBuffer(rightBuf, BT_WRITE);
+        }
+        Page rightPage = BufferGetPage(rightBuf);
+        UBTPageOpaqueInternal rightOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(rightPage);
+        if (rightOpaque->btpo_prev != victimBlk || P_ISDELETED(rightOpaque)) {
+            _bt_relbuf(rel, rightBuf);
+            _bt_relbuf(rel, victimBuf);
+            if (BufferIsValid(leftBuf)) {
+                _bt_relbuf(rel, leftBuf);
+            }
+            _bt_relbuf(rel, newBuf);
+            if (newAddr.queueBuf != InvalidBuffer) {
+                ReleaseBuffer(newAddr.queueBuf);
+            }
+            if (itupKey != NULL) pfree(itupKey);
+            if (targetKey != NULL) pfree(targetKey);
+            return false;
+        }
+    }
+
+    /*
+     * Step 4: Phase 1 Critical Section.
+     * Perform page copy, relink horizontal sibling pointers, and stamp Lehman-Yao forwarding link.
      */
     START_CRIT_SECTION();
 
     Page newPage = BufferGetPage(newBuf);
     UBTreePageInit(newPage, BLCKSZ);
-    memcpy(newPage, victimPage, BLCKSZ);
+    errno_t cprc = memcpy_s(newPage, BLCKSZ, victimPage, BLCKSZ);
+    securec_check(cprc, "\0", "\0");
 
     UBTPageOpaqueInternal newOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(newPage);
     newOpaque->btpo_prev = leftBlk;
     newOpaque->btpo_next = rightBlk;
 
-    /* Update sibling links */
+    /* Update left sibling */
     if (BufferIsValid(leftBuf)) {
         Page leftPage = BufferGetPage(leftBuf);
         UBTPageOpaqueInternal leftOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(leftPage);
@@ -850,6 +867,7 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
         MarkBufferDirty(leftBuf);
     }
 
+    /* Update right sibling */
     if (BufferIsValid(rightBuf)) {
         Page rightPage = BufferGetPage(rightBuf);
         UBTPageOpaqueInternal rightOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(rightPage);
@@ -857,14 +875,11 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
         MarkBufferDirty(rightBuf);
     }
 
-    /* Update parent downlink */
-    parentPage = BufferGetPage(parentBuf);
-    pItem = PageGetItemId(parentPage, parentOff);
-    pItup = (IndexTuple)PageGetItem(parentPage, pItem);
-    UBTreeTupleSetDownLink(pItup, newBlk);
-    MarkBufferDirty(parentBuf);
-
-    /* Mark victim page as deleted and point its right-link to newBlk for in-flight forward scanners */
+    /*
+     * Mark victim page as deleted and point its right-link to newBlk.
+     * This forwarding pointer guarantees concurrent in-flight Lehman-Yao scanners follow
+     * right-links into newBlk with zero tuple loss.
+     */
     victimOpaque->btpo_flags |= BTP_DELETED;
     victimOpaque->btpo_next = newBlk;
     ((UBTPageOpaque)victimOpaque)->xact = ReadNewTransactionId();
@@ -872,7 +887,6 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
     MarkBufferDirty(newBuf);
     MarkBufferDirty(victimBuf);
 
-    /* Emit atomic WAL for moving page */
     if (RelationNeedsWAL(rel)) {
         xl_ubtree2_shrink_move_leaf xlrec;
         XLogRecPtr recptr;
@@ -881,13 +895,11 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
         xlrec.newBlk = newBlk;
         xlrec.leftBlk = leftBlk;
         xlrec.rightBlk = rightBlk;
-        xlrec.parentBlk = BufferGetBlockNumber(parentBuf);
-        xlrec.parentOff = parentOff;
         xlrec.isRightMost = isRightMost;
 
         XLogBeginInsert();
         XLogRegisterData((char *)&xlrec, SizeOfUBTree2ShrinkMoveLeaf);
-        XLogRegisterBuffer(0, newBuf, REGBUF_FORCE_IMAGE | REGBUF_STANDARD);
+        XLogRegisterBuffer(0, newBuf, REGBUF_STANDARD);
         XLogRegisterBuffer(1, victimBuf, REGBUF_STANDARD);
         if (BufferIsValid(leftBuf)) {
             XLogRegisterBuffer(2, leftBuf, REGBUF_STANDARD);
@@ -895,7 +907,6 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
         if (BufferIsValid(rightBuf)) {
             XLogRegisterBuffer(3, rightBuf, REGBUF_STANDARD);
         }
-        XLogRegisterBuffer(4, parentBuf, REGBUF_STANDARD);
 
         recptr = XLogInsert(RM_UBTREE2_ID, XLOG_UBTREE2_SHRINK_MOVE_LEAF);
 
@@ -907,7 +918,6 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
         if (BufferIsValid(rightBuf)) {
             PageSetLSN(BufferGetPage(rightBuf), recptr);
         }
-        PageSetLSN(parentPage, recptr);
     }
 
     END_CRIT_SECTION();
@@ -922,6 +932,7 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
         newAddr.queueBuf = InvalidBuffer;
     }
 
+    /* Release all Phase 1 leaf-level locks */
     _bt_relbuf(rel, newBuf);
     if (BufferIsValid(rightBuf)) {
         _bt_relbuf(rel, rightBuf);
@@ -930,7 +941,140 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
         _bt_relbuf(rel, leftBuf);
     }
     _bt_relbuf(rel, victimBuf);
-    _bt_relbuf(rel, parentBuf);
+
+    /*
+     * Step 5: Phase 2 Bottom-Up Parent Downlink Correction.
+     * All horizontal leaf locks are now freed. Search and update parent downlink independently.
+     */
+    Buffer parentBuf = InvalidBuffer;
+    OffsetNumber parentOff = InvalidOffsetNumber;
+
+    if (itupKey != NULL) {
+        Buffer leafSearchBuf = InvalidBuffer;
+        BTStack stack = UBTreeSearch(rel, itupKey, &leafSearchBuf, BT_READ);
+        if (BufferIsValid(leafSearchBuf)) {
+            _bt_relbuf(rel, leafSearchBuf);
+        }
+
+        if (stack != NULL) {
+            BTStack targetStack = NULL;
+            for (BTStack s = stack; s != NULL; s = s->bts_parent) {
+                if (s->bts_btentry == victimBlk) {
+                    targetStack = s;
+                    break;
+                }
+            }
+            if (targetStack == NULL && isLeaf) {
+                targetStack = stack;
+                targetStack->bts_btentry = victimBlk;
+            }
+            if (targetStack != NULL) {
+                parentBuf = UBTreeGetStackBuf(rel, targetStack);
+                if (BufferIsValid(parentBuf)) {
+                    parentOff = targetStack->bts_offset;
+                }
+            }
+            _bt_freestack(stack);
+        }
+    }
+
+    if (!BufferIsValid(parentBuf) || parentOff == InvalidOffsetNumber) {
+        if (BufferIsValid(parentBuf)) {
+            _bt_relbuf(rel, parentBuf);
+            parentBuf = InvalidBuffer;
+            parentOff = InvalidOffsetNumber;
+        }
+
+        Buffer metabuf = _bt_getbuf(rel, BTREE_METAPAGE, BT_READ);
+        Page metapg = BufferGetPage(metabuf);
+        BTMetaPageData *metad = BTPageGetMeta(metapg);
+        uint32 maxLevel = metad->btm_level;
+        _bt_relbuf(rel, metabuf);
+
+        uint16 parentLevel = victimLevel + 1;
+        if (parentLevel <= maxLevel) {
+            Buffer pbuf = UBTreeGetEndPoint(rel, parentLevel, false);
+            if (BufferIsValid(pbuf)) {
+                BTStackData fakestack;
+                fakestack.bts_blkno = BufferGetBlockNumber(pbuf);
+                fakestack.bts_offset = InvalidOffsetNumber;
+                fakestack.bts_btentry = victimBlk;
+                fakestack.bts_parent = NULL;
+                _bt_relbuf(rel, pbuf);
+
+                parentBuf = UBTreeGetStackBuf(rel, &fakestack);
+                if (BufferIsValid(parentBuf)) {
+                    parentOff = fakestack.bts_offset;
+                }
+            }
+        }
+    }
+
+    if (BufferIsValid(parentBuf)) {
+        Page parentPage = BufferGetPage(parentBuf);
+        /* Step right on parent level if downlink moved due to concurrent splits */
+        while (parentOff > PageGetMaxOffsetNumber(parentPage) ||
+               BTreeInnerTupleGetDownLink((IndexTuple)PageGetItem(parentPage, PageGetItemId(parentPage, parentOff))) != victimBlk) {
+            bool foundOnPage = false;
+            OffsetNumber maxoff = PageGetMaxOffsetNumber(parentPage);
+            for (OffsetNumber off = P_FIRSTDATAKEY((UBTPageOpaqueInternal)PageGetSpecialPointer(parentPage));
+                 off <= maxoff; off = OffsetNumberNext(off)) {
+                IndexTuple itup = (IndexTuple)PageGetItem(parentPage, PageGetItemId(parentPage, off));
+                if (BTreeInnerTupleGetDownLink(itup) == victimBlk) {
+                    parentOff = off;
+                    foundOnPage = true;
+                    break;
+                }
+            }
+            if (foundOnPage) {
+                break;
+            }
+            UBTPageOpaqueInternal popaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(parentPage);
+            if (P_RIGHTMOST(popaque)) {
+                parentOff = InvalidOffsetNumber;
+                break;
+            }
+            BlockNumber nextPBlk = popaque->btpo_next;
+            _bt_relbuf(rel, parentBuf);
+            parentBuf = _bt_getbuf(rel, nextPBlk, BT_WRITE);
+            parentPage = BufferGetPage(parentBuf);
+        }
+
+        if (parentOff != InvalidOffsetNumber && BufferIsValid(parentBuf)) {
+            START_CRIT_SECTION();
+            parentPage = BufferGetPage(parentBuf);
+            ItemId pItem = PageGetItemId(parentPage, parentOff);
+            IndexTuple pItup = (IndexTuple)PageGetItem(parentPage, pItem);
+            UBTreeTupleSetDownLink(pItup, newBlk);
+            MarkBufferDirty(parentBuf);
+
+            if (RelationNeedsWAL(rel)) {
+                xl_ubtree2_shrink_update_parent pxlrec;
+                pxlrec.parentBlk = BufferGetBlockNumber(parentBuf);
+                pxlrec.parentOff = parentOff;
+                pxlrec.oldChildBlk = victimBlk;
+                pxlrec.newChildBlk = newBlk;
+
+                XLogBeginInsert();
+                XLogRegisterData((char *)&pxlrec, SizeOfUBTree2ShrinkUpdateParent);
+                XLogRegisterBuffer(0, parentBuf, REGBUF_STANDARD);
+
+                XLogRecPtr precptr = XLogInsert(RM_UBTREE2_ID, XLOG_UBTREE2_SHRINK_UPDATE_PARENT);
+                PageSetLSN(parentPage, precptr);
+            }
+            END_CRIT_SECTION();
+            _bt_relbuf(rel, parentBuf);
+        } else if (BufferIsValid(parentBuf)) {
+            _bt_relbuf(rel, parentBuf);
+        }
+    }
+
+    if (itupKey != NULL) {
+        pfree(itupKey);
+    }
+    if (targetKey != NULL) {
+        pfree(targetKey);
+    }
 
     return true;
 }
@@ -939,14 +1083,15 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
  * Iterate through high-watermark blocks (between migrateTargetCutoff and totalBlocks)
  * and migrate active pages (leaf or internal) down into free slots below migrateTargetCutoff.
  */
-static void UBTreeMigratePages(Relation rel, UBTreeShrinkStats *stats, bool isOnline)
+static void UBTreeMigratePages(Relation rel, UBTreeShrinkStats *stats, bool isOnline,
+                               TransactionId safeRecycleXmin)
 {
     if (stats->migratedBlocks == 0 || stats->migrateTargetCutoff >= stats->totalBlocks) {
         return;
     }
 
     UBTreeURQInventory inv;
-    UBTreeCollectURQFreeBlocks(rel, &inv);
+    UBTreeCollectURQFreeBlocks(rel, &inv, safeRecycleXmin);
 
     BlockNumber currentBlk = stats->totalBlocks - 1;
     BlockNumber cutoff = stats->migrateTargetCutoff;
@@ -982,7 +1127,7 @@ static void UBTreeMigratePages(Relation rel, UBTreeShrinkStats *stats, bool isOn
             }
 
             if (UBTreeMigrateOnePage(rel, currentBlk, stats->migrateTargetCutoff, isOnline,
-                                     targetFreeBlk, targetQueueBlk, targetOffset)) {
+                                     targetFreeBlk, targetQueueBlk, targetOffset, safeRecycleXmin)) {
                 migratedCount++;
             }
         }
@@ -1009,16 +1154,15 @@ bool UBTreeShrink(Relation rel, UBTreeShrinkStats *stats, bool isOnline, BlockNu
         return false;
     }
 
-    /* Refresh transaction horizon for URQ page recycling */
+    /* Compute safe transaction horizon locally without mutating session-level global state */
     TransactionId recycleXmin = InvalidTransactionId;
     TransactionId oldestXmin = GetOldestXminForUndo(&recycleXmin);
-    if (TransactionIdIsValid(recycleXmin)) {
-        u_sess->utils_cxt.RecentGlobalDataXmin = recycleXmin;
-    } else if (TransactionIdIsValid(oldestXmin)) {
-        u_sess->utils_cxt.RecentGlobalDataXmin = oldestXmin;
+    TransactionId safeRecycleXmin = TransactionIdIsValid(recycleXmin) ? recycleXmin : oldestXmin;
+    if (!TransactionIdIsValid(safeRecycleXmin)) {
+        safeRecycleXmin = u_sess->utils_cxt.RecentGlobalDataXmin;
     }
 
-    UBTreeShrinkCheckInternal(rel, stats, maxPages, costRatio);
+    UBTreeShrinkCheckInternal(rel, stats, maxPages, costRatio, safeRecycleXmin);
     if (stats->totalBlocks <= FirstNormalBlockNumber + 1) {
         return true;
     }
@@ -1028,13 +1172,22 @@ bool UBTreeShrink(Relation rel, UBTreeShrinkStats *stats, bool isOnline, BlockNu
     while (stats->migratedBlocks > 0 && migrationRounds < 10) {
         BlockNumber prevFreedTail = stats->freedTailBlocks;
         BlockNumber prevTargetMax = stats->targetMaxBlock;
-        UBTreeMigratePages(rel, stats, isOnline);
+        BlockNumber victimsInRound = stats->migratedBlocks;
+
+        UBTreeMigratePages(rel, stats, isOnline, safeRecycleXmin);
         migrationRounds++;
         /* Re-evaluate shrink boundaries after migration */
-        UBTreeShrinkCheckInternal(rel, stats, maxPages, costRatio);
+        UBTreeShrinkCheckInternal(rel, stats, maxPages, costRatio, safeRecycleXmin);
         /* If no new tail blocks were freed, stop to prevent looping */
         if (stats->freedTailBlocks <= prevFreedTail && stats->targetMaxBlock >= prevTargetMax) {
             break;
+        }
+        /* Adaptive diminishing returns: break if gain is less than 20% of migrated victims */
+        if (stats->freedTailBlocks > prevFreedTail) {
+            BlockNumber gained = stats->freedTailBlocks - prevFreedTail;
+            if (victimsInRound > 5 && gained * 5 < victimsInRound) {
+                break;
+            }
         }
     }
 
@@ -1057,6 +1210,16 @@ bool UBTreeShrink(Relation rel, UBTreeShrinkStats *stats, bool isOnline, BlockNu
         /*
          * Phase 1 Offline mode: Caller holds AccessExclusiveLock already.
          */
+        if (RelationNeedsWAL(rel)) {
+            xl_ubtree2_urq_purge xlrec;
+            xlrec.node = rel->rd_node;
+            xlrec.targetMaxBlock = targetMaxBlock;
+
+            XLogBeginInsert();
+            XLogRegisterData((char *)&xlrec, SizeOfUBTree2UrqPurge);
+            (void)XLogInsert(RM_UBTREE2_ID, XLOG_UBTREE2_URQ_PURGE);
+        }
+
         UBTreePurgeRecycleQueueAboveWatermark(rel, targetMaxBlock);
 
         LockRelationForExtension(rel, ExclusiveLock);
@@ -1185,14 +1348,13 @@ Datum gs_ubtree_shrink_check(PG_FUNCTION_ARGS)
     /* Refresh transaction horizon for URQ page recycling check */
     TransactionId recycleXmin = InvalidTransactionId;
     TransactionId oldestXmin = GetOldestXminForUndo(&recycleXmin);
-    if (TransactionIdIsValid(recycleXmin)) {
-        u_sess->utils_cxt.RecentGlobalDataXmin = recycleXmin;
-    } else if (TransactionIdIsValid(oldestXmin)) {
-        u_sess->utils_cxt.RecentGlobalDataXmin = oldestXmin;
+    TransactionId safeRecycleXmin = TransactionIdIsValid(recycleXmin) ? recycleXmin : oldestXmin;
+    if (!TransactionIdIsValid(safeRecycleXmin)) {
+        safeRecycleXmin = u_sess->utils_cxt.RecentGlobalDataXmin;
     }
 
     UBTreeShrinkStats stats;
-    UBTreeShrinkCheckInternal(rel, &stats, maxPages, costRatio);
+    UBTreeShrinkCheckInternal(rel, &stats, maxPages, costRatio, safeRecycleXmin);
 
     index_close(rel, AccessShareLock);
 

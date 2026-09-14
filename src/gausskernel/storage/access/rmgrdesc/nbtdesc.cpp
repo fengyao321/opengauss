@@ -515,9 +515,21 @@ void UBTree2Desc(StringInfo buf, XLogReaderState* record)
         }
         case XLOG_UBTREE2_SHRINK_MOVE_LEAF: {
             xl_ubtree2_shrink_move_leaf *xlrec = (xl_ubtree2_shrink_move_leaf *)rec;
-            appendStringInfo(buf, "shrink move leaf: victim %u, new %u, left %u, right %u, parent %u, offset %u, rightmost %s",
+            appendStringInfo(buf, "shrink move leaf: victim %u, new %u, left %u, right %u, rightmost %s",
                              xlrec->victimBlk, xlrec->newBlk, xlrec->leftBlk, xlrec->rightBlk,
-                             xlrec->parentBlk, xlrec->parentOff, xlrec->isRightMost ? "true" : "false");
+                             xlrec->isRightMost ? "true" : "false");
+            break;
+        }
+        case XLOG_UBTREE2_SHRINK_UPDATE_PARENT: {
+            xl_ubtree2_shrink_update_parent *xlrec = (xl_ubtree2_shrink_update_parent *)rec;
+            appendStringInfo(buf, "shrink update parent: parent %u, offset %u, old child %u, new child %u",
+                             xlrec->parentBlk, xlrec->parentOff, xlrec->oldChildBlk, xlrec->newChildBlk);
+            break;
+        }
+        case XLOG_UBTREE2_URQ_PURGE: {
+            xl_ubtree2_urq_purge *xlrec = (xl_ubtree2_urq_purge *)rec;
+            appendStringInfo(buf, "urq purge: rel %u/%u/%u, targetMaxBlock %u",
+                             xlrec->node.spcNode, xlrec->node.dbNode, xlrec->node.relNode, xlrec->targetMaxBlock);
             break;
         }
         default:
@@ -553,6 +565,14 @@ const char* ubtree2_type_name(uint8 subtype)
         }
         case XLOG_UBTREE2_SHRINK_MOVE_LEAF: {
             return "ubt2_shrink_move_leaf";
+            break;
+        }
+        case XLOG_UBTREE2_SHRINK_UPDATE_PARENT: {
+            return "ubt2_shrink_update_parent";
+            break;
+        }
+        case XLOG_UBTREE2_URQ_PURGE: {
+            return "ubt2_urq_purge";
             break;
         }
         default:
