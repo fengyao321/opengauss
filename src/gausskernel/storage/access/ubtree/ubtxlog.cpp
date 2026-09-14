@@ -1950,24 +1950,35 @@ void UBTree2XlogShrinkMoveLeaf(XLogReaderState* record)
             UnlockReleaseBuffer(rightbuf.buf);
         }
     }
+}
 
-    /* 4. Update parent downlink */
-    if (XLogRecHasBlockRef(record, 4)) {
-        RedoBufferInfo parentbuf;
-        if (XLogReadBufferForRedo(record, 4, &parentbuf) == BLK_NEEDS_REDO) {
-            Page page = parentbuf.pageinfo.page;
-            if (xlrec->parentOff <= PageGetMaxOffsetNumber(page)) {
-                ItemId pItem = PageGetItemId(page, xlrec->parentOff);
-                IndexTuple pItup = (IndexTuple)PageGetItem(page, pItem);
-                UBTreeTupleSetDownLink(pItup, xlrec->newBlk);
-                PageSetLSN(page, lsn);
-                MarkBufferDirty(parentbuf.buf);
-            }
-        }
-        if (BufferIsValid(parentbuf.buf)) {
-            UnlockReleaseBuffer(parentbuf.buf);
+void UBTree2XlogShrinkUpdateParent(XLogReaderState* record)
+{
+    xl_ubtree2_shrink_update_parent *xlrec = (xl_ubtree2_shrink_update_parent *)XLogRecGetData(record);
+    XLogRecPtr lsn = record->EndRecPtr;
+
+    RedoBufferInfo parentbuf;
+    if (XLogReadBufferForRedo(record, 0, &parentbuf) == BLK_NEEDS_REDO) {
+        Page page = parentbuf.pageinfo.page;
+        if (xlrec->parentOff <= PageGetMaxOffsetNumber(page)) {
+            ItemId pItem = PageGetItemId(page, xlrec->parentOff);
+            IndexTuple pItup = (IndexTuple)PageGetItem(page, pItem);
+            UBTreeTupleSetDownLink(pItup, xlrec->newChildBlk);
+            PageSetLSN(page, lsn);
+            MarkBufferDirty(parentbuf.buf);
         }
     }
+    if (BufferIsValid(parentbuf.buf)) {
+        UnlockReleaseBuffer(parentbuf.buf);
+    }
+}
+
+void UBTree2XlogURQPurge(XLogReaderState* record)
+{
+    xl_ubtree2_urq_purge *xlrec = (xl_ubtree2_urq_purge *)XLogRecGetData(record);
+    Relation reln = CreateFakeRelcacheEntry(xlrec->node);
+    UBTreePurgeRecycleQueueAboveWatermark(reln, xlrec->targetMaxBlock);
+    FreeFakeRelcacheEntry(reln);
 }
 
 void UBTree2Redo(XLogReaderState* record)
@@ -1992,6 +2003,12 @@ void UBTree2Redo(XLogReaderState* record)
             break;
         case XLOG_UBTREE2_SHRINK_MOVE_LEAF:
             UBTree2XlogShrinkMoveLeaf(record);
+            break;
+        case XLOG_UBTREE2_SHRINK_UPDATE_PARENT:
+            UBTree2XlogShrinkUpdateParent(record);
+            break;
+        case XLOG_UBTREE2_URQ_PURGE:
+            UBTree2XlogURQPurge(record);
             break;
         default:
             ereport(PANIC, (errmsg("UBTree2Redo: unknown op code %hhu", info)));
