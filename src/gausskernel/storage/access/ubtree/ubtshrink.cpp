@@ -301,6 +301,13 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
         return;
     }
 
+    /* Read root block from metapage: the root page can never be truncated */
+    Buffer metabuf = _bt_getbuf(rel, BTREE_METAPAGE, BT_READ);
+    Page metapg = BufferGetPage(metabuf);
+    BTMetaPageData *metad = BTPageGetMeta(metapg);
+    BlockNumber rootBlk = metad->btm_root;
+    _bt_relbuf(rel, metabuf);
+
     /*
      * Walk backwards from the very last block of the index file.
      * Pages that are dead/empty can be safely truncated directly.
@@ -345,6 +352,11 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
     }
 
     stats->targetMaxBlock = stats->totalBlocks - stats->freedTailBlocks;
+    if (stats->targetMaxBlock <= rootBlk) {
+        stats->targetMaxBlock = rootBlk + 1;
+        stats->freedTailBlocks = stats->totalBlocks > stats->targetMaxBlock ?
+                                 (stats->totalBlocks - stats->targetMaxBlock) : 0;
+    }
 
     /*
      * Targeted Migration: Check if further truncation is possible by migrating
@@ -378,6 +390,7 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
 
             bool hDead = (PageIsNew(hPage) || P_ISDELETED(hOpaque));
             bool hRoot = P_ISROOT(hOpaque);
+            bool hLeaf = P_ISLEAF(hOpaque);
 
             LockBuffer(hBuf, BUFFER_LOCK_UNLOCK);
             ReleaseBuffer(hBuf);
@@ -385,7 +398,7 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
             if (hDead) {
                 /* Dead page encountered: check if highScan can be an eligible cutoff */
                 if (victimsCount > 0) {
-                    BlockNumber minSafeCutoff = maxAllocatedSlot + 1;
+                    BlockNumber minSafeCutoff = Max(maxAllocatedSlot + 1, rootBlk + 1);
                     if (highScan >= minSafeCutoff) {
                         BlockNumber tentativeCutoff = highScan;
                         BlockNumber tentativeFreed = stats->totalBlocks - tentativeCutoff;
@@ -399,8 +412,8 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
                         }
                     }
                 }
-            } else if (!hRoot) {
-                /* Active page: candidate victim */
+            } else if (!hRoot && hLeaf) {
+                /* Active leaf page: candidate victim */
                 /* Find next available slot in inv strictly below highScan */
                 while (freeSlotIdx < inv.count && inv.entries[freeSlotIdx].blkno >= highScan) {
                     freeSlotIdx++;
@@ -411,7 +424,7 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
                     victimsCount++;
                     freeSlotIdx++;
 
-                    BlockNumber minSafeCutoff = maxAllocatedSlot + 1;
+                    BlockNumber minSafeCutoff = Max(maxAllocatedSlot + 1, rootBlk + 1);
                     if (highScan >= minSafeCutoff) {
                         BlockNumber tentativeCutoff = highScan;
                         BlockNumber tentativeFreed = stats->totalBlocks - tentativeCutoff;
@@ -429,7 +442,7 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
                     break;
                 }
             } else {
-                /* Root page encountered, stop */
+                /* Active internal page or Root page encountered: cannot migrate, stop victim scan */
                 break;
             }
 
@@ -440,7 +453,7 @@ void UBTreeShrinkCheckInternal(Relation rel, UBTreeShrinkStats *stats, BlockNumb
             pfree(inv.entries);
         }
 
-        if (bestVictims > 0 && bestCutoff < stats->targetMaxBlock) {
+        if (bestVictims > 0 && bestCutoff < stats->targetMaxBlock && bestCutoff > rootBlk) {
             stats->migratedBlocks = bestVictims;
             stats->migrateTargetCutoff = bestCutoff;
         }
@@ -463,11 +476,10 @@ static void UBTreeCloseBoundarySiblingsBeforeTruncate(Relation rel, BlockNumber 
     }
 
     /*
-     * 1. Inspect blocks in [targetMaxBlock, Min(currentTotal, targetMaxBlock + 32))
+     * 1. Inspect all blocks in [targetMaxBlock, currentTotal)
      * to trace their left siblings via btpo_prev.
      */
-    BlockNumber inspectLimit = Min(currentTotal, targetMaxBlock + 32);
-    for (BlockNumber blk = targetMaxBlock; blk < inspectLimit; blk++) {
+    for (BlockNumber blk = targetMaxBlock; blk < currentTotal; blk++) {
         Buffer buf = ReadBuffer(rel, blk);
         LockBuffer(buf, BT_READ);
         Page page = BufferGetPage(buf);
@@ -520,6 +532,37 @@ static void UBTreeCloseBoundarySiblingsBeforeTruncate(Relation rel, BlockNumber 
         }
         _bt_relbuf(rel, prevBuf);
     }
+
+    /*
+     * 3. Metapage Fastroot Protection:
+     * Ensure that the cached fast root in the metapage does not point to
+     * any block >= targetMaxBlock that will be physically truncated.
+     * If btm_fastroot >= targetMaxBlock, fall back to btm_root.
+     */
+    Buffer metabuf = _bt_getbuf(rel, BTREE_METAPAGE, BT_WRITE);
+    Page metapg = BufferGetPage(metabuf);
+    BTMetaPageData *metad = BTPageGetMeta(metapg);
+    bool metaDirty = false;
+
+    if (metad->btm_fastroot >= targetMaxBlock) {
+        metad->btm_fastroot = metad->btm_root;
+        metad->btm_fastlevel = metad->btm_level;
+        metaDirty = true;
+    }
+    if (metaDirty) {
+        MarkBufferDirty(metabuf);
+        if (RelationNeedsWAL(rel)) {
+            log_newpage_buffer(metabuf, true);
+        }
+    }
+    _bt_relbuf(rel, metabuf);
+
+    /* Invalidate backend local root cache */
+    if (rel->rd_amcache != NULL) {
+        pfree(rel->rd_amcache);
+        rel->rd_amcache = NULL;
+    }
+    rel->rd_rootcache = InvalidBuffer;
 }
 
 /*
@@ -638,8 +681,8 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
     Page victimPage = BufferGetPage(victimBuf);
     UBTPageOpaqueInternal victimOpaque = (UBTPageOpaqueInternal)PageGetSpecialPointer(victimPage);
 
-    /* Verify victim page is still an active, non-root page (leaf or internal) */
-    if (P_ISROOT(victimOpaque) ||
+    /* Verify victim page is still an active leaf page */
+    if (!P_ISLEAF(victimOpaque) || P_ISROOT(victimOpaque) ||
         P_ISDELETED(victimOpaque) || P_ISHALFDEAD(victimOpaque) || P_INCOMPLETE_SPLIT(victimOpaque)) {
         _bt_relbuf(rel, victimBuf);
         return false;
@@ -1117,6 +1160,7 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
             parentPage = BufferGetPage(parentBuf);
         }
 
+        bool parentUpdated = false;
         if (parentOff != InvalidOffsetNumber && BufferIsValid(parentBuf)) {
             START_CRIT_SECTION();
             parentPage = BufferGetPage(parentBuf);
@@ -1141,9 +1185,19 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
             }
             END_CRIT_SECTION();
             _bt_relbuf(rel, parentBuf);
+            parentUpdated = true;
         } else if (BufferIsValid(parentBuf)) {
             _bt_relbuf(rel, parentBuf);
         }
+
+        if (itupKey != NULL) {
+            pfree(itupKey);
+        }
+        if (targetKey != NULL) {
+            pfree(targetKey);
+        }
+
+        return parentUpdated;
     }
 
     if (itupKey != NULL) {
@@ -1153,7 +1207,7 @@ static bool UBTreeMigrateOnePage(Relation rel, BlockNumber victimBlk, BlockNumbe
         pfree(targetKey);
     }
 
-    return true;
+    return false;
 }
 
 /*
@@ -1183,11 +1237,12 @@ static void UBTreeMigratePages(Relation rel, UBTreeShrinkStats *stats, bool isOn
 
         bool isDead = (PageIsNew(page) || P_ISDELETED(opaque));
         bool isRoot = P_ISROOT(opaque);
+        bool isLeaf = P_ISLEAF(opaque);
 
         LockBuffer(buf, BUFFER_LOCK_UNLOCK);
         ReleaseBuffer(buf);
 
-        if (!isDead && !isRoot) {
+        if (!isDead && !isRoot && isLeaf) {
             BlockNumber targetFreeBlk = InvalidBlockNumber;
             BlockNumber targetQueueBlk = InvalidBlockNumber;
             uint16 targetOffset = 0;
