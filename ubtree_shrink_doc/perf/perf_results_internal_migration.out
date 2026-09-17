@@ -1,0 +1,723 @@
+Timing is on.
+gsql:ubtree_shrink_doc/perf/perf.sql:10: NOTICE:  table "perf_shrink" does not exist, skipping
+DROP TABLE
+Time: 0.813 ms
+gsql:ubtree_shrink_doc/perf/perf.sql:11: NOTICE:  table "perf_vacuum" does not exist, skipping
+DROP TABLE
+Time: 0.603 ms
+gsql:ubtree_shrink_doc/perf/perf.sql:12: NOTICE:  table "perf_reindex" does not exist, skipping
+DROP TABLE
+Time: 0.410 ms
+======================================================================
+SCENARIO 1: 100K rows, delete 80% (tail deletion pattern)
+======================================================================
+CREATE TABLE
+Time: 55.447 ms
+CREATE INDEX
+Time: 9.956 ms
+CREATE INDEX
+Time: 8.677 ms
+INSERT 0 100000
+Time: 3758.047 ms
+CREATE TABLE
+Time: 14.393 ms
+CREATE INDEX
+Time: 10.910 ms
+CREATE INDEX
+Time: 8.630 ms
+INSERT 0 100000
+Time: 3783.251 ms
+CREATE TABLE
+Time: 15.624 ms
+CREATE INDEX
+Time: 9.687 ms
+CREATE INDEX
+Time: 10.111 ms
+INSERT 0 100000
+Time: 3774.800 ms
+--- Initial Index Sizes (100K rows) ---
+    idx     |  bytes  |  size   
+------------+---------+---------
+ shrink_id  | 3170304 | 3096 kB
+ vacuum_id  | 3170304 | 3096 kB
+ reindex_id | 3170304 | 3096 kB
+(3 rows)
+
+Time: 3.573 ms
+DELETE 80000
+Time: 2149.372 ms
+DELETE 80000
+Time: 2163.692 ms
+DELETE 80000
+Time: 2186.112 ms
+ pg_sleep 
+----------
+ 
+(1 row)
+
+Time: 2002.283 ms
+ txid_current 
+--------------
+       182501
+(1 row)
+
+Time: 5.615 ms
+VACUUM
+Time: 80.667 ms
+VACUUM
+Time: 75.471 ms
+VACUUM
+Time: 90.633 ms
+--- Post-Delete / Post-VACUUM Index Sizes (before compaction) ---
+    idx     |  bytes  |  size   
+------------+---------+---------
+ shrink_id  | 3170304 | 3096 kB
+ vacuum_id  | 3170304 | 3096 kB
+ reindex_id | 3170304 | 3096 kB
+(3 rows)
+
+Time: 4.897 ms
+--- Shrink Check Stats ---
+                            gs_ubtree_shrink_check                            
+------------------------------------------------------------------------------
+ TotalBlocks: 387, TargetMaxBlock: 80, FreeTailBlocks: 307, MigratedBlocks: 1
+(1 row)
+
+Time: 2.165 ms
+
+>>> METHOD 1: gs_ubtree_shrink (Online Mode) <<<
+--- Timing START: gs_ubtree_shrink on idx_perf_shrink_id ---
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
+Time: 9.656 ms
+--- Timing END: gs_ubtree_shrink on idx_perf_shrink_id ---
+--- Timing START: gs_ubtree_shrink on idx_perf_shrink_cat ---
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
+Time: 7.184 ms
+--- Timing END: gs_ubtree_shrink on idx_perf_shrink_cat ---
+
+>>> METHOD 2: VACUUM FULL <<<
+--- Timing START: VACUUM FULL perf_vacuum ---
+VACUUM
+Time: 171.710 ms
+--- Timing END: VACUUM FULL perf_vacuum ---
+
+>>> METHOD 3: REINDEX <<<
+--- Timing START: REINDEX idx_perf_reindex_id ---
+REINDEX
+Time: 32.633 ms
+--- Timing END: REINDEX idx_perf_reindex_id ---
+--- Timing START: REINDEX idx_perf_reindex_cat ---
+REINDEX
+Time: 56.853 ms
+--- Timing END: REINDEX idx_perf_reindex_cat ---
+
+=== SCENARIO 1 RESULTS: Post-Compaction Sizes ===
+     idx     |  bytes  |  size   
+-------------+---------+---------
+ shrink_id   |  655360 | 640 kB
+ shrink_cat  | 2646016 | 2584 kB
+ vacuum_id   |  647168 | 632 kB
+ vacuum_cat  |  647168 | 632 kB
+ reindex_id  |  647168 | 632 kB
+ reindex_cat |  647168 | 632 kB
+(6 rows)
+
+Time: 7.608 ms
+--- Table Sizes ---
+     tbl      |  bytes   |   size   
+--------------+----------+----------
+ perf_shrink  | 10240000 | 10000 kB
+ perf_vacuum  |  2023424 | 1976 kB
+ perf_reindex | 10240000 | 10000 kB
+(3 rows)
+
+Time: 2.631 ms
+--- Data Integrity Check ---
+ method  | rows  
+---------+-------
+ shrink  | 20000
+ vacuum  | 20000
+ reindex | 20000
+(3 rows)
+
+Time: 61.093 ms
+DROP TABLE
+Time: 15.740 ms
+DROP TABLE
+Time: 15.098 ms
+DROP TABLE
+Time: 14.383 ms
+
+======================================================================
+SCENARIO 2: 500K rows, delete 90% (heavy bloat scenario)
+======================================================================
+CREATE TABLE
+Time: 18.374 ms
+CREATE INDEX
+Time: 9.887 ms
+CREATE TABLE
+Time: 14.879 ms
+CREATE INDEX
+Time: 10.042 ms
+CREATE TABLE
+Time: 14.471 ms
+CREATE INDEX
+Time: 9.337 ms
+INSERT 0 500000
+Time: 9975.995 ms
+INSERT 0 500000
+Time: 9834.014 ms
+INSERT 0 500000
+Time: 9659.059 ms
+--- Initial Sizes (500K rows) ---
+   idx   |  bytes   | size  
+---------+----------+-------
+ shrink  | 15826944 | 15 MB
+ vacuum  | 15826944 | 15 MB
+ reindex | 15826944 | 15 MB
+(3 rows)
+
+Time: 2.731 ms
+DELETE 450000
+Time: 9121.981 ms
+DELETE 450000
+Time: 8957.320 ms
+DELETE 450000
+Time: 9008.693 ms
+ pg_sleep 
+----------
+ 
+(1 row)
+
+Time: 2001.370 ms
+ txid_current 
+--------------
+       182532
+(1 row)
+
+Time: 5.432 ms
+VACUUM
+Time: 3454.049 ms
+VACUUM
+Time: 3327.367 ms
+VACUUM
+Time: 3347.055 ms
+--- Post-Delete Sizes (500K, 90% deleted) ---
+   idx   |  bytes   | size  
+---------+----------+-------
+ shrink  | 15826944 | 15 MB
+ vacuum  | 15826944 | 15 MB
+ reindex | 15826944 | 15 MB
+(3 rows)
+
+Time: 4.740 ms
+                             gs_ubtree_shrink_check                              
+---------------------------------------------------------------------------------
+ TotalBlocks: 1932, TargetMaxBlock: 411, FreeTailBlocks: 1521, MigratedBlocks: 7
+(1 row)
+
+Time: 4.752 ms
+
+>>> gs_ubtree_shrink (Online) <<<
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
+Time: 22.280 ms
+
+>>> VACUUM FULL <<<
+VACUUM
+Time: 171.309 ms
+
+>>> REINDEX <<<
+REINDEX
+Time: 66.920 ms
+
+=== SCENARIO 2 RESULTS ===
+ method  | idx_bytes | idx_size | tbl_bytes | tbl_size 
+---------+-----------+----------+-----------+----------
+ shrink  |   3366912 | 3288 kB  |  16048128 | 15 MB
+ vacuum  |   1597440 | 1560 kB  |   1515520 | 1480 kB
+ reindex |   1597440 | 1560 kB  |  16048128 | 15 MB
+(3 rows)
+
+Time: 17.751 ms
+ method  | count 
+---------+-------
+ shrink  | 50000
+ vacuum  | 50000
+ reindex | 50000
+(3 rows)
+
+Time: 146.752 ms
+DROP TABLE
+Time: 10.281 ms
+DROP TABLE
+Time: 8.770 ms
+DROP TABLE
+Time: 8.989 ms
+
+======================================================================
+SCENARIO 3: 200K rows, scattered delete (every other row)
+======================================================================
+CREATE TABLE
+Time: 14.010 ms
+CREATE INDEX
+Time: 12.195 ms
+CREATE TABLE
+Time: 12.437 ms
+CREATE INDEX
+Time: 8.465 ms
+CREATE TABLE
+Time: 14.638 ms
+CREATE INDEX
+Time: 8.270 ms
+INSERT 0 200000
+Time: 4066.413 ms
+INSERT 0 200000
+Time: 3871.724 ms
+INSERT 0 200000
+Time: 3829.608 ms
+--- Initial Sizes (200K rows) ---
+   idx   |  bytes  |  size   
+---------+---------+---------
+ shrink  | 6348800 | 6200 kB
+ vacuum  | 6348800 | 6200 kB
+ reindex | 6348800 | 6200 kB
+(3 rows)
+
+Time: 2.730 ms
+DELETE 100000
+Time: 2241.795 ms
+DELETE 100000
+Time: 2183.867 ms
+DELETE 100000
+Time: 2144.568 ms
+ pg_sleep 
+----------
+ 
+(1 row)
+
+Time: 2002.139 ms
+ txid_current 
+--------------
+       182557
+(1 row)
+
+Time: 5.807 ms
+VACUUM
+Time: 87.392 ms
+VACUUM
+Time: 84.427 ms
+VACUUM
+Time: 93.674 ms
+--- Post-Delete Sizes (200K, 50% scattered delete) ---
+   idx   |  bytes  |  size   
+---------+---------+---------
+ shrink  | 6348800 | 6200 kB
+ vacuum  | 6348800 | 6200 kB
+ reindex | 6348800 | 6200 kB
+(3 rows)
+
+Time: 5.073 ms
+                           gs_ubtree_shrink_check                            
+-----------------------------------------------------------------------------
+ TotalBlocks: 775, TargetMaxBlock: 775, FreeTailBlocks: 0, MigratedBlocks: 0
+(1 row)
+
+Time: 0.838 ms
+
+>>> gs_ubtree_shrink (Online) <<<
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
+Time: 1.804 ms
+
+>>> VACUUM FULL <<<
+VACUUM
+Time: 288.931 ms
+
+>>> REINDEX <<<
+REINDEX
+Time: 109.917 ms
+
+=== SCENARIO 3 RESULTS ===
+ method  | idx_bytes | idx_size | tbl_bytes | tbl_size 
+---------+-----------+----------+-----------+----------
+ shrink  |   6348800 | 6200 kB  |   6299648 | 6152 kB
+ vacuum  |   3170304 | 3096 kB  |   3137536 | 3064 kB
+ reindex |   3170304 | 3096 kB  |   6299648 | 6152 kB
+(3 rows)
+
+Time: 4.752 ms
+ method  | count  
+---------+--------
+ shrink  | 100000
+ vacuum  | 100000
+ reindex | 100000
+(3 rows)
+
+Time: 187.305 ms
+DROP TABLE
+Time: 12.844 ms
+DROP TABLE
+Time: 12.728 ms
+DROP TABLE
+Time: 11.563 ms
+
+======================================================================
+SCENARIO 4: 1M rows, delete 95% (extreme bloat, tail deletion)
+======================================================================
+CREATE TABLE
+Time: 15.109 ms
+CREATE INDEX
+Time: 9.920 ms
+CREATE TABLE
+Time: 13.544 ms
+CREATE INDEX
+Time: 11.067 ms
+CREATE TABLE
+Time: 13.651 ms
+CREATE INDEX
+Time: 8.868 ms
+--- Inserting 1M rows into 3 tables... ---
+INSERT 0 1000000
+Time: 20186.782 ms
+INSERT 0 1000000
+Time: 19879.479 ms
+INSERT 0 1000000
+Time: 19805.044 ms
+--- Initial Sizes (1M rows) ---
+   idx   |  bytes   | size  
+---------+----------+-------
+ shrink  | 31645696 | 30 MB
+ vacuum  | 31645696 | 30 MB
+ reindex | 31645696 | 30 MB
+(3 rows)
+
+Time: 2.793 ms
+DELETE 950000
+Time: 19377.343 ms
+DELETE 950000
+Time: 19168.597 ms
+DELETE 950000
+Time: 18725.224 ms
+ pg_sleep 
+----------
+ 
+(1 row)
+
+Time: 2001.997 ms
+ txid_current 
+--------------
+       182582
+(1 row)
+
+Time: 4.366 ms
+VACUUM
+Time: 8021.315 ms
+VACUUM
+Time: 8070.148 ms
+VACUUM
+Time: 8016.039 ms
+--- Post-Delete Sizes (1M, 95% deleted) ---
+   idx   |  bytes   | size  
+---------+----------+-------
+ shrink  | 31645696 | 30 MB
+ vacuum  | 31645696 | 30 MB
+ reindex | 31645696 | 30 MB
+(3 rows)
+
+Time: 3.868 ms
+                              gs_ubtree_shrink_check                              
+----------------------------------------------------------------------------------
+ TotalBlocks: 3863, TargetMaxBlock: 411, FreeTailBlocks: 3452, MigratedBlocks: 14
+(1 row)
+
+Time: 7.573 ms
+
+>>> gs_ubtree_shrink (Online) <<<
+ gs_ubtree_shrink 
+------------------
+ t
+(1 row)
+
+Time: 42.593 ms
+
+>>> VACUUM FULL <<<
+VACUUM
+Time: 187.246 ms
+
+>>> REINDEX <<<
+REINDEX
+Time: 69.723 ms
+
+=== SCENARIO 4 RESULTS ===
+ method  | idx_bytes | idx_size | tbl_bytes | tbl_size 
+---------+-----------+----------+-----------+----------
+ shrink  |   3366912 | 3288 kB  |  32301056 | 31 MB
+ vacuum  |   1597440 | 1560 kB  |   1515520 | 1480 kB
+ reindex |   1597440 | 1560 kB  |  32301056 | 31 MB
+(3 rows)
+
+Time: 4.474 ms
+ method  | count 
+---------+-------
+ shrink  | 50000
+ vacuum  | 50000
+ reindex | 50000
+(3 rows)
+
+Time: 135.077 ms
+
+=== Query Performance Post-Compaction ===
+SET
+Time: 0.771 ms
+--- Index scan: shrink table ---
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Bitmap Heap Scan on perf_shrink (actual time=0.107..0.108 rows=1 loops=1)
+   Recheck Cond: (id = 25000)
+   Heap Blocks: exact=1
+   ->  Bitmap Index Scan on idx_perf_shrink_id (actual time=0.035..0.035 rows=1 loops=1)
+         Index Cond: (id = 25000)
+ Total runtime: 0.245 ms
+(6 rows)
+
+Time: 1.351 ms
+--- Index scan: vacuum table ---
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Bitmap Heap Scan on perf_vacuum (actual time=0.060..0.061 rows=1 loops=1)
+   Recheck Cond: (id = 25000)
+   Heap Blocks: exact=1
+   ->  Bitmap Index Scan on idx_perf_vacuum_id (actual time=0.046..0.046 rows=1 loops=1)
+         Index Cond: (id = 25000)
+ Total runtime: 0.146 ms
+(6 rows)
+
+Time: 0.911 ms
+--- Index scan: reindex table ---
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on perf_reindex (actual time=0.027..0.027 rows=1 loops=1)
+   Recheck Cond: (id = 25000)
+   Heap Blocks: exact=1
+   ->  Bitmap Index Scan on idx_perf_reindex_id (actual time=0.015..0.015 rows=1 loops=1)
+         Index Cond: (id = 25000)
+ Total runtime: 0.111 ms
+(6 rows)
+
+Time: 0.899 ms
+--- Range scan: shrink table ---
+                                                 QUERY PLAN                                                 
+------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=11.659..11.660 rows=1 loops=1)
+   ->  Index Only Scan using idx_perf_shrink_id on perf_shrink (actual time=0.025..9.517 rows=9001 loops=1)
+         Index Cond: ((id >= 1000) AND (id <= 10000))
+         Heap Fetches: 0
+ Total runtime: 11.839 ms
+(5 rows)
+
+Time: 12.941 ms
+--- Range scan: vacuum table ---
+                                                 QUERY PLAN                                                 
+------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=11.357..11.357 rows=1 loops=1)
+   ->  Index Only Scan using idx_perf_vacuum_id on perf_vacuum (actual time=0.085..9.616 rows=9001 loops=1)
+         Index Cond: ((id >= 1000) AND (id <= 10000))
+         Heap Fetches: 0
+ Total runtime: 11.569 ms
+(5 rows)
+
+Time: 12.801 ms
+--- Range scan: reindex table ---
+                                                  QUERY PLAN                                                  
+--------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=10.974..10.974 rows=1 loops=1)
+   ->  Index Only Scan using idx_perf_reindex_id on perf_reindex (actual time=0.029..9.198 rows=9001 loops=1)
+         Index Cond: ((id >= 1000) AND (id <= 10000))
+         Heap Fetches: 0
+ Total runtime: 11.096 ms
+(5 rows)
+
+Time: 12.164 ms
+--- Backward scan (ORDER BY id DESC LIMIT 100): shrink table ---
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ [Bypass]
+ Limit (actual time=0.032..0.186 rows=100 loops=1)
+   ->  Index Scan Backward using idx_perf_shrink_id on perf_shrink (actual time=0.030..0.173 rows=100 loops=1)
+ Total runtime: 0.305 ms
+(4 rows)
+
+Time: 1.453 ms
+--- Backward scan: vacuum table ---
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ [Bypass]
+ Limit (actual time=0.038..0.253 rows=100 loops=1)
+   ->  Index Scan Backward using idx_perf_vacuum_id on perf_vacuum (actual time=0.037..0.224 rows=100 loops=1)
+ Total runtime: 0.367 ms
+(4 rows)
+
+Time: 1.300 ms
+--- Backward scan: reindex table ---
+                                                   QUERY PLAN                                                    
+-----------------------------------------------------------------------------------------------------------------
+ [Bypass]
+ Limit (actual time=0.021..0.170 rows=100 loops=1)
+   ->  Index Scan Backward using idx_perf_reindex_id on perf_reindex (actual time=0.020..0.156 rows=100 loops=1)
+ Total runtime: 0.270 ms
+(4 rows)
+
+Time: 1.170 ms
+--- Index-only scan: shrink table ---
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
+ [Bypass]
+ Index Only Scan using idx_perf_shrink_id on perf_shrink (actual time=0.026..9.252 rows=9001 loops=1)
+   Index Cond: ((id >= 1000) AND (id <= 10000))
+   Heap Fetches: 0
+ Total runtime: 10.375 ms
+(5 rows)
+
+Time: 11.425 ms
+--- Index-only scan: vacuum table ---
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
+ [Bypass]
+ Index Only Scan using idx_perf_vacuum_id on perf_vacuum (actual time=0.025..9.469 rows=9001 loops=1)
+   Index Cond: ((id >= 1000) AND (id <= 10000))
+   Heap Fetches: 0
+ Total runtime: 10.608 ms
+(5 rows)
+
+Time: 11.509 ms
+--- Index-only scan: reindex table ---
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ [Bypass]
+ Index Only Scan using idx_perf_reindex_id on perf_reindex (actual time=0.028..9.184 rows=9001 loops=1)
+   Index Cond: ((id >= 1000) AND (id <= 10000))
+   Heap Fetches: 0
+ Total runtime: 10.305 ms
+(5 rows)
+
+Time: 11.257 ms
+RESET
+Time: 0.683 ms
+DROP TABLE
+Time: 11.700 ms
+DROP TABLE
+Time: 8.904 ms
+DROP TABLE
+Time: 10.482 ms
+
+======================================================================
+SCENARIO 5: 200K rows, FIFO Head Deletion (Oldest 80%, Page Relocation)
+======================================================================
+CREATE TABLE
+Time: 15.800 ms
+CREATE INDEX
+Time: 8.199 ms
+CREATE INDEX
+Time: 8.770 ms
+CREATE INDEX
+Time: 9.851 ms
+CREATE TABLE
+Time: 14.469 ms
+CREATE INDEX
+Time: 9.275 ms
+CREATE INDEX
+Time: 10.199 ms
+CREATE INDEX
+Time: 9.740 ms
+CREATE TABLE
+Time: 17.669 ms
+CREATE INDEX
+Time: 9.242 ms
+CREATE INDEX
+Time: 9.241 ms
+CREATE INDEX
+Time: 9.280 ms
+INSERT 0 200000
+Time: 13295.353 ms
+INSERT 0 200000
+Time: 13703.239 ms
+INSERT 0 200000
+Time: 13188.364 ms
+--- Initial Sizes (200K rows, Multi-Index) ---
+     idx     |  bytes   |  size   
+-------------+----------+---------
+ shrink_id   |  6348800 | 6200 kB
+ shrink_comp |  8577024 | 8376 kB
+ shrink_text | 32317440 | 31 MB
+(3 rows)
+
+Time: 3.049 ms
+DELETE 160000
+Time: 7986.637 ms
+DELETE 160000
+Time: 7826.005 ms
+DELETE 160000
+Time: 7664.872 ms
+ pg_sleep 
+----------
+ 
+(1 row)
+
+Time: 2001.779 ms
+ txid_current 
+--------------
+       182613
+(1 row)
+
+Time: 3.664 ms
+VACUUM
+Time: 33826.418 ms
+VACUUM
+Time: 33822.588 ms
+VACUUM
+Time: 33869.594 ms
+--- Post-Delete Sizes (Head Deletion 80%) ---
+     idx     |  bytes   |  size   
+-------------+----------+---------
+ shrink_id   |  6348800 | 6200 kB
+ shrink_comp |  8577024 | 8376 kB
+ shrink_text | 32317440 | 31 MB
+(3 rows)
+
+Time: 3.551 ms
+                             gs_ubtree_shrink_check                              
+---------------------------------------------------------------------------------
+ TotalBlocks: 775, TargetMaxBlock: 411, FreeTailBlocks: 364, MigratedBlocks: 157
+(1 row)
+
+Time: 2.896 ms
+                            gs_ubtree_shrink_check                             
+-------------------------------------------------------------------------------
+ TotalBlocks: 1047, TargetMaxBlock: 1047, FreeTailBlocks: 0, MigratedBlocks: 0
+(1 row)
+
+Time: 2.947 ms
+                            gs_ubtree_shrink_check                             
+-------------------------------------------------------------------------------
+ TotalBlocks: 3945, TargetMaxBlock: 3945, FreeTailBlocks: 0, MigratedBlocks: 0
+(1 row)
+
+Time: 4.020 ms
+
+>>> gs_ubtree_shrink on Head Deletion Indexes <<<
+gsql:ubtree_shrink_doc/perf/perf.sql:543: connection to server was lost

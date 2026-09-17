@@ -1890,19 +1890,24 @@ void UBTree2XlogShrinkMoveLeaf(XLogReaderState* record)
     XLogRecPtr lsn = record->EndRecPtr;
 
     /* 0. Restore new leaf page */
+    record->blocks[0].last_lsn = InvalidXLogRecPtr;
     RedoBufferInfo newbuf;
-    XLogInitBufferForRedo(record, 0, &newbuf);
-    char *datapos = NULL;
-    Size datalen = 0;
-    datapos = XLogRecGetBlockData(record, 0, &datalen);
-    if (BufferIsValid(newbuf.buf)) {
+    if (XLogReadBufferForRedo(record, 0, &newbuf) == BLK_NEEDS_REDO) {
+        char *datapos = NULL;
+        Size datalen = 0;
+        datapos = XLogRecGetBlockData(record, 0, &datalen);
         Page page = newbuf.pageinfo.page;
-        if (datalen == BLCKSZ) {
+        if (datapos != NULL && datalen == BLCKSZ) {
             errno_t rc = memcpy_s(page, BLCKSZ, datapos, BLCKSZ);
             securec_check(rc, "", "");
-            PageSetLSN(page, lsn);
-            MarkBufferDirty(newbuf.buf);
+        } else {
+            elog(WARNING, "UBTree2XlogShrinkMoveLeaf: block 0 data not present in WAL record, datapos %p, datalen %lu",
+                 datapos, datalen);
         }
+        PageSetLSN(page, lsn);
+        MarkBufferDirty(newbuf.buf);
+    }
+    if (BufferIsValid(newbuf.buf)) {
         UnlockReleaseBuffer(newbuf.buf);
     }
 
