@@ -168,7 +168,7 @@ def run_tpcc_phase(args, phase_name, enable_shrink=False):
                     sz_before = cur.fetchone()[0]
 
                     t0 = time.time()
-                    cur.execute(f"SELECT gs_ubtree_shrink('{idx_name}', false);")
+                    cur.execute(f"SELECT gs_ubtree_shrink('{idx_name}', true);")
                     ok = cur.fetchone()[0]
                     dur_ms = (time.time() - t0) * 1000.0
 
