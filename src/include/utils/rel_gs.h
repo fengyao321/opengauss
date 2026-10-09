@@ -52,6 +52,7 @@ typedef enum {
 #include "catalog/pg_hashbucket.h"
 #include "catalog/catalog.h"
 #include "catalog/pg_namespace.h"
+#include "catalog/pg_am.h"
 #include "utils/partitionmap_gs.h"
 #include "rel.h"
 
@@ -244,7 +245,8 @@ typedef struct RelationMetaData {
  */
 static inline TableAmType get_tableam_from_reloptions(bytea* reloptions, char relkind, Oid amoid)
 {
-    if (relkind == RELKIND_RELATION || relkind == RELKIND_TOASTVALUE || amoid == BTREE_AM_OID) {
+    if (relkind == RELKIND_RELATION || relkind == RELKIND_TOASTVALUE || amoid == BTREE_AM_OID ||
+        (relkind == RELKIND_INDEX && (amoid == HASH_AM_OID || amoid == GIST_AM_OID))) {
         if (reloptions!= NULL) {
             if (RelationIsTableAccessMethodHeapType(reloptions)) {
                 return TAM_HEAP;

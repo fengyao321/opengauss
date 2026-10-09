@@ -105,7 +105,8 @@ function make_gaussdb_kernel()
     echo "Begin make install gaussdb server" >> "$LOG_FILE" 2>&1
 
     export GAUSSHOME=${BUILD_DIR}
-    export LD_LIBRARY_PATH=${BUILD_DIR}/lib:${BUILD_DIR}/lib/postgresql:${LD_LIBRARY_PATH}
+    export LD_LIBRARY_PATH=${BUILD_DIR}/lib:${BUILD_DIR}/lib/postgresql:/usr/lib64:${LD_LIBRARY_PATH}
+    export PERL5LIB=${ROOT_DIR}/src/common/backend/utils/mb/Unicode:${PERL5LIB}
 
     [ -d "${CMAKE_BUILD_DIR}" ] && rm -rf ${CMAKE_BUILD_DIR}
     [ -d "${BUILD_DIR}" ] && rm -rf ${BUILD_DIR}
@@ -116,11 +117,11 @@ function make_gaussdb_kernel()
         die "cmake failed."
     fi
     cpus_num=$(grep -w processor /proc/cpuinfo|wc -l)
-    make -sj ${cpus_num}
+    make -j ${cpus_num}
     if [ $? -ne 0 ]; then
         die "make failed."
     fi
-    make install -sj ${cpus_num}
+    make install -j ${cpus_num}
     if [ $? -ne 0 ]; then
         die "make install failed."
     fi

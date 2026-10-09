@@ -527,7 +527,7 @@ static relopt_string stringRelOpts[] = {
     },
     {
         {"storage_type", "Specifies the Table accessor routines",
-         RELOPT_KIND_HEAP | RELOPT_KIND_BTREE | RELOPT_KIND_TOAST },
+         RELOPT_KIND_HEAP | RELOPT_KIND_BTREE | RELOPT_KIND_TOAST | RELOPT_KIND_HASH | RELOPT_KIND_GIST },
         strlen(TABLE_ACCESS_METHOD_ASTORE),
         false,
         ValidateStrOptTableAccessMethod,

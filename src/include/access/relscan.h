@@ -182,9 +182,12 @@ typedef struct IndexScanDescData {
     IndexFetchTableData *xs_heapfetch;
     /* parallel index scan information, in global variables */
     struct ParallelIndexScanDescData *parallelScan;
-    /* put decompressed heap tuple data into xs_ctbuf_hdr be careful! when malloc memory  should give extra mem for
-     *xs_ctbuf_hdr. t_bits which is varlength arr
-     */
+
+    /* Bridge index scan support */
+    bool xs_is_bridge_scan;
+    Relation xs_bridge_rel;
+    Relation xs_bridge_idx;
+
     int64 count;
     HeapTupleHeaderData xs_ctbuf_hdr;
     /* DO NOT add any other members here. xs_ctbuf_hdr must be the last one. */
