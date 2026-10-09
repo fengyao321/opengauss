@@ -5,6 +5,7 @@
 -- ============================================================================
 
 \echo '>>> [START] Ustore Bridge Index Phase 1 Test Suite Running...'
+SET client_min_messages = WARNING;
 
 -- ----------------------------------------------------------------------------
 -- Section 1: DDL & Metadata Verification (TC-01, TC-02, TC-03)
@@ -19,12 +20,12 @@ CREATE TABLE t_bridge_ddl_test (
 
 CREATE INDEX idx_b_hash ON t_bridge_ddl_test USING hash(user_name);
 
--- Check companion table and UBTree indexes in pg_class
-SELECT c.relname, c.relkind, am.amname
+-- Check companion table and UBTree indexes in pg_class (mask dynamic OID for regression testing)
+SELECT regexp_replace(c.relname, 'pg_bridge_[0-9]+', 'pg_bridge_<oid>') AS relname, c.relkind, am.amname
 FROM pg_class c
 LEFT JOIN pg_am am ON c.relam = am.oid
 WHERE c.relname LIKE 'pg_bridge_' || (SELECT oid FROM pg_class WHERE relname = 't_bridge_ddl_test') || '%'
-ORDER BY c.relname;
+ORDER BY 1;
 
 \echo '>>> [TC-02] Testing CREATE TABLE (ustore) + GiST Spatial Index...'
 DROP TABLE IF EXISTS t_bridge_gist_test CASCADE;
