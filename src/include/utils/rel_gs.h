@@ -243,10 +243,30 @@ typedef struct RelationMetaData {
  * @IN reloptions: Table's reloptions.
  * @Return: return TableAmType type for this relation.
  */
+typedef struct GiSTRelOptionsHeader {
+    int32 vl_len_;
+    int fillfactor;
+    int bufferingModeOffset;
+    int storageTypeOffset;
+} GiSTRelOptionsHeader;
+
 static inline TableAmType get_tableam_from_reloptions(bytea* reloptions, char relkind, Oid amoid)
 {
+    if (relkind == RELKIND_INDEX && amoid == GIST_AM_OID) {
+        if (reloptions != NULL) {
+            GiSTRelOptionsHeader* gistopts = (GiSTRelOptionsHeader*)reloptions;
+            if (gistopts->storageTypeOffset > 0 && (Size)gistopts->storageTypeOffset < VARSIZE(reloptions)) {
+                char* storageType = (char*)gistopts + gistopts->storageTypeOffset;
+                if (pg_strcasecmp(storageType, TABLE_ACCESS_METHOD_USTORE) == 0) {
+                    return TAM_USTORE;
+                }
+            }
+        }
+        return TAM_HEAP;
+    }
+
     if (relkind == RELKIND_RELATION || relkind == RELKIND_TOASTVALUE || amoid == BTREE_AM_OID ||
-        (relkind == RELKIND_INDEX && (amoid == HASH_AM_OID || amoid == GIST_AM_OID))) {
+        (relkind == RELKIND_INDEX && amoid == HASH_AM_OID)) {
         if (reloptions!= NULL) {
             if (RelationIsTableAccessMethodHeapType(reloptions)) {
                 return TAM_HEAP;

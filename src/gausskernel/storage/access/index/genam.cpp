@@ -142,6 +142,9 @@ IndexScanDesc RelationGetIndexScan(Relation index_relation, int nkeys, int norde
     scan->xs_ctup.t_data = NULL;
     scan->xs_cbuf = InvalidBuffer;
     scan->xs_continue_hot = false;
+    scan->xs_is_bridge_scan = false;
+    scan->xs_bridge_rel = NULL;
+    scan->xs_bridge_idx = NULL;
 
     scan->xs_recheckorderby = false;
     scan->xs_orderbyvals = NULL;

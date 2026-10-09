@@ -246,7 +246,7 @@ Relation BridgeGetOrCreateRelation(Relation heapRel, LOCKMODE lockmode)
     indexInfo2->ii_ExclusionOps = NULL;
     indexInfo2->ii_ExclusionProcs = NULL;
     indexInfo2->ii_ExclusionStrats = NULL;
-    indexInfo2->ii_Unique = true;
+    indexInfo2->ii_Unique = false;
     indexInfo2->ii_ReadyForInserts = true;
     indexInfo2->ii_Concurrent = false;
     indexInfo2->ii_BrokenHotChain = false;
@@ -321,7 +321,7 @@ bool BridgeInsertEntry(Relation heapRel, Relation indexRel, ItemPointer physical
     /* Insert into index 2: (physical_tid) */
     Datum tidVal[1] = {values[1]};
     bool tidNull[1] = {false};
-    (void)index_insert(bridgeTidIdx, tidVal, tidNull, &(uheaptup->ctid), bridgeRel, UNIQUE_CHECK_YES);
+    (void)index_insert(bridgeTidIdx, tidVal, tidNull, &(uheaptup->ctid), bridgeRel, UNIQUE_CHECK_NO);
 
     pfree(uheaptup);
 
@@ -364,13 +364,13 @@ bool BridgeDeleteEntry(Relation indexRel, Datum* values, const bool* isnull, Ite
     Relation bridgeSeqIdx = OidIsValid(seqIdxOid) ? index_open(seqIdxOid, RowExclusiveLock) : NULL;
 
     ScanKeyData key;
-    ScanKeyInit(&key, 1, BTEqualStrategyNumber, F_TIDEQ, PointerGetDatum(physicalTid));
+    ScanKeyInit(&key, 2, BTEqualStrategyNumber, F_TIDEQ, PointerGetDatum(physicalTid));
 
     SysScanDesc sysscan = systable_beginscan_ordered(bridgeRel, bridgeTidIdx, SnapshotNow, 1, &key);
     TupleTableSlot* slot = MakeSingleTupleTableSlot(RelationGetDescr(bridgeRel), false, bridgeRel->rd_tam_ops);
     bool found = false;
 
-    if (UHeapSysIndexGetnextSlot(sysscan, ForwardScanDirection, slot)) {
+    while (UHeapSysIndexGetnextSlot(sysscan, ForwardScanDirection, slot)) {
         UHeapTuple uheaptup = ExecGetUHeapTupleFromSlot(slot);
         ItemPointerData bridgeTupleCid = uheaptup->ctid;
 
@@ -392,6 +392,7 @@ bool BridgeDeleteEntry(Relation indexRel, Datum* values, const bool* isnull, Ite
             index_delete(bridgeSeqIdx, delSeqVal, delSeqNull, &bridgeTupleCid, isRollback);
         }
         found = true;
+        ExecClearTuple(slot);
     }
 
     ExecDropSingleTupleTableSlot(slot);

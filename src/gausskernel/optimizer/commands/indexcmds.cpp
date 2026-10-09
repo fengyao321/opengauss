@@ -1267,8 +1267,7 @@ ObjectAddress DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, 
      * look up the access method, verify it can handle the requested features
      */
     accessMethodName = stmt->accessMethod;
-    if (RelationIsUstoreFormat(rel) &&
-        (strcmp(accessMethodName, "gist") == 0 || strcmp(accessMethodName, "gin") == 0)) {
+    if (RelationIsUstoreFormat(rel) && strcmp(accessMethodName, "gin") == 0) {
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg("access method \"%s\" is not supported in ustore", accessMethodName)));
     }

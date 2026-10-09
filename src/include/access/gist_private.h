@@ -399,6 +399,7 @@ typedef struct GiSTOptions {
     int32 vl_len_;           /* varlena header (do not touch directly!) */
     int fillfactor;          /* page fill factor in percent (0..100) */
     int bufferingModeOffset; /* use buffering build? */
+    int storageTypeOffset;   /* table access method */
 } GiSTOptions;
 
 /* gist.c */
