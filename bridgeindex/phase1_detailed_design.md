@@ -1,10 +1,37 @@
 # openGauss Ustore 桥接索引 (Bridge Index) 阶段一详细设计与实现文档
 
 > **特性名称**：Ustore 桥接索引 (Ustore Bridge Index) - 阶段一 MVP (Hash & GiST)  
-> **文档版本**：v1.0 (Phase 1 Final Implementation)  
+> **文档版本**：v1.1 (Phase 1 Final Implementation & Architecture Deep Dive)  
 > **基于基线**：openGauss 7.0.0-RC2 (分支 `bridgeindex`)  
 > **测试状态**：12/12 测试用例 100% 通过，0 错误  
 > **作者/责任人**：openGauss 存储引擎团队  
+
+---
+
+## 目录
+1. [架构背景与设计动机](#1-架构背景与设计动机)
+2. [索引与表之间的多级层级结构](#2-索引与表之间的多级层级结构)
+   - 2.1 传统架构 vs. 桥接架构演进对比
+   - 2.2 四层分层体系架构图
+   - 2.3 各层职责与调用边界规范
+3. [Bridge 伴生体系的物理存储结构](#3-bridge-伴生体系的物理存储结构)
+   - 3.1 伴生表 (pg_bridge) 堆页面与元组物理布局
+   - 3.2 伴生元组字段排布与内存对齐
+   - 3.3 伴生双 UBTree 索引页面与节点结构
+   - 3.4 内存态数据结构与扫描描述符扩充
+   - 3.5 虚拟指针 (bridge_ctid) 48-bit 编解码规范
+4. [伴生表生命周期与系统目录机制](#4-伴生表生命周期与系统目录机制)
+   - 4.1 伴生表元数据规范
+   - 4.2 按需懒创建与级联依赖清理
+5. [关键执行路径与内核改造细节](#5-关键执行路径与内核改造细节)
+   - 5.1 DDL 路径改造与语法放开
+   - 5.2 静态构建与动态插入路径 (Build & Insert)
+   - 5.3 查询检索与两阶段解引用路径 (IndexScan)
+   - 5.4 DML 更新/删除与事务回滚闭环 (Update / Delete / Rollback)
+   - 5.5 物理槽位复用抗幽灵行机制 (Anti-Phantom Row Defense)
+6. [代码改造清单与文件架构](#6-代码改造清单与文件架构)
+7. [测试验证结果与质量报告](#7-测试验证结果与质量报告)
+8. [后续演进规划 (Roadmap)](#8-后续演进规划-roadmap)
 
 ---
 
@@ -37,42 +64,195 @@ Ustore (原地更新):
 
 ---
 
-## 2. 总体架构与数据流拓扑
+## 2. 索引与表之间的多级层级结构
 
-### 2.1 架构分层蓝图
+### 2.1 传统架构 vs. 桥接架构演进对比
+
+在 openGauss 中，索引与底层堆表的关系经历了三代演进：
+
+| 架构维度 | 第 1 代：传统 Astore 索引 | 第 2 代：原生 Ustore UBTree | 第 3 代：Ustore 桥接索引 (Bridge Index) |
+| :--- | :--- | :--- | :--- |
+| **耦合关系** | 表与索引物理强耦合（直接绑定物理 CTID） | 表与索引事务强耦合（B-tree 内部重写支持 TD 与 Undo） | **表与索引逻辑解耦，通过伴生表双向映射** |
+| **索引叶子内容** | `(Key, physical_CTID)` | `(Key, physical_CTID, UndoInfo)` | `(Key, virtual_bridge_CTID)` |
+| **可见性决策点** | 堆数据页元组头（`t_xmin` / `t_xmax`） | 索引自身 TD 事务槽 + 回溯堆页面 Undo | **伴生表元组自身的 Ustore TD 事务槽与 Undo 链** |
+| **AM 侵入程度** | 0（原生 PostgreSQL 逻辑） | 极高（全套重写 UBTree 算法与 WAL） | **0（复用原生 Hash / GiST 代码，仅需 AM 适配层拦截）** |
+
+### 2.2 四层分层体系架构图
+
+桥接索引在执行器、索引引擎和物理存储之间引入了清晰的 4 层分级体系：
 
 ```
-+-------------------------------------------------------------------------+
-|                          SQL 执行引擎 (Executor)                         |
-|     (IndexScan / IndexOnlyScan / ExecInsert / ExecUpdate / ExecDelete)  |
-+-------------------------------------------------------------------------+
-                                     |
-                                     v
-+-------------------------------------------------------------------------+
-|                  Ustore 桥接分发层 (Bridge Dispatch AM)                 |
-|             (index_insert / index_beginscan / index_delete)             |
-+-------------------------------------------------------------------------+
-           |                                             |
-           | [写路径: 物理 TID 映射为虚拟 TID]             | [读路径: 虚拟 TID 反查解引用]
-           v                                             v
-+------------------------------------+       +----------------------------+
-|   伴生桥接表 (Companion Table)      |       |  标准 Index AM 引擎         |
-|   pg_toast.pg_bridge_<heap_oid>    |       |  (Hash / GiST / ...)       |
-|                                    |       |                            |
-| 字段: (bridge_seq, physical_tid)   |       | 索引键: (Indexed Columns)   |
-| 索引:                              |       | 存储值: (bridge_ctid 虚拟)  |
-|   1. _seq_idx (UBTree on seq)      |       +----------------------------+
-|   2. _tid_idx (UBTree on tid)      |
-+------------------------------------+
-                   |
-                   v
-+-------------------------------------------------------------------------+
-|                      Ustore 物理存储与 Undo 引擎                         |
-|                 (UHeap 数据页 + Undo 日志 + 事务槽 TD)                    |
-+-------------------------------------------------------------------------+
++===================================================================================+
+|                        Layer 1: SQL 优化器与执行器层                                |
+|           (Optimizer / Executor: IndexScan / BitmapScan / ModifyTable)            |
++===================================================================================+
+                                         │
+                        IndexScanDesc / 逻辑元组请求
+                                         ▼
++===================================================================================+
+|                   Layer 2: 访问方法调度与桥接拦截层 (Bridge Dispatcher)            |
+|       (indexam.cpp: index_insert / index_delete / index_beginscan / IndexFetchUHeap) |
++===================================================================================+
+                      │                                             │
+      [写操作: 物理 TID 转换为虚拟 TID]             [读操作: 虚拟 TID 反查解引用]
+                      │                                             │
+                      ▼                                             ▼
++=============================================+   +=================================+
+|  Layer 3: 伴生桥接映射层 (Bridge Engine)      |   | Layer 4A: 标准 Index AM 引擎     |
+|  (bridge_index.cpp: pg_toast.pg_bridge_<oid>) |   | (hash.cpp / gist.cpp)           |
+|                                             |   |                                 |
+|  - 48-bit 递增序号生成器 (g_bridge_seq)      |   | - 索引树结构完全标准无侵入        |
+|  - 双向映射: (bridge_seq <-> physical_tid)  |   | - 叶子节点仅记录:               |
+|  - 伴生索引: _seq_idx (反查) / _tid_idx(正查)|   |   (Indexed Key, bridge_ctid)    |
+|  - 隔离保护: 伴生表级行 MVCC 与 Undo 回滚保障|   | - 页面物理布局与原生态完全一致   |
++=============================================+   +=================================+
+                      │
+                      │ 物理真实 TID 解引用 (Block, Offset)
+                      ▼
++===================================================================================+
+|                   Layer 4B: Ustore 核心物理存储与事务引擎                          |
+|         (UHeap Pages + In-Place Update + Undo Engine + TD Transaction Slots)      |
+|                                                                                   |
+|  - 用户主业务表物理数据 (t_user, t_hash_scan...)                                   |
+|  - 页面槽位高频整理 (Prune) 与原地数据覆盖                                         |
++===================================================================================+
 ```
 
-### 2.2 两阶段虚拟指针编解码算法 (`BridgeSeqNo`)
+### 2.3 各层职责与调用边界规范
+
+1. **Layer 1（执行器层）**：
+   - 保持原生逻辑完全不变。优化器正常生成 `IndexScan` 路径，执行器通过标准 `IndexScanDesc` 接收匹配的元组槽位（`TupleTableSlot`），不感知虚拟 TID 与物理 TID 的转换。
+2. **Layer 2（桥接调度层）**：
+   - 作为透明“代理中介（Proxy AM）”。
+   - 在 `index_insert` 时：将堆表物理 TID 拦截，交由 Layer 3 转换出虚拟 `bridge_ctid`，再传给底层 AM 写入。
+   - 在 `index_delete` 时：拦截对非 UBTree 索引的删除调用，转为在 Layer 3 伴生表中标记删除对应的伴生条目。
+   - 在 `IndexFetchUHeap` 时：拦截底层 AM 吐出的虚拟 `bridge_ctid`，通过 Layer 3 伴生表执行可见性校验并反查换回物理 TID，再访问主表 UHeap。
+3. **Layer 3（伴生映射层）**：
+   - 桥接技术的核心大脑。负责伴生表的按需创建、全局单调序列号管理、两阶段 TID 编解码、以及在伴生表内部的双向 UBTree 维护。
+   - 对外提供 4 个原子核心接口：`BridgeInsertEntry()`、`BridgeDeleteEntry()`、`BridgeLookupAndVerifyVisibility()`、`BridgeGetOrCreateRelation()`。
+4. **Layer 4（物理引擎与存储层）**：
+   - **4A (标准索引区)**：Hash 桶页、GiST 树页按传统 Astore 模式存取，数据永久稳定且无需关联事务槽。
+   - **4B (Ustore 核心区)**：存储业务主表数据与伴生表数据，享受 Ustore 极致的原地更新性能与 Undo 空间自回收。
+
+---
+
+## 3. Bridge 体系的物理存储结构
+
+### 3.1 伴生表 (pg_bridge) 堆页面与元组物理布局
+
+伴生表自身作为标准的 Ustore 表（`TableAmUstore`），其磁盘文件结构由 8KB 规格的标准页面构成，其微观物理存储结构如下：
+
+```
++-------------------------------------------------------------------------------+
+|                      UHeap 数据页面物理结构 (8 KB Page Layout)                 |
++-------------------------------------------------------------------------------+
+| PageHeaderData (24 B): pd_lsn, pd_checksum, pd_flags, pd_lower, pd_upper...   |
++-------------------------------------------------------------------------------+
+| UHeapPageHeaderData (8 B): pd_prune_xid, pd_xid_base...                       |
++-------------------------------------------------------------------------------+
+| 事务目录 (Transaction Directory / TD Slots, 16 B per slot):                  |
+|   [TD Slot 0]: xid, urec_ptr (指向 Undo 链), status (COMMITTED/IN_PROGRESS)  |
+|   [TD Slot 1]: xid, urec_ptr, status ...                                      |
++-------------------------------------------------------------------------------+
+| 行指针数组 (ItemIdData Array, 4 B per item):                                  |
+|   ItemId[1]: lp_off -> Offset to Tuple 1, lp_flags, lp_len                   |
+|   ItemId[2]: lp_off -> Offset to Tuple 2, lp_flags, lp_len                   |
+|   ...                                                                         |
++-------------------------------------------------------------------------------+
+|                             <---- 未分配空闲空间 ---->                         |
++-------------------------------------------------------------------------------+
+| 元组存储区 (从页底向上增长):                                                   |
+|   +-------------------------------------------------------------------------+ |
+|   | 伴生元组 2 (UHeapDiskTupleData)                                         | |
+|   |   Header: td_id=1, flag, infomask, hoff=24                              | |
+|   |   Data: bridge_seq(8B) | physical_tid(8B)                               | |
+|   +-------------------------------------------------------------------------+ |
+|   | 伴生元组 1 (UHeapDiskTupleData)                                         | |
+|   |   Header: td_id=0, flag, infomask, hoff=24                              | |
+|   |   Data: bridge_seq(8B) | physical_tid(8B)                               | |
+|   +-------------------------------------------------------------------------+ |
++-------------------------------------------------------------------------------+
+| PageSpecialSpace (0 B)                                                        |
++-------------------------------------------------------------------------------+
+```
+
+### 3.2 伴生元组字段排布与内存对齐
+
+伴生表固定包含 2 个非空标量列：
+1. **`bridge_seq`**：`INT8OID`（8 字节整型，单调自增虚拟 ID）。
+2. **`physical_tid`**：`TIDOID`（`ItemPointerData`，6 字节物理指针 + 2 字节内存填充对齐）。
+
+元组物理排布细节：
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|       td_id (1B)      |    t_flag (1B)    |    t_infomask (2B)|
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|   t_infomask2 (2B)    |    t_hoff (2B)    |    (Padding 4B)   |  <-- UHeapDiskTupleData (24 B)
+|                       t_xid_base (8B)                         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                   bridge_seq (8 字节, INT8)                   |  <-- 属性 1 (AttrNumber 1)
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|            ip_blkid (BlockNumber, 4 字节)                     |  <-- 属性 2 (AttrNumber 2, TID)
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|    ip_posid (Offset, 2B)      |         Padding (2 字节)      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+- **定长设计优势**：整行无变长字段（Varlena）、无 NULL 位图（无 NULL 值）、无 TOAST 溢出风险，行大小严格固定为 40 字节。单个 8KB 页面可容纳约 **180 条**伴生映射记录，I/O 密度极高。
+
+### 3.3 伴生双 UBTree 索引页面与节点结构
+
+伴生表挂载两个内部伴随索引，其内部节点采用 openGauss UBTree 专属存储结构：
+
+```
+1. 反查索引 (_seq_idx):
+   +---------------------------------------------------------------+
+   | 叶子节点 IndexTuple:                                           |
+   |   [IndexTupleData (8B)]                                       |
+   |   [Key Datum: bridge_seq (8B)]                                |
+   |   [ctid (6B) -> 指向 pg_bridge 数据页自身的 (Block, Offset)]  |
+   |   [UBTree 事务与 PCR 扩展区]                                   |
+   +---------------------------------------------------------------+
+   特性: 唯一索引 (ii_Unique = true)，点查性能 O(log N)，供读路径解引用。
+
+2. 正查索引 (_tid_idx):
+   +---------------------------------------------------------------+
+   | 叶子节点 IndexTuple:                                           |
+   |   [IndexTupleData (8B)]                                       |
+   |   [Key Datum: physical_tid (8B)]                              |
+   |   [ctid (6B) -> 指向 pg_bridge 数据页自身的 (Block, Offset)]  |
+   |   [UBTree 事务与 PCR 扩展区]                                   |
+   +---------------------------------------------------------------+
+   特性: 非唯一索引 (ii_Unique = false)，支持一表多索引场景，供写/删路径清理。
+```
+
+### 3.4 内存态数据结构与扫描描述符扩充
+
+在执行期，系统通过以下内存结构维持 Bridge 状态：
+
+1. **原子序号计数器 (`g_bridge_seq`)**：
+   ```cpp
+   static pg_atomic_uint64 g_bridge_seq;
+   // 内存中 Fetch-And-Add，无锁分配全局递增序号
+   ```
+2. **扫描描述符扩充 (`IndexScanDescData`)**：
+   在 [`src/include/access/relscan.h`](file:///home/fengyao/openGauss-server/src/include/access/relscan.h) 中扩展桥接上下文：
+   ```cpp
+   typedef struct IndexScanDescData {
+       ...
+       bool        xs_is_bridge_scan;  /* 标记当前扫描是否为 Ustore 桥接索引 */
+       Relation    xs_bridge_rel;      /* 伴生表 pg_bridge 打开句柄缓存 */
+       Relation    xs_bridge_idx;      /* 伴生反查索引 _seq_idx 打开句柄缓存 */
+   } IndexScanDescData;
+   ```
+   **优势**：在 `index_beginscan` 时一次性打开并缓存伴生表及索引引用，在整个 `IndexScan` 生命周期内多次调用 `index_getnext_tid` 时复用句柄，完全避免了每次反查重复调用 `heap_open` / `index_open` 带来的 Catalog Cache 锁争用。
+
+### 3.5 虚拟指针 (`bridge_ctid`) 48-bit 编解码规范
+
 为使底层 AM（如 Hash/GiST）能够无感知地将虚拟行标识存入标准的 6-字节 `ItemPointerData`（`ip_blkid` 4字节 + `ip_posid` 2字节），系统实现了 48-bit 递增序列号与 `ItemPointerData` 的完全双向映射：
 
 - **数据类型**：`BridgeSeqNo`（`uint64`，高 16 位保留，低 48 位有效）。
@@ -88,9 +268,9 @@ Ustore (原地更新):
 
 ---
 
-## 3. 伴生表 (Companion Table) 体系设计
+## 4. 伴生表生命周期与系统目录机制
 
-### 3.1 伴生表元数据规范
+### 4.1 伴生表元数据规范
 伴生表与普通用户表透明隔离，归属于系统级命名空间 `PG_TOAST_NAMESPACE`（`pg_toast`），对用户的 `\d` 或普通业务查询完全隐藏，但可被 DBA 审计。
 
 | 对象类型 | 对象命名模式 | 存储引擎 / 访问方法 | 作用说明 |
@@ -99,7 +279,7 @@ Ustore (原地更新):
 | **反查索引** | `pg_bridge_<heap_oid>_seq_idx` | UBTree 唯一索引 | 供查询阶段通过 `bridge_seq` 快速反查物理 `physical_tid` |
 | **正查索引** | `pg_bridge_<heap_oid>_tid_idx` | UBTree 普通索引 | 供更新/删除阶段通过 `physical_tid` 定位并清理伴生条目 |
 
-### 3.2 伴生表生命周期与级联清理机制
+### 4.2 按需懒创建与级联清理机制
 - **按需懒创建 (On-Demand / Lazy Creation)**：
   用户 `CREATE TABLE (storage_type = ustore)` 时不消耗任何额外开销；仅当在该表上首次执行 `CREATE INDEX ... USING hash` 或 `USING gist` 时，在 [`BridgeGetOrCreateRelation()`](file:///home/fengyao/openGauss-server/src/gausskernel/storage/access/index/bridge_index.cpp#L106-L286) 中自动触发伴生表及其双 UBTree 索引的创建。
 - **内部依赖绑定 (`DEPENDENCY_INTERNAL`)**：
@@ -116,9 +296,9 @@ Ustore (原地更新):
 
 ---
 
-## 4. 关键执行路径与内核改造细节
+## 5. 关键执行路径与内核改造细节
 
-### 4.1 DDL 路径改造与语法放开
+### 5.1 DDL 路径改造与语法放开
 1. **语法约束放开**：
    在 [`src/gausskernel/optimizer/commands/indexcmds.cpp`](file:///home/fengyao/openGauss-server/src/gausskernel/optimizer/commands/indexcmds.cpp) 中：
    - 放开 `hash` 和 `gist` 在 Ustore 表上的创建检查；
@@ -128,7 +308,7 @@ Ustore (原地更新):
    - 在 [`src/gausskernel/storage/access/gist/gistutil.cpp`](file:///home/fengyao/openGauss-server/src/gausskernel/storage/access/gist/gistutil.cpp) 中为 `tab` 数组注册 `storage_type`，解决 `reloption "storage_type" not found in parse table` 报错。
    - 在 [`src/include/utils/rel_gs.h`](file:///home/fengyao/openGauss-server/src/include/utils/rel_gs.h) 的 `get_tableam_from_reloptions` 中增加 `GiSTRelOptionsHeader` 判断，使 GiST 索引被正确标记为 `TableAmUstore`。
 
-### 4.2 静态构建与动态插入路径 (Build & Insert)
+### 5.2 静态构建与动态插入路径 (Build & Insert)
 ```mermaid
 sequenceDiagram
     participant User as 业务写操作
@@ -162,7 +342,7 @@ sequenceDiagram
   在 [`src/gausskernel/storage/access/index/indexam.cpp`](file:///home/fengyao/openGauss-server/src/gausskernel/storage/access/index/indexam.cpp#L173) 中拦截标准插入：
   调用 `BridgeInsertEntry` 将 `heap_t_ctid`（物理 TID）映射转换为 `bridgeTid`，将 `bridgeTid` 传入底层 AM 的插入例程。
 
-### 4.3 查询检索与两阶段解引用路径 (IndexScan)
+### 5.3 查询检索与两阶段解引用路径 (IndexScan)
 ```mermaid
 sequenceDiagram
     participant Exec as 执行器 (IndexScan)
@@ -205,7 +385,7 @@ sequenceDiagram
   }
   ```
 
-### 4.4 DML 更新/删除与事务回滚闭环 (Update / Delete / Rollback)
+### 5.4 DML 更新/删除与事务回滚闭环 (Update / Delete / Rollback)
 1. **单行删除派发 (`index_delete`)**：
    在 [`src/gausskernel/storage/access/index/indexam.cpp`](file:///home/fengyao/openGauss-server/src/gausskernel/storage/access/index/indexam.cpp#L224) 中增加分支：
    ```cpp
@@ -231,7 +411,7 @@ sequenceDiagram
 3. **天然享有事务回滚能力**：
    因为伴生表本身即为标准的 Ustore 表，当外层事务发生 `ROLLBACK` 时，openGauss 的 Undo 引擎会自动对 `pg_bridge_<oid>` 上的修改执行 Undo 回滚操作，数据映射与可见性完全同事务原子一致，**零脏读、零孤儿元组**。
 
-### 4.5 物理槽位复用抗幽灵行机制 (Anti-Phantom Row Defense)
+### 5.5 物理槽位复用抗幽灵行机制 (Anti-Phantom Row Defense)
 阶段一专门设计并验证了 **TC-10 物理槽位复用防御机制**：
 1. 插入数据行 A，占用物理槽位 `(Block 0, Offset 1)`，分配 `seq = 1`。Hash 索引指向 `seq = 1`。
 2. 删除数据行 A，伴生表中 `seq = 1` 被标记删除。
@@ -243,7 +423,7 @@ sequenceDiagram
 
 ---
 
-## 5. 代码改造清单与文件架构
+## 6. 代码改造清单与文件架构
 
 | 模块类别 | 文件路径 | 变动类型 | 核心职责说明 |
 | :--- | :--- | :--- | :--- |
@@ -260,12 +440,12 @@ sequenceDiagram
 
 ---
 
-## 6. 测试验证结果与质量报告
+## 7. 测试验证结果与质量报告
 
 测试套件脚本：[`bridgeindex/test/phase1_bridge_index_test.sql`](file:///home/fengyao/openGauss-server/bridgeindex/test/phase1_bridge_index_test.sql)  
 预期输出基准：[`bridgeindex/test/phase1_bridge_index_test.out`](file:///home/fengyao/openGauss-server/bridgeindex/test/phase1_bridge_index_test.out)
 
-### 6.1 阶段一用例矩阵及验证结果
+### 7.1 阶段一用例矩阵及验证结果
 
 | 用例编号 | 用例名称与核心目标 | 测试输入与操作流程 | 验证标准与输出结果 | 状态 |
 | :---: | :--- | :--- | :--- | :---: |
@@ -286,7 +466,7 @@ sequenceDiagram
 
 ---
 
-## 7. 后续演进规划 (Roadmap)
+## 8. 后续演进规划 (Roadmap)
 
 1. **阶段二 (Phase 2)：全文检索与大范围索引拓展**
    - 适配 **GIN**（通用倒排索引，重点支持全文检索与 JSONB 查询）；
