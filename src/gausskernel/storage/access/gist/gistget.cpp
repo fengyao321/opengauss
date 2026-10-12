@@ -20,6 +20,7 @@
 
 #include "access/gist_private.h"
 #include "access/relscan.h"
+#include "access/bridge.h"
 #include "catalog/pg_type.h"
 #include "miscadmin.h"
 #include "pgstat.h"
@@ -303,12 +304,25 @@ static void gistScanPage(IndexScanDesc scan, const GISTSearchItem *pageItem, con
             continue;
 
         if (tbm && GistPageIsLeaf(page)) {
+            ItemPointerData targetTid = it->t_tid;
+            if (scan->xs_is_bridge_scan) {
+                BridgeSeqNo seq = ItemPointerToBridgeSeq(&it->t_tid);
+                ItemPointerData physicalTid;
+                bool visible = BridgeLookupAndVerifyVisibility(scan->xs_bridge_rel,
+                                                               scan->xs_bridge_idx,
+                                                               seq,
+                                                               scan->xs_snapshot,
+                                                               &physicalTid);
+                if (!visible)
+                    continue;
+                targetTid = physicalTid;
+            }
             TBMHandler tbm_handler = tbm_get_handler(tbm);
             /*
              * getbitmap scan, so just push heap tuple TIDs into the bitmap
              * without worrying about ordering
              */
-            tbm_handler._add_tuples(tbm, &it->t_tid, 1, recheck, partHeapOid, InvalidBktId);
+            tbm_handler._add_tuples(tbm, &targetTid, 1, recheck, partHeapOid, InvalidBktId);
             (*ntids)++;
         } else if (scan->numberOfOrderBys == 0 && GistPageIsLeaf(page)) {
             /*

@@ -24,6 +24,7 @@
 #include "access/xloginsert.h"
 #include "access/tableam.h"
 #include "access/relscan.h"
+#include "access/bridge.h"
 #include "catalog/index.h"
 #include "commands/vacuum.h"
 #include "optimizer/cost.h"
@@ -357,9 +358,24 @@ Datum hashgetbitmap(PG_FUNCTION_ARGS)
 
         /* Save tuple ID, and continue scanning */
         if (add_tuple) {
+            ItemPointerData targetTid = so->hashso_heappos;
+            if (scan->xs_is_bridge_scan) {
+                BridgeSeqNo seq = ItemPointerToBridgeSeq(&so->hashso_heappos);
+                ItemPointerData physicalTid;
+                bool visible = BridgeLookupAndVerifyVisibility(scan->xs_bridge_rel,
+                                                               scan->xs_bridge_idx,
+                                                               seq,
+                                                               scan->xs_snapshot,
+                                                               &physicalTid);
+                if (!visible) {
+                    res = _hash_next(scan, ForwardScanDirection);
+                    continue;
+                }
+                targetTid = physicalTid;
+            }
             TBMHandler tbm_handler = tbm_get_handler(tbm);
             /* Note we mark the tuple ID as requiring recheck */
-            tbm_handler._add_tuples(tbm, &(so->hashso_heappos), 1, true, partHeapOid, InvalidBktId);
+            tbm_handler._add_tuples(tbm, &targetTid, 1, true, partHeapOid, InvalidBktId);
             ntids++;
         }
 
