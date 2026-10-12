@@ -322,7 +322,7 @@ IndexScanDesc index_beginscan(
     if (RelationIsUstoreFormat(heap_relation) && RelationIsBridgedIndex(index_relation)) {
         scan->xs_is_bridge_scan = true;
         scan->xs_bridge_rel = BridgeGetRelation(heap_relation, AccessShareLock);
-        scan->xs_bridge_idx = BridgeGetSeqIndexRelation(heap_relation, AccessShareLock);
+        scan->xs_bridge_idx = NULL;
     } else {
         scan->xs_is_bridge_scan = false;
         scan->xs_bridge_rel = NULL;
@@ -359,7 +359,7 @@ IndexScanDesc index_beginscan_bitmap(Relation index_relation, Snapshot snapshot,
         if (RelationIsUstoreFormat(heapRel)) {
             scan->xs_is_bridge_scan = true;
             scan->xs_bridge_rel = BridgeGetRelation(heapRel, AccessShareLock);
-            scan->xs_bridge_idx = BridgeGetSeqIndexRelation(heapRel, AccessShareLock);
+            scan->xs_bridge_idx = NULL;
         } else {
             scan->xs_is_bridge_scan = false;
             scan->xs_bridge_rel = NULL;

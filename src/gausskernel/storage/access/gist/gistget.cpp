@@ -322,7 +322,7 @@ static void gistScanPage(IndexScanDesc scan, const GISTSearchItem *pageItem, con
              * getbitmap scan, so just push heap tuple TIDs into the bitmap
              * without worrying about ordering
              */
-            tbm_handler._add_tuples(tbm, &targetTid, 1, recheck, partHeapOid, InvalidBktId);
+            tbm_handler._add_tuples(tbm, &targetTid, 1, scan->xs_is_bridge_scan ? true : recheck, partHeapOid, InvalidBktId);
             (*ntids)++;
         } else if (scan->numberOfOrderBys == 0 && GistPageIsLeaf(page)) {
             /*

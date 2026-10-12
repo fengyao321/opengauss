@@ -15,12 +15,12 @@
 #include "knl/knl_variable.h"
 
 #include "access/bridge.h"
+#include "access/bridge_router_page.h"
 #include "access/genam.h"
 #include "access/heapam.h"
 #include "access/relscan.h"
 #include "access/skey.h"
 #include "access/tableam.h"
-#include "access/ubtree.h"
 #include "access/ustore/knl_uheap.h"
 #include "catalog/catalog.h"
 #include "catalog/dependency.h"
@@ -29,7 +29,6 @@
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_am.h"
-#include "catalog/pg_opclass.h"
 #include "catalog/pg_type.h"
 #include "commands/defrem.h"
 #include "executor/executor.h"
@@ -42,7 +41,6 @@
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/rel_gs.h"
-#include "access/reloptions.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
@@ -79,69 +77,51 @@ Relation BridgeGetRelation(Relation heapRel, LOCKMODE lockmode)
 
 Relation BridgeGetSeqIndexRelation(Relation heapRel, LOCKMODE lockmode)
 {
-    char idxName[NAMEDATALEN];
-    errno_t rc = snprintf_s(idxName, sizeof(idxName), sizeof(idxName) - 1,
-                            "pg_bridge_%u_seq_idx", RelationGetRelid(heapRel));
-    securec_check_ss(rc, "\0", "\0");
-    Oid idxOid = get_relname_relid(idxName, PG_TOAST_NAMESPACE);
-    if (!OidIsValid(idxOid)) {
-        return NULL;
-    }
-    return index_open(idxOid, lockmode);
+    return NULL;
 }
 
 Relation BridgeGetTidIndexRelation(Relation heapRel, LOCKMODE lockmode)
 {
-    char idxName[NAMEDATALEN];
-    errno_t rc = snprintf_s(idxName, sizeof(idxName), sizeof(idxName) - 1,
-                            "pg_bridge_%u_tid_idx", RelationGetRelid(heapRel));
-    securec_check_ss(rc, "\0", "\0");
-    Oid idxOid = get_relname_relid(idxName, PG_TOAST_NAMESPACE);
-    if (!OidIsValid(idxOid)) {
-        return NULL;
-    }
-    return index_open(idxOid, lockmode);
+    return NULL;
 }
 
 Relation BridgeGetOrCreateRelation(Relation heapRel, LOCKMODE lockmode)
 {
     Oid bridgeRelId = BridgeGetRelationOid(heapRel);
     if (OidIsValid(bridgeRelId)) {
-        return heap_open(bridgeRelId, lockmode);
+        Relation bridgeRel = heap_open(bridgeRelId, lockmode);
+        /* Synchronize in-memory sequence counter with persisted max_seq on disk */
+        if (RelationGetNumberOfBlocks(bridgeRel) > BRIDGE_ROUTER_METAPAGE_BLKNO) {
+            Buffer metaBuf = ReadBuffer(bridgeRel, BRIDGE_ROUTER_METAPAGE_BLKNO);
+            LockBuffer(metaBuf, BUFFER_LOCK_SHARE);
+            BridgeRouterMetaPage meta = (BridgeRouterMetaPage)BufferGetPage(metaBuf);
+            if (meta->magic == BRIDGE_ROUTER_MAGIC && meta->max_seq > 0) {
+                uint64 cur = pg_atomic_read_u64(&g_bridge_seq);
+                while (cur <= meta->max_seq) {
+                    if (pg_atomic_compare_exchange_u64(&g_bridge_seq, &cur, meta->max_seq + 1)) {
+                        break;
+                    }
+                }
+            }
+            LockBuffer(metaBuf, BUFFER_LOCK_UNLOCK);
+            ReleaseBuffer(metaBuf);
+        }
+        return bridgeRel;
     }
 
     char bridgeRelName[NAMEDATALEN];
-    char bridgeSeqIdxName[NAMEDATALEN];
-    char bridgeTidIdxName[NAMEDATALEN];
     errno_t rc;
 
     rc = snprintf_s(bridgeRelName, sizeof(bridgeRelName), sizeof(bridgeRelName) - 1,
                     "pg_bridge_%u", RelationGetRelid(heapRel));
     securec_check_ss(rc, "\0", "\0");
 
-    rc = snprintf_s(bridgeSeqIdxName, sizeof(bridgeSeqIdxName), sizeof(bridgeSeqIdxName) - 1,
-                    "pg_bridge_%u_seq_idx", RelationGetRelid(heapRel));
-    securec_check_ss(rc, "\0", "\0");
-
-    rc = snprintf_s(bridgeTidIdxName, sizeof(bridgeTidIdxName), sizeof(bridgeTidIdxName) - 1,
-                    "pg_bridge_%u_tid_idx", RelationGetRelid(heapRel));
-    securec_check_ss(rc, "\0", "\0");
-
-    /* Construct tuple descriptor: (bridge_seq int8, physical_tid tid) */
+    /* Minimal tuple descriptor for the catalog entry */
     TupleDesc tupdesc = CreateTemplateTupleDesc(2, false);
     TupleDescInitEntry(tupdesc, (AttrNumber)1, "bridge_seq", INT8OID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)2, "physical_tid", TIDOID, -1, 0);
     tupdesc->attrs[0].attstorage = 'p';
     tupdesc->attrs[1].attstorage = 'p';
-
-    /* Reloptions for Ustore table */
-    DefElem* def = makeDefElem("storage_type", (Node*)makeString(TABLE_ACCESS_METHOD_USTORE));
-    List* tableOptions = list_make1(def);
-    Datum reloptions = transformRelOptions((Datum)0, tableOptions, NULL, NULL, false, false);
-
-    HashBucketInfo bucketinfo;
-    bucketinfo.bucketOid = RelationGetBucketOid(heapRel);
-    StorageType storage_type = RelationGetStorageType(heapRel);
 
     bridgeRelId = heap_create_with_catalog(
         bridgeRelName,
@@ -160,21 +140,21 @@ Relation BridgeGetOrCreateRelation(Relation heapRel, LOCKMODE lockmode)
         true,
         0,
         ONCOMMIT_NOOP,
-        reloptions,
+        (Datum)0,
         false,
         true,
         NULL,
         REL_CMPRS_NOT_SUPPORT,
-        RELATION_CREATE_BUCKET(heapRel) ? &bucketinfo : NULL,
+        NULL,
         true,
         NULL,
-        storage_type);
+        HEAP_DISK);
 
     CommandCounterIncrement();
 
     Relation bridgeRel = heap_open(bridgeRelId, ShareLock);
 
-    /* Record dependency on heap relation */
+    /* Record dependency on base heap relation */
     ObjectAddress baseobject, bridgeobject;
     bridgeobject.classId = RelationRelationId;
     bridgeobject.objectId = bridgeRelId;
@@ -186,101 +166,8 @@ Relation BridgeGetOrCreateRelation(Relation heapRel, LOCKMODE lockmode)
 
     recordDependencyOn(&bridgeobject, &baseobject, DEPENDENCY_INTERNAL);
 
-    /* Unique index 1: (bridge_seq) */
-    IndexInfo* indexInfo1 = makeNode(IndexInfo);
-    indexInfo1->ii_NumIndexAttrs = 1;
-    indexInfo1->ii_NumIndexKeyAttrs = 1;
-    indexInfo1->ii_KeyAttrNumbers[0] = 1;
-    indexInfo1->ii_Expressions = NIL;
-    indexInfo1->ii_ExpressionsState = NIL;
-    indexInfo1->ii_Predicate = NIL;
-    indexInfo1->ii_PredicateState = NIL;
-    indexInfo1->ii_ExclusionOps = NULL;
-    indexInfo1->ii_ExclusionProcs = NULL;
-    indexInfo1->ii_ExclusionStrats = NULL;
-    indexInfo1->ii_Unique = true;
-    indexInfo1->ii_ReadyForInserts = true;
-    indexInfo1->ii_Concurrent = false;
-    indexInfo1->ii_BrokenHotChain = false;
-    indexInfo1->ii_PgClassAttrId = 0;
-    indexInfo1->ii_ParallelWorkers = 0;
-
-    Oid collationObjectId1[1] = {InvalidOid};
-    Oid classObjectId1[1] = {GetDefaultOpClass(INT8OID, UBTREE_AM_OID)};
-    int16 coloptions1[1] = {0};
-
-    IndexCreateExtraArgs extra1;
-    SetIndexCreateExtraArgs(&extra1, InvalidOid, false, false);
-
-    (void)index_create(
-        bridgeRel,
-        bridgeSeqIdxName,
-        InvalidOid,
-        InvalidOid,
-        indexInfo1,
-        list_make1((void*)"bridge_seq"),
-        UBTREE_AM_OID,
-        heapRel->rd_rel->reltablespace,
-        collationObjectId1,
-        classObjectId1,
-        coloptions1,
-        reloptions,
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false,
-        &extra1);
-
-    /* Unique index 2: (physical_tid) */
-    IndexInfo* indexInfo2 = makeNode(IndexInfo);
-    indexInfo2->ii_NumIndexAttrs = 1;
-    indexInfo2->ii_NumIndexKeyAttrs = 1;
-    indexInfo2->ii_KeyAttrNumbers[0] = 2;
-    indexInfo2->ii_Expressions = NIL;
-    indexInfo2->ii_ExpressionsState = NIL;
-    indexInfo2->ii_Predicate = NIL;
-    indexInfo2->ii_PredicateState = NIL;
-    indexInfo2->ii_ExclusionOps = NULL;
-    indexInfo2->ii_ExclusionProcs = NULL;
-    indexInfo2->ii_ExclusionStrats = NULL;
-    indexInfo2->ii_Unique = false;
-    indexInfo2->ii_ReadyForInserts = true;
-    indexInfo2->ii_Concurrent = false;
-    indexInfo2->ii_BrokenHotChain = false;
-    indexInfo2->ii_PgClassAttrId = 0;
-    indexInfo2->ii_ParallelWorkers = 0;
-
-    Oid collationObjectId2[1] = {InvalidOid};
-    Oid classObjectId2[1] = {GetDefaultOpClass(TIDOID, UBTREE_AM_OID)};
-    int16 coloptions2[1] = {0};
-
-    IndexCreateExtraArgs extra2;
-    SetIndexCreateExtraArgs(&extra2, InvalidOid, false, false);
-
-    (void)index_create(
-        bridgeRel,
-        bridgeTidIdxName,
-        InvalidOid,
-        InvalidOid,
-        indexInfo2,
-        list_make1((void*)"physical_tid"),
-        UBTREE_AM_OID,
-        heapRel->rd_rel->reltablespace,
-        collationObjectId2,
-        classObjectId2,
-        coloptions2,
-        reloptions,
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false,
-        &extra2);
+    /* Initialize the dedicated Bridge Router physical pages (Block 0 & Block 1) */
+    BridgeRouterInit(bridgeRel);
 
     CommandCounterIncrement();
 
@@ -291,12 +178,9 @@ Relation BridgeGetOrCreateRelation(Relation heapRel, LOCKMODE lockmode)
 
 bool BridgeInsertEntry(Relation heapRel, Relation indexRel, ItemPointer physicalTid, ItemPointer bridgeTidOut)
 {
-    Relation bridgeRel = BridgeGetOrCreateRelation(heapRel, RowExclusiveLock);
-    Relation bridgeSeqIdx = BridgeGetSeqIndexRelation(heapRel, RowExclusiveLock);
-    Relation bridgeTidIdx = BridgeGetTidIndexRelation(heapRel, RowExclusiveLock);
-
-    if (bridgeRel == NULL || bridgeSeqIdx == NULL || bridgeTidIdx == NULL) {
-        ereport(ERROR, (errmsg("Failed to open bridge relations for relation %u", RelationGetRelid(heapRel))));
+    Relation routerRel = BridgeGetOrCreateRelation(heapRel, RowExclusiveLock);
+    if (routerRel == NULL) {
+        ereport(ERROR, (errmsg("Failed to open bridge router relation for relation %u", RelationGetRelid(heapRel))));
     }
 
     BridgeSeqNo seq = BridgeGetNextSeq(RelationGetRelid(heapRel));
@@ -305,136 +189,30 @@ bool BridgeInsertEntry(Relation heapRel, Relation indexRel, ItemPointer physical
         *bridgeTidOut = bridgeTid;
     }
 
-    Datum values[2];
-    bool isnull[2] = {false, false};
-    values[0] = Int64GetDatum(seq);
-    values[1] = PointerGetDatum(physicalTid);
+    /* Direct 14-byte compact append to the Bridge Router B+ Tree */
+    BridgeRouterAppend(routerRel, seq, physicalTid);
 
-    UHeapTuple uheaptup = UHeapFormTuple(RelationGetDescr(bridgeRel), values, isnull);
-    (void)UHeapInsert(bridgeRel, uheaptup, GetCurrentCommandId(true), NULL, false);
-
-    /* Insert into index 1: (bridge_seq) */
-    Datum seqVal[1] = {values[0]};
-    bool seqNull[1] = {false};
-    (void)index_insert(bridgeSeqIdx, seqVal, seqNull, &(uheaptup->ctid), bridgeRel, UNIQUE_CHECK_YES);
-
-    /* Insert into index 2: (physical_tid) */
-    Datum tidVal[1] = {values[1]};
-    bool tidNull[1] = {false};
-    (void)index_insert(bridgeTidIdx, tidVal, tidNull, &(uheaptup->ctid), bridgeRel, UNIQUE_CHECK_NO);
-
-    pfree(uheaptup);
-
-    index_close(bridgeTidIdx, RowExclusiveLock);
-    index_close(bridgeSeqIdx, RowExclusiveLock);
-    heap_close(bridgeRel, RowExclusiveLock);
-
+    heap_close(routerRel, RowExclusiveLock);
     return true;
 }
 
 bool BridgeDeleteEntry(Relation indexRel, Datum* values, const bool* isnull, ItemPointer physicalTid, bool isRollback)
 {
-    Oid heapRelId = indexRel->rd_index->indrelid;
-    char bridgeRelName[NAMEDATALEN];
-    errno_t rc = snprintf_s(bridgeRelName, sizeof(bridgeRelName), sizeof(bridgeRelName) - 1,
-                            "pg_bridge_%u", heapRelId);
-    securec_check_ss(rc, "\0", "\0");
-    Oid bridgeOid = get_relname_relid(bridgeRelName, PG_TOAST_NAMESPACE);
-    if (!OidIsValid(bridgeOid)) {
-        return false;
-    }
-
-    Relation bridgeRel = heap_open(bridgeOid, RowExclusiveLock);
-    char tidIdxName[NAMEDATALEN];
-    rc = snprintf_s(tidIdxName, sizeof(tidIdxName), sizeof(tidIdxName) - 1,
-                    "pg_bridge_%u_tid_idx", heapRelId);
-    securec_check_ss(rc, "\0", "\0");
-    Oid tidIdxOid = get_relname_relid(tidIdxName, PG_TOAST_NAMESPACE);
-    if (!OidIsValid(tidIdxOid)) {
-        heap_close(bridgeRel, RowExclusiveLock);
-        return false;
-    }
-    Relation bridgeTidIdx = index_open(tidIdxOid, RowExclusiveLock);
-
-    char seqIdxName[NAMEDATALEN];
-    rc = snprintf_s(seqIdxName, sizeof(seqIdxName), sizeof(seqIdxName) - 1,
-                    "pg_bridge_%u_seq_idx", heapRelId);
-    securec_check_ss(rc, "\0", "\0");
-    Oid seqIdxOid = get_relname_relid(seqIdxName, PG_TOAST_NAMESPACE);
-    Relation bridgeSeqIdx = OidIsValid(seqIdxOid) ? index_open(seqIdxOid, RowExclusiveLock) : NULL;
-
-    ScanKeyData key;
-    ScanKeyInit(&key, 2, BTEqualStrategyNumber, F_TIDEQ, PointerGetDatum(physicalTid));
-
-    SysScanDesc sysscan = systable_beginscan_ordered(bridgeRel, bridgeTidIdx, SnapshotNow, 1, &key);
-    TupleTableSlot* slot = MakeSingleTupleTableSlot(RelationGetDescr(bridgeRel), false, bridgeRel->rd_tam_ops);
-    bool found = false;
-
-    while (UHeapSysIndexGetnextSlot(sysscan, ForwardScanDirection, slot)) {
-        UHeapTuple uheaptup = ExecGetUHeapTupleFromSlot(slot);
-        ItemPointerData bridgeTupleCid = uheaptup->ctid;
-
-        bool isSeqNull = false;
-        Datum seqDatum = UHeapFastGetAttr(uheaptup, 1, RelationGetDescr(bridgeRel), &isSeqNull);
-
-        /* Delete tuple from Ustore bridge table */
-        SimpleUHeapDelete(bridgeRel, &bridgeTupleCid, SnapshotNow);
-
-        /* Delete from tid index */
-        Datum delTidVal[1] = {PointerGetDatum(physicalTid)};
-        bool delTidNull[1] = {false};
-        index_delete(bridgeTidIdx, delTidVal, delTidNull, &bridgeTupleCid, isRollback);
-
-        /* Delete from seq index */
-        if (bridgeSeqIdx && !isSeqNull) {
-            Datum delSeqVal[1] = {seqDatum};
-            bool delSeqNull[1] = {false};
-            index_delete(bridgeSeqIdx, delSeqVal, delSeqNull, &bridgeTupleCid, isRollback);
-        }
-        found = true;
-        ExecClearTuple(slot);
-    }
-
-    ExecDropSingleTupleTableSlot(slot);
-    systable_endscan_ordered(sysscan);
-
-    if (bridgeSeqIdx) {
-        index_close(bridgeSeqIdx, RowExclusiveLock);
-    }
-    index_close(bridgeTidIdx, RowExclusiveLock);
-    heap_close(bridgeRel, RowExclusiveLock);
-
-    return found;
+    /*
+     * Ultimate Architecture: Zero-Cost Retail DELETE!
+     * The bridge router does not write during DELETE or ROLLBACK.
+     * Ghost mappings are naturally filtered by MVCC visibility on the main table
+     * and anti-phantom bridge_tag verification.
+     */
+    return true;
 }
 
 bool BridgeLookupAndVerifyVisibility(Relation bridgeRel, Relation bridgeIdx, BridgeSeqNo seq, Snapshot snapshot, ItemPointer physicalTid)
 {
-    if (bridgeRel == NULL || bridgeIdx == NULL || seq == BRIDGE_INVALID_SEQ) {
+    if (bridgeRel == NULL || seq == BRIDGE_INVALID_SEQ || physicalTid == NULL) {
         return false;
     }
-
-    ScanKeyData key;
-    ScanKeyInit(&key, 1, BTEqualStrategyNumber, F_INT8EQ, Int64GetDatum(seq));
-
-    SysScanDesc sysscan = systable_beginscan_ordered(bridgeRel, bridgeIdx, snapshot, 1, &key);
-    TupleTableSlot* slot = MakeSingleTupleTableSlot(RelationGetDescr(bridgeRel), false, bridgeRel->rd_tam_ops);
-    bool found = false;
-
-    if (UHeapSysIndexGetnextSlot(sysscan, ForwardScanDirection, slot)) {
-        UHeapTuple ttup = ExecGetUHeapTupleFromSlot(slot);
-        bool isNull = false;
-        Datum tidDatum = UHeapFastGetAttr(ttup, 2, RelationGetDescr(bridgeRel), &isNull);
-        if (!isNull) {
-            ItemPointer storedTid = (ItemPointer)DatumGetPointer(tidDatum);
-            *physicalTid = *storedTid;
-            found = true;
-        }
-    }
-
-    ExecDropSingleTupleTableSlot(slot);
-    systable_endscan_ordered(sysscan);
-
-    return found;
+    return BridgeRouterLookup(bridgeRel, seq, physicalTid);
 }
 
 #include "bridge_router.cpp"

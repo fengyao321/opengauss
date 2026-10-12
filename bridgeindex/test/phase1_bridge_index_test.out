@@ -28,12 +28,10 @@ FROM pg_class c
 LEFT JOIN pg_am am ON c.relam = am.oid
 WHERE c.relname LIKE 'pg_bridge_' || (SELECT oid FROM pg_class WHERE relname = 't_bridge_ddl_test') || '%'
 ORDER BY 1;
-         relname         | relkind | amname 
--------------------------+---------+--------
- pg_bridge_<oid>         | r       | 
- pg_bridge_<oid>_seq_idx | i       | ubtree
- pg_bridge_<oid>_tid_idx | i       | ubtree
-(3 rows)
+     relname     | relkind | amname 
+-----------------+---------+--------
+ pg_bridge_<oid> | r       | 
+(1 row)
 
 \echo '>>> [TC-02] Testing CREATE TABLE (ustore) + GiST Spatial Index...'
 >>> [TC-02] Testing CREATE TABLE (ustore) + GiST Spatial Index...

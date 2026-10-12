@@ -1646,7 +1646,7 @@ static void scanPendingInsert(IndexScanDesc scan, TIDBitmap *tbm, int64 *ntids)
                     continue;
                 targetTid = physicalTid;
             }
-            tbm_handler._add_tuples(tbm, &targetTid, 1, recheck, partHeapOid, InvalidBktId);
+            tbm_handler._add_tuples(tbm, &targetTid, 1, scan->xs_is_bridge_scan ? true : recheck, partHeapOid, InvalidBktId);
             (*ntids)++;
         }
     }
@@ -1726,7 +1726,7 @@ Datum gingetbitmap(PG_FUNCTION_ARGS)
                     continue;
                 targetTid = physicalTid;
             }
-            tbm_handler._add_tuples(tbm, &targetTid, 1, recheck, partHeapOid, InvalidBktId);
+            tbm_handler._add_tuples(tbm, &targetTid, 1, scan->xs_is_bridge_scan ? true : recheck, partHeapOid, InvalidBktId);
             ntids++;
         }
     }

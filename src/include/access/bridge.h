@@ -91,6 +91,7 @@ extern bool BridgeLookupAndVerifyVisibility(Relation bridgeRel, Relation bridgeI
 extern bool BridgeVerifyTupleTag(void* tuple, BridgeSeqNo querySeq);
 extern bool BridgeRouterAppend(Relation routerRel, BridgeSeqNo seq, ItemPointer physicalTid);
 extern bool BridgeRouterLookup(Relation routerRel, BridgeSeqNo seq, ItemPointer physicalTid);
+extern void BridgeRouterInit(Relation routerRel);
 
 #endif /* BRIDGE_INDEX_H */
 
