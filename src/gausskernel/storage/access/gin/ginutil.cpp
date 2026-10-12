@@ -462,7 +462,8 @@ Datum ginoptions(PG_FUNCTION_ARGS)
     int numoptions;
     static const relopt_parse_elt tab[] = {
         { "fastupdate", RELOPT_TYPE_BOOL, offsetof(GinOptions, useFastUpdate) },
-        { "gin_pending_list_limit", RELOPT_TYPE_INT, offsetof(GinOptions, pendingListCleanupSize) }
+        { "gin_pending_list_limit", RELOPT_TYPE_INT, offsetof(GinOptions, pendingListCleanupSize) },
+        { "storage_type", RELOPT_TYPE_STRING, offsetof(GinOptions, storageTypeOffset) }
     };
     options = parseRelOptions(reloptions, validate, RELOPT_KIND_GIN, &numoptions);
 

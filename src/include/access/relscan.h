@@ -187,6 +187,7 @@ typedef struct IndexScanDescData {
     bool xs_is_bridge_scan;
     Relation xs_bridge_rel;
     Relation xs_bridge_idx;
+    uint64 xs_bridge_cur_seq;
 
     int64 count;
     HeapTupleHeaderData xs_ctbuf_hdr;

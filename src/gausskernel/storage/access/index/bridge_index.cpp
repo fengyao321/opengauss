@@ -436,3 +436,5 @@ bool BridgeLookupAndVerifyVisibility(Relation bridgeRel, Relation bridgeIdx, Bri
 
     return found;
 }
+
+#include "bridge_router.cpp"

@@ -878,6 +878,13 @@ bool IndexFetchUHeap(IndexScanDesc scan, TupleTableSlot *slot, bool* has_cur_xac
                                               slot, &scan->xs_continue_hot, &allDead, has_cur_xact_write);
 
     if (found) {
+        if (scan->xs_is_bridge_scan) {
+            UHeapTuple utup = ExecGetUHeapTupleFromSlot(slot);
+            if (!BridgeVerifyTupleTag(utup, scan->xs_bridge_cur_seq)) {
+                ExecClearTuple(slot);
+                return false;
+            }
+        }
         pgstat_count_heap_fetch(scan->indexRelation);
         return true;
     }
@@ -1004,6 +1011,7 @@ bool IndexGetnextSlot(IndexScanDesc scan, ScanDirection direction, TupleTableSlo
 
             if (scan->xs_is_bridge_scan) {
                 BridgeSeqNo seq = ItemPointerToBridgeSeq(tid);
+                scan->xs_bridge_cur_seq = seq;
                 ItemPointerData physical_tid;
                 bool visible = BridgeLookupAndVerifyVisibility(scan->xs_bridge_rel,
                                                                scan->xs_bridge_idx,

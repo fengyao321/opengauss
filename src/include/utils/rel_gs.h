@@ -250,6 +250,13 @@ typedef struct GiSTRelOptionsHeader {
     int storageTypeOffset;
 } GiSTRelOptionsHeader;
 
+typedef struct GinRelOptionsHeader {
+    int32 vl_len_;
+    bool useFastUpdate;
+    int pendingListCleanupSize;
+    int storageTypeOffset;
+} GinRelOptionsHeader;
+
 static inline TableAmType get_tableam_from_reloptions(bytea* reloptions, char relkind, Oid amoid)
 {
     if (relkind == RELKIND_INDEX && amoid == GIST_AM_OID) {
@@ -257,6 +264,19 @@ static inline TableAmType get_tableam_from_reloptions(bytea* reloptions, char re
             GiSTRelOptionsHeader* gistopts = (GiSTRelOptionsHeader*)reloptions;
             if (gistopts->storageTypeOffset > 0 && (Size)gistopts->storageTypeOffset < VARSIZE(reloptions)) {
                 char* storageType = (char*)gistopts + gistopts->storageTypeOffset;
+                if (pg_strcasecmp(storageType, TABLE_ACCESS_METHOD_USTORE) == 0) {
+                    return TAM_USTORE;
+                }
+            }
+        }
+        return TAM_HEAP;
+    }
+
+    if (relkind == RELKIND_INDEX && amoid == GIN_AM_OID) {
+        if (reloptions != NULL) {
+            GinRelOptionsHeader* ginopts = (GinRelOptionsHeader*)reloptions;
+            if (ginopts->storageTypeOffset > 0 && (Size)ginopts->storageTypeOffset < VARSIZE(reloptions)) {
+                char* storageType = (char*)ginopts + ginopts->storageTypeOffset;
                 if (pg_strcasecmp(storageType, TABLE_ACCESS_METHOD_USTORE) == 0) {
                     return TAM_USTORE;
                 }

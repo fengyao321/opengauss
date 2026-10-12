@@ -34,7 +34,7 @@ struct TupleTableSlot;
 #define UHEAP_HAS_NULL 0x0001
 #define UHEAP_HASVARWIDTH 0x0002 /* has variable-width attribute(s) */
 #define UHEAP_HASEXTERNAL 0x0004 /* has external stored attribute(s) */
-/* unused bits */
+#define UHEAP_HAS_BRIDGE_TAG 0x0008 /* tuple header contains 8-byte bridge_tag */
 #define UHEAP_DELETED 0x0010         /* tuple deleted */
 #define UHEAP_INPLACE_UPDATED 0x0020 /* tuple is updated inplace */
 #define UHEAP_UPDATED 0x0040         /* tuple is not updated inplace */
@@ -103,6 +103,17 @@ struct TupleTableSlot;
 #define UHeapDiskTupSetHasNulls(_udisk_tuple) ((_udisk_tuple)->flag |= UHEAP_HAS_NULL)
 
 #define UHeapDiskTupHasVarWidth(_udisk_tuple) (((_udisk_tuple)->flag & UHEAP_HASVARWIDTH) != 0)
+
+#define UHeapDiskTupleHasBridgeTag(_udisk_tuple) ((((_udisk_tuple)->flag) & UHEAP_HAS_BRIDGE_TAG) != 0)
+#define UHeapDiskTupleSetHasBridgeTag(_udisk_tuple) ((_udisk_tuple)->flag |= UHEAP_HAS_BRIDGE_TAG)
+#define UHeapDiskTupleClearHasBridgeTag(_udisk_tuple) ((_udisk_tuple)->flag &= ~UHEAP_HAS_BRIDGE_TAG)
+#define UHeapDiskTupleGetBridgeTag(_udisk_tuple) \
+    (*((uint64 *)((char *)(_udisk_tuple) + (_udisk_tuple)->t_hoff - sizeof(uint64))))
+#define UHeapDiskTupleSetBridgeTag(_udisk_tuple, tag) \
+    do { \
+        UHeapDiskTupleSetHasBridgeTag(_udisk_tuple); \
+        *((uint64 *)((char *)(_udisk_tuple) + (_udisk_tuple)->t_hoff - sizeof(uint64))) = (tag); \
+    } while (0)
 
 #define UHeapDiskTupleDeleted(_udisk_tuple) (((_udisk_tuple)->flag & (UHEAP_DELETED | UHEAP_UPDATED)) != 0)
 

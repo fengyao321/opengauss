@@ -49,11 +49,12 @@ static inline BridgeSeqNo ItemPointerToBridgeSeq(const ItemPointer itemptr)
 
 /*
  * Check if the given access method is supported via Bridge on Ustore
- * For Phase 1: Hash and GiST
+ * Supports Hash, GiST, GIN, and SP-GiST
  */
 static inline bool IndexAmIsBridged(Oid amOid)
 {
-    return (amOid == HASH_AM_OID || amOid == GIST_AM_OID);
+    return (amOid == HASH_AM_OID || amOid == GIST_AM_OID ||
+            amOid == GIN_AM_OID || amOid == SPGIST_AM_OID);
 }
 
 /*
@@ -83,6 +84,11 @@ extern Oid BridgeGetRelationOid(Relation heapRel);
 extern bool BridgeInsertEntry(Relation heapRel, Relation indexRel, ItemPointer physicalTid, ItemPointer bridgeTidOut);
 extern bool BridgeDeleteEntry(Relation indexRel, Datum* values, const bool* isnull, ItemPointer physicalTid, bool isRollback);
 extern bool BridgeLookupAndVerifyVisibility(Relation bridgeRel, Relation bridgeIdx, BridgeSeqNo seq, Snapshot snapshot, ItemPointer physicalTid);
+
+/* Ultimate Bridge Router & Tag Verification APIs */
+extern bool BridgeVerifyTupleTag(void* tuple, BridgeSeqNo querySeq);
+extern bool BridgeRouterAppend(Relation routerRel, BridgeSeqNo seq, ItemPointer physicalTid);
+extern bool BridgeRouterLookup(Relation routerRel, BridgeSeqNo seq, ItemPointer physicalTid);
 
 #endif /* BRIDGE_INDEX_H */
 

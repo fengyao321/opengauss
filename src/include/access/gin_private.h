@@ -302,6 +302,7 @@ typedef struct GinOptions {
     int32 vl_len_;              /* varlena header (do not touch directly!) */
     bool useFastUpdate;         /* use fast updates? */
     int pendingListCleanupSize; /* maximum size of pending list */
+    int storageTypeOffset;      /* storage_type option offset for bridge index */
 } GinOptions;
 
 #define GIN_DEFAULT_USE_FASTUPDATE true
