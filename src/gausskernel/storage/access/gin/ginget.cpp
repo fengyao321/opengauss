@@ -15,6 +15,7 @@
 #include "postgres.h"
 #include "knl/knl_variable.h"
 
+#include "access/bridge.h"
 #include "access/gin_private.h"
 #include "access/relscan.h"
 #include "access/xloginsert.h"
@@ -1632,7 +1633,20 @@ static void scanPendingInsert(IndexScanDesc scan, TIDBitmap *tbm, int64 *ntids)
         MemoryContextReset(so->tempCtx);
 
         if (match) {
-            tbm_handler._add_tuples(tbm, &pos.item, 1, recheck, partHeapOid, InvalidBktId);
+            ItemPointerData targetTid = pos.item;
+            if (scan->xs_is_bridge_scan) {
+                BridgeSeqNo seq = ItemPointerToBridgeSeq(&pos.item);
+                ItemPointerData physicalTid;
+                bool visible = BridgeLookupAndVerifyVisibility(scan->xs_bridge_rel,
+                                                               scan->xs_bridge_idx,
+                                                               seq,
+                                                               scan->xs_snapshot,
+                                                               &physicalTid);
+                if (!visible)
+                    continue;
+                targetTid = physicalTid;
+            }
+            tbm_handler._add_tuples(tbm, &targetTid, 1, recheck, partHeapOid, InvalidBktId);
             (*ntids)++;
         }
     }
@@ -1695,11 +1709,26 @@ Datum gingetbitmap(PG_FUNCTION_ARGS)
         if (!scanGetItem(scan, iptr, &iptr, &recheck))
             break;
 
-        if (ItemPointerIsLossyPage(&iptr))
+        if (ItemPointerIsLossyPage(&iptr)) {
             tbm_handler._add_page(tbm, ItemPointerGetBlockNumber(&iptr), partHeapOid, InvalidBktId);
-        else
-            tbm_handler._add_tuples(tbm, &iptr, 1, recheck, partHeapOid, InvalidBktId);
-        ntids++;
+            ntids++;
+        } else {
+            ItemPointerData targetTid = iptr;
+            if (scan->xs_is_bridge_scan) {
+                BridgeSeqNo seq = ItemPointerToBridgeSeq(&iptr);
+                ItemPointerData physicalTid;
+                bool visible = BridgeLookupAndVerifyVisibility(scan->xs_bridge_rel,
+                                                               scan->xs_bridge_idx,
+                                                               seq,
+                                                               scan->xs_snapshot,
+                                                               &physicalTid);
+                if (!visible)
+                    continue;
+                targetTid = physicalTid;
+            }
+            tbm_handler._add_tuples(tbm, &targetTid, 1, recheck, partHeapOid, InvalidBktId);
+            ntids++;
+        }
     }
 
     PG_RETURN_INT64(ntids);

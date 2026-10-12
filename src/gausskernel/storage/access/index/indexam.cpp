@@ -352,6 +352,26 @@ IndexScanDesc index_beginscan_bitmap(Relation index_relation, Snapshot snapshot,
 #ifdef USE_SPQ
     scan->spq_scan = NULL;
 #endif
+
+    if (RelationIsBridgedIndex(index_relation)) {
+        Oid heapRelOid = index_relation->rd_index->indrelid;
+        Relation heapRel = heap_open(heapRelOid, AccessShareLock);
+        if (RelationIsUstoreFormat(heapRel)) {
+            scan->xs_is_bridge_scan = true;
+            scan->xs_bridge_rel = BridgeGetRelation(heapRel, AccessShareLock);
+            scan->xs_bridge_idx = BridgeGetSeqIndexRelation(heapRel, AccessShareLock);
+        } else {
+            scan->xs_is_bridge_scan = false;
+            scan->xs_bridge_rel = NULL;
+            scan->xs_bridge_idx = NULL;
+        }
+        heap_close(heapRel, AccessShareLock);
+    } else {
+        scan->xs_is_bridge_scan = false;
+        scan->xs_bridge_rel = NULL;
+        scan->xs_bridge_idx = NULL;
+    }
+
     return scan;
 }
 

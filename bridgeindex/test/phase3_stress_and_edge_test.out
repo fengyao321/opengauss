@@ -1,0 +1,163 @@
+>>> [START] Ustore Bridge Index Phase 3 Stress & Edge Suite Running...
+SET
+>>> [TC-ADV-01] Testing GIN Full-Text Search (tsvector) on Ustore...
+DROP TABLE
+CREATE TABLE
+CREATE INDEX
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+SET
+SET
+                             QUERY PLAN                             
+--------------------------------------------------------------------
+ Bitmap Heap Scan on t_fts_bridge
+   Recheck Cond: (tsv @@ '''opengauss'' & ''kernel'''::tsquery)
+   ->  Bitmap Index Scan on idx_fts_gin
+         Index Cond: (tsv @@ '''opengauss'' & ''kernel'''::tsquery)
+(4 rows)
+
+ id |           title           
+----+---------------------------
+  1 | openGauss database kernel
+(1 row)
+
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Bitmap Heap Scan on t_fts_bridge
+   Recheck Cond: (tsv @@ '''router'' | ''cloud'''::tsquery)
+   ->  Bitmap Index Scan on idx_fts_gin
+         Index Cond: (tsv @@ '''router'' | ''cloud'''::tsquery)
+(4 rows)
+
+ id |           title            
+----+----------------------------
+  2 | cloud distributed database
+  3 | bridge index router
+(2 rows)
+
+>>> [TC-ADV-02] Testing Multi-Page Leaf Split (>582 entries) & Router Traversal...
+DROP TABLE
+CREATE TABLE
+CREATE INDEX
+INSERT 0 2000
+ count 
+-------
+    40
+(1 row)
+
+  id  |  val  
+------+-------
+   50 |   500
+ 2000 | 20000
+(2 rows)
+
+>>> [TC-ADV-03] Testing Single Table with 4 Indexes: UBTree + Hash + GiST + GIN...
+DROP TABLE
+CREATE TABLE
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+                         Table "public.t_multi_idx"
+   Column   |   Type    | Modifiers | Storage  | Stats target | Description 
+------------+-----------+-----------+----------+--------------+-------------
+ id         | integer   |           | plain    |              | 
+ token      | text      |           | extended |              | 
+ pos        | point     |           | plain    |              | 
+ categories | integer[] |           | extended |              | 
+Indexes:
+    "idx_m_gin" gin (categories) WITH (storage_type=ustore) TABLESPACE pg_default
+    "idx_m_gist" gist (pos) WITH (storage_type=ustore) TABLESPACE pg_default
+    "idx_m_hash" hash (token) WITH (storage_type=ustore) TABLESPACE pg_default
+    "idx_m_ubtree" ubtree (id) WITH (storage_type=ustore, index_type=rcr) TABLESPACE pg_default
+Has OIDs: no
+Options: orientation=row, storage_type=ustore, compression=no, toast.storage_type=ustore
+
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+ id | token 
+----+-------
+  2 | BETA
+(1 row)
+
+ id | token 
+----+-------
+(0 rows)
+
+ id | token 
+----+-------
+  2 | BETA
+(1 row)
+
+ id | token 
+----+-------
+  1 | ALPHA
+  3 | GAMMA
+(2 rows)
+
+>>> [TC-ADV-04] Testing GIN Transaction Rollback Isolation...
+BEGIN
+INSERT 0 1
+ id  | token 
+-----+-------
+ 999 | GHOST
+(1 row)
+
+ROLLBACK
+ count 
+-------
+     0
+(1 row)
+
+>>> [TC-ADV-05] Testing High-Frequency Churn and Slot Reuse...
+DROP TABLE
+CREATE TABLE
+CREATE INDEX
+INSERT 0 100
+DELETE 50
+VACUUM
+INSERT 0 50
+ count 
+-------
+     0
+(1 row)
+
+ count 
+-------
+     0
+(1 row)
+
+ count 
+-------
+     1
+(1 row)
+
+ count 
+-------
+     1
+(1 row)
+
+>>> [TC-ADV-06] Testing NULL and Empty Array Edge Cases in GIN...
+INSERT 0 1
+INSERT 0 1
+ count 
+-------
+     1
+(1 row)
+
+  id  
+------
+ 8888
+ 9999
+(2 rows)
+
+DROP TABLE
+DROP TABLE
+DROP TABLE
+DROP TABLE
+RESET
+RESET
+>>> [FINISH] Phase 3 Stress & Edge Suite Executed Successfully!
+total time: 517  ms

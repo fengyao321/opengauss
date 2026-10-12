@@ -29,22 +29,24 @@ typedef uint64 BridgeSeqNo;
 #define BRIDGE_INVALID_SEQ ((BridgeSeqNo)0)
 #define BRIDGE_FIRST_SEQ   ((BridgeSeqNo)1)
 
-/* Convert a 48-bit bridge sequence number into a 6-byte ItemPointerData */
+#define BRIDGE_TUPLES_PER_PAGE 200
+
+/* Convert a bridge sequence number into a valid 6-byte ItemPointerData (respecting page tuple limits) */
 static inline ItemPointerData BridgeSeqToItemPointer(BridgeSeqNo seq)
 {
     ItemPointerData itemptr;
-    BlockNumber blkno = (BlockNumber)(seq >> 16);
-    OffsetNumber offno = (OffsetNumber)((seq & 0xFFFF) + 1);
+    BlockNumber blkno = (BlockNumber)(seq / BRIDGE_TUPLES_PER_PAGE);
+    OffsetNumber offno = (OffsetNumber)((seq % BRIDGE_TUPLES_PER_PAGE) + 1);
     ItemPointerSet(&itemptr, blkno, offno);
     return itemptr;
 }
 
-/* Convert a 6-byte ItemPointerData back into a 48-bit bridge sequence number */
+/* Convert a 6-byte ItemPointerData back into a bridge sequence number */
 static inline BridgeSeqNo ItemPointerToBridgeSeq(const ItemPointer itemptr)
 {
     BlockNumber blkno = ItemPointerGetBlockNumber(itemptr);
     OffsetNumber offno = ItemPointerGetOffsetNumber(itemptr);
-    return (((BridgeSeqNo)blkno) << 16) | (BridgeSeqNo)(offno - 1);
+    return (((BridgeSeqNo)blkno) * BRIDGE_TUPLES_PER_PAGE) + (BridgeSeqNo)(offno - 1);
 }
 
 /*
