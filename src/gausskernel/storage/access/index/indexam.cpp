@@ -323,10 +323,14 @@ IndexScanDesc index_beginscan(
         scan->xs_is_bridge_scan = true;
         scan->xs_bridge_rel = BridgeGetRelation(heap_relation, AccessShareLock);
         scan->xs_bridge_idx = NULL;
+        scan->xs_bridge_cache.cached_buf = InvalidBuffer;
+        scan->xs_bridge_cache.is_valid = false;
     } else {
         scan->xs_is_bridge_scan = false;
         scan->xs_bridge_rel = NULL;
         scan->xs_bridge_idx = NULL;
+        scan->xs_bridge_cache.cached_buf = InvalidBuffer;
+        scan->xs_bridge_cache.is_valid = false;
     }
 
     return scan;
@@ -360,16 +364,22 @@ IndexScanDesc index_beginscan_bitmap(Relation index_relation, Snapshot snapshot,
             scan->xs_is_bridge_scan = true;
             scan->xs_bridge_rel = BridgeGetRelation(heapRel, AccessShareLock);
             scan->xs_bridge_idx = NULL;
+            scan->xs_bridge_cache.cached_buf = InvalidBuffer;
+            scan->xs_bridge_cache.is_valid = false;
         } else {
             scan->xs_is_bridge_scan = false;
             scan->xs_bridge_rel = NULL;
             scan->xs_bridge_idx = NULL;
+            scan->xs_bridge_cache.cached_buf = InvalidBuffer;
+            scan->xs_bridge_cache.is_valid = false;
         }
         heap_close(heapRel, AccessShareLock);
     } else {
         scan->xs_is_bridge_scan = false;
         scan->xs_bridge_rel = NULL;
         scan->xs_bridge_idx = NULL;
+        scan->xs_bridge_cache.cached_buf = InvalidBuffer;
+        scan->xs_bridge_cache.is_valid = false;
     }
 
     return scan;
@@ -451,6 +461,10 @@ void index_rescan(IndexScanDesc scan, ScanKey keys, int nkeys, ScanKey orderbys,
         scan->xs_cbuf = InvalidBuffer;
     }
 
+    if (scan->xs_is_bridge_scan) {
+        BridgeRouterResetCache(&scan->xs_bridge_cache);
+    }
+
     scan->xs_continue_hot = false;
 
     scan->kill_prior_tuple = false; /* for safety */
@@ -511,6 +525,7 @@ void index_endscan(IndexScanDesc scan)
     RelationDecrementReferenceCount(scan->indexRelation);
 
     if (scan->xs_is_bridge_scan) {
+        BridgeRouterResetCache(&scan->xs_bridge_cache);
         if (scan->xs_bridge_idx) {
             index_close(scan->xs_bridge_idx, AccessShareLock);
             scan->xs_bridge_idx = NULL;
@@ -1033,11 +1048,11 @@ bool IndexGetnextSlot(IndexScanDesc scan, ScanDirection direction, TupleTableSlo
                 BridgeSeqNo seq = ItemPointerToBridgeSeq(tid);
                 scan->xs_bridge_cur_seq = seq;
                 ItemPointerData physical_tid;
-                bool visible = BridgeLookupAndVerifyVisibility(scan->xs_bridge_rel,
-                                                               scan->xs_bridge_idx,
-                                                               seq,
-                                                               scan->xs_snapshot,
-                                                               &physical_tid);
+                bool visible = BridgeLookupAndVerifyVisibilityCached(scan->xs_bridge_rel,
+                                                                     &scan->xs_bridge_cache,
+                                                                     seq,
+                                                                     scan->xs_snapshot,
+                                                                     &physical_tid);
                 if (!visible) {
                     continue;
                 }

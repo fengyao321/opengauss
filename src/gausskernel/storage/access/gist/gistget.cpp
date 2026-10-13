@@ -308,11 +308,11 @@ static void gistScanPage(IndexScanDesc scan, const GISTSearchItem *pageItem, con
             if (scan->xs_is_bridge_scan) {
                 BridgeSeqNo seq = ItemPointerToBridgeSeq(&it->t_tid);
                 ItemPointerData physicalTid;
-                bool visible = BridgeLookupAndVerifyVisibility(scan->xs_bridge_rel,
-                                                               scan->xs_bridge_idx,
-                                                               seq,
-                                                               scan->xs_snapshot,
-                                                               &physicalTid);
+                bool visible = BridgeLookupAndVerifyVisibilityCached(scan->xs_bridge_rel,
+                                                                     &scan->xs_bridge_cache,
+                                                                     seq,
+                                                                     scan->xs_snapshot,
+                                                                     &physicalTid);
                 if (!visible)
                     continue;
                 targetTid = physicalTid;
@@ -607,6 +607,10 @@ Datum gistgetbitmap(PG_FUNCTION_ARGS)
         gistScanPage(scan, item, so->curTreeItem->distances, tbm, &ntids);
 
         pfree(item);
+    }
+
+    if (scan->xs_is_bridge_scan) {
+        BridgeRouterResetCache(&scan->xs_bridge_cache);
     }
 
     PG_RETURN_INT64(ntids);

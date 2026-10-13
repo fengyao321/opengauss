@@ -35,6 +35,9 @@
  * Meta Page Data stored at Block 0 of the Bridge Router relation file
  */
 typedef struct BridgeRouterMetaPageData {
+    XLogRecPtr      pd_lsn;                /* WAL LSN of last modification (MUST BE FIRST FOR PageGetLSN) */
+    uint16          pd_checksum;           /* Page checksum */
+    uint16          pd_flags;              /* Page type flags (BRIDGE_PAGE_META) */
     uint32          magic;                 /* BRIDGE_ROUTER_MAGIC */
     uint32          version;               /* Format version */
     BlockNumber     root_blkno;            /* Block number of the root page */

@@ -362,11 +362,11 @@ Datum hashgetbitmap(PG_FUNCTION_ARGS)
             if (scan->xs_is_bridge_scan) {
                 BridgeSeqNo seq = ItemPointerToBridgeSeq(&so->hashso_heappos);
                 ItemPointerData physicalTid;
-                bool visible = BridgeLookupAndVerifyVisibility(scan->xs_bridge_rel,
-                                                               scan->xs_bridge_idx,
-                                                               seq,
-                                                               scan->xs_snapshot,
-                                                               &physicalTid);
+                bool visible = BridgeLookupAndVerifyVisibilityCached(scan->xs_bridge_rel,
+                                                                     &scan->xs_bridge_cache,
+                                                                     seq,
+                                                                     scan->xs_snapshot,
+                                                                     &physicalTid);
                 if (!visible) {
                     res = _hash_next(scan, ForwardScanDirection);
                     continue;
@@ -380,6 +380,10 @@ Datum hashgetbitmap(PG_FUNCTION_ARGS)
         }
 
         res = _hash_next(scan, ForwardScanDirection);
+    }
+
+    if (scan->xs_is_bridge_scan) {
+        BridgeRouterResetCache(&scan->xs_bridge_cache);
     }
 
     PG_RETURN_INT64(ntids);

@@ -89,9 +89,23 @@ extern bool BridgeLookupAndVerifyVisibility(Relation bridgeRel, Relation bridgeI
 
 /* Ultimate Bridge Router & Tag Verification APIs */
 extern bool BridgeVerifyTupleTag(void* tuple, BridgeSeqNo querySeq);
-extern bool BridgeRouterAppend(Relation routerRel, BridgeSeqNo seq, ItemPointer physicalTid);
+extern BridgeSeqNo BridgeRouterAppend(Relation routerRel, ItemPointer physicalTid);
 extern bool BridgeRouterLookup(Relation routerRel, BridgeSeqNo seq, ItemPointer physicalTid);
 extern void BridgeRouterInit(Relation routerRel);
 
+/* Stage 1: Page-Pinning Cache & Batch Dereferencing APIs */
+extern void BridgeRouterResetCache(BridgeScanCache *cache);
+extern bool BridgeRouterLookupCached(Relation routerRel, BridgeScanCache *cache, BridgeSeqNo seq, ItemPointer physicalTid);
+extern bool BridgeLookupAndVerifyVisibilityCached(Relation bridgeRel, BridgeScanCache *cache, BridgeSeqNo seq, Snapshot snapshot, ItemPointer physicalTid);
+extern int BridgeRouterLookupBatch(Relation routerRel, BridgeScanCache *cache, const BridgeSeqNo *seqs, ItemPointer tids, bool *valids, int count);
+
+/* Stage 2: Bridged-HOT In-place TID Update API */
+extern bool BridgeRouterUpdatePhysicalTID(Relation routerRel, BridgeSeqNo seq, ItemPointer newPhysicalTid);
+
+/* Stage 3: Multi-Insert Batch Append & Lossy Bitmap Range Scan APIs */
+extern int BridgeRouterAppendBatch(Relation routerRel, const ItemPointer physicalTids, int count, BridgeSeqNo *startSeqOut);
+extern int BridgeRouterRangeScan(Relation routerRel, BridgeSeqNo startSeq, BridgeSeqNo endSeq, ItemPointer outTids, int maxTids);
+
 #endif /* BRIDGE_INDEX_H */
+
 

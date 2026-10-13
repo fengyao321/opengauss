@@ -114,6 +114,16 @@ typedef struct HBktTblScanDescData {
 typedef struct HBktTblScanDescData* HBktTblScanDesc;
 
 struct IndexFetchTableData;
+/* Bridge router leaf page scan cache structure */
+typedef struct BridgeScanCache {
+    Buffer      cached_buf;         /* Currently pinned leaf buffer */
+    BlockNumber cached_blkno;       /* Cached block number */
+    uint64      min_seq;            /* Minimum seq on cached leaf */
+    uint64      max_seq;            /* Maximum seq on cached leaf */
+    int         last_offset;        /* Last matched item index within leaf items */
+    bool        is_valid;           /* Whether cache is valid */
+} BridgeScanCache;
+
 /*
  * We use the same IndexScanDescData structure for both amgettuple-based
  * and amgetbitmap-based index scans.  Some fields are only relevant in
@@ -188,6 +198,7 @@ typedef struct IndexScanDescData {
     Relation xs_bridge_rel;
     Relation xs_bridge_idx;
     uint64 xs_bridge_cur_seq;
+    BridgeScanCache xs_bridge_cache;
 
     int64 count;
     HeapTupleHeaderData xs_ctbuf_hdr;

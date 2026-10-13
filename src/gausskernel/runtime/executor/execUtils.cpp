@@ -2170,6 +2170,9 @@ List* ExecInsertIndexTuples(TupleTableSlot* slot, ItemPointer tupleid, EState* e
     /*
      * for each index, form and insert the index tuple
      */
+    ItemPointerData sharedBridgeTid;
+    bool hasSharedBridgeTid = false;
+
     for (i = 0; i < totalIndices; i++) {
         Relation indexRelation = i < numIndices ? relationDescs[i] : unusedRelationDescs[i - numIndices];
         IndexInfo* indexInfo = NULL;
@@ -2287,7 +2290,11 @@ List* ExecInsertIndexTuples(TupleTableSlot* slot, ItemPointer tupleid, EState* e
         }
         if (RelationIsBridgedIndex(actualindex)) {
             ItemPointerData bridgeTid;
-            BridgeInsertEntry(actualheap, actualindex, tupleid, &bridgeTid);
+            if (!hasSharedBridgeTid) {
+                BridgeInsertEntry(actualheap, actualindex, tupleid, &sharedBridgeTid);
+                hasSharedBridgeTid = true;
+            }
+            bridgeTid = sharedBridgeTid;
             satisfiesConstraint = index_insert(actualindex, /* index relation */
                 values,                                     /* array of index Datums */
                 isnull,                                     /* null flags */

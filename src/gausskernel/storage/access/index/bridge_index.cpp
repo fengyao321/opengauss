@@ -183,14 +183,16 @@ bool BridgeInsertEntry(Relation heapRel, Relation indexRel, ItemPointer physical
         ereport(ERROR, (errmsg("Failed to open bridge router relation for relation %u", RelationGetRelid(heapRel))));
     }
 
-    BridgeSeqNo seq = BridgeGetNextSeq(RelationGetRelid(heapRel));
-    ItemPointerData bridgeTid = BridgeSeqToItemPointer(seq);
-    if (bridgeTidOut != NULL) {
-        *bridgeTidOut = bridgeTid;
+    /* Direct 14-byte compact append to the Bridge Router B+ Tree with strictly monotonic sequence allocation */
+    BridgeSeqNo seq = BridgeRouterAppend(routerRel, physicalTid);
+    if (seq == BRIDGE_INVALID_SEQ) {
+        heap_close(routerRel, RowExclusiveLock);
+        return false;
     }
 
-    /* Direct 14-byte compact append to the Bridge Router B+ Tree */
-    BridgeRouterAppend(routerRel, seq, physicalTid);
+    if (bridgeTidOut != NULL) {
+        *bridgeTidOut = BridgeSeqToItemPointer(seq);
+    }
 
     heap_close(routerRel, RowExclusiveLock);
     return true;
@@ -214,5 +216,14 @@ bool BridgeLookupAndVerifyVisibility(Relation bridgeRel, Relation bridgeIdx, Bri
     }
     return BridgeRouterLookup(bridgeRel, seq, physicalTid);
 }
+
+bool BridgeLookupAndVerifyVisibilityCached(Relation bridgeRel, BridgeScanCache *cache, BridgeSeqNo seq, Snapshot snapshot, ItemPointer physicalTid)
+{
+    if (bridgeRel == NULL || seq == BRIDGE_INVALID_SEQ || physicalTid == NULL) {
+        return false;
+    }
+    return BridgeRouterLookupCached(bridgeRel, cache, seq, physicalTid);
+}
+
 
 #include "bridge_router.cpp"
