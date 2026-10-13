@@ -1378,6 +1378,10 @@ void ExecOpenIndices(ResultRelInfo* resultRelInfo, bool speculative, bool checkD
     resultRelInfo->ri_UnusableIndexRelationDescs = NULL;
     resultRelInfo->ri_UnusableIndexRelationInfo = NULL;
 
+    resultRelInfo->ri_BridgeRouterRel = NULL;
+    resultRelInfo->ri_BridgeLeafBuf = InvalidBuffer;
+    resultRelInfo->ri_BridgeLeafBlk = InvalidBlockNumber;
+
     /* fast path if no indexes */
     if (!RelationGetForm(resultRelation)->relhasindex)
         return;
@@ -1524,6 +1528,20 @@ void ExecCloseIndices(ResultRelInfo* resultRelInfo)
         ExecCloseUnsedIndices(resultRelInfo);
     }
 
+    /* Release cached Bridge Router relation descriptor and leaf buffer */
+    if (BufferIsValid(resultRelInfo->ri_BridgeLeafBuf)) {
+        if (resultRelInfo->ri_BridgeRouterRel != NULL) {
+            BridgeRouterFlushLeafCache(resultRelInfo->ri_BridgeRouterRel, resultRelInfo->ri_BridgeLeafBuf);
+        }
+        ReleaseBuffer(resultRelInfo->ri_BridgeLeafBuf);
+        resultRelInfo->ri_BridgeLeafBuf = InvalidBuffer;
+        resultRelInfo->ri_BridgeLeafBlk = InvalidBlockNumber;
+    }
+
+    if (resultRelInfo->ri_BridgeRouterRel != NULL) {
+        heap_close(resultRelInfo->ri_BridgeRouterRel, RowExclusiveLock);
+        resultRelInfo->ri_BridgeRouterRel = NULL;
+    }
 }
 
 /*
@@ -2291,7 +2309,14 @@ List* ExecInsertIndexTuples(TupleTableSlot* slot, ItemPointer tupleid, EState* e
         if (RelationIsBridgedIndex(actualindex)) {
             ItemPointerData bridgeTid;
             if (!hasSharedBridgeTid) {
-                BridgeInsertEntry(actualheap, actualindex, tupleid, &sharedBridgeTid);
+                if (resultRelInfo->ri_BridgeRouterRel == NULL) {
+                    resultRelInfo->ri_BridgeRouterRel = BridgeGetOrCreateRelation(actualheap, RowExclusiveLock);
+                }
+                BridgeInsertEntryFast(resultRelInfo->ri_BridgeRouterRel,
+                                      &resultRelInfo->ri_BridgeLeafBuf,
+                                      &resultRelInfo->ri_BridgeLeafBlk,
+                                      tupleid,
+                                      &sharedBridgeTid);
                 hasSharedBridgeTid = true;
             }
             bridgeTid = sharedBridgeTid;

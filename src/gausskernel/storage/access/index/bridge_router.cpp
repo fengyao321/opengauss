@@ -145,7 +145,7 @@ bool BridgeRouterLookup(Relation routerRel, BridgeSeqNo seq, ItemPointer physica
     LockBuffer(metaBuf, BUFFER_LOCK_SHARE);
     BridgeRouterMetaPage meta = (BridgeRouterMetaPage)BufferGetPage(metaBuf);
     
-    if (meta->magic != BRIDGE_ROUTER_MAGIC || meta->total_entries == 0 || seq > meta->max_seq) {
+    if (meta->magic != BRIDGE_ROUTER_MAGIC || meta->total_entries == 0) {
         LockBuffer(metaBuf, BUFFER_LOCK_UNLOCK);
         ReleaseBuffer(metaBuf);
         return false;
@@ -357,38 +357,96 @@ static void BridgeRouterInsertInternal(Relation routerRel, BridgeRouterMetaPage 
 }
 
 /*
- * Append an entry (-> physicalTid) to the rightmost leaf of the Bridge Router.
- * Returns the newly allocated strictly monotonic sequence number, or BRIDGE_INVALID_SEQ on failure.
+ * Flush and persist in-memory leaf cache state to Metapage (Block 0) if needed.
  */
-BridgeSeqNo BridgeRouterAppend(Relation routerRel, ItemPointer physicalTid)
+void BridgeRouterFlushLeafCache(Relation routerRel, Buffer leafBuf)
+{
+    if (routerRel == NULL || !BufferIsValid(leafBuf)) {
+        return;
+    }
+
+    LockBuffer(leafBuf, BUFFER_LOCK_SHARE);
+    Page page = BufferGetPage(leafBuf);
+    BridgeRouterPageHeader hdr = (BridgeRouterPageHeader)page;
+    BridgeSeqNo leafHighSeq = hdr->pd_high_seq;
+    LockBuffer(leafBuf, BUFFER_LOCK_UNLOCK);
+
+    if (leafHighSeq == 0) {
+        return;
+    }
+
+    Buffer metaBuf = ReadBuffer(routerRel, BRIDGE_ROUTER_METAPAGE_BLKNO);
+    LockBuffer(metaBuf, BUFFER_LOCK_EXCLUSIVE);
+    BridgeRouterMetaPage meta = (BridgeRouterMetaPage)BufferGetPage(metaBuf);
+
+    if (meta->magic == BRIDGE_ROUTER_MAGIC && meta->max_seq < leafHighSeq) {
+        meta->max_seq = leafHighSeq;
+        MarkBufferDirty(metaBuf);
+    }
+
+    LockBuffer(metaBuf, BUFFER_LOCK_UNLOCK);
+    ReleaseBuffer(metaBuf);
+}
+
+/*
+ * High-throughput append to the rightmost leaf of the Bridge Router.
+ * Supports leaf buffer caching to avoid per-tuple Metapage and leaf Buffer reads.
+ */
+BridgeSeqNo BridgeRouterAppendFast(Relation routerRel, Buffer *leafBuf, BlockNumber *leafBlkno, ItemPointer physicalTid)
 {
     if (routerRel == NULL || physicalTid == NULL) {
         return BRIDGE_INVALID_SEQ;
     }
 
+    /* 1. Fastpath: Check if the caller's cached leaf buffer is valid and has free space */
+    if (leafBuf != NULL && BufferIsValid(*leafBuf)) {
+        LockBuffer(*leafBuf, BUFFER_LOCK_EXCLUSIVE);
+        Page page = BufferGetPage(*leafBuf);
+        BridgeRouterPageHeader hdr = (BridgeRouterPageHeader)page;
+
+        if ((hdr->pd_flags & BRIDGE_PAGE_RIGHTMOST) && (hdr->pd_item_count < BRIDGE_ROUTER_MAX_LEAF_ENTRIES)) {
+            BridgeLeafEntry *entries = (BridgeLeafEntry *)((char *)page + SizeOfBridgeRouterPageHeaderData);
+            BridgeSeqNo seq = hdr->pd_high_seq + 1;
+            entries[hdr->pd_item_count].seq = seq;
+            entries[hdr->pd_item_count].tid = *physicalTid;
+            hdr->pd_item_count++;
+            hdr->pd_high_seq = seq;
+
+            MarkBufferDirty(*leafBuf);
+            LockBuffer(*leafBuf, BUFFER_LOCK_UNLOCK);
+            return seq;
+        }
+
+        /* Cached page is full or no longer rightmost: release lock and buffer pin */
+        LockBuffer(*leafBuf, BUFFER_LOCK_UNLOCK);
+        ReleaseBuffer(*leafBuf);
+        *leafBuf = InvalidBuffer;
+        if (leafBlkno != NULL) {
+            *leafBlkno = InvalidBlockNumber;
+        }
+    }
+
+    /* 2. Slowpath: Metapage read, rightmost leaf resolution, and page split handling */
     BlockNumber nblocks = RelationGetNumberOfBlocks(routerRel);
     if (nblocks == 0) {
         BridgeRouterInit(routerRel);
     }
 
-    /* Read Metapage */
     Buffer metaBuf = ReadBuffer(routerRel, BRIDGE_ROUTER_METAPAGE_BLKNO);
     LockBuffer(metaBuf, BUFFER_LOCK_EXCLUSIVE);
     BridgeRouterMetaPage meta = (BridgeRouterMetaPage)BufferGetPage(metaBuf);
 
-    /* Allocate strictly monotonic sequence number under exclusive lock */
-    meta->max_seq++;
-    BridgeSeqNo seq = meta->max_seq;
-
     BlockNumber rightmostBlk = meta->rightmost_leaf_blkno;
-    Buffer leafBuf = ReadBuffer(routerRel, rightmostBlk);
-    LockBuffer(leafBuf, BUFFER_LOCK_EXCLUSIVE);
-    Page page = BufferGetPage(leafBuf);
-    BridgeRouterPageHeader hdr = (BridgeRouterPageHeader)page;
+    Buffer curLeafBuf = ReadBuffer(routerRel, rightmostBlk);
+    LockBuffer(curLeafBuf, BUFFER_LOCK_EXCLUSIVE);
+    Page curPage = BufferGetPage(curLeafBuf);
+    BridgeRouterPageHeader curHdr = (BridgeRouterPageHeader)curPage;
 
-    /* Check if rightmost leaf page is full */
-    if (hdr->pd_item_count >= BRIDGE_ROUTER_MAX_LEAF_ENTRIES) {
-        /* 100% compact right split: allocate new leaf page */
+    BridgeSeqNo seq;
+
+    /* Check if current rightmost leaf page is full */
+    if (curHdr->pd_item_count >= BRIDGE_ROUTER_MAX_LEAF_ENTRIES) {
+        /* Allocate new leaf page (100% fill-factor right split) */
         Buffer newLeafBuf = ReadBuffer(routerRel, P_NEW);
         LockBuffer(newLeafBuf, BUFFER_LOCK_EXCLUSIVE);
         Page newPage = BufferGetPage(newLeafBuf);
@@ -404,6 +462,8 @@ BridgeSeqNo BridgeRouterAppend(Relation routerRel, ItemPointer physicalTid)
         newHdr->pd_prev_blk = rightmostBlk;
         newHdr->pd_next_blk = InvalidBlockNumber;
         newHdr->pd_item_count = 1;
+
+        seq = curHdr->pd_high_seq + 1;
         newHdr->pd_high_seq = seq;
 
         BridgeLeafEntry *newEntries = (BridgeLeafEntry *)((char *)newPage + SizeOfBridgeRouterPageHeaderData);
@@ -411,19 +471,29 @@ BridgeSeqNo BridgeRouterAppend(Relation routerRel, ItemPointer physicalTid)
         newEntries[0].tid = *physicalTid;
 
         /* Update old leaf page link */
-        hdr->pd_flags &= ~BRIDGE_PAGE_RIGHTMOST;
-        hdr->pd_next_blk = newLeafBlk;
-        MarkBufferDirty(leafBuf);
-        LockBuffer(leafBuf, BUFFER_LOCK_UNLOCK);
-        ReleaseBuffer(leafBuf);
+        curHdr->pd_flags &= ~BRIDGE_PAGE_RIGHTMOST;
+        curHdr->pd_next_blk = newLeafBlk;
+        MarkBufferDirty(curLeafBuf);
+        LockBuffer(curLeafBuf, BUFFER_LOCK_UNLOCK);
+        ReleaseBuffer(curLeafBuf);
 
         /* Update metapage */
         meta->rightmost_leaf_blkno = newLeafBlk;
         meta->total_entries++;
+        meta->max_seq = seq;
 
         MarkBufferDirty(newLeafBuf);
         LockBuffer(newLeafBuf, BUFFER_LOCK_UNLOCK);
-        ReleaseBuffer(newLeafBuf);
+
+        /* Cache the new rightmost leaf buffer */
+        if (leafBuf != NULL) {
+            *leafBuf = newLeafBuf;
+            if (leafBlkno != NULL) {
+                *leafBlkno = newLeafBlk;
+            }
+        } else {
+            ReleaseBuffer(newLeafBuf);
+        }
 
         /* Insert routing entry into internal tree */
         BridgeRouterInsertInternal(routerRel, meta, rightmostBlk, newLeafBlk, seq);
@@ -434,21 +504,53 @@ BridgeSeqNo BridgeRouterAppend(Relation routerRel, ItemPointer physicalTid)
         return seq;
     }
 
-    /* Append directly to current rightmost leaf */
-    BridgeLeafEntry *entries = (BridgeLeafEntry *)((char *)page + SizeOfBridgeRouterPageHeaderData);
-    entries[hdr->pd_item_count].seq = seq;
-    entries[hdr->pd_item_count].tid = *physicalTid;
-    hdr->pd_item_count++;
-    hdr->pd_high_seq = seq;
+    /* Current leaf has space */
+    BridgeLeafEntry *entries = (BridgeLeafEntry *)((char *)curPage + SizeOfBridgeRouterPageHeaderData);
+    if (curHdr->pd_item_count == 0 && curHdr->pd_high_seq == 0) {
+        seq = meta->max_seq + 1;
+    } else {
+        seq = curHdr->pd_high_seq + 1;
+    }
+
+    entries[curHdr->pd_item_count].seq = seq;
+    entries[curHdr->pd_item_count].tid = *physicalTid;
+    curHdr->pd_item_count++;
+    curHdr->pd_high_seq = seq;
 
     meta->total_entries++;
+    meta->max_seq = seq;
+
+    MarkBufferDirty(curLeafBuf);
+    LockBuffer(curLeafBuf, BUFFER_LOCK_UNLOCK);
+
+    /* Cache current rightmost leaf buffer */
+    if (leafBuf != NULL) {
+        *leafBuf = curLeafBuf;
+        if (leafBlkno != NULL) {
+            *leafBlkno = rightmostBlk;
+        }
+    } else {
+        ReleaseBuffer(curLeafBuf);
+    }
+
     MarkBufferDirty(metaBuf);
     LockBuffer(metaBuf, BUFFER_LOCK_UNLOCK);
     ReleaseBuffer(metaBuf);
+    return seq;
+}
 
-    MarkBufferDirty(leafBuf);
-    LockBuffer(leafBuf, BUFFER_LOCK_UNLOCK);
-    ReleaseBuffer(leafBuf);
+/*
+ * Legacy wrapper: appends single entry and releases buffer pins.
+ */
+BridgeSeqNo BridgeRouterAppend(Relation routerRel, ItemPointer physicalTid)
+{
+    Buffer leafBuf = InvalidBuffer;
+    BlockNumber leafBlkno = InvalidBlockNumber;
+    BridgeSeqNo seq = BridgeRouterAppendFast(routerRel, &leafBuf, &leafBlkno, physicalTid);
+    if (BufferIsValid(leafBuf)) {
+        BridgeRouterFlushLeafCache(routerRel, leafBuf);
+        ReleaseBuffer(leafBuf);
+    }
     return seq;
 }
 
@@ -550,7 +652,7 @@ bool BridgeRouterLookupCached(Relation routerRel, BridgeScanCache *cache, Bridge
     LockBuffer(metaBuf, BUFFER_LOCK_SHARE);
     BridgeRouterMetaPage meta = (BridgeRouterMetaPage)BufferGetPage(metaBuf);
     
-    if (meta->magic != BRIDGE_ROUTER_MAGIC || meta->total_entries == 0 || seq > meta->max_seq) {
+    if (meta->magic != BRIDGE_ROUTER_MAGIC || meta->total_entries == 0) {
         LockBuffer(metaBuf, BUFFER_LOCK_UNLOCK);
         ReleaseBuffer(metaBuf);
         return false;
@@ -663,7 +765,7 @@ bool BridgeRouterUpdatePhysicalTID(Relation routerRel, BridgeSeqNo seq, ItemPoin
     LockBuffer(metaBuf, BUFFER_LOCK_SHARE);
     BridgeRouterMetaPage meta = (BridgeRouterMetaPage)BufferGetPage(metaBuf);
 
-    if (meta->magic != BRIDGE_ROUTER_MAGIC || meta->total_entries == 0 || seq > meta->max_seq) {
+    if (meta->magic != BRIDGE_ROUTER_MAGIC || meta->total_entries == 0) {
         LockBuffer(metaBuf, BUFFER_LOCK_UNLOCK);
         ReleaseBuffer(metaBuf);
         return false;
@@ -759,7 +861,7 @@ int BridgeRouterRangeScan(Relation routerRel, BridgeSeqNo startSeq, BridgeSeqNo 
     LockBuffer(metaBuf, BUFFER_LOCK_SHARE);
     BridgeRouterMetaPage meta = (BridgeRouterMetaPage)BufferGetPage(metaBuf);
 
-    if (meta->magic != BRIDGE_ROUTER_MAGIC || meta->total_entries == 0 || startSeq > meta->max_seq) {
+    if (meta->magic != BRIDGE_ROUTER_MAGIC || meta->total_entries == 0) {
         LockBuffer(metaBuf, BUFFER_LOCK_UNLOCK);
         ReleaseBuffer(metaBuf);
         return 0;

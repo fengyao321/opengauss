@@ -106,6 +106,11 @@ extern bool BridgeRouterUpdatePhysicalTID(Relation routerRel, BridgeSeqNo seq, I
 extern int BridgeRouterAppendBatch(Relation routerRel, const ItemPointer physicalTids, int count, BridgeSeqNo *startSeqOut);
 extern int BridgeRouterRangeScan(Relation routerRel, BridgeSeqNo startSeq, BridgeSeqNo endSeq, ItemPointer outTids, int maxTids);
 
+/* Write-Path High-Throughput Optimization APIs */
+extern bool BridgeInsertEntryFast(Relation routerRel, Buffer *leafBuf, BlockNumber *leafBlkno, ItemPointer physicalTid, ItemPointer bridgeTidOut);
+extern BridgeSeqNo BridgeRouterAppendFast(Relation routerRel, Buffer *leafBuf, BlockNumber *leafBlkno, ItemPointer physicalTid);
+extern void BridgeRouterFlushLeafCache(Relation routerRel, Buffer leafBuf);
+
 #endif /* BRIDGE_INDEX_H */
 
 

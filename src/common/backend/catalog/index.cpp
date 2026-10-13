@@ -4401,6 +4401,13 @@ double IndexBuildUHeapScan(Relation heapRelation, Relation indexRelation, IndexI
     sscan = (UHeapScanDesc)scan;
     reltuples = 0;
 
+    Relation bridgeRouterRel = NULL;
+    Buffer bridgeLeafBuf = InvalidBuffer;
+    BlockNumber bridgeLeafBlk = InvalidBlockNumber;
+    if (RelationIsBridgedIndex(indexRelation)) {
+        bridgeRouterRel = BridgeGetOrCreateRelation(heapRelation, RowExclusiveLock);
+    }
+
     /*
      * Scan all tuples in the base relation.
      */
@@ -4448,14 +4455,24 @@ double IndexBuildUHeapScan(Relation heapRelation, Relation indexRelation, IndexI
          */
         heapTuple.t_self = uheapTuple->ctid;
 
-        if (RelationIsBridgedIndex(indexRelation)) {
+        if (bridgeRouterRel != NULL) {
             ItemPointerData bridgeTid;
-            BridgeInsertEntry(heapRelation, indexRelation, &heapTuple.t_self, &bridgeTid);
+            BridgeInsertEntryFast(bridgeRouterRel, &bridgeLeafBuf, &bridgeLeafBlk, &heapTuple.t_self, &bridgeTid);
             heapTuple.t_self = bridgeTid;
         }
 
         /* Call the AM's callback routine to process the tuple */
         callback(indexRelation, &heapTuple, values, isnull, true, callbackState);
+    }
+
+    if (bridgeRouterRel != NULL) {
+        if (BufferIsValid(bridgeLeafBuf)) {
+            BridgeRouterFlushLeafCache(bridgeRouterRel, bridgeLeafBuf);
+            ReleaseBuffer(bridgeLeafBuf);
+            bridgeLeafBuf = InvalidBuffer;
+        }
+        heap_close(bridgeRouterRel, RowExclusiveLock);
+        bridgeRouterRel = NULL;
     }
 
     UHeapEndScan(scan);

@@ -604,6 +604,11 @@ typedef struct ResultRelInfo {
 
     /* mark if there is a diskann index */
     bool ri_hasDiskannIndex;
+
+    /* Cached Bridge Router relation and leaf buffer context for high-throughput write path */
+    Relation ri_BridgeRouterRel;
+    Buffer ri_BridgeLeafBuf;
+    BlockNumber ri_BridgeLeafBlk;
 } ResultRelInfo;
 
 /* bloom filter controller */

@@ -176,17 +176,14 @@ Relation BridgeGetOrCreateRelation(Relation heapRel, LOCKMODE lockmode)
     return heap_open(bridgeRelId, lockmode);
 }
 
-bool BridgeInsertEntry(Relation heapRel, Relation indexRel, ItemPointer physicalTid, ItemPointer bridgeTidOut)
+bool BridgeInsertEntryFast(Relation routerRel, Buffer *leafBuf, BlockNumber *leafBlkno, ItemPointer physicalTid, ItemPointer bridgeTidOut)
 {
-    Relation routerRel = BridgeGetOrCreateRelation(heapRel, RowExclusiveLock);
-    if (routerRel == NULL) {
-        ereport(ERROR, (errmsg("Failed to open bridge router relation for relation %u", RelationGetRelid(heapRel))));
+    if (routerRel == NULL || physicalTid == NULL) {
+        return false;
     }
 
-    /* Direct 14-byte compact append to the Bridge Router B+ Tree with strictly monotonic sequence allocation */
-    BridgeSeqNo seq = BridgeRouterAppend(routerRel, physicalTid);
+    BridgeSeqNo seq = BridgeRouterAppendFast(routerRel, leafBuf, leafBlkno, physicalTid);
     if (seq == BRIDGE_INVALID_SEQ) {
-        heap_close(routerRel, RowExclusiveLock);
         return false;
     }
 
@@ -194,8 +191,26 @@ bool BridgeInsertEntry(Relation heapRel, Relation indexRel, ItemPointer physical
         *bridgeTidOut = BridgeSeqToItemPointer(seq);
     }
 
-    heap_close(routerRel, RowExclusiveLock);
     return true;
+}
+
+bool BridgeInsertEntry(Relation heapRel, Relation indexRel, ItemPointer physicalTid, ItemPointer bridgeTidOut)
+{
+    Relation routerRel = BridgeGetOrCreateRelation(heapRel, RowExclusiveLock);
+    if (routerRel == NULL) {
+        ereport(ERROR, (errmsg("Failed to open bridge router relation for relation %u", RelationGetRelid(heapRel))));
+    }
+
+    Buffer leafBuf = InvalidBuffer;
+    BlockNumber leafBlkno = InvalidBlockNumber;
+    bool ok = BridgeInsertEntryFast(routerRel, &leafBuf, &leafBlkno, physicalTid, bridgeTidOut);
+    if (BufferIsValid(leafBuf)) {
+        BridgeRouterFlushLeafCache(routerRel, leafBuf);
+        ReleaseBuffer(leafBuf);
+    }
+
+    heap_close(routerRel, RowExclusiveLock);
+    return ok;
 }
 
 bool BridgeDeleteEntry(Relation indexRel, Datum* values, const bool* isnull, ItemPointer physicalTid, bool isRollback)
