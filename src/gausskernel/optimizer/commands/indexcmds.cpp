@@ -855,7 +855,11 @@ ObjectAddress DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, 
         if (strcmp(stmt->accessMethod, "btree") == 0) {
             elog(ERROR, "btree index is not supported for ustore, please use ubtree instead");
         }
-        if (strcmp(stmt->accessMethod, "ubtree") != 0 && strcmp(stmt->accessMethod, "hnsw") != 0) {
+        if (strcmp(stmt->accessMethod, "ubtree") != 0 &&
+            strcmp(stmt->accessMethod, "hnsw") != 0 &&
+            strcmp(stmt->accessMethod, "hash") != 0 &&
+            strcmp(stmt->accessMethod, "gist") != 0 &&
+            strcmp(stmt->accessMethod, "gin") != 0) {
             elog(ERROR, "%s index is not supported for ustore", (stmt->accessMethod));
         }
         if (strcmp(stmt->accessMethod, "bm25") == 0) {
@@ -1264,11 +1268,6 @@ ObjectAddress DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, 
      * look up the access method, verify it can handle the requested features
      */
     accessMethodName = stmt->accessMethod;
-    if (RelationIsUstoreFormat(rel) &&
-        (strcmp(accessMethodName, "gist") == 0 || strcmp(accessMethodName, "gin") == 0)) {
-        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg("access method \"%s\" is not supported in ustore", accessMethodName)));
-    }
     tuple = SearchSysCache1(AMNAME, PointerGetDatum(accessMethodName));
     if (!HeapTupleIsValid(tuple)) {
         /*
@@ -1325,7 +1324,10 @@ ObjectAddress DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, 
         DefElem* def = makeDefElem("storage_type", (Node*)makeString(TABLE_ACCESS_METHOD_USTORE_LOWER));
         if (stmt->options == NULL) {
 #ifndef ENABLE_LITE_MODE
-            if (u_sess->attr.attr_sql.enable_default_pcr_index) {
+            if (u_sess->attr.attr_sql.enable_default_pcr_index &&
+                strcmp(stmt->accessMethod, "hash") != 0 &&
+                strcmp(stmt->accessMethod, "gist") != 0 &&
+                strcmp(stmt->accessMethod, "gin") != 0) {
                 DefElem* def2 = makeDefElem("index_type", (Node*)makeString(UBTREE_INDEX_TYPE_PCR));
                 stmt->options = list_make2(def, def2);
             } else {
@@ -1350,7 +1352,10 @@ ObjectAddress DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, 
                 stmt->options = lappend(stmt->options, def);
         }
 #ifndef ENABLE_LITE_MODE
-        if (StdRdOptionsHasStringData(rel->rd_options, index_type)) {
+        if (StdRdOptionsHasStringData(rel->rd_options, index_type) &&
+            strcmp(stmt->accessMethod, "hash") != 0 &&
+            strcmp(stmt->accessMethod, "gist") != 0 &&
+            strcmp(stmt->accessMethod, "gin") != 0) {
             DefElem* def = NULL;
             if (RelationIndexIsPCR(rel->rd_options)) {
                 def = makeDefElem("index_type", (Node*)makeString(UBTREE_INDEX_TYPE_PCR));

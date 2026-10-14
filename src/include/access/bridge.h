@@ -1,0 +1,116 @@
+/* -------------------------------------------------------------------------
+ *
+ * bridge.h
+ *    Header file for openGauss Ustore Bridge Index subsystem.
+ *
+ * Portions Copyright (c) 2026, openGauss Contributors
+ *
+ * IDENTIFICATION
+ *    src/include/access/bridge.h
+ *
+ * -------------------------------------------------------------------------
+ */
+
+#ifndef BRIDGE_INDEX_H
+#define BRIDGE_INDEX_H
+
+#include "postgres.h"
+#include "access/relscan.h"
+#include "access/skey.h"
+#include "catalog/pg_am.h"
+#include "nodes/pg_list.h"
+#include "storage/item/itemptr.h"
+#include "storage/lock/lock.h"
+#include "utils/rel.h"
+
+/* 48-bit monotonic sequence number for bridge_ctid */
+typedef uint64 BridgeSeqNo;
+
+#define BRIDGE_INVALID_SEQ ((BridgeSeqNo)0)
+#define BRIDGE_FIRST_SEQ   ((BridgeSeqNo)1)
+
+#define BRIDGE_TUPLES_PER_PAGE 200
+
+/* Convert a bridge sequence number into a valid 6-byte ItemPointerData (respecting page tuple limits) */
+static inline ItemPointerData BridgeSeqToItemPointer(BridgeSeqNo seq)
+{
+    ItemPointerData itemptr;
+    BlockNumber blkno = (BlockNumber)(seq / BRIDGE_TUPLES_PER_PAGE);
+    OffsetNumber offno = (OffsetNumber)((seq % BRIDGE_TUPLES_PER_PAGE) + 1);
+    ItemPointerSet(&itemptr, blkno, offno);
+    return itemptr;
+}
+
+/* Convert a 6-byte ItemPointerData back into a bridge sequence number */
+static inline BridgeSeqNo ItemPointerToBridgeSeq(const ItemPointer itemptr)
+{
+    BlockNumber blkno = ItemPointerGetBlockNumber(itemptr);
+    OffsetNumber offno = ItemPointerGetOffsetNumber(itemptr);
+    return (((BridgeSeqNo)blkno) * BRIDGE_TUPLES_PER_PAGE) + (BridgeSeqNo)(offno - 1);
+}
+
+/*
+ * Check if the given access method is supported via Bridge on Ustore
+ * Supports Hash, GiST, GIN, and SP-GiST
+ */
+static inline bool IndexAmIsBridged(Oid amOid)
+{
+    return (amOid == HASH_AM_OID || amOid == GIST_AM_OID ||
+            amOid == GIN_AM_OID || amOid == SPGIST_AM_OID);
+}
+
+/*
+ * Check if the given relation is a bridged index on Ustore
+ */
+static inline bool RelationIsBridgedIndex(Relation rel)
+{
+    if (rel == NULL || rel->rd_rel == NULL) {
+        return false;
+    }
+    if (rel->rd_rel->relkind != RELKIND_INDEX) {
+        return false;
+    }
+    if (rel->rd_tam_ops != TableAmUstore) {
+        return false;
+    }
+    return IndexAmIsBridged(rel->rd_rel->relam);
+}
+
+/* Core Bridge subsystem APIs */
+extern BridgeSeqNo BridgeGetNextSeq(Oid heapRelId);
+extern Relation BridgeGetOrCreateRelation(Relation heapRel, LOCKMODE lockmode);
+extern Relation BridgeGetRelation(Relation heapRel, LOCKMODE lockmode);
+extern Relation BridgeGetSeqIndexRelation(Relation heapRel, LOCKMODE lockmode);
+extern Relation BridgeGetTidIndexRelation(Relation heapRel, LOCKMODE lockmode);
+extern Oid BridgeGetRelationOid(Relation heapRel);
+extern bool BridgeInsertEntry(Relation heapRel, Relation indexRel, ItemPointer physicalTid, ItemPointer bridgeTidOut);
+extern bool BridgeDeleteEntry(Relation indexRel, Datum* values, const bool* isnull, ItemPointer physicalTid, bool isRollback);
+extern bool BridgeLookupAndVerifyVisibility(Relation bridgeRel, Relation bridgeIdx, BridgeSeqNo seq, Snapshot snapshot, ItemPointer physicalTid);
+
+/* Ultimate Bridge Router & Tag Verification APIs */
+extern bool BridgeVerifyTupleTag(void* tuple, BridgeSeqNo querySeq);
+extern BridgeSeqNo BridgeRouterAppend(Relation routerRel, ItemPointer physicalTid);
+extern bool BridgeRouterLookup(Relation routerRel, BridgeSeqNo seq, ItemPointer physicalTid);
+extern void BridgeRouterInit(Relation routerRel);
+
+/* Stage 1: Page-Pinning Cache & Batch Dereferencing APIs */
+extern void BridgeRouterResetCache(BridgeScanCache *cache);
+extern bool BridgeRouterLookupCached(Relation routerRel, BridgeScanCache *cache, BridgeSeqNo seq, ItemPointer physicalTid);
+extern bool BridgeLookupAndVerifyVisibilityCached(Relation bridgeRel, BridgeScanCache *cache, BridgeSeqNo seq, Snapshot snapshot, ItemPointer physicalTid);
+extern int BridgeRouterLookupBatch(Relation routerRel, BridgeScanCache *cache, const BridgeSeqNo *seqs, ItemPointer tids, bool *valids, int count);
+
+/* Stage 2: Bridged-HOT In-place TID Update API */
+extern bool BridgeRouterUpdatePhysicalTID(Relation routerRel, BridgeSeqNo seq, ItemPointer newPhysicalTid);
+
+/* Stage 3: Multi-Insert Batch Append & Lossy Bitmap Range Scan APIs */
+extern int BridgeRouterAppendBatch(Relation routerRel, const ItemPointer physicalTids, int count, BridgeSeqNo *startSeqOut);
+extern int BridgeRouterRangeScan(Relation routerRel, BridgeSeqNo startSeq, BridgeSeqNo endSeq, ItemPointer outTids, int maxTids);
+
+/* Write-Path High-Throughput Optimization APIs */
+extern bool BridgeInsertEntryFast(Relation routerRel, Buffer *leafBuf, BlockNumber *leafBlkno, ItemPointer physicalTid, ItemPointer bridgeTidOut);
+extern BridgeSeqNo BridgeRouterAppendFast(Relation routerRel, Buffer *leafBuf, BlockNumber *leafBlkno, ItemPointer physicalTid);
+extern void BridgeRouterFlushLeafCache(Relation routerRel, Buffer leafBuf);
+
+#endif /* BRIDGE_INDEX_H */
+
+

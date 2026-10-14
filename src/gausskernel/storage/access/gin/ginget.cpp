@@ -15,6 +15,7 @@
 #include "postgres.h"
 #include "knl/knl_variable.h"
 
+#include "access/bridge.h"
 #include "access/gin_private.h"
 #include "access/relscan.h"
 #include "access/xloginsert.h"
@@ -1632,7 +1633,20 @@ static void scanPendingInsert(IndexScanDesc scan, TIDBitmap *tbm, int64 *ntids)
         MemoryContextReset(so->tempCtx);
 
         if (match) {
-            tbm_handler._add_tuples(tbm, &pos.item, 1, recheck, partHeapOid, InvalidBktId);
+            ItemPointerData targetTid = pos.item;
+            if (scan->xs_is_bridge_scan) {
+                BridgeSeqNo seq = ItemPointerToBridgeSeq(&pos.item);
+                ItemPointerData physicalTid;
+                bool visible = BridgeLookupAndVerifyVisibilityCached(scan->xs_bridge_rel,
+                                                                     &scan->xs_bridge_cache,
+                                                                     seq,
+                                                                     scan->xs_snapshot,
+                                                                     &physicalTid);
+                if (!visible)
+                    continue;
+                targetTid = physicalTid;
+            }
+            tbm_handler._add_tuples(tbm, &targetTid, 1, scan->xs_is_bridge_scan ? true : recheck, partHeapOid, InvalidBktId);
             (*ntids)++;
         }
     }
@@ -1681,6 +1695,9 @@ Datum gingetbitmap(PG_FUNCTION_ARGS)
      * cleanup could then make us miss entries entirely.
      */
     scanPendingInsert(scan, tbm, &ntids);
+    if (scan->xs_is_bridge_scan) {
+        BridgeRouterResetCache(&scan->xs_bridge_cache);
+    }
 
     /*
      * Now scan the main index.
@@ -1695,11 +1712,42 @@ Datum gingetbitmap(PG_FUNCTION_ARGS)
         if (!scanGetItem(scan, iptr, &iptr, &recheck))
             break;
 
-        if (ItemPointerIsLossyPage(&iptr))
-            tbm_handler._add_page(tbm, ItemPointerGetBlockNumber(&iptr), partHeapOid, InvalidBktId);
-        else
-            tbm_handler._add_tuples(tbm, &iptr, 1, recheck, partHeapOid, InvalidBktId);
-        ntids++;
+        if (ItemPointerIsLossyPage(&iptr)) {
+            if (scan->xs_is_bridge_scan) {
+                BlockNumber lossyBlk = ItemPointerGetBlockNumber(&iptr);
+                BridgeSeqNo startSeq = ((BridgeSeqNo)lossyBlk) * BRIDGE_TUPLES_PER_PAGE;
+                BridgeSeqNo endSeq = startSeq + BRIDGE_TUPLES_PER_PAGE - 1;
+                ItemPointerData lossyTids[BRIDGE_TUPLES_PER_PAGE];
+                int nLossy = BridgeRouterRangeScan(scan->xs_bridge_rel, startSeq, endSeq, lossyTids, BRIDGE_TUPLES_PER_PAGE);
+                for (int k = 0; k < nLossy; k++) {
+                    tbm_handler._add_tuples(tbm, &lossyTids[k], 1, true, partHeapOid, InvalidBktId);
+                    ntids++;
+                }
+            } else {
+                tbm_handler._add_page(tbm, ItemPointerGetBlockNumber(&iptr), partHeapOid, InvalidBktId);
+                ntids++;
+            }
+        } else {
+            ItemPointerData targetTid = iptr;
+            if (scan->xs_is_bridge_scan) {
+                BridgeSeqNo seq = ItemPointerToBridgeSeq(&iptr);
+                ItemPointerData physicalTid;
+                bool visible = BridgeLookupAndVerifyVisibilityCached(scan->xs_bridge_rel,
+                                                                     &scan->xs_bridge_cache,
+                                                                     seq,
+                                                                     scan->xs_snapshot,
+                                                                     &physicalTid);
+                if (!visible)
+                    continue;
+                targetTid = physicalTid;
+            }
+            tbm_handler._add_tuples(tbm, &targetTid, 1, scan->xs_is_bridge_scan ? true : recheck, partHeapOid, InvalidBktId);
+            ntids++;
+        }
+    }
+
+    if (scan->xs_is_bridge_scan) {
+        BridgeRouterResetCache(&scan->xs_bridge_cache);
     }
 
     PG_RETURN_INT64(ntids);

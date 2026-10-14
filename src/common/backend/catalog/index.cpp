@@ -36,6 +36,7 @@
 #include "access/ustore/knl_uscan.h"
 #include "access/ustore/knl_uvisibility.h"
 #include "access/ustore/knl_uheap.h"
+#include "access/bridge.h"
 #include "bootstrap/bootstrap.h"
 #include "catalog/catalog.h"
 #include "catalog/cstore_ctlg.h"
@@ -1211,6 +1212,10 @@ Oid index_create(Relation heapRelation, const char *indexRelationName, Oid index
         /* Make the above update visible */
         CommandCounterIncrement();
     } else if (extra && (!extra->isPartitionedIndex || extra->isGlobalPartitionedIndex)) {
+        if (RelationIsBridgedIndex(indexRelation)) {
+            Relation bridgeRel = BridgeGetOrCreateRelation(heapRelation, RowExclusiveLock);
+            heap_close(bridgeRel, NoLock);
+        }
         /* support regular index or GLOBAL partition index */
         index_build(heapRelation, NULL, indexRelation, NULL, indexInfo, isprimary, false, PARTITION_TYPE(extra));
     }
@@ -4396,6 +4401,13 @@ double IndexBuildUHeapScan(Relation heapRelation, Relation indexRelation, IndexI
     sscan = (UHeapScanDesc)scan;
     reltuples = 0;
 
+    Relation bridgeRouterRel = NULL;
+    Buffer bridgeLeafBuf = InvalidBuffer;
+    BlockNumber bridgeLeafBlk = InvalidBlockNumber;
+    if (RelationIsBridgedIndex(indexRelation)) {
+        bridgeRouterRel = BridgeGetOrCreateRelation(heapRelation, RowExclusiveLock);
+    }
+
     /*
      * Scan all tuples in the base relation.
      */
@@ -4443,8 +4455,24 @@ double IndexBuildUHeapScan(Relation heapRelation, Relation indexRelation, IndexI
          */
         heapTuple.t_self = uheapTuple->ctid;
 
+        if (bridgeRouterRel != NULL) {
+            ItemPointerData bridgeTid;
+            BridgeInsertEntryFast(bridgeRouterRel, &bridgeLeafBuf, &bridgeLeafBlk, &heapTuple.t_self, &bridgeTid);
+            heapTuple.t_self = bridgeTid;
+        }
+
         /* Call the AM's callback routine to process the tuple */
         callback(indexRelation, &heapTuple, values, isnull, true, callbackState);
+    }
+
+    if (bridgeRouterRel != NULL) {
+        if (BufferIsValid(bridgeLeafBuf)) {
+            BridgeRouterFlushLeafCache(bridgeRouterRel, bridgeLeafBuf);
+            ReleaseBuffer(bridgeLeafBuf);
+            bridgeLeafBuf = InvalidBuffer;
+        }
+        heap_close(bridgeRouterRel, RowExclusiveLock);
+        bridgeRouterRel = NULL;
     }
 
     UHeapEndScan(scan);

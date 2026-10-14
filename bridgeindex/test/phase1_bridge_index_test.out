@@ -1,0 +1,298 @@
+-- ============================================================================
+-- openGauss Ustore Bridge Index Phase 1 (Hash & GiST) Automated Test Suite
+-- Target Feature: Ustore Bridge Index (Phase 1 MVP)
+-- Reference: bridgeindex/phase1_test_specification.md
+-- ============================================================================
+\echo '>>> [START] Ustore Bridge Index Phase 1 Test Suite Running...'
+>>> [START] Ustore Bridge Index Phase 1 Test Suite Running...
+SET client_min_messages = WARNING;
+SET
+-- ----------------------------------------------------------------------------
+-- Section 1: DDL & Metadata Verification (TC-01, TC-02, TC-03)
+-- ----------------------------------------------------------------------------
+\echo '>>> [TC-01] Testing CREATE TABLE (ustore) + Hash Index and Companion Table...'
+>>> [TC-01] Testing CREATE TABLE (ustore) + Hash Index and Companion Table...
+DROP TABLE IF EXISTS t_bridge_ddl_test CASCADE;
+DROP TABLE
+CREATE TABLE t_bridge_ddl_test (
+    id INT,
+    user_name VARCHAR(64),
+    score NUMERIC
+) WITH (storage_type = ustore);
+CREATE TABLE
+CREATE INDEX idx_b_hash ON t_bridge_ddl_test USING hash(user_name);
+CREATE INDEX
+-- Check companion table and UBTree indexes in pg_class (mask dynamic OID for regression testing)
+SELECT regexp_replace(c.relname, 'pg_bridge_[0-9]+', 'pg_bridge_<oid>') AS relname, c.relkind, am.amname
+FROM pg_class c
+LEFT JOIN pg_am am ON c.relam = am.oid
+WHERE c.relname LIKE 'pg_bridge_' || (SELECT oid FROM pg_class WHERE relname = 't_bridge_ddl_test') || '%'
+ORDER BY 1;
+     relname     | relkind | amname 
+-----------------+---------+--------
+ pg_bridge_<oid> | r       | 
+(1 row)
+
+\echo '>>> [TC-02] Testing CREATE TABLE (ustore) + GiST Spatial Index...'
+>>> [TC-02] Testing CREATE TABLE (ustore) + GiST Spatial Index...
+DROP TABLE IF EXISTS t_bridge_gist_test CASCADE;
+DROP TABLE
+CREATE TABLE t_bridge_gist_test (
+    id INT,
+    geo_point POINT
+) WITH (storage_type = ustore);
+CREATE TABLE
+CREATE INDEX idx_b_gist ON t_bridge_gist_test USING gist(geo_point);
+CREATE INDEX
+\d+ t_bridge_gist_test
+                   Table "public.t_bridge_gist_test"
+  Column   |  Type   | Modifiers | Storage | Stats target | Description 
+-----------+---------+-----------+---------+--------------+-------------
+ id        | integer |           | plain   |              | 
+ geo_point | point   |           | plain   |              | 
+Indexes:
+    "idx_b_gist" gist (geo_point) WITH (storage_type=ustore) TABLESPACE pg_default
+Has OIDs: no
+Options: orientation=row, storage_type=ustore, compression=no
+
+\echo '>>> [TC-03] Testing Invalid AM Defense (USING btree on ustore)...'
+>>> [TC-03] Testing Invalid AM Defense (USING btree on ustore)...
+-- Should raise error: btree index is not supported for ustore, please use ubtree instead
+CREATE INDEX idx_fail_btree ON t_bridge_ddl_test USING btree(id);
+gsql:bridgeindex/test/phase1_bridge_index_test.sql:42: ERROR:  btree index is not supported for ustore, please use ubtree instead
+-- ----------------------------------------------------------------------------
+-- Section 2: DML Insert and Hash IndexScan Point Query (TC-04)
+-- ----------------------------------------------------------------------------
+\echo '>>> [TC-04] Testing Hash IndexScan Point Query & Two-Phase Dereference...'
+>>> [TC-04] Testing Hash IndexScan Point Query & Two-Phase Dereference...
+DROP TABLE IF EXISTS t_hash_scan CASCADE;
+DROP TABLE
+CREATE TABLE t_hash_scan (
+    id INT,
+    code TEXT,
+    info VARCHAR(100)
+) WITH (storage_type = ustore);
+CREATE TABLE
+CREATE INDEX idx_hs_code ON t_hash_scan USING hash(code);
+CREATE INDEX
+INSERT INTO t_hash_scan VALUES (1, 'ALPHA', 'first record');
+INSERT 0 1
+INSERT INTO t_hash_scan VALUES (2, 'BETA',  'second record');
+INSERT 0 1
+INSERT INTO t_hash_scan VALUES (3, 'GAMMA', 'third record');
+INSERT 0 1
+INSERT INTO t_hash_scan VALUES (4, 'DELTA', 'fourth record');
+INSERT 0 1
+SET enable_seqscan = off;
+SET
+SET enable_indexscan = on;
+SET
+-- Verify query plan
+EXPLAIN (COSTS OFF) SELECT * FROM t_hash_scan WHERE code = 'BETA';
+                 QUERY PLAN                  
+---------------------------------------------
+ Index Scan using idx_hs_code on t_hash_scan
+   Index Cond: (code = 'BETA'::text)
+(2 rows)
+
+-- Verify execution results
+SELECT * FROM t_hash_scan WHERE code = 'BETA';
+ id | code |     info      
+----+------+---------------
+  2 | BETA | second record
+(1 row)
+
+SELECT * FROM t_hash_scan WHERE code = 'DELTA';
+ id | code  |     info      
+----+-------+---------------
+  4 | DELTA | fourth record
+(1 row)
+
+SELECT * FROM t_hash_scan WHERE code = 'NON_EXISTENT';
+ id | code | info 
+----+------+------
+(0 rows)
+
+-- ----------------------------------------------------------------------------
+-- Section 3: GiST Spatial Range Query (TC-05)
+-- ----------------------------------------------------------------------------
+\echo '>>> [TC-05] Testing GiST Spatial Query & Bounding Box Inclusion...'
+>>> [TC-05] Testing GiST Spatial Query & Bounding Box Inclusion...
+DROP TABLE IF EXISTS t_gist_scan CASCADE;
+DROP TABLE
+CREATE TABLE t_gist_scan (
+    id INT,
+    city VARCHAR(50),
+    location POINT
+) WITH (storage_type = ustore);
+CREATE TABLE
+CREATE INDEX idx_gs_loc ON t_gist_scan USING gist(location);
+CREATE INDEX
+INSERT INTO t_gist_scan VALUES (101, 'Beijing',  point(116.40, 39.90));
+INSERT 0 1
+INSERT INTO t_gist_scan VALUES (102, 'Shanghai', point(121.47, 31.23));
+INSERT 0 1
+INSERT INTO t_gist_scan VALUES (103, 'Chengdu',  point(104.06, 30.67));
+INSERT 0 1
+INSERT INTO t_gist_scan VALUES (104, 'Tokyo',    point(139.69, 35.68));
+INSERT 0 1
+EXPLAIN (COSTS OFF) 
+SELECT id, city FROM t_gist_scan 
+WHERE location <@ box(point(100.0, 20.0), point(125.0, 45.0));
+                      QUERY PLAN                      
+------------------------------------------------------
+ Index Scan using idx_gs_loc on t_gist_scan
+   Index Cond: (location <@ '(125,45),(100,20)'::box)
+(2 rows)
+
+SELECT id, city FROM t_gist_scan 
+WHERE location <@ box(point(100.0, 20.0), point(125.0, 45.0))
+ORDER BY id;
+ id  |   city   
+-----+----------
+ 101 | Beijing
+ 102 | Shanghai
+ 103 | Chengdu
+(3 rows)
+
+-- ----------------------------------------------------------------------------
+-- Section 4: MVCC & In-Place Update (TC-06, TC-07)
+-- ----------------------------------------------------------------------------
+\echo '>>> [TC-06] Testing In-Place Update on Non-Indexed Attribute...'
+>>> [TC-06] Testing In-Place Update on Non-Indexed Attribute...
+UPDATE t_hash_scan SET info = 'beta updated in place' WHERE code = 'BETA';
+UPDATE 1
+SELECT * FROM t_hash_scan WHERE code = 'BETA';
+ id | code |         info          
+----+------+-----------------------
+  2 | BETA | beta updated in place
+(1 row)
+
+\echo '>>> [TC-07] Testing Update on Indexed Column (Key Change)...'
+>>> [TC-07] Testing Update on Indexed Column (Key Change)...
+UPDATE t_hash_scan SET code = 'OMEGA' WHERE id = 3;
+UPDATE 1
+-- Old key should return 0 rows
+SELECT * FROM t_hash_scan WHERE code = 'GAMMA';
+ id | code | info 
+----+------+------
+(0 rows)
+
+-- New key should return the row
+SELECT * FROM t_hash_scan WHERE code = 'OMEGA';
+ id | code  |     info     
+----+-------+--------------
+  3 | OMEGA | third record
+(1 row)
+
+-- ----------------------------------------------------------------------------
+-- Section 5: Transaction Abort & Rollback (TC-08, TC-09)
+-- ----------------------------------------------------------------------------
+\echo '>>> [TC-08] Testing INSERT Rollback (Zero Dirty Reads)...'
+>>> [TC-08] Testing INSERT Rollback (Zero Dirty Reads)...
+BEGIN;
+BEGIN
+INSERT INTO t_hash_scan VALUES (999, 'PHANTOM', 'uncommitted test');
+INSERT 0 1
+SELECT * FROM t_hash_scan WHERE code = 'PHANTOM';
+ id  |  code   |       info       
+-----+---------+------------------
+ 999 | PHANTOM | uncommitted test
+(1 row)
+
+ROLLBACK;
+ROLLBACK
+-- Must return 0 rows
+SELECT * FROM t_hash_scan WHERE code = 'PHANTOM';
+ id | code | info 
+----+------+------
+(0 rows)
+
+\echo '>>> [TC-09] Testing DELETE Rollback...'
+>>> [TC-09] Testing DELETE Rollback...
+BEGIN;
+BEGIN
+DELETE FROM t_hash_scan WHERE code = 'ALPHA';
+DELETE 1
+SELECT * FROM t_hash_scan WHERE code = 'ALPHA';
+ id | code | info 
+----+------+------
+(0 rows)
+
+ROLLBACK;
+ROLLBACK
+-- Must return original row
+SELECT * FROM t_hash_scan WHERE code = 'ALPHA';
+ id | code  |     info     
+----+-------+--------------
+  1 | ALPHA | first record
+(1 row)
+
+-- ----------------------------------------------------------------------------
+-- Section 6: Anti-Phantom Row on Physical Slot Reuse (TC-10)
+-- ----------------------------------------------------------------------------
+\echo '>>> [TC-10] Testing Slot Reuse Anti-Phantom Verification...'
+>>> [TC-10] Testing Slot Reuse Anti-Phantom Verification...
+DROP TABLE IF EXISTS t_slot_reuse CASCADE;
+DROP TABLE
+CREATE TABLE t_slot_reuse (
+    id INT,
+    token TEXT,
+    payload CHAR(100)
+) WITH (storage_type = ustore);
+CREATE TABLE
+CREATE INDEX idx_sr_token ON t_slot_reuse USING hash(token);
+CREATE INDEX
+INSERT INTO t_slot_reuse VALUES (1, 'KEY_AAA', 'payload_1');
+INSERT 0 1
+DELETE FROM t_slot_reuse WHERE token = 'KEY_AAA';
+DELETE 1
+-- Prune page slot
+VACUUM t_slot_reuse;
+VACUUM
+-- Insert unrelated record into the freed slot
+INSERT INTO t_slot_reuse VALUES (2, 'KEY_BBB', 'payload_2');
+INSERT 0 1
+-- Old key query MUST return 0 rows
+SELECT * FROM t_slot_reuse WHERE token = 'KEY_AAA';
+ id | token | payload 
+----+-------+---------
+(0 rows)
+
+-- New key query MUST return 1 row
+SELECT * FROM t_slot_reuse WHERE token = 'KEY_BBB';
+ id |  token  |                                               payload                                                
+----+---------+------------------------------------------------------------------------------------------------------
+  2 | KEY_BBB | payload_2                                                                                           
+(1 row)
+
+-- ----------------------------------------------------------------------------
+-- Section 7: NULL Values & Boundary Verification (TC-11)
+-- ----------------------------------------------------------------------------
+\echo '>>> [TC-11] Testing NULL Value Handling...'
+>>> [TC-11] Testing NULL Value Handling...
+INSERT INTO t_hash_scan VALUES (5, NULL, 'null token test');
+INSERT 0 1
+SELECT * FROM t_hash_scan WHERE code IS NULL;
+ id | code |      info       
+----+------+-----------------
+  5 |      | null token test
+(1 row)
+
+-- ----------------------------------------------------------------------------
+-- Section 8: Cascade Drop Cleanup (TC-12)
+-- ----------------------------------------------------------------------------
+\echo '>>> [TC-12] Testing DROP TABLE CASCADE and Companion Clean up...'
+>>> [TC-12] Testing DROP TABLE CASCADE and Companion Clean up...
+DROP TABLE t_bridge_ddl_test CASCADE;
+DROP TABLE
+DROP TABLE t_bridge_gist_test CASCADE;
+DROP TABLE
+DROP TABLE t_hash_scan CASCADE;
+DROP TABLE
+DROP TABLE t_gist_scan CASCADE;
+DROP TABLE
+DROP TABLE t_slot_reuse CASCADE;
+DROP TABLE
+\echo '>>> [COMPLETE] All Bridge Index Phase 1 Test Cases Executed.'
+>>> [COMPLETE] All Bridge Index Phase 1 Test Cases Executed.

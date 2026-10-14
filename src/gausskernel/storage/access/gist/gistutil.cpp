@@ -619,7 +619,8 @@ Datum gistoptions(PG_FUNCTION_ARGS)
     int numoptions;
     static const relopt_parse_elt tab[] = {
         { "fillfactor", RELOPT_TYPE_INT, offsetof(GiSTOptions, fillfactor) },
-        { "buffering", RELOPT_TYPE_STRING, offsetof(GiSTOptions, bufferingModeOffset) }
+        { "buffering", RELOPT_TYPE_STRING, offsetof(GiSTOptions, bufferingModeOffset) },
+        { "storage_type", RELOPT_TYPE_STRING, offsetof(GiSTOptions, storageTypeOffset) }
     };
 
     options = parseRelOptions(reloptions, validate, RELOPT_KIND_GIST, &numoptions);

@@ -87,6 +87,7 @@
 #include "access/nbtree.h"
 #include "access/ustore/knl_uvisibility.h"
 #include "access/ustore/knl_uscan.h"
+#include "access/bridge.h"
 #include "utils/snapmgr.h"
 #include "access/heapam.h"
 #include "access/amapi.h"
@@ -220,6 +221,9 @@ void index_delete(Relation index_relation, Datum* values, const bool* isnull, It
          * In such case, return immediately.
          */
         return;
+    } else if (RelationIsBridgedIndex(index_relation)) {
+        BridgeDeleteEntry(index_relation, values, isnull, heap_t_ctid, isRollbackIndex);
+        return;
     } else {
         HeapTuple tuple;
         char* accessMethodName;
@@ -315,6 +319,20 @@ IndexScanDesc index_beginscan(
 	/* prepare to fetch index matches from table */
     scan->xs_heapfetch = tableam_scan_index_fetch_begin(heap_relation);
 
+    if (RelationIsUstoreFormat(heap_relation) && RelationIsBridgedIndex(index_relation)) {
+        scan->xs_is_bridge_scan = true;
+        scan->xs_bridge_rel = BridgeGetRelation(heap_relation, AccessShareLock);
+        scan->xs_bridge_idx = NULL;
+        scan->xs_bridge_cache.cached_buf = InvalidBuffer;
+        scan->xs_bridge_cache.is_valid = false;
+    } else {
+        scan->xs_is_bridge_scan = false;
+        scan->xs_bridge_rel = NULL;
+        scan->xs_bridge_idx = NULL;
+        scan->xs_bridge_cache.cached_buf = InvalidBuffer;
+        scan->xs_bridge_cache.is_valid = false;
+    }
+
     return scan;
 }
 
@@ -338,6 +356,32 @@ IndexScanDesc index_beginscan_bitmap(Relation index_relation, Snapshot snapshot,
 #ifdef USE_SPQ
     scan->spq_scan = NULL;
 #endif
+
+    if (RelationIsBridgedIndex(index_relation)) {
+        Oid heapRelOid = index_relation->rd_index->indrelid;
+        Relation heapRel = heap_open(heapRelOid, AccessShareLock);
+        if (RelationIsUstoreFormat(heapRel)) {
+            scan->xs_is_bridge_scan = true;
+            scan->xs_bridge_rel = BridgeGetRelation(heapRel, AccessShareLock);
+            scan->xs_bridge_idx = NULL;
+            scan->xs_bridge_cache.cached_buf = InvalidBuffer;
+            scan->xs_bridge_cache.is_valid = false;
+        } else {
+            scan->xs_is_bridge_scan = false;
+            scan->xs_bridge_rel = NULL;
+            scan->xs_bridge_idx = NULL;
+            scan->xs_bridge_cache.cached_buf = InvalidBuffer;
+            scan->xs_bridge_cache.is_valid = false;
+        }
+        heap_close(heapRel, AccessShareLock);
+    } else {
+        scan->xs_is_bridge_scan = false;
+        scan->xs_bridge_rel = NULL;
+        scan->xs_bridge_idx = NULL;
+        scan->xs_bridge_cache.cached_buf = InvalidBuffer;
+        scan->xs_bridge_cache.is_valid = false;
+    }
+
     return scan;
 }
 
@@ -417,6 +461,10 @@ void index_rescan(IndexScanDesc scan, ScanKey keys, int nkeys, ScanKey orderbys,
         scan->xs_cbuf = InvalidBuffer;
     }
 
+    if (scan->xs_is_bridge_scan) {
+        BridgeRouterResetCache(&scan->xs_bridge_cache);
+    }
+
     scan->xs_continue_hot = false;
 
     scan->kill_prior_tuple = false; /* for safety */
@@ -475,6 +523,19 @@ void index_endscan(IndexScanDesc scan)
 
     /* Release index refcount acquired by index_beginscan */
     RelationDecrementReferenceCount(scan->indexRelation);
+
+    if (scan->xs_is_bridge_scan) {
+        BridgeRouterResetCache(&scan->xs_bridge_cache);
+        if (scan->xs_bridge_idx) {
+            index_close(scan->xs_bridge_idx, AccessShareLock);
+            scan->xs_bridge_idx = NULL;
+        }
+        if (scan->xs_bridge_rel) {
+            heap_close(scan->xs_bridge_rel, AccessShareLock);
+            scan->xs_bridge_rel = NULL;
+        }
+        scan->xs_is_bridge_scan = false;
+    }
 
     if (scan->xs_gpi_scan != NULL) {
         GPIScanEnd(scan->xs_gpi_scan);
@@ -852,6 +913,13 @@ bool IndexFetchUHeap(IndexScanDesc scan, TupleTableSlot *slot, bool* has_cur_xac
                                               slot, &scan->xs_continue_hot, &allDead, has_cur_xact_write);
 
     if (found) {
+        if (scan->xs_is_bridge_scan) {
+            UHeapTuple utup = ExecGetUHeapTupleFromSlot(slot);
+            if (!BridgeVerifyTupleTag(utup, scan->xs_bridge_cur_seq)) {
+                ExecClearTuple(slot);
+                return false;
+            }
+        }
         pgstat_count_heap_fetch(scan->indexRelation);
         return true;
     }
@@ -975,6 +1043,21 @@ bool IndexGetnextSlot(IndexScanDesc scan, ScanDirection direction, TupleTableSlo
             /* If we're out of index entries, we're done */
             if (tid == NULL)
                 break;
+
+            if (scan->xs_is_bridge_scan) {
+                BridgeSeqNo seq = ItemPointerToBridgeSeq(tid);
+                scan->xs_bridge_cur_seq = seq;
+                ItemPointerData physical_tid;
+                bool visible = BridgeLookupAndVerifyVisibilityCached(scan->xs_bridge_rel,
+                                                                     &scan->xs_bridge_cache,
+                                                                     seq,
+                                                                     scan->xs_snapshot,
+                                                                     &physical_tid);
+                if (!visible) {
+                    continue;
+                }
+                scan->xs_ctup.t_self = physical_tid;
+            }
 
             if (IndexScanNeedSwitchPartRel(scan)) {
                 /*

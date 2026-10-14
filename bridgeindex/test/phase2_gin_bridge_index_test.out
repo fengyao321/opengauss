@@ -1,0 +1,80 @@
+>>> [START] Ustore GIN Bridge Index Test Suite Running...
+SET
+>>> [TC-GIN-01] Testing CREATE TABLE (ustore) + GIN Array Index...
+DROP TABLE
+CREATE TABLE
+CREATE INDEX
+                       Table "public.t_gin_test"
+ Column |   Type    | Modifiers | Storage  | Stats target | Description 
+--------+-----------+-----------+----------+--------------+-------------
+ id     | integer   |           | plain    |              | 
+ doc    | text      |           | extended |              | 
+ tags   | integer[] |           | extended |              | 
+Indexes:
+    "idx_gin_tags" gin (tags) WITH (storage_type=ustore) TABLESPACE pg_default
+Has OIDs: no
+Options: orientation=row, storage_type=ustore, compression=no, toast.storage_type=ustore
+
+>>> [TC-GIN-02] Populating data and testing GIN Array Containment Scan (@>)...
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+SET
+SET
+                      QUERY PLAN                       
+-------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Bitmap Heap Scan on t_gin_test
+         Recheck Cond: (tags @> '{20}'::integer[])
+         ->  Bitmap Index Scan on idx_gin_tags
+               Index Cond: (tags @> '{20}'::integer[])
+(6 rows)
+
+ id | doc 
+----+-----
+(0 rows)
+
+>>> [TC-GIN-03] Testing GIN Array Overlap Search (&&)...
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Bitmap Heap Scan on t_gin_test
+         Recheck Cond: (tags && '{30,50}'::integer[])
+         ->  Bitmap Index Scan on idx_gin_tags
+               Index Cond: (tags && '{30,50}'::integer[])
+(6 rows)
+
+ id | doc 
+----+-----
+(0 rows)
+
+>>> [TC-GIN-04] Testing Non-Key UPDATE on Ustore with GIN Index...
+UPDATE 1
+ id | doc 
+----+-----
+(0 rows)
+
+>>> [TC-GIN-05] Testing Key UPDATE (tags modified) on Ustore...
+UPDATE 1
+ id | doc 
+----+-----
+(0 rows)
+
+ id | doc 
+----+-----
+(0 rows)
+
+>>> [TC-GIN-06] Testing DELETE on Ustore and verifying index filtering...
+DELETE 1
+ id | doc 
+----+-----
+(0 rows)
+
+DROP TABLE
+RESET
+RESET
+>>> [FINISH] Ustore GIN Bridge Index Test Suite Completed Successfully!
+total time: 156  ms

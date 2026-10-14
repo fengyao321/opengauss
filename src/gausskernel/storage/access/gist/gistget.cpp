@@ -20,6 +20,7 @@
 
 #include "access/gist_private.h"
 #include "access/relscan.h"
+#include "access/bridge.h"
 #include "catalog/pg_type.h"
 #include "miscadmin.h"
 #include "pgstat.h"
@@ -303,12 +304,25 @@ static void gistScanPage(IndexScanDesc scan, const GISTSearchItem *pageItem, con
             continue;
 
         if (tbm && GistPageIsLeaf(page)) {
+            ItemPointerData targetTid = it->t_tid;
+            if (scan->xs_is_bridge_scan) {
+                BridgeSeqNo seq = ItemPointerToBridgeSeq(&it->t_tid);
+                ItemPointerData physicalTid;
+                bool visible = BridgeLookupAndVerifyVisibilityCached(scan->xs_bridge_rel,
+                                                                     &scan->xs_bridge_cache,
+                                                                     seq,
+                                                                     scan->xs_snapshot,
+                                                                     &physicalTid);
+                if (!visible)
+                    continue;
+                targetTid = physicalTid;
+            }
             TBMHandler tbm_handler = tbm_get_handler(tbm);
             /*
              * getbitmap scan, so just push heap tuple TIDs into the bitmap
              * without worrying about ordering
              */
-            tbm_handler._add_tuples(tbm, &it->t_tid, 1, recheck, partHeapOid, InvalidBktId);
+            tbm_handler._add_tuples(tbm, &targetTid, 1, scan->xs_is_bridge_scan ? true : recheck, partHeapOid, InvalidBktId);
             (*ntids)++;
         } else if (scan->numberOfOrderBys == 0 && GistPageIsLeaf(page)) {
             /*
@@ -593,6 +607,10 @@ Datum gistgetbitmap(PG_FUNCTION_ARGS)
         gistScanPage(scan, item, so->curTreeItem->distances, tbm, &ntids);
 
         pfree(item);
+    }
+
+    if (scan->xs_is_bridge_scan) {
+        BridgeRouterResetCache(&scan->xs_bridge_cache);
     }
 
     PG_RETURN_INT64(ntids);

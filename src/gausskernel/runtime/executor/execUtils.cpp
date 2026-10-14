@@ -48,6 +48,7 @@
 #include "access/transam.h"
 #include "access/tableam.h"
 #include "catalog/index.h"
+#include "access/bridge.h"
 #include "catalog/heap.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_partition_fn.h"
@@ -1377,6 +1378,10 @@ void ExecOpenIndices(ResultRelInfo* resultRelInfo, bool speculative, bool checkD
     resultRelInfo->ri_UnusableIndexRelationDescs = NULL;
     resultRelInfo->ri_UnusableIndexRelationInfo = NULL;
 
+    resultRelInfo->ri_BridgeRouterRel = NULL;
+    resultRelInfo->ri_BridgeLeafBuf = InvalidBuffer;
+    resultRelInfo->ri_BridgeLeafBlk = InvalidBlockNumber;
+
     /* fast path if no indexes */
     if (!RelationGetForm(resultRelation)->relhasindex)
         return;
@@ -1523,6 +1528,20 @@ void ExecCloseIndices(ResultRelInfo* resultRelInfo)
         ExecCloseUnsedIndices(resultRelInfo);
     }
 
+    /* Release cached Bridge Router relation descriptor and leaf buffer */
+    if (BufferIsValid(resultRelInfo->ri_BridgeLeafBuf)) {
+        if (resultRelInfo->ri_BridgeRouterRel != NULL) {
+            BridgeRouterFlushLeafCache(resultRelInfo->ri_BridgeRouterRel, resultRelInfo->ri_BridgeLeafBuf);
+        }
+        ReleaseBuffer(resultRelInfo->ri_BridgeLeafBuf);
+        resultRelInfo->ri_BridgeLeafBuf = InvalidBuffer;
+        resultRelInfo->ri_BridgeLeafBlk = InvalidBlockNumber;
+    }
+
+    if (resultRelInfo->ri_BridgeRouterRel != NULL) {
+        heap_close(resultRelInfo->ri_BridgeRouterRel, RowExclusiveLock);
+        resultRelInfo->ri_BridgeRouterRel = NULL;
+    }
 }
 
 /*
@@ -2169,6 +2188,9 @@ List* ExecInsertIndexTuples(TupleTableSlot* slot, ItemPointer tupleid, EState* e
     /*
      * for each index, form and insert the index tuple
      */
+    ItemPointerData sharedBridgeTid;
+    bool hasSharedBridgeTid = false;
+
     for (i = 0; i < totalIndices; i++) {
         Relation indexRelation = i < numIndices ? relationDescs[i] : unusedRelationDescs[i - numIndices];
         IndexInfo* indexInfo = NULL;
@@ -2284,12 +2306,34 @@ List* ExecInsertIndexTuples(TupleTableSlot* slot, ItemPointer tupleid, EState* e
         } else {
             checkUnique = UNIQUE_CHECK_PARTIAL;
         }
-        satisfiesConstraint = index_insert(actualindex, /* index relation */
-            values,                                     /* array of index Datums */
-            isnull,                                     /* null flags */
-            tupleid,                                    /* tid of heap tuple */
-            actualheap,                                 /* heap relation */
-            checkUnique);                               /* type of uniqueness check to do */
+        if (RelationIsBridgedIndex(actualindex)) {
+            ItemPointerData bridgeTid;
+            if (!hasSharedBridgeTid) {
+                if (resultRelInfo->ri_BridgeRouterRel == NULL) {
+                    resultRelInfo->ri_BridgeRouterRel = BridgeGetOrCreateRelation(actualheap, RowExclusiveLock);
+                }
+                BridgeInsertEntryFast(resultRelInfo->ri_BridgeRouterRel,
+                                      &resultRelInfo->ri_BridgeLeafBuf,
+                                      &resultRelInfo->ri_BridgeLeafBlk,
+                                      tupleid,
+                                      &sharedBridgeTid);
+                hasSharedBridgeTid = true;
+            }
+            bridgeTid = sharedBridgeTid;
+            satisfiesConstraint = index_insert(actualindex, /* index relation */
+                values,                                     /* array of index Datums */
+                isnull,                                     /* null flags */
+                &bridgeTid,                                 /* bridge tid */
+                actualheap,                                 /* heap relation */
+                checkUnique);                               /* type of uniqueness check to do */
+        } else {
+            satisfiesConstraint = index_insert(actualindex, /* index relation */
+                values,                                     /* array of index Datums */
+                isnull,                                     /* null flags */
+                tupleid,                                    /* tid of heap tuple */
+                actualheap,                                 /* heap relation */
+                checkUnique);                               /* type of uniqueness check to do */
+        }
 
         /*
          * If the index has an associated exclusion constraint, check that.

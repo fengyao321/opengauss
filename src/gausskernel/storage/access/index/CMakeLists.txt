@@ -1,5 +1,7 @@
 #This is the main CMAKE for build bin.
 AUX_SOURCE_DIRECTORY(${CMAKE_CURRENT_SOURCE_DIR} TGT_index_SRC)
+list(APPEND TGT_index_SRC ${CMAKE_CURRENT_SOURCE_DIR}/bridge_index.cpp)
+list(REMOVE_DUPLICATES TGT_index_SRC)
 
 set(TGT_index_INC 
     ${PROJECT_SRC_DIR}/gausskernel/cbb/communication

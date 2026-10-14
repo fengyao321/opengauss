@@ -6,7 +6,11 @@
 #           Return 1 means failed.
 # version:  2.0
 # date:     2020-08-08
-#######################################################################
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PATH="${ROOT_DIR}/bin_override:$PATH"
+export LD_LIBRARY_PATH="/usr/lib64:$LD_LIBRARY_PATH"
+export PERL5LIB="${ROOT_DIR}/src/common/backend/utils/mb/Unicode:$PERL5LIB"
+
 declare build_version_mode='release'
 declare build_binarylib_dir='None'
 declare wrap_binaries='NO'
